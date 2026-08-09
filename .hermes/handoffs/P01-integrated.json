@@ -1,0 +1,270 @@
+{
+  "plan": "P01",
+  "branch": "integration/v1-beta",
+  "candidate_branch": "ai/P01-governance-bootstrap-r3",
+  "candidate_integrated_base_sha": "b099546a35fe20b178d7a76f1bd2dec3105f7a0a",
+  "candidate_repair_base_sha": "b320d64f187796e326d78f352813c1341e696159",
+  "candidate_head_sha": "b0c746f760e4a983e6d3e8650ef310190564b1f6",
+  "candidate_handoff_path": "/root/AntiNAT/.worktrees/P01-r3/.hermes/handoffs/P01.json",
+  "candidate_handoff_sha256": "ff18cd20d62e7ad66039ab7d5aa6c192dd7f997f7f3617bc55e6c5c42e9674aa",
+  "integration_base_sha": "b099546a35fe20b178d7a76f1bd2dec3105f7a0a",
+  "integrated_sha": "5cfc6ec5331ce34fc7a713ead88ba141505b4086",
+  "candidate_tree_sha": "2ca8ef835890984e0d9cf3b4e02f12ef6d4c15b2",
+  "integrated_tree_sha": "2ca8ef835890984e0d9cf3b4e02f12ef6d4c15b2",
+  "candidate_commits": [
+    "b8803b86339dca4769cb4b59848d53170017106d",
+    "893a7fcda53dafb76c1b857a92cf035ccb5d733c",
+    "b8c2f6fae0e2ad701c5667f02ef98963cb591689",
+    "6cd3e7ff671089e75b9ed99eac92669897a41330",
+    "5361d006f080eb178c24859b0e249f792a50a225",
+    "946963106cb0531ddc091c82b90dbc596ca5886c",
+    "10e258ed86871221135d3dbc7922e6a2db1cc42f",
+    "51655f1a8b8468d3f32f1586ee208fd6b051419c",
+    "91f4c5a81af25afe937380119f046277d2c149b8",
+    "b320d64f187796e326d78f352813c1341e696159",
+    "b0c746f760e4a983e6d3e8650ef310190564b1f6"
+  ],
+  "integrated_commits": [
+    "1b13fcb28ec1d142863e0b78b87d21614c81919e",
+    "7cd0c196dffe6830df436214018676841c0fdd78",
+    "cceb03dbfe4b76eebe5af0e6c6b4b76db67339be",
+    "e1d22aa6a249c0802ea33619d54778d985874be9",
+    "0db07cc87119a06e9489f81554eb3f6ad40b1a91",
+    "803b927e4da2708b0b9770ecf3e9fbb20cd9760e",
+    "8cf84d90fbdd3a3f91b2bb85966b6b63a983087d",
+    "dda5a469f4a7775a4788826d0149891368c35291",
+    "74945d7801f8493f20c865a34c86d4e0c2271f71",
+    "895ac7022b91acbb9653abc3db8e98cffd9a09e5",
+    "5cfc6ec5331ce34fc7a713ead88ba141505b4086"
+  ],
+  "files_changed_count": 53,
+  "files_changed": [
+    ".github/workflows/ci.yml",
+    ".gitignore",
+    "LICENSE",
+    "Makefile",
+    "README.md",
+    "cmd/antinat-agent/main.go",
+    "cmd/antinat-controller/main.go",
+    "docs/adr/0001-clean-room-provenance.md",
+    "docs/adr/0002-evidence-backed-scope.md",
+    "docs/adr/0003-wan-probe-truth.md",
+    "docs/adr/0004-reproducible-bootstrap.md",
+    "docs/requirements-traceability.md",
+    "docs/support-matrix.md",
+    "docs/v1-scope-contract.md",
+    "go.mod",
+    "go.sum",
+    "internal/buildinfo/buildinfo.go",
+    "internal/buildinfo/buildinfo_test.go",
+    "internal/buildinfo/commands_test.go",
+    "scripts/verify-evidence-parity.py",
+    "scripts/verify-evidence.go",
+    "scripts/verify_evidence_test.go",
+    "scripts/verify_workflow_policy_test.go",
+    "test/evidence/fixtures/c0-controls-command.json",
+    "test/evidence/fixtures/c0-controls-evidence-path.json",
+    "test/evidence/fixtures/c0-controls-os.json",
+    "test/evidence/fixtures/duplicate-result.json",
+    "test/evidence/fixtures/invalid-calendar-date.json",
+    "test/evidence/fixtures/invalid-offset-hour.json",
+    "test/evidence/fixtures/invalid-offset-minute.json",
+    "test/evidence/fixtures/invalid-utf8.json",
+    "test/evidence/fixtures/invalid-year-zero.json",
+    "test/evidence/fixtures/lowercase-rfc3339.json",
+    "test/evidence/fixtures/missing-artifact-digest.json",
+    "test/evidence/fixtures/missing-command.json",
+    "test/evidence/fixtures/missing-commit-sha.json",
+    "test/evidence/fixtures/missing-os.json",
+    "test/evidence/fixtures/missing-result.json",
+    "test/evidence/fixtures/missing-timeout.json",
+    "test/evidence/fixtures/null-evidence-paths.json",
+    "test/evidence/fixtures/null-summary.json",
+    "test/evidence/fixtures/pass.json",
+    "test/evidence/fixtures/reversed-timestamps.json",
+    "test/evidence/fixtures/timeout-integral-float.json",
+    "test/evidence/fixtures/timeout-large-exponent.json",
+    "test/evidence/fixtures/trailing-newline-artifact-digest.json",
+    "test/evidence/fixtures/trailing-newline-commit-sha.json",
+    "test/evidence/fixtures/trailing-newline-plan.json",
+    "test/evidence/fixtures/whitespace-command.json",
+    "test/evidence/fixtures/whitespace-evidence-path.json",
+    "test/evidence/fixtures/whitespace-os.json",
+    "test/evidence/parity/cases.json",
+    "test/evidence/schema.json"
+  ],
+  "reviews": [
+    {
+      "task_id": "t_f0838002",
+      "type": "specification-r4",
+      "head_sha": "b0c746f760e4a983e6d3e8650ef310190564b1f6",
+      "verdict": "PASS",
+      "evidence": "/root/.hermes/kanban/boards/antinat/workspaces/t_f0838002/SPEC-R4-verdict.md"
+    },
+    {
+      "task_id": "t_91d785e4",
+      "type": "quality-security-r4-full-scope",
+      "head_sha": "b0c746f760e4a983e6d3e8650ef310190564b1f6",
+      "verdict": "PASS",
+      "evidence": "/root/.hermes/kanban/boards/antinat/workspaces/t_91d785e4/QUALITY-R4-verdict.md"
+    }
+  ],
+  "contracts_verified": [
+    {
+      "path": ".hermes/plans/v1-beta/00-master-orchestration.md",
+      "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4"
+    },
+    {
+      "path": ".hermes/plans/v1-beta/01-governance-bootstrap.md",
+      "sha256": "c492e7d463eafc27e81bee97a8908d073b4782b74436157590843fe5e3896b32"
+    },
+    {
+      "path": ".hermes/plans/2026-08-09_055007-antinat-v1-reviewed-execution-plan.md",
+      "sha256": "5fb4216ae41c4fb77a757596274b9f8e1df6f32a81c399971b82e60c07527226"
+    },
+    {
+      "path": ".hermes/handoffs/project-inputs.json",
+      "sha256": "343a6c28876da36f5a386939bc4a66565f51f3a37345a878b593e13e1f6e7123"
+    }
+  ],
+  "contracts_changed": [],
+  "tests": [
+    {
+      "phase": "pre-integration",
+      "command": "go test ./scripts -run <18-test focused P01 regex> -count=1 -v",
+      "exit_code": 0,
+      "summary": "Focused evidence, parity-edge, timestamp, fixture, and workflow-policy tests passed on the exact candidate head."
+    },
+    {
+      "phase": "pre-integration",
+      "command": "python3 scripts/verify-evidence-parity.py",
+      "exit_code": 0,
+      "summary": "All 21 committed schema/Go parity cases passed on the exact candidate head."
+    },
+    {
+      "phase": "pre-integration",
+      "command": "28-fixture canonical validator verdict loop",
+      "exit_code": 0,
+      "summary": "All 28 evidence fixtures produced their expected acceptance or rejection verdict."
+    },
+    {
+      "phase": "post-integration",
+      "command": "go test -count=1 ./...",
+      "exit_code": 0,
+      "summary": "All Go packages passed without cached results."
+    },
+    {
+      "phase": "post-integration",
+      "command": "go test -race -count=1 ./...",
+      "exit_code": 0,
+      "summary": "All Go packages passed under the race detector without cached results."
+    },
+    {
+      "phase": "post-integration",
+      "command": "go vet ./...",
+      "exit_code": 0,
+      "summary": "No vet findings."
+    },
+    {
+      "phase": "post-integration",
+      "command": "go mod verify",
+      "exit_code": 0,
+      "summary": "All modules verified."
+    },
+    {
+      "phase": "post-integration",
+      "command": "GOOS=windows GOARCH=amd64 go build ./cmd/...",
+      "exit_code": 0,
+      "summary": "Windows amd64 cross-build passed; this is not native Windows runtime evidence."
+    },
+    {
+      "phase": "post-integration",
+      "command": "python3 scripts/verify-evidence-parity.py && make verify-evidence-parity",
+      "exit_code": 0,
+      "summary": "Both direct and Makefile parity lanes passed 21/21 cases."
+    },
+    {
+      "phase": "post-integration",
+      "command": "make test && make check && make cross-build",
+      "exit_code": 0,
+      "summary": "Repository test, aggregate check, and cross-build targets passed."
+    },
+    {
+      "phase": "post-integration",
+      "command": "go run ./scripts/verify-evidence.go ./test/evidence/fixtures/pass.json",
+      "exit_code": 0,
+      "summary": "Valid evidence fixture was accepted."
+    },
+    {
+      "phase": "post-integration",
+      "command": "28-fixture canonical validator verdict loop",
+      "exit_code": 0,
+      "summary": "All 28 evidence fixtures produced their expected acceptance or rejection verdict."
+    },
+    {
+      "phase": "post-integration",
+      "command": "actionlint v1.7.7 .github/workflows/ci.yml",
+      "exit_code": 0,
+      "summary": "The CI workflow passed the pinned local actionlint module."
+    },
+    {
+      "phase": "post-integration",
+      "command": "make build VERSION=integration-p01 COMMIT=5cfc6ec DATE=2026-08-09T15:40:00Z; both version commands; make clean",
+      "exit_code": 0,
+      "summary": "Both binaries reported the injected integration metadata and cleanup removed bin/."
+    },
+    {
+      "phase": "post-integration",
+      "command": "git diff --check b099546a..HEAD; gofmt -l <changed Go files>; git status --porcelain",
+      "exit_code": 0,
+      "summary": "No whitespace/formatting errors and the integration worktree was clean before this handoff was written."
+    }
+  ],
+  "skipped_tests": [
+    {
+      "command": "govulncheck ./...",
+      "reason": "govulncheck is not installed on the orchestrator host."
+    },
+    {
+      "command": "go test ./test/e2e -count=1 -v",
+      "reason": "P01 does not create test/e2e; this cumulative lane is not yet applicable."
+    },
+    {
+      "command": "go test -tags=netns ./test/integration/... -count=1 -v",
+      "reason": "P01 does not create test/integration or network code; this cumulative lane is not yet applicable."
+    },
+    {
+      "command": "hosted GitHub Actions and native Windows execution",
+      "reason": "No remote push was authorized and native platform evidence is outside the P01 gate."
+    }
+  ],
+  "evidence": [
+    ".hermes/handoffs/P01-integrated.json",
+    "docs/requirements-traceability.md",
+    "docs/v1-scope-contract.md",
+    "docs/support-matrix.md",
+    "test/evidence/schema.json",
+    "test/evidence/parity/cases.json",
+    "test/evidence/fixtures/pass.json",
+    "scripts/verify-evidence.go",
+    "scripts/verify-evidence-parity.py",
+    "scripts/verify_evidence_test.go",
+    "scripts/verify_workflow_policy_test.go",
+    ".github/workflows/ci.yml"
+  ],
+  "capability_result": "SUPPORTED_WITH_LIMITS",
+  "known_limits": [
+    "P01 intentionally contains no network listeners, forwarding, traversal, database, UI, installer, or service composition.",
+    "No real WAN vantage, router, native Windows runtime, arm64 host, or performance-lab evidence was available or claimed.",
+    "The two binaries are bootstrap placeholders that only print status/version information and do not start services.",
+    "Hosted GitHub Actions was not executed because no remote push was authorized.",
+    "The evidence validator input and record field sizes remain unbounded; a maximum record-size contract is recommended for P04.",
+    "The parity harness requires Python jsonschema; timestamp-order validation uses its documented sidecar because Draft 2020-12 has no portable property-comparison keyword.",
+    "govulncheck was unavailable on the orchestrator host."
+  ],
+  "cleanup_done": true,
+  "conflicts": "none",
+  "deviation": "none",
+  "remote_push": false,
+  "release_performed": false
+}
