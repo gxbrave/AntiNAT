@@ -11,14 +11,16 @@
 
 - `START-GATE` (`t_49810ae1`) is an intentionally unassigned, non-executable root gate. The embedded Dispatcher may show it as `ready`, but it cannot spawn a Worker.
 - All 84 real development/review/integration cards depend directly or transitively on this gate and are intentionally `blocked`.
-- Never assign or complete START-GATE until the user separately and explicitly approves starting development.
+- START-GATE was completed only after the user separately and explicitly approved starting development; never reopen or repurpose it.
 - The first development card allowed to run after that approval is `P01-DEV`.
-- Never promote or dispatch `sub-agent-sol` and `sub-agent-luna` at the same time.
+- The `sub-agent-sol` / `sub-agent-luna` mutual exclusion applies only to `*-DEV` implementation cards. Never run a Sol DEV card and a Luna DEV card at the same time. Project-supervisor, specification review, quality/security review, specialist review, and integration activity are not part of that development mutex.
 - Before every promotion/dispatch, inspect running and ready cards and enforce `.hermes/orchestration/policy.json`.
+- The user has authorized normal Kanban progression without a new user command for every gate. Keep `auto_promote_children: false`: the persistent supervisor must validate each gate and explicitly unblock only eligible cards.
 
 ## Model and role policy
 
-- Every Hermes profile uses `agent.reasoning_effort: xhigh`.
+- Every development/review/integration Worker profile uses `agent.reasoning_effort: xhigh`.
+- The dedicated `sub-agent-sol-supervisor` is a clone of `sub-agent-sol` used only for project control. It uses `medium`, runs outside Kanban Worker concurrency, and must never implement production code, perform a review, approve a review, integrate, push, or release.
 - `sub-agent-sol` is T0 and may implement or inspect core logic.
 - `sub-agent-luna` and `sub-agent-deepseek` are T1 and must not implement core production logic.
 - `sub-agent-deepseek` is the default specification reviewer.

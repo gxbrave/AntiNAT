@@ -1,0 +1,23 @@
+[Unit]
+Description=AntiNAT persistent Hermes Kanban supervisor
+After=network-online.target hermes-gateway.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/AntiNAT
+ExecStart=/usr/bin/python3 /root/AntiNAT/.hermes/orchestration/antinat_supervisor.py
+Restart=always
+RestartSec=15
+TimeoutStopSec=45
+KillMode=mixed
+Environment=HOME=/root
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/root/AntiNAT /root/.hermes /run/lock
+
+[Install]
+WantedBy=multi-user.target

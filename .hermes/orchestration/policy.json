@@ -2,6 +2,16 @@
   "project": "AntiNAT",
   "board": "antinat",
   "reasoning_effort": "xhigh",
+  "supervisor": {
+    "profile": "sub-agent-sol-supervisor",
+    "source_profile": "sub-agent-sol",
+    "reasoning_effort": "medium",
+    "mode": "persistent-external-orchestrator",
+    "counts_toward_kanban_worker_concurrency": false,
+    "may_implement_review_integrate_push_or_release": false,
+    "continuous_promotion_authorized": true,
+    "log_path": "/root/.hermes/logs/antinat-supervisor.log"
+  },
   "concurrency": {
     "max_in_progress": 2,
     "max_in_progress_per_profile": 1,
@@ -10,12 +20,14 @@
         "name": "sol-luna-exclusive",
         "profiles": ["sub-agent-sol", "sub-agent-luna"],
         "enforcement": "orchestrator-dag-and-promotion-policy",
-        "rule": "Never promote or dispatch tasks assigned to sub-agent-sol and sub-agent-luna at the same time."
+        "scope": "development-cards-only",
+        "rule": "Never promote or dispatch DEV implementation tasks assigned to sub-agent-sol and sub-agent-luna at the same time. Project-supervisor and review/integration activity is outside this mutex."
       }
     ]
   },
   "profiles": {
     "orchestrator": "default",
+    "project_supervisor": "sub-agent-sol-supervisor",
     "core_implementer": "sub-agent-sol",
     "non_core_implementer": "sub-agent-luna",
     "spec_reviewer": "sub-agent-deepseek"
@@ -31,6 +43,8 @@
     "root_gate_unassigned": true,
     "all_real_cards_initially_blocked": true,
     "first_allowed_card": "P01-DEV",
-    "requires_explicit_user_approval": true
+    "requires_explicit_user_approval": true,
+    "approval_completed": true,
+    "continuous_kanban_progress_authorized": true
   }
 }
