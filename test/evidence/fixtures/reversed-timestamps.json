@@ -7,8 +7,6 @@
   "artifact_digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "os": "linux",
   "timeout": 600,
-  "started_at": "2026-08-09T09:00:00Z",
-  "finished_at": "2026-08-09T09:01:00Z",
-  "summary": "Example schema-valid record; not release evidence.",
-  "evidence_paths": ["test/evidence/fixtures/pass.json"]
+  "started_at": "2026-08-09T09:01:00Z",
+  "finished_at": "2026-08-09T09:00:00Z"
 }

@@ -42,8 +42,9 @@ built-in DDNS providers, kernel nft fast paths, and formal GA performance SLOs.
 
 A passing build, cross-build, fake server, local socket bind, STUN mapping, or
 public-IP lookup is not evidence for a broader capability. Each later plan must
-record the exact command, timeout, OS, artifact digest, result, and retained
-logs/state/pcap where applicable using `test/evidence/schema.json`.
+record the exact command, a positive integer `timeout` in seconds, non-empty
+`os`, artifact digest, result, and retained logs/state/pcap where applicable
+using `test/evidence/schema.json`.
 
 To change a frozen row, propose a new ADR or a reviewed contract revision with:
 

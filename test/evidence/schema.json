@@ -10,7 +10,9 @@
     "commit_sha",
     "command",
     "result",
-    "artifact_digest"
+    "artifact_digest",
+    "os",
+    "timeout"
   ],
   "properties": {
     "schema_version": {
@@ -35,6 +37,14 @@
     "artifact_digest": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "os": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timeout": {
+      "type": "integer",
+      "exclusiveMinimum": 0
     },
     "started_at": {
       "type": "string",
