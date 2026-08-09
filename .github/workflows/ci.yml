@@ -33,6 +33,8 @@ jobs:
         run: go test ./...
       - name: Vet
         run: go vet ./...
+      - name: Workflow policy
+        run: go test ./scripts -run TestWorkflowPolicy -count=1
       - name: Validate evidence fixture
         run: go run ./scripts/verify-evidence.go ./test/evidence/fixtures/pass.json
       - name: Upload evidence fixture

@@ -83,3 +83,34 @@ func TestWorkflowUsesSupportedUTCBuildDateSource(t *testing.T) {
 		}
 	}
 }
+func TestValidateAcceptsValidEvidenceFixture(t *testing.T) {
+	if err := validate(readEvidenceFixture(t, "pass.json")); err != nil {
+		t.Fatalf("validate() valid fixture error = %v", err)
+	}
+}
+
+func TestValidateRejectsMissingEvidenceFields(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		want string
+	}{
+		{name: "missing-commit-sha.json", want: "EVIDENCE_MISSING_FIELD: commit_sha"},
+		{name: "missing-command.json", want: "EVIDENCE_MISSING_FIELD: command"},
+		{name: "missing-result.json", want: "EVIDENCE_MISSING_FIELD: result"},
+		{name: "missing-artifact-digest.json", want: "EVIDENCE_MISSING_FIELD: artifact_digest"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := validate(readEvidenceFixture(t, test.name))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("validate() error = %v, want %s", err, test.want)
+			}
+		})
+	}
+}
+
+func TestValidateRejectsInvalidUTF8Evidence(t *testing.T) {
+	err := validate(readEvidenceFixture(t, "invalid-utf8.json"))
+	if err == nil || !strings.Contains(err.Error(), "EVIDENCE_INVALID_JSON") {
+		t.Fatalf("validate() error = %v, want EVIDENCE_INVALID_JSON", err)
+	}
+}

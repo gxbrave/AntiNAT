@@ -1,0 +1,9 @@
+{
+  "schema_version": "antinat.evidence/v1",
+  "plan": "P01",
+  "commit_sha": "b50e4b4967072a26ff57a074ea79d30b8e364e13",
+  "command": "go test ./...",
+  "artifact_digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "os": "linux",
+  "timeout": 600
+}

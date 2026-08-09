@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const schemaVersion = "antinat.evidence/v1"
@@ -172,6 +173,9 @@ func requiredPositiveInteger(object map[string]json.RawMessage, name string) (in
 }
 
 func validate(data []byte) error {
+	if !utf8.Valid(data) {
+		return validationError("EVIDENCE_INVALID_JSON", "input must be valid UTF-8")
+	}
 	object, err := decodeObject(data)
 	if err != nil {
 		return err
