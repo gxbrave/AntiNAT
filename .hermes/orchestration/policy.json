@@ -1,0 +1,34 @@
+{
+  "project": "AntiNAT",
+  "board": "antinat",
+  "reasoning_effort": "xhigh",
+  "concurrency": {
+    "max_in_progress": 2,
+    "max_in_progress_per_profile": 1,
+    "mutual_exclusion_groups": [
+      {
+        "name": "sol-luna-exclusive",
+        "profiles": ["sub-agent-sol", "sub-agent-luna"],
+        "enforcement": "orchestrator-dag-and-promotion-policy",
+        "rule": "Never promote or dispatch tasks assigned to sub-agent-sol and sub-agent-luna at the same time."
+      }
+    ]
+  },
+  "profiles": {
+    "orchestrator": "default",
+    "core_implementer": "sub-agent-sol",
+    "non_core_implementer": "sub-agent-luna",
+    "spec_reviewer": "sub-agent-deepseek"
+  },
+  "repositories": {
+    "primary": "https://github.com/gxbrave/AntiNAT.git",
+    "agent_delivery": "https://github.com/gxbrave/AntiNAT-Agent.git",
+    "push_during_bootstrap": false,
+    "agent_repo_policy": "Do not mirror the full monorepo automatically. Publish the Agent-owned deliverable to AntiNAT-Agent only after an integration-approved split/export procedure is defined."
+  },
+  "startup_gate": {
+    "all_cards_initially_blocked": true,
+    "first_allowed_card": "P01-DEV",
+    "requires_explicit_user_approval": true
+  }
+}

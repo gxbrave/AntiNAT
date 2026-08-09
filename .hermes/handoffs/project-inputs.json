@@ -1,0 +1,11 @@
+{
+  "module_path": "github.com/gxbrave/AntiNAT",
+  "repository_owner": "gxbrave",
+  "controller_endpoint_for_real_tests": "REQUIRED_BEFORE_P19",
+  "remote_probe_vantage": "REQUIRED_BEFORE_P10_REAL_WAN",
+  "windows_test_host": "OPTIONAL_UNTIL_P18",
+  "arm64_openrc_hosts": "OPTIONAL_UNTIL_P18",
+  "router_inventory": [],
+  "release_approver": "REQUIRED_BEFORE_P19",
+  "docker_scope": "beta-or-experimental"
+}
