@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,24 @@ func readEvidenceFixture(t *testing.T, name string) []byte {
 	return data
 }
 
+func evidenceWithStringField(t *testing.T, name, value string) []byte {
+	t.Helper()
+	var object map[string]any
+	if err := json.Unmarshal(readEvidenceFixture(t, "pass.json"), &object); err != nil {
+		t.Fatalf("decode baseline fixture: %v", err)
+	}
+	if name == "evidence_paths" {
+		object[name] = []string{value}
+	} else {
+		object[name] = value
+	}
+	data, err := json.Marshal(object)
+	if err != nil {
+		t.Fatalf("encode modified fixture: %v", err)
+	}
+	return data
+}
+
 func TestValidateRejectsDuplicateObjectMemberNames(t *testing.T) {
 	err := validate(readEvidenceFixture(t, "duplicate-result.json"))
 	if err == nil || !strings.Contains(err.Error(), "EVIDENCE_DUPLICATE_FIELD") {
@@ -27,6 +46,13 @@ func TestValidateRejectsFinishedAtBeforeStartedAt(t *testing.T) {
 	err := validate(readEvidenceFixture(t, "reversed-timestamps.json"))
 	if err == nil || !strings.Contains(err.Error(), "EVIDENCE_INVALID_TIMESTAMP_ORDER") {
 		t.Fatalf("validate() error = %v, want EVIDENCE_INVALID_TIMESTAMP_ORDER", err)
+	}
+}
+
+func TestValidateRejectsYearZeroTimestamp(t *testing.T) {
+	err := validate(readEvidenceFixture(t, "invalid-year-zero.json"))
+	if err == nil || !strings.Contains(err.Error(), "EVIDENCE_INVALID_TIMESTAMP") {
+		t.Fatalf("validate() error = %v, want EVIDENCE_INVALID_TIMESTAMP", err)
 	}
 }
 
@@ -180,5 +206,36 @@ func TestValidateRejectsOutOfRangeRFC3339Offsets(t *testing.T) {
 				t.Fatalf("validate() error = %v, want EVIDENCE_INVALID_TIMESTAMP", err)
 			}
 		})
+	}
+}
+
+func TestValidateRejectsTrailingNewlineInIdentifierFields(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		want string
+	}{
+		{name: "trailing-newline-plan.json", want: "EVIDENCE_INVALID_PLAN"},
+		{name: "trailing-newline-commit-sha.json", want: "EVIDENCE_INVALID_SHA"},
+		{name: "trailing-newline-artifact-digest.json", want: "EVIDENCE_INVALID_DIGEST"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := validate(readEvidenceFixture(t, test.name))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("validate() error = %v, want %s", err, test.want)
+			}
+		})
+	}
+}
+
+func TestValidateRejectsC0ControlsAsWhitespaceOnlyEvidenceValues(t *testing.T) {
+	for _, code := range []rune{'\x1c', '\x1d', '\x1e', '\x1f'} {
+		for _, field := range []string{"command", "os", "evidence_paths"} {
+			t.Run(field+"/"+string(code), func(t *testing.T) {
+				err := validate(evidenceWithStringField(t, field, string(code)))
+				if err == nil || !strings.Contains(err.Error(), "EVIDENCE_EMPTY_FIELD") {
+					t.Fatalf("validate() error = %v, want EVIDENCE_EMPTY_FIELD", err)
+				}
+			})
+		}
 	}
 }

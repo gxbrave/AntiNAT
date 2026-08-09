@@ -48,13 +48,17 @@ using `test/evidence/schema.json`.
 
 Evidence `timeout` is a positive JSON number whose mathematical value is an
 integer; integral spellings such as `600`, `600.0`, and `6e2` are equivalent
-and valid, while fractional values are invalid. RFC3339 timestamps must be
-calendar-valid and accept the standards-permitted lowercase `t`/`z` markers,
-but their numeric offset must
-have an hour from `00` through `23` and a minute from `00` through `59`.
+and valid, while fractional values are invalid. `plan` is exactly three
+characters (`PNN`), `commit_sha` is exactly 40 lowercase hexadecimal
+characters, and `artifact_digest` is exactly `sha256:` plus 64 lowercase
+hexadecimal characters; trailing line terminators are invalid. RFC3339
+timestamps must be calendar-valid with a non-zero four-digit year and accept
+the standards-permitted lowercase `t`/`z` markers, but their numeric offset
+must have an hour from `00` through `23` and a minute from `00` through `59`.
 Required `command` and `os` values, and every `evidence_paths` entry, must
-contain at least one non-whitespace character. The canonical Go validator and
-the schema parity harness enforce these same rules.
+contain at least one non-whitespace character; the C0 separators U+001C
+through U+001F are treated as whitespace. The canonical Go validator and the
+schema parity harness enforce these same rules.
 
 To change a frozen row, propose a new ADR or a reviewed contract revision with:
 

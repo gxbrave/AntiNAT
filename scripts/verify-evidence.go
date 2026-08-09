@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -36,6 +37,17 @@ var (
 
 func validationError(code, message string) error {
 	return fmt.Errorf("%s: %s", code, message)
+}
+
+// evidenceWhitespace matches the schema harness's whitespace rule. Python's
+// regular-expression \S class treats the C0 separators U+001C through U+001F
+// as whitespace, while unicode.IsSpace does not include them.
+func evidenceWhitespace(r rune) bool {
+	return unicode.IsSpace(r) || (r >= '\u001c' && r <= '\u001f')
+}
+
+func evidenceBlank(value string) bool {
+	return strings.TrimFunc(value, evidenceWhitespace) == ""
 }
 
 func walkJSONValue(decoder *json.Decoder) error {
@@ -134,7 +146,7 @@ func requiredString(object map[string]json.RawMessage, name string) (string, err
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return "", validationError("EVIDENCE_INVALID_TYPE", name+" must be a string")
 	}
-	if strings.TrimSpace(value) == "" {
+	if evidenceBlank(value) {
 		return "", validationError("EVIDENCE_EMPTY_FIELD", name)
 	}
 	return value, nil
@@ -338,6 +350,9 @@ func validate(data []byte) error {
 		if !rfc3339Pattern.MatchString(value) {
 			return validationError("EVIDENCE_INVALID_TIMESTAMP", name+" must be RFC3339")
 		}
+		if strings.HasPrefix(value, "0000-") {
+			return validationError("EVIDENCE_INVALID_TIMESTAMP", name+" must use a non-zero calendar year")
+		}
 		normalized := []byte(value)
 		normalized[10] = 'T'
 		if normalized[len(normalized)-1] == 'z' {
@@ -368,7 +383,7 @@ func validate(data []byte) error {
 			return validationError("EVIDENCE_INVALID_TYPE", "evidence_paths must be an array of strings")
 		}
 		for i, path := range paths {
-			if strings.TrimSpace(path) == "" {
+			if evidenceBlank(path) {
 				return validationError("EVIDENCE_EMPTY_FIELD", fmt.Sprintf("evidence_paths[%d]", i))
 			}
 		}
