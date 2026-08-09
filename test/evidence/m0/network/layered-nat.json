@@ -1,0 +1,19 @@
+{
+  "schema_version": "antinat.evidence/v1",
+  "plan": "P02",
+  "commit_sha": "6c7a223aa6950cd3c5ddeca23abf2c2626207a66",
+  "command": "go test -tags=netns ./spike/network -run '^TestLayeredNATWithRealUPnPDaemonAndUpstreamSTUN$' -count=1 -v",
+  "result": "NO_GO",
+  "artifact_digest": "sha256:2599af83de81cecd9b2af75fbab5592ff79e0f8f6499576d5ce24bebb7b0cbae",
+  "os": "linux/amd64 netns; miniupnpd 2.3.4; coturn 4.6.1",
+  "timeout": 90,
+  "started_at": "2026-08-09T16:32:30Z",
+  "finished_at": "2026-08-09T16:32:38Z",
+  "summary": "Real miniupnpd plus coturn in Agent-CPE-CGN-vantage namespaces observed distinct first-hop and upstream tuples; restrictive/symmetric CGN correctly blocked UPnP publication. Fallback: retain tested single explicit layer only and never verify FIRST_HOP_MAPPED.",
+  "evidence_paths": [
+    "test/evidence/m0/network/raw/layered-nat.log",
+    "test/evidence/m0/network/environment.json",
+    "spike/network/scripts/layered_nat_lab.sh",
+    "spike/network/layered_nat_netns_test.go"
+  ]
+}

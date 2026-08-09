@@ -1,0 +1,19 @@
+{
+  "schema_version": "antinat.evidence/v1",
+  "plan": "P02",
+  "commit_sha": "6c7a223aa6950cd3c5ddeca23abf2c2626207a66",
+  "command": "go test ./spike/network -run '^(TestHiddenChallenge|TestControlOnly)' -count=1 -v",
+  "result": "PASS",
+  "artifact_digest": "sha256:cccd07b8c951fc63c2d0684f94b07ff79adb746a8b9393bcb82865c81b62bd0d",
+  "os": "linux/amd64 native localhost transport fixture",
+  "timeout": 60,
+  "started_at": "2026-08-09T16:32:29Z",
+  "finished_at": "2026-08-09T16:32:30Z",
+  "summary": "Arm/armed, provider-hidden challenge, Ed25519 WAN frame, same-path TCP/UDP ACK, signed control receipt, replay/TTL/binding rejection, generic scanner result, and attempt budget assertions passed.",
+  "evidence_paths": [
+    "test/evidence/m0/network/raw/hidden-challenge.log",
+    "test/evidence/m0/network/environment.json",
+    "spike/network/hidden_probe.go",
+    "spike/network/hidden_probe_test.go"
+  ]
+}

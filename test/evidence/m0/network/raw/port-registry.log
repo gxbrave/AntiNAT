@@ -1,0 +1,22 @@
+=== RUN   TestPortRegistryAcquirePortZeroOwnsActualSocketAtomically
+--- PASS: TestPortRegistryAcquirePortZeroOwnsActualSocketAtomically (0.00s)
+=== RUN   TestPortRegistryStaleReleaseCannotCloseNewOwner
+--- PASS: TestPortRegistryStaleReleaseCannotCloseNewOwner (0.00s)
+=== RUN   TestPortRegistryRejectsWildcardSpecificOverlap
+=== RUN   TestPortRegistryRejectsWildcardSpecificOverlap/specific_then_wildcard
+=== RUN   TestPortRegistryRejectsWildcardSpecificOverlap/wildcard_then_specific
+--- PASS: TestPortRegistryRejectsWildcardSpecificOverlap (0.00s)
+    --- PASS: TestPortRegistryRejectsWildcardSpecificOverlap/specific_then_wildcard (0.00s)
+    --- PASS: TestPortRegistryRejectsWildcardSpecificOverlap/wildcard_then_specific (0.00s)
+=== RUN   TestBindProbeCloseAllowsCompetingProcessToStealTuple
+--- PASS: TestBindProbeCloseAllowsCompetingProcessToStealTuple (0.00s)
+=== RUN   TestProcessLockBlocksConcurrentInstallerProcess
+--- PASS: TestProcessLockBlocksConcurrentInstallerProcess (0.00s)
+=== RUN   TestPortRegistryConcurrentAcquireHasSingleOwner
+--- PASS: TestPortRegistryConcurrentAcquireHasSingleOwner (0.00s)
+=== RUN   TestSecondProcessCanJoinReuseGroupWithoutInstanceLock
+--- PASS: TestSecondProcessCanJoinReuseGroupWithoutInstanceLock (0.00s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/spike/network	0.007s
+
+exit_code=0

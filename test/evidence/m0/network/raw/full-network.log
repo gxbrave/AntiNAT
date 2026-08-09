@@ -1,0 +1,112 @@
+=== RUN   TestHiddenChallengeRequiresWANIngressBeforeAuthenticatedCompletion
+--- PASS: TestHiddenChallengeRequiresWANIngressBeforeAuthenticatedCompletion (0.00s)
+=== RUN   TestHiddenChallengeUsesOneGenericRejectionForInvalidIngress
+=== RUN   TestHiddenChallengeUsesOneGenericRejectionForInvalidIngress/wrong_source
+=== RUN   TestHiddenChallengeUsesOneGenericRejectionForInvalidIngress/wrong_activation
+=== RUN   TestHiddenChallengeUsesOneGenericRejectionForInvalidIngress/wrong_endpoint
+=== RUN   TestHiddenChallengeUsesOneGenericRejectionForInvalidIngress/wrong_opaque_expiry
+=== RUN   TestHiddenChallengeUsesOneGenericRejectionForInvalidIngress/bad_signature
+=== RUN   TestHiddenChallengeUsesOneGenericRejectionForInvalidIngress/expired_ttl
+--- PASS: TestHiddenChallengeUsesOneGenericRejectionForInvalidIngress (0.00s)
+    --- PASS: TestHiddenChallengeUsesOneGenericRejectionForInvalidIngress/wrong_source (0.00s)
+    --- PASS: TestHiddenChallengeUsesOneGenericRejectionForInvalidIngress/wrong_activation (0.00s)
+    --- PASS: TestHiddenChallengeUsesOneGenericRejectionForInvalidIngress/wrong_endpoint (0.00s)
+    --- PASS: TestHiddenChallengeUsesOneGenericRejectionForInvalidIngress/wrong_opaque_expiry (0.00s)
+    --- PASS: TestHiddenChallengeUsesOneGenericRejectionForInvalidIngress/bad_signature (0.00s)
+    --- PASS: TestHiddenChallengeUsesOneGenericRejectionForInvalidIngress/expired_ttl (0.00s)
+=== RUN   TestHiddenChallengeRejectsReplayAndBoundsScannerAttempts
+--- PASS: TestHiddenChallengeRejectsReplayAndBoundsScannerAttempts (0.00s)
+=== RUN   TestControlOnlyAgentCannotForgeUnknownProviderChallenge
+--- PASS: TestControlOnlyAgentCannotForgeUnknownProviderChallenge (0.00s)
+=== RUN   TestHiddenChallengeTCPACKReturnsOnIngressConnection
+--- PASS: TestHiddenChallengeTCPACKReturnsOnIngressConnection (0.00s)
+=== RUN   TestHiddenChallengeUDPACKReturnsFromPublishedTuple
+--- PASS: TestHiddenChallengeUDPACKReturnsFromPublishedTuple (0.00s)
+=== RUN   TestFirstHopMappingNeverPublishesVerifiedWithoutUpstreamVantage
+--- PASS: TestFirstHopMappingNeverPublishesVerifiedWithoutUpstreamVantage (0.00s)
+=== RUN   TestNATPMPDeleteRejectsInternalPortZero
+--- PASS: TestNATPMPDeleteRejectsInternalPortZero (0.00s)
+=== RUN   TestUPnPDeleteRequiresExactOwnedEntry
+--- PASS: TestUPnPDeleteRequiresExactOwnedEntry (0.00s)
+=== RUN   TestMappingOwnershipStrengthIsProtocolSpecific
+--- PASS: TestMappingOwnershipStrengthIsProtocolSpecific (0.00s)
+=== RUN   TestPortRegistryAcquirePortZeroOwnsActualSocketAtomically
+--- PASS: TestPortRegistryAcquirePortZeroOwnsActualSocketAtomically (0.00s)
+=== RUN   TestPortRegistryStaleReleaseCannotCloseNewOwner
+--- PASS: TestPortRegistryStaleReleaseCannotCloseNewOwner (0.00s)
+=== RUN   TestPortRegistryRejectsWildcardSpecificOverlap
+=== RUN   TestPortRegistryRejectsWildcardSpecificOverlap/specific_then_wildcard
+=== RUN   TestPortRegistryRejectsWildcardSpecificOverlap/wildcard_then_specific
+--- PASS: TestPortRegistryRejectsWildcardSpecificOverlap (0.00s)
+    --- PASS: TestPortRegistryRejectsWildcardSpecificOverlap/specific_then_wildcard (0.00s)
+    --- PASS: TestPortRegistryRejectsWildcardSpecificOverlap/wildcard_then_specific (0.00s)
+=== RUN   TestBindProbeCloseAllowsCompetingProcessToStealTuple
+--- PASS: TestBindProbeCloseAllowsCompetingProcessToStealTuple (0.00s)
+=== RUN   TestProcessLockBlocksConcurrentInstallerProcess
+--- PASS: TestProcessLockBlocksConcurrentInstallerProcess (0.00s)
+=== RUN   TestProcessLockHelper
+    port_registry_linux_test.go:141: subprocess helper
+--- SKIP: TestProcessLockHelper (0.00s)
+=== RUN   TestPortRegistryConcurrentAcquireHasSingleOwner
+--- PASS: TestPortRegistryConcurrentAcquireHasSingleOwner (0.00s)
+=== RUN   TestSecondProcessCanJoinReuseGroupWithoutInstanceLock
+--- PASS: TestSecondProcessCanJoinReuseGroupWithoutInstanceLock (0.00s)
+=== RUN   TestReuseGroupHelper
+    port_registry_linux_test.go:221: subprocess helper
+--- SKIP: TestReuseGroupHelper (0.00s)
+=== RUN   TestTCPBaselineWithoutPrebindReuseConflicts
+--- PASS: TestTCPBaselineWithoutPrebindReuseConflicts (0.00s)
+=== RUN   TestTCPSharedPortRoutesListenerAndConnectedSocketsByFourTuple
+--- PASS: TestTCPSharedPortRoutesListenerAndConnectedSocketsByFourTuple (0.00s)
+=== RUN   TestTCPSharedPortCloseAllowsExactTupleRebind
+--- PASS: TestTCPSharedPortCloseAllowsExactTupleRebind (0.00s)
+=== RUN   TestTCPSharedPortPreservesWriteHalfAfterRemoteCloseWrite
+--- PASS: TestTCPSharedPortPreservesWriteHalfAfterRemoteCloseWrite (0.00s)
+=== RUN   TestUDPDemuxConsumesSTUNOnlyForFullOutstandingMatch
+=== RUN   TestUDPDemuxConsumesSTUNOnlyForFullOutstandingMatch/exact
+=== RUN   TestUDPDemuxConsumesSTUNOnlyForFullOutstandingMatch/wrong_source
+=== RUN   TestUDPDemuxConsumesSTUNOnlyForFullOutstandingMatch/wrong_transaction
+=== RUN   TestUDPDemuxConsumesSTUNOnlyForFullOutstandingMatch/wrong_class
+=== RUN   TestUDPDemuxConsumesSTUNOnlyForFullOutstandingMatch/expired
+=== RUN   TestUDPDemuxConsumesSTUNOnlyForFullOutstandingMatch/lookalike
+--- PASS: TestUDPDemuxConsumesSTUNOnlyForFullOutstandingMatch (0.00s)
+    --- PASS: TestUDPDemuxConsumesSTUNOnlyForFullOutstandingMatch/exact (0.00s)
+    --- PASS: TestUDPDemuxConsumesSTUNOnlyForFullOutstandingMatch/wrong_source (0.00s)
+    --- PASS: TestUDPDemuxConsumesSTUNOnlyForFullOutstandingMatch/wrong_transaction (0.00s)
+    --- PASS: TestUDPDemuxConsumesSTUNOnlyForFullOutstandingMatch/wrong_class (0.00s)
+    --- PASS: TestUDPDemuxConsumesSTUNOnlyForFullOutstandingMatch/expired (0.00s)
+    --- PASS: TestUDPDemuxConsumesSTUNOnlyForFullOutstandingMatch/lookalike (0.00s)
+=== RUN   TestUDPDemuxConsumesProbeOnlyForAuthenticatedOutstandingMatch
+=== RUN   TestUDPDemuxConsumesProbeOnlyForAuthenticatedOutstandingMatch/exact
+=== RUN   TestUDPDemuxConsumesProbeOnlyForAuthenticatedOutstandingMatch/wrong_source
+=== RUN   TestUDPDemuxConsumesProbeOnlyForAuthenticatedOutstandingMatch/wrong_probe
+=== RUN   TestUDPDemuxConsumesProbeOnlyForAuthenticatedOutstandingMatch/wrong_activation
+=== RUN   TestUDPDemuxConsumesProbeOnlyForAuthenticatedOutstandingMatch/wrong_endpoint
+=== RUN   TestUDPDemuxConsumesProbeOnlyForAuthenticatedOutstandingMatch/wrong_challenge
+=== RUN   TestUDPDemuxConsumesProbeOnlyForAuthenticatedOutstandingMatch/bad_signature
+=== RUN   TestUDPDemuxConsumesProbeOnlyForAuthenticatedOutstandingMatch/expired
+--- PASS: TestUDPDemuxConsumesProbeOnlyForAuthenticatedOutstandingMatch (0.00s)
+    --- PASS: TestUDPDemuxConsumesProbeOnlyForAuthenticatedOutstandingMatch/exact (0.00s)
+    --- PASS: TestUDPDemuxConsumesProbeOnlyForAuthenticatedOutstandingMatch/wrong_source (0.00s)
+    --- PASS: TestUDPDemuxConsumesProbeOnlyForAuthenticatedOutstandingMatch/wrong_probe (0.00s)
+    --- PASS: TestUDPDemuxConsumesProbeOnlyForAuthenticatedOutstandingMatch/wrong_activation (0.00s)
+    --- PASS: TestUDPDemuxConsumesProbeOnlyForAuthenticatedOutstandingMatch/wrong_endpoint (0.00s)
+    --- PASS: TestUDPDemuxConsumesProbeOnlyForAuthenticatedOutstandingMatch/wrong_challenge (0.00s)
+    --- PASS: TestUDPDemuxConsumesProbeOnlyForAuthenticatedOutstandingMatch/bad_signature (0.00s)
+    --- PASS: TestUDPDemuxConsumesProbeOnlyForAuthenticatedOutstandingMatch/expired (0.00s)
+=== RUN   TestUDPDemuxRejectsProbeReplayAfterOutstandingMatchIsConsumed
+--- PASS: TestUDPDemuxRejectsProbeReplayAfterOutstandingMatchIsConsumed (0.00s)
+=== RUN   TestUDPDemuxBoundsNewDataSessions
+--- PASS: TestUDPDemuxBoundsNewDataSessions (0.00s)
+=== RUN   TestSingleUDPSocketForwardsTargetResponseFromPublishedTuple
+--- PASS: TestSingleUDPSocketForwardsTargetResponseFromPublishedTuple (0.00s)
+=== RUN   TestSingleUDPSocketDropsTruncatedDatagramAndContinues
+--- PASS: TestSingleUDPSocketDropsTruncatedDatagramAndContinues (0.00s)
+=== RUN   TestSingleUDPSocketContinuesAfterCorrelatedICMPPortUnreachable
+--- PASS: TestSingleUDPSocketContinuesAfterCorrelatedICMPPortUnreachable (0.02s)
+=== RUN   TestSingleUDPSocketDemuxesSTUNProbeAndData
+--- PASS: TestSingleUDPSocketDemuxesSTUNProbeAndData (0.00s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/spike/network	0.035s
+
+exit_code=0

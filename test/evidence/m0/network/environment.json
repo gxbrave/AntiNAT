@@ -1,0 +1,18 @@
+{
+  "plan": "P02",
+  "commit_sha": "6c7a223aa6950cd3c5ddeca23abf2c2626207a66",
+  "owner": "sub-agent-sol",
+  "approver": "PENDING_INDEPENDENT_REVIEW",
+  "os": "Linux-6.8.0-136-generic-x86_64-with-glibc2.39",
+  "kernel": "6.8.0-136-generic",
+  "arch": "x86_64",
+  "go": "go version go1.26.5 linux/amd64",
+  "miniupnpd": "miniupnpd 2.3.4 Jan 10 2024\nusing netfilter(nftables) backend\nbuild options: ipv6 NAT-PMP PCP PCP-PEER leasefile check_portinuse igdv2",
+  "coturn": "4.6.1",
+  "packages": "coturn=4.6.1-1build4\nminiupnpc=2.2.6-1build2\nminiupnpd=2.3.4-1\nminiupnpd-nftables=2.3.4-1",
+  "router_inventory": [],
+  "native_windows_host": null,
+  "remote_wan_vantage": null,
+  "lab_topology": "four Linux network namespaces: Agent -> CPE miniupnpd -> restrictive CGN -> coturn STUN vantage",
+  "cleanup_contract": "all namespaces and daemon processes are removed by an EXIT/INT/TERM trap"
+}

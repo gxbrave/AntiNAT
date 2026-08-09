@@ -1,0 +1,14 @@
+=== RUN   TestLayeredNATWithRealUPnPDaemonAndUpstreamSTUN
+    layered_nat_netns_test.go:34: layered NAT lab assertions:
+        TOPOLOGY=CPE_TO_CGN
+        UPNP_DAEMON=miniupnpd
+        UPNP_MAPPING=BLOCKED_RESTRICTIVE_CGN
+        UPSTREAM_STUN=coturn
+        FIRST_HOP=100.64.0.2
+        STUN_OBSERVED=11.0.0.2:34256
+        LAYERED_ENDPOINTS_DIFFER=PASS
+--- PASS: TestLayeredNATWithRealUPnPDaemonAndUpstreamSTUN (8.45s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/spike/network	8.453s
+
+exit_code=0

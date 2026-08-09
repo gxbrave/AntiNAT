@@ -1,0 +1,20 @@
+{
+  "schema_version": "antinat.evidence/v1",
+  "plan": "P02",
+  "commit_sha": "6c7a223aa6950cd3c5ddeca23abf2c2626207a66",
+  "command": "go test ./spike/network -run '^(TestUDPDemux|TestSingleUDPSocket)' -count=1 -v",
+  "result": "SUPPORTED_WITH_LIMITS",
+  "artifact_digest": "sha256:3358db2c82df7e9ffc05ed0e9d2af302083394bffbccddcdc44ea7e27521fcbd",
+  "os": "linux/amd64 native",
+  "timeout": 60,
+  "started_at": "2026-08-09T16:32:29Z",
+  "finished_at": "2026-08-09T16:32:29Z",
+  "summary": "Linux one-socket STUN/probe/data demux, bounded sessions, exact-source target reply, replay rejection, truncation survival, and post-ICMP receive assertions passed; native Windows SIO_UDP_CONNRESET gate is pending.",
+  "evidence_paths": [
+    "test/evidence/m0/network/raw/udp-linux.log",
+    "test/evidence/m0/network/environment.json",
+    "spike/network/udp_demux.go",
+    "spike/network/udp_socket_linux.go",
+    "spike/network/udp_socket_windows_test.go"
+  ]
+}

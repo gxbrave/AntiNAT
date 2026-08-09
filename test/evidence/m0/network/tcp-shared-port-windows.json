@@ -1,0 +1,19 @@
+{
+  "schema_version": "antinat.evidence/v1",
+  "plan": "P02",
+  "commit_sha": "6c7a223aa6950cd3c5ddeca23abf2c2626207a66",
+  "command": "GOOS=windows GOARCH=amd64 go test -c -o <temporary>/network.test.exe ./spike/network",
+  "result": "SUPPORTED_WITH_LIMITS",
+  "artifact_digest": "sha256:52fe042f176c8fc24802fd688392a036824cea5de1aa9998600f104c2aa55d36",
+  "os": "windows/amd64 cross-build on linux/amd64; native runtime unavailable",
+  "timeout": 120,
+  "started_at": "2026-08-09T16:32:28Z",
+  "finished_at": "2026-08-09T16:32:29Z",
+  "summary": "Windows baseline and UDP native gates cross-compile, but no native Winsock execution exists; disable stun-tcp-shared-port and Windows UDP promotion until native evidence passes.",
+  "evidence_paths": [
+    "test/evidence/m0/network/raw/tcp-windows-cross-build.log",
+    "test/evidence/m0/network/environment.json",
+    "spike/network/tcp_shared_windows_test.go",
+    "spike/network/udp_socket_windows_test.go"
+  ]
+}

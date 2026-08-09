@@ -1,0 +1,12 @@
+=== RUN   TestTCPBaselineWithoutPrebindReuseConflicts
+--- PASS: TestTCPBaselineWithoutPrebindReuseConflicts (0.00s)
+=== RUN   TestTCPSharedPortRoutesListenerAndConnectedSocketsByFourTuple
+--- PASS: TestTCPSharedPortRoutesListenerAndConnectedSocketsByFourTuple (0.00s)
+=== RUN   TestTCPSharedPortCloseAllowsExactTupleRebind
+--- PASS: TestTCPSharedPortCloseAllowsExactTupleRebind (0.00s)
+=== RUN   TestTCPSharedPortPreservesWriteHalfAfterRemoteCloseWrite
+--- PASS: TestTCPSharedPortPreservesWriteHalfAfterRemoteCloseWrite (0.00s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/spike/network	0.003s
+
+exit_code=0
