@@ -31,6 +31,7 @@ func TestLayeredNATWithRealUPnPDaemonAndUpstreamSTUN(t *testing.T) {
 		t.Fatalf("layered NAT lab: %v\n%s", err, output)
 	}
 	text := string(output)
+	t.Logf("layered NAT lab assertions:\n%s", text)
 	for _, assertion := range []string{
 		"TOPOLOGY=CPE_TO_CGN",
 		"UPNP_DAEMON=miniupnpd",
