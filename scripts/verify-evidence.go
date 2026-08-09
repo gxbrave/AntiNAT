@@ -25,6 +25,7 @@ var (
 	planPattern    = regexp.MustCompile(`^P[0-9]{2}$`)
 	commitPattern  = regexp.MustCompile(`^[0-9a-f]{40}$`)
 	digestPattern  = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	rfc3339Pattern = regexp.MustCompile(`^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])[Tt]([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]+)?([Zz]|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$`)
 	allowedResults = map[string]bool{
 		"PASS":                  true,
 		"SUPPORTED_WITH_LIMITS": true,
@@ -157,19 +158,91 @@ func optionalString(object map[string]json.RawMessage, name string) error {
 	return nil
 }
 
-func requiredPositiveInteger(object map[string]json.RawMessage, name string) (int64, error) {
+// positiveIntegralJSONNumber matches JSON Schema's integer semantics: a JSON
+// number is valid when its mathematical value is a positive integer, even if
+// its spelling uses a fractional zero suffix or an exponent.
+func positiveIntegralJSONNumber(value string) bool {
+	if value == "" || value[0] == '-' {
+		return false
+	}
+
+	mantissa, exponent, hasExponent := value, "0", false
+	if index := strings.IndexAny(value, "eE"); index >= 0 {
+		mantissa, exponent, hasExponent = value[:index], value[index+1:], true
+	}
+	integerPart, fractionalPart := mantissa, ""
+	if index := strings.IndexByte(mantissa, '.'); index >= 0 {
+		integerPart, fractionalPart = mantissa[:index], mantissa[index+1:]
+	}
+	digits := integerPart + fractionalPart
+	if digits == "" || strings.Trim(digits, "0") == "" {
+		return false
+	}
+
+	exponentValue := 0
+	negativeExponent := false
+	if hasExponent {
+		if exponent == "" {
+			return false
+		}
+		if exponent[0] == '-' {
+			negativeExponent = true
+			exponent = exponent[1:]
+		} else if exponent[0] == '+' {
+			exponent = exponent[1:]
+		}
+		if exponent == "" {
+			return false
+		}
+		for _, digit := range exponent {
+			if digit < '0' || digit > '9' {
+				return false
+			}
+			if exponentValue > len(digits)+len(fractionalPart) {
+				exponentValue = len(digits) + len(fractionalPart)
+				continue
+			}
+			exponentValue = exponentValue*10 + int(digit-'0')
+			if exponentValue > len(digits)+len(fractionalPart) {
+				exponentValue = len(digits) + len(fractionalPart)
+			}
+		}
+	}
+
+	decimalPlaces := len(fractionalPart)
+	if negativeExponent {
+		decimalPlaces += exponentValue
+	} else {
+		decimalPlaces -= exponentValue
+	}
+	if decimalPlaces <= 0 {
+		return true
+	}
+	if decimalPlaces > len(digits) {
+		return false
+	}
+	return strings.HasSuffix(digits, strings.Repeat("0", decimalPlaces))
+}
+
+func requiredPositiveInteger(object map[string]json.RawMessage, name string) (json.Number, error) {
 	raw, ok := object[name]
 	if !ok {
-		return 0, validationError("EVIDENCE_MISSING_FIELD", name)
+		return "", validationError("EVIDENCE_MISSING_FIELD", name)
 	}
-	var value int64
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return 0, validationError("EVIDENCE_INVALID_TYPE", name+" must be a positive integer")
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return "", validationError("EVIDENCE_INVALID_TYPE", name+" must be a positive integer")
 	}
-	if value <= 0 {
-		return 0, validationError("EVIDENCE_INVALID_VALUE", name+" must be greater than zero")
+	number, ok := value.(json.Number)
+	if !ok || !positiveIntegralJSONNumber(number.String()) {
+		if ok {
+			return "", validationError("EVIDENCE_INVALID_VALUE", name+" must be greater than zero")
+		}
+		return "", validationError("EVIDENCE_INVALID_TYPE", name+" must be a positive integer")
 	}
-	return value, nil
+	return number, nil
 }
 
 func validate(data []byte) error {
@@ -261,7 +334,15 @@ func validate(data []byte) error {
 		if err != nil {
 			return err
 		}
-		parsed, err := time.Parse(time.RFC3339, value)
+		if !rfc3339Pattern.MatchString(value) {
+			return validationError("EVIDENCE_INVALID_TIMESTAMP", name+" must be RFC3339")
+		}
+		normalized := []byte(value)
+		normalized[10] = 'T'
+		if normalized[len(normalized)-1] == 'z' {
+			normalized[len(normalized)-1] = 'Z'
+		}
+		parsed, err := time.Parse(time.RFC3339, string(normalized))
 		if err != nil {
 			return validationError("EVIDENCE_INVALID_TIMESTAMP", name+" must be RFC3339")
 		}

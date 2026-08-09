@@ -6,7 +6,7 @@ COMMIT ?= unknown
 DATE ?= unknown
 LDFLAGS := -X $(MODULE)/internal/buildinfo.Version=$(VERSION) -X $(MODULE)/internal/buildinfo.Commit=$(COMMIT) -X $(MODULE)/internal/buildinfo.Date=$(DATE)
 
-.PHONY: all test vet build cross-build verify-evidence check clean
+.PHONY: all test vet build cross-build verify-evidence verify-evidence-parity check clean
 
 all: check build
 
@@ -26,6 +26,9 @@ cross-build:
 
 verify-evidence:
 	go run ./scripts/verify-evidence.go ./test/evidence/fixtures/pass.json
+
+verify-evidence-parity:
+	python3 scripts/verify-evidence-parity.py
 
 check: test vet
 

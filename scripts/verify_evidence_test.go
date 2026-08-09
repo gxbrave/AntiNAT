@@ -114,3 +114,65 @@ func TestValidateRejectsInvalidUTF8Evidence(t *testing.T) {
 		t.Fatalf("validate() error = %v, want EVIDENCE_INVALID_JSON", err)
 	}
 }
+
+func TestValidateAcceptsIntegralJSONNumberTimeout(t *testing.T) {
+	if err := validate(readEvidenceFixture(t, "timeout-integral-float.json")); err != nil {
+		t.Fatalf("validate() integral JSON number error = %v", err)
+	}
+}
+
+func TestPositiveIntegralJSONNumberMatchesDocumentedRule(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		valid bool
+	}{
+		{value: "600", valid: true},
+		{value: "600.0", valid: true},
+		{value: "6e2", valid: true},
+		{value: "1000e-2", valid: true},
+		{value: "1.5", valid: false},
+		{value: "0", valid: false},
+		{value: "-1", valid: false},
+	} {
+		t.Run(test.value, func(t *testing.T) {
+			if got := positiveIntegralJSONNumber(test.value); got != test.valid {
+				t.Fatalf("positiveIntegralJSONNumber(%q) = %v, want %v", test.value, got, test.valid)
+			}
+		})
+	}
+}
+
+func TestValidateAcceptsLowercaseRFC3339Markers(t *testing.T) {
+	if err := validate(readEvidenceFixture(t, "lowercase-rfc3339.json")); err != nil {
+		t.Fatalf("validate() lowercase RFC3339 error = %v", err)
+	}
+}
+
+func TestValidateRejectsWhitespaceOnlyEvidenceValues(t *testing.T) {
+	for _, name := range []string{
+		"whitespace-command.json",
+		"whitespace-os.json",
+		"whitespace-evidence-path.json",
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := validate(readEvidenceFixture(t, name))
+			if err == nil || !strings.Contains(err.Error(), "EVIDENCE_EMPTY_FIELD") {
+				t.Fatalf("validate() error = %v, want EVIDENCE_EMPTY_FIELD", err)
+			}
+		})
+	}
+}
+
+func TestValidateRejectsOutOfRangeRFC3339Offsets(t *testing.T) {
+	for _, name := range []string{
+		"invalid-offset-hour.json",
+		"invalid-offset-minute.json",
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := validate(readEvidenceFixture(t, name))
+			if err == nil || !strings.Contains(err.Error(), "EVIDENCE_INVALID_TIMESTAMP") {
+				t.Fatalf("validate() error = %v, want EVIDENCE_INVALID_TIMESTAMP", err)
+			}
+		})
+	}
+}

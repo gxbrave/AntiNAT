@@ -46,6 +46,15 @@ record the exact command, a positive integer `timeout` in seconds, non-empty
 `os`, artifact digest, result, and retained logs/state/pcap where applicable
 using `test/evidence/schema.json`.
 
+Evidence `timeout` is a positive JSON number whose mathematical value is an
+integer; integral spellings such as `600`, `600.0`, and `6e2` are equivalent
+and valid, while fractional values are invalid. RFC3339 timestamps accept the
+standards-permitted lowercase `t`/`z` markers, but their numeric offset must
+have an hour from `00` through `23` and a minute from `00` through `59`.
+Required `command` and `os` values, and every `evidence_paths` entry, must
+contain at least one non-whitespace character. The canonical Go validator and
+the schema parity harness enforce these same rules.
+
 To change a frozen row, propose a new ADR or a reviewed contract revision with:
 
 1. the affected source-intent row and current behavior;
