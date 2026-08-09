@@ -36,6 +36,7 @@ HERMES = "/usr/local/bin/hermes"
 POLL_SECONDS = 45
 UNCHANGED_RECHECK_SECONDS = 600
 ACTIVE_HEARTBEAT_SECONDS = 600
+RUNNING_AUDIT_SECONDS = 1800
 ALL_DONE_RECHECK_SECONDS = 3600
 AGENT_TIMEOUT_SECONDS = 1800
 
@@ -283,7 +284,18 @@ def main() -> int:
                 sleep_interruptible(ALL_DONE_RECHECK_SECONDS)
                 continue
 
-            must_invoke = bool(before["diagnostics"])
+            stale_running = [
+                task
+                for task in before["running"]
+                if task.get("started_at")
+                and now - float(task["started_at"]) >= RUNNING_AUDIT_SECONDS
+            ]
+            must_invoke = bool(before["diagnostics"] or stale_running)
+            if stale_running:
+                logger.warning(
+                    "running task audit threshold reached ids=%s",
+                    [task["id"] for task in stale_running],
+                )
             if running_count > 0 and not must_invoke:
                 if now - last_active_log >= ACTIVE_HEARTBEAT_SECONDS:
                     logger.info("workers active; supervision deferred: %s", state_summary(before))
