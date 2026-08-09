@@ -1,0 +1,31 @@
+# Go build output
+/bin/
+/dist/
+*.test
+*.out
+coverage*.txt
+
+# Local tooling and caches
+.gocache/
+.gopath/
+.tmp/
+
+# Evidence and runtime state (keep checked-in schemas/fixtures)
+*.pcap
+*.log
+state/
+run/
+var/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.token
+
+# IDE/OS files
+.idea/
+.vscode/
+.DS_Store
