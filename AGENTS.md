@@ -53,6 +53,7 @@
 ## Handoffs and reviews
 
 - Development writes `.hermes/handoffs/PXX.json` with exact base/head SHAs, commits, changed files, commands, exit codes, evidence, contract hashes, capability result, known limits, and cleanup status.
+- When a DEV Worker blocks as `review-required`, the supervisor may mark that DEV lifecycle card `done` only after mechanically verifying the candidate branch/head and handoff. This means the implementation stage is complete; it is not review approval.
 - A separate specification-review card checks plan compliance and ownership only.
 - A separate quality/security-review card checks logic, races, security, leaks, portability, and test quality.
 - Integration occurs only after both reviews pass. Maximum two bounded fix cycles before escalation.

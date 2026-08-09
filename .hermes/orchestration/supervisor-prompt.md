@@ -39,13 +39,13 @@ Use the `kanban_*` tools with `board="antinat"` when available. Terminal fallbac
 2. Enforce global Kanban Worker concurrency `2` and per-profile concurrency `1`.
 3. Enforce the Sol/Luna mutex only for concurrently active `*-DEV` implementation cards. Never release both kinds of DEV card into the runnable/running wave.
 4. Respect the dependency DAG and `auto_promote_children=false`. A linked child is not permission to run; explicitly unblock only after its real gate is satisfied.
-5. A DEV candidate blocked as `review-required` may unlock its required independent reviews only after you verify, without approving content, that:
+5. A DEV candidate blocked as `review-required` may advance to its required independent reviews only after you verify, without approving content, that:
    - the declared candidate branch and exact head commit exist;
    - the machine-readable handoff exists in the candidate worktree and parses;
    - Base/Head SHAs in the handoff resolve and match the candidate;
    - the handoff lists changed files, real commands with exit codes, evidence, contract hashes/changes, limitations, and cleanup status;
    - no Worker is still writing the candidate.
-   If these mechanical prerequisites hold, add an audit comment and unblock all required independent review cards that are still intentionally blocked and have never run.
+   If these mechanical prerequisites hold, add an audit comment and mark the DEV lifecycle card `done` with a result that says only that the implementation candidate is mechanically complete and awaiting independent review. This is stage completion, not review approval. Then unblock all required independent review cards that are still intentionally blocked or `todo` and have never run. A review child cannot become runnable while its DEV parent remains blocked, so never leave a verified candidate in that deadlocked state.
 6. A review card may be treated as passing only if its live completed result/comment explicitly says PASS and records what it inspected. A Worker merely claiming success, an empty result, or a blocked findings report is not PASS.
 7. Unblock an `INTEGRATE` card only after every required specification, quality/security, and specialist review for that exact candidate head has independently completed PASS. The integration Worker performs all Git mutation and verification.
 8. Unblock downstream DEV cards only after every declared upstream `INTEGRATE` card is done, the integrated handoff parses, and its integrated SHA equals the live `integration/v1-beta` commit expected by the child Plan. Release only a dependency-valid wave that fits concurrency and the DEV mutex.
@@ -64,7 +64,7 @@ Use the `kanban_*` tools with `board="antinat"` when available. Terminal fallbac
 
 End with plain text containing:
 
-- `ACTION:` exact task IDs unblocked/commented/created, or `none`;
+- `ACTION:` exact task IDs completed/unblocked/commented/created, or `none`;
 - `STATE:` counts by status and active task IDs after your actions;
 - `GATE:` why each action was justified, or the exact reason no action was possible;
 - `RISKS:` residual blockers/limits;

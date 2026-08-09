@@ -136,7 +136,7 @@ def board_state() -> dict[str, Any]:
     digest = hashlib.sha256(
         json.dumps(compact, sort_keys=True, ensure_ascii=False).encode("utf-8")
     ).hexdigest()
-    active = [task for task in compact if task["status"] in {"ready", "running"}]
+    active = [task for task in compact if task["status"] in {"todo", "ready", "running"}]
     running = [task for task in compact if task["status"] == "running"]
     return {
         "stats": stats,
@@ -274,10 +274,11 @@ def main() -> int:
             now = time.time()
             by_status = before["stats"].get("by_status", {})
             blocked_count = int(by_status.get("blocked", 0) or 0)
+            todo_count = int(by_status.get("todo", 0) or 0)
             ready_count = int(by_status.get("ready", 0) or 0)
             running_count = int(by_status.get("running", 0) or 0)
 
-            if blocked_count == 0 and ready_count == 0 and running_count == 0:
+            if blocked_count == 0 and todo_count == 0 and ready_count == 0 and running_count == 0:
                 logger.info("board has no remaining blocked/ready/running tasks: %s", state_summary(before))
                 sleep_interruptible(ALL_DONE_RECHECK_SECONDS)
                 continue
