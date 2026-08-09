@@ -61,7 +61,10 @@ jobs:
       - name: Race tests
         run: go test -race ./...
       - name: Build binaries
-        run: make build VERSION=ci COMMIT=${{ github.sha }} DATE=${{ github.run_started_at }}
+        run: |
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          test -n "$DATE"
+          make build VERSION=ci COMMIT=${{ github.sha }} DATE="$DATE"
       - name: Verify cross-build
         run: GOOS=windows GOARCH=amd64 go build ./cmd/...
       - name: Upload bootstrap binaries

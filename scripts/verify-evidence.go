@@ -36,7 +36,80 @@ func validationError(code, message string) error {
 	return fmt.Errorf("%s: %s", code, message)
 }
 
+func walkJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return validationError("EVIDENCE_INVALID_JSON", err.Error())
+	}
+
+	delim, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+
+	switch delim {
+	case '{':
+		seen := make(map[string]struct{})
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return validationError("EVIDENCE_INVALID_JSON", err.Error())
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return validationError("EVIDENCE_INVALID_JSON", "object member name must be a string")
+			}
+			if _, exists := seen[key]; exists {
+				return validationError("EVIDENCE_DUPLICATE_FIELD", key)
+			}
+			seen[key] = struct{}{}
+			if err := walkJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		if closing, err := decoder.Token(); err != nil || closing != json.Delim('}') {
+			if err != nil {
+				return validationError("EVIDENCE_INVALID_JSON", err.Error())
+			}
+			return validationError("EVIDENCE_INVALID_JSON", "object is not terminated")
+		}
+	case '[':
+		for decoder.More() {
+			if err := walkJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		if closing, err := decoder.Token(); err != nil || closing != json.Delim(']') {
+			if err != nil {
+				return validationError("EVIDENCE_INVALID_JSON", err.Error())
+			}
+			return validationError("EVIDENCE_INVALID_JSON", "array is not terminated")
+		}
+	default:
+		return validationError("EVIDENCE_INVALID_JSON", "unexpected JSON delimiter")
+	}
+	return nil
+}
+
+func rejectDuplicateObjectMembers(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := walkJSONValue(decoder); err != nil {
+		return err
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return validationError("EVIDENCE_INVALID_JSON", "multiple JSON values are not allowed")
+		}
+		return validationError("EVIDENCE_INVALID_JSON", err.Error())
+	}
+	return nil
+}
+
 func decodeObject(data []byte) (map[string]json.RawMessage, error) {
+	if err := rejectDuplicateObjectMembers(data); err != nil {
+		return nil, err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	var object map[string]json.RawMessage
 	if err := decoder.Decode(&object); err != nil {
@@ -46,13 +119,6 @@ func decodeObject(data []byte) (map[string]json.RawMessage, error) {
 		return nil, validationError("EVIDENCE_INVALID_TYPE", "root must be a JSON object")
 	}
 
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		if err == nil {
-			return nil, validationError("EVIDENCE_INVALID_JSON", "multiple JSON values are not allowed")
-		}
-		return nil, validationError("EVIDENCE_INVALID_JSON", err.Error())
-	}
 	return object, nil
 }
 
@@ -83,6 +149,21 @@ func optionalString(object map[string]json.RawMessage, name string) error {
 	return nil
 }
 
+func requiredPositiveInteger(object map[string]json.RawMessage, name string) (int64, error) {
+	raw, ok := object[name]
+	if !ok {
+		return 0, validationError("EVIDENCE_MISSING_FIELD", name)
+	}
+	var value int64
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return 0, validationError("EVIDENCE_INVALID_TYPE", name+" must be a positive integer")
+	}
+	if value <= 0 {
+		return 0, validationError("EVIDENCE_INVALID_VALUE", name+" must be greater than zero")
+	}
+	return value, nil
+}
+
 func validate(data []byte) error {
 	object, err := decodeObject(data)
 	if err != nil {
@@ -92,6 +173,7 @@ func validate(data []byte) error {
 	known := map[string]bool{
 		"schema_version": true, "plan": true, "commit_sha": true,
 		"command": true, "result": true, "artifact_digest": true,
+		"os": true, "timeout": true,
 		"started_at": true, "finished_at": true, "summary": true,
 		"evidence_paths": true,
 	}
@@ -150,6 +232,15 @@ func validate(data []byte) error {
 		return validationError("EVIDENCE_INVALID_DIGEST", "artifact_digest must match sha256:<64 lowercase hex characters>")
 	}
 
+	if _, err := requiredString(object, "os"); err != nil {
+		return err
+	}
+	if _, err := requiredPositiveInteger(object, "timeout"); err != nil {
+		return err
+	}
+
+	var startedAt, finishedAt time.Time
+	var hasStartedAt, hasFinishedAt bool
 	for _, name := range []string{"started_at", "finished_at"} {
 		_, ok := object[name]
 		if !ok {
@@ -159,9 +250,18 @@ func validate(data []byte) error {
 		if err != nil {
 			return err
 		}
-		if _, err := time.Parse(time.RFC3339, value); err != nil {
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil {
 			return validationError("EVIDENCE_INVALID_TIMESTAMP", name+" must be RFC3339")
 		}
+		if name == "started_at" {
+			startedAt, hasStartedAt = parsed, true
+		} else {
+			finishedAt, hasFinishedAt = parsed, true
+		}
+	}
+	if hasStartedAt && hasFinishedAt && finishedAt.Before(startedAt) {
+		return validationError("EVIDENCE_INVALID_TIMESTAMP_ORDER", "finished_at must not be earlier than started_at")
 	}
 	if err := optionalString(object, "summary"); err != nil {
 		return err
