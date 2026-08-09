@@ -95,6 +95,7 @@ func walkJSONValue(decoder *json.Decoder) error {
 
 func rejectDuplicateObjectMembers(data []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
 	if err := walkJSONValue(decoder); err != nil {
 		return err
 	}

@@ -121,6 +121,12 @@ func TestValidateAcceptsIntegralJSONNumberTimeout(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsLargeIntegralJSONNumberTimeout(t *testing.T) {
+	if err := validate(readEvidenceFixture(t, "timeout-large-exponent.json")); err != nil {
+		t.Fatalf("validate() large integral JSON number error = %v", err)
+	}
+}
+
 func TestPositiveIntegralJSONNumberMatchesDocumentedRule(t *testing.T) {
 	for _, test := range []struct {
 		value string

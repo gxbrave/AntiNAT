@@ -2,6 +2,7 @@
   "cases": [
     {"name": "valid baseline", "path": "../fixtures/pass.json", "valid": true},
     {"name": "integral JSON number", "path": "../fixtures/timeout-integral-float.json", "valid": true},
+    {"name": "large integral JSON exponent", "path": "../fixtures/timeout-large-exponent.json", "valid": true},
     {"name": "lowercase RFC3339 markers", "path": "../fixtures/lowercase-rfc3339.json", "valid": true},
     {"name": "duplicate object member", "path": "../fixtures/duplicate-result.json", "valid": false},
     {"name": "invalid UTF-8", "path": "../fixtures/invalid-utf8.json", "valid": false},
@@ -10,6 +11,7 @@
     {"name": "whitespace evidence path", "path": "../fixtures/whitespace-evidence-path.json", "valid": false},
     {"name": "invalid RFC3339 offset hour", "path": "../fixtures/invalid-offset-hour.json", "valid": false},
     {"name": "invalid RFC3339 offset minute", "path": "../fixtures/invalid-offset-minute.json", "valid": false},
+    {"name": "invalid calendar date", "path": "../fixtures/invalid-calendar-date.json", "valid": false},
     {"name": "missing command", "path": "../fixtures/missing-command.json", "valid": false},
     {"name": "reversed timestamps", "path": "../fixtures/reversed-timestamps.json", "valid": false}
   ]

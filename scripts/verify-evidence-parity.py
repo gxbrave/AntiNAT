@@ -50,6 +50,26 @@ def reject_duplicate_members(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+format_checker = FormatChecker()
+
+
+@format_checker.checks("date-time", raises=ValueError)
+def valid_rfc3339_datetime(instance: Any) -> bool:
+    if not isinstance(instance, str):
+        return True
+    normalized = list(instance)
+    if len(normalized) <= 10:
+        raise ValueError("date-time is too short")
+    normalized[10] = "T"
+    if normalized[-1] in ("z", "Z"):
+        normalized[-1] = "Z"
+    value = "".join(normalized)
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
+    datetime.fromisoformat(value)
+    return True
+
+
 def schema_verdict(validator: Draft202012Validator, raw: bytes) -> tuple[bool, str]:
     try:
         instance = json.loads(
@@ -108,9 +128,7 @@ def main() -> int:
     try:
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
         cases = json.loads(cases_path.read_text(encoding="utf-8"))["cases"]
-        validator = ParityValidator(
-            schema, format_checker=FormatChecker()
-        )
+        validator = ParityValidator(schema, format_checker=format_checker)
         validator.check_schema(schema)
     except (OSError, KeyError, json.JSONDecodeError, ValidationError) as exc:
         print(f"parity setup failed: {exc}", file=sys.stderr)
