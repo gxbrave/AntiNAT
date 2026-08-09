@@ -137,10 +137,17 @@ func requiredString(object map[string]json.RawMessage, name string) (string, err
 	return value, nil
 }
 
+func isJSONNull(raw json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
+}
+
 func optionalString(object map[string]json.RawMessage, name string) error {
 	raw, ok := object[name]
 	if !ok {
 		return nil
+	}
+	if isJSONNull(raw) {
+		return validationError("EVIDENCE_INVALID_TYPE", name+" must be a string")
 	}
 	var value string
 	if err := json.Unmarshal(raw, &value); err != nil {
@@ -267,6 +274,9 @@ func validate(data []byte) error {
 		return err
 	}
 	if raw, ok := object["evidence_paths"]; ok {
+		if isJSONNull(raw) {
+			return validationError("EVIDENCE_INVALID_TYPE", "evidence_paths must be an array of strings")
+		}
 		var paths []string
 		if err := json.Unmarshal(raw, &paths); err != nil {
 			return validationError("EVIDENCE_INVALID_TYPE", "evidence_paths must be an array of strings")
