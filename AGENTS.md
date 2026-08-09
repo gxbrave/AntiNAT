@@ -9,9 +9,10 @@
 
 ## Startup gate
 
-- All Kanban cards are intentionally created in `blocked` state.
-- No worker may be started until the user explicitly approves the first dispatch.
-- The first development card allowed to run is `P01-DEV`.
+- `START-GATE` (`t_49810ae1`) is an intentionally unassigned, non-executable root gate. The embedded Dispatcher may show it as `ready`, but it cannot spawn a Worker.
+- All 84 real development/review/integration cards depend directly or transitively on this gate and are intentionally `blocked`.
+- Never assign or complete START-GATE until the user separately and explicitly approves starting development.
+- The first development card allowed to run after that approval is `P01-DEV`.
 - Never promote or dispatch `sub-agent-sol` and `sub-agent-luna` at the same time.
 - Before every promotion/dispatch, inspect running and ready cards and enforce `.hermes/orchestration/policy.json`.
 

@@ -27,7 +27,9 @@
     "agent_repo_policy": "Do not mirror the full monorepo automatically. Publish the Agent-owned deliverable to AntiNAT-Agent only after an integration-approved split/export procedure is defined."
   },
   "startup_gate": {
-    "all_cards_initially_blocked": true,
+    "root_gate_task_id": "t_49810ae1",
+    "root_gate_unassigned": true,
+    "all_real_cards_initially_blocked": true,
     "first_allowed_card": "P01-DEV",
     "requires_explicit_user_approval": true
   }
