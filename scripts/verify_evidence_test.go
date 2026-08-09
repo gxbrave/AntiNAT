@@ -47,6 +47,23 @@ func TestValidateRequiresDocumentedOSEvidenceFields(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsExplicitNullOptionalFields(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		want string
+	}{
+		{name: "null-summary.json", want: "EVIDENCE_INVALID_TYPE: summary"},
+		{name: "null-evidence-paths.json", want: "EVIDENCE_INVALID_TYPE: evidence_paths"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := validate(readEvidenceFixture(t, test.name))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("validate() error = %v, want %s", err, test.want)
+			}
+		})
+	}
+}
+
 func TestWorkflowUsesSupportedUTCBuildDateSource(t *testing.T) {
 	workflow, err := os.ReadFile(filepath.Join("..", ".github", "workflows", "ci.yml"))
 	if err != nil {
