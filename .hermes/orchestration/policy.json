@@ -30,7 +30,34 @@
     "project_supervisor": "sub-agent-sol-supervisor",
     "core_implementer": "sub-agent-sol",
     "non_core_implementer": "sub-agent-luna",
-    "spec_reviewer": "sub-agent-deepseek"
+    "spec_reviewer": "sub-agent-deepseek",
+    "repair_implementer_cycles_1_to_5": "sub-agent-luna",
+    "repair_spec_reviewer": "sub-agent-deepseek",
+    "repair_quality_security_reviewer": "sub-agent-deepseek",
+    "post_cycle_5_fallback_implementer": "sub-agent-sol"
+  },
+  "remediation": {
+    "continuous_autonomous_routing_authorized": true,
+    "luna_cycle_limit": 5,
+    "current_project_cycles_are_cumulative": true,
+    "fresh_review_context_required": true,
+    "review_sequence": ["specification", "quality_security"],
+    "review_profile": "sub-agent-deepseek",
+    "max_concurrent_reviews_for_profile": 1,
+    "fallback_after_luna_cycle_5_failure": {
+      "profile": "sub-agent-sol",
+      "max_attempts": 1,
+      "review_profile": "sub-agent-deepseek"
+    },
+    "human_escalation_after_fallback_failure": true,
+    "always_human_gated": [
+      "product_decision",
+      "credential_or_secret",
+      "contract_waiver",
+      "remote_push",
+      "release",
+      "destructive_operation"
+    ]
   },
   "repositories": {
     "primary": "https://github.com/gxbrave/AntiNAT.git",

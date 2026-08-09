@@ -116,7 +116,7 @@ For every child:
 
 1. **Spec reviewer:** receives child plan, frozen contracts, diff, tests, and handoff. It checks requirement compliance only.
 2. **Quality/security reviewer:** receives diff and static/test output without implementer reasoning. It checks logic, races, security, leaks, portability, and test quality.
-3. If either rejects, dispatch a separate fix AI limited to listed findings; rerun both reviews. Maximum two fix cycles before escalation.
+3. If either rejects, dispatch a separate fix AI limited to listed findings and rerun both reviews in fresh contexts. Repair cycles 1 through 5 are assigned to `sub-agent-luna`; their specification and full quality/security re-reviews are separate `sub-agent-deepseek` cards/sessions. If cycle 5 still fails, dispatch one fallback remediation to `sub-agent-sol`, then rerun both fresh DeepSeek reviews. If that fallback still fails, escalate to the user. A frozen-contract waiver, missing product decision/credential, release approval, or destructive remote action always requires the user immediately rather than consuming a repair cycle.
 4. The implementer never approves its own work.
 
 Network/protocol children P02/P09/P10/P11/P12/P13 additionally need a network reviewer. P17 needs UI skills and browser review. P18 needs native-platform evidence review.

@@ -22,8 +22,10 @@
 - Every development/review/integration Worker profile uses `agent.reasoning_effort: xhigh`.
 - The dedicated `sub-agent-sol-supervisor` is a clone of `sub-agent-sol` used only for project control. It uses `medium`, runs outside Kanban Worker concurrency, and must never implement production code, perform a review, approve a review, integrate, push, or release.
 - `sub-agent-sol` is T0 and may implement or inspect core logic.
-- `sub-agent-luna` and `sub-agent-deepseek` are T1 and must not implement core production logic.
-- `sub-agent-deepseek` is the default specification reviewer.
+- `sub-agent-luna` and `sub-agent-deepseek` are T1. DeepSeek does not implement core production logic; Luna may implement only the narrowly bounded review-listed remediation exception below, not new core features.
+- `sub-agent-deepseek` is the default specification reviewer and the fresh-context specification plus full quality/security reviewer for repair cycles. Separate review cards must use separate fresh sessions and remain subject to per-profile concurrency 1.
+- `sub-agent-luna` owns bounded repair cycles 1 through 5, including narrowly scoped core fixes explicitly listed by an independent failed review. This user-authorized exception does not allow new core features, scope broadening, self-review, integration, push, or release.
+- `sub-agent-sol` must not be used for remediation before Luna repair cycle 5 has completed and a fresh DeepSeek review still FAILs. After that event, one Sol fallback remediation is authorized; its work still requires fresh DeepSeek reviews.
 - Implementers never approve their own work. Use fresh contexts for specification and quality/security review.
 
 ## Git isolation
@@ -56,7 +58,7 @@
 - When a DEV Worker blocks as `review-required`, the supervisor may mark that DEV lifecycle card `done` only after mechanically verifying the candidate branch/head and handoff. This means the implementation stage is complete; it is not review approval.
 - A separate specification-review card checks plan compliance and ownership only.
 - A separate quality/security-review card checks logic, races, security, leaks, portability, and test quality.
-- Integration occurs only after both reviews pass. Maximum two bounded fix cycles before escalation.
+- Integration occurs only after both reviews pass. Up to five bounded Luna repair cycles are authorized, each followed by fresh DeepSeek specification and full quality/security reviews. If cycle 5 still fails, route one fallback remediation to Sol and then rerun fresh DeepSeek reviews. If the Sol fallback still fails, or a true product decision/credential/contract waiver is required, escalate to the user.
 - Integration writes `.hermes/handoffs/PXX-integrated.json` and records the integrated SHA.
 
 ## Completion reporting

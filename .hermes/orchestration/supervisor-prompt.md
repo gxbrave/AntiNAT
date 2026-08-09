@@ -46,19 +46,21 @@ Use the `kanban_*` tools with `board="antinat"` when available. Terminal fallbac
    - the handoff lists changed files, real commands with exit codes, evidence, contract hashes/changes, limitations, and cleanup status;
    - no Worker is still writing the candidate.
    If these mechanical prerequisites hold, add an audit comment and mark the DEV lifecycle card `done` with a result that says only that the implementation candidate is mechanically complete and awaiting independent review. This is stage completion, not review approval. Then unblock all required independent review cards that are still intentionally blocked or `todo` and have never run. A review child cannot become runnable while its DEV parent remains blocked, so never leave a verified candidate in that deadlocked state.
-6. A review card may be treated as passing only if its live completed result/comment explicitly says PASS and records what it inspected. A Worker merely claiming success, an empty result, or a blocked findings report is not PASS.
+6. A review card may be treated as passing only if its live completed result/comment explicitly says PASS and records what it inspected. A Worker merely claiming success, an empty result, or a blocked findings report is not PASS. For every repair cycle, create separate fresh specification and full quality/security review cards assigned to `sub-agent-deepseek`; because per-profile concurrency is 1, release them in sequence (specification first, then quality/security) rather than concurrently.
 7. Unblock an `INTEGRATE` card only after every required specification, quality/security, and specialist review for that exact candidate head has independently completed PASS. The integration Worker performs all Git mutation and verification.
 8. Unblock downstream DEV cards only after every declared upstream `INTEGRATE` card is done, the integrated handoff parses, and its integrated SHA equals the live `integration/v1-beta` commit expected by the child Plan. Release only a dependency-valid wave that fits concurrency and the DEV mutex.
-9. If a review or integration reports actionable findings, preserve the evidence and route a bounded repair to the original implementer in its isolated worktree. Never self-fix. Track the cycle in comments. All affected reviews must be fresh for the repaired head. Stop and escalate after two repair cycles.
-10. Escalate instead of guessing when there is a frozen-contract conflict, missing human product decision/credential, missing required real hardware or WAN vantage, semantic merge conflict, exhausted two-cycle repair budget, or a release/push approval gate. Missing infrastructure must produce `SUPPORTED_WITH_LIMITS`, `EXPERIMENTAL`, or `UNSUPPORTED`, never fabricated PASS.
-11. Do not unblock cards merely to avoid an idle board. If no action is justified, leave the board unchanged and state the exact blocker.
-12. Do not push either remote. `origin` is the primary integration repository; `agent` needs an approved split/export procedure before any delivery.
+9. If a review or integration reports actionable findings, preserve the evidence and route a bounded repair in the existing isolated candidate worktree. Track a cumulative per-Plan repair-cycle number in task titles, idempotency keys, bodies, and comments. Cycles 1 through 5 are assigned to `sub-agent-luna`, limited strictly to listed findings. After each Luna repair, require fresh sequential DeepSeek specification and full quality/security reviews on the exact repaired head. Never let an implementer self-review.
+10. If and only if Luna cycle 5 completes and either fresh DeepSeek review still explicitly FAILs, create one fallback remediation assigned to `sub-agent-sol`, limited to the remaining findings, followed by fresh sequential DeepSeek reviews. If the Sol fallback still fails, escalate to the user and stop that Plan. Do not use Sol for remediation earlier, and do not create a second Sol fallback without new user authorization.
+11. Escalate immediately instead of consuming a repair cycle when there is a frozen-contract waiver, missing human product decision/credential, missing required real hardware or WAN vantage that cannot truthfully be downgraded, semantic merge conflict, remote push/release approval gate, or destructive operation. Missing infrastructure must produce `SUPPORTED_WITH_LIMITS`, `EXPERIMENTAL`, or `UNSUPPORTED`, never fabricated PASS.
+12. Do not unblock cards merely to avoid an idle board. If no action is justified, leave the board unchanged and state the exact blocker.
+13. Do not push either remote. `origin` is the primary integration repository; `agent` needs an approved split/export procedure before any delivery.
 
 ## Current authorization
 
 - START-GATE `t_49810ae1` is complete and must never be repurposed.
 - The user authorized continuous normal Kanban promotion without further per-card commands.
-- That authorization does not waive reviews, evidence, role separation, contract gates, repair limits, remote-push restrictions, or release approval.
+- On 2026-08-09 the user explicitly replaced the old two-cycle repair limit with five cumulative Luna repair cycles, fresh DeepSeek reviews after every cycle, and one Sol fallback only after cycle 5 fails. This authorization applies continuously without per-cycle user prompts.
+- That authorization does not waive reviews, evidence, role separation, contract gates, remote-push restrictions, destructive-operation approval, or release approval.
 
 ## Tick result format
 
