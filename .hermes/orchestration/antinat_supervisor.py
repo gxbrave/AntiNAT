@@ -196,8 +196,6 @@ def invoke_supervisor(state: dict[str, Any]) -> tuple[int, str]:
         "60",
         "--source",
         "antinat-supervisor",
-        "-s",
-        "multi-agent-project-orchestration",
         "-q",
         prompt,
     ]
