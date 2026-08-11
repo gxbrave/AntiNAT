@@ -1,0 +1,305 @@
+{
+  "plan": "P02",
+  "branch": "integration/v1-beta",
+  "candidate_branch": "ai/P02-network-feasibility-spikes",
+  "integration_base_sha": "865f99d3b303d7a7e8c4057d2b5f693275d0f516",
+  "integrated_dependency_product_sha": "5cfc6ec5331ce34fc7a713ead88ba141505b4086",
+  "candidate_head_sha": "1e16d2228818a59c1a4eb1d99dc4be5370963bea",
+  "candidate_tree_sha": "97fa3e4d49ad93e87bd9277efde470011cbc7938",
+  "integrated_sha": "5bbfa9324270df96ef3adf4959793855c10b5c61",
+  "integrated_tree_sha": "97fa3e4d49ad93e87bd9277efde470011cbc7938",
+  "candidate_handoff_path": "/root/AntiNAT/.worktrees/t_024676f7/.hermes/handoffs/P02.json",
+  "candidate_handoff_sha256": "a00d48d9d119c47952fa0e6280e59257933519aaf2bce9bbe3737b7fed2db1db",
+  "candidate_commits": [
+    "73d3b1cada05745fd0540b7ab1f42db1cc35ac4c",
+    "d3f937f962b1bf6af7c7c32f61bbdc294fab9d3c",
+    "a5ef67be241101787d5e0b5374809ed87b62acc4",
+    "422606b7e4a18d2ae1013d0444742bad09108c0f",
+    "3d4f6da1c94d41bae3dfe648e5c2dfd90cf5d8db",
+    "6c7a223aa6950cd3c5ddeca23abf2c2626207a66",
+    "2f80c9aa397e68a028db5e93ff13221c2c0f1b8a",
+    "a30d23ce815c4114feceecf3b29b680795ba4f91",
+    "c0bf1b2a0045dcb7a140f15d4bcf42187c3bbd16",
+    "1e16d2228818a59c1a4eb1d99dc4be5370963bea"
+  ],
+  "integrated_commits": [
+    "9933f691c1151de855a7d2909a9e0ebdd5b97ec3",
+    "b749c66c3b09b4085ca56185ee9e378c5f901b61",
+    "f564785098b9a55bd27fc4a14f07148dbf138aa8",
+    "dc086391c5fcfa07aacf372ebb37122dc748ccfc",
+    "4484e1efcce468e87c957e30f425ea5a5f9cfc75",
+    "8fdf3db3b9f267522828537ace137b9998cf1b26",
+    "e7fa99f1a626ba90f68203d36d50c64211dc5915",
+    "a83d1c67d27b7ae8fb3d6197f540f14e4df860b9",
+    "6e47bc9508ef597c150cf20bc89e67fdbaeacf74",
+    "5bbfa9324270df96ef3adf4959793855c10b5c61"
+  ],
+  "files_changed_count": 40,
+  "files_changed": [
+    "docs/evidence/m0-network-summary.md",
+    "spike/network/hidden_probe.go",
+    "spike/network/hidden_probe_test.go",
+    "spike/network/layered_nat_netns_test.go",
+    "spike/network/mapping_ownership.go",
+    "spike/network/mapping_ownership_test.go",
+    "spike/network/port_registry_linux.go",
+    "spike/network/port_registry_linux_test.go",
+    "spike/network/process_lock_linux.go",
+    "spike/network/scripts/collect_evidence.sh",
+    "spike/network/scripts/layered_nat_lab.sh",
+    "spike/network/tcp_shared_linux.go",
+    "spike/network/tcp_shared_linux_test.go",
+    "spike/network/tcp_shared_windows_test.go",
+    "spike/network/udp_demux.go",
+    "spike/network/udp_demux_test.go",
+    "spike/network/udp_probe_fixture.go",
+    "spike/network/udp_socket_linux.go",
+    "spike/network/udp_socket_linux_test.go",
+    "spike/network/udp_socket_windows_test.go",
+    "test/evidence/m0/network/environment.json",
+    "test/evidence/m0/network/full-network-netns.json",
+    "test/evidence/m0/network/full-network.json",
+    "test/evidence/m0/network/hidden-challenge.json",
+    "test/evidence/m0/network/layered-nat.json",
+    "test/evidence/m0/network/mapping-ownership.json",
+    "test/evidence/m0/network/port-registry.json",
+    "test/evidence/m0/network/raw/full-network-netns.log",
+    "test/evidence/m0/network/raw/full-network.log",
+    "test/evidence/m0/network/raw/hidden-challenge.log",
+    "test/evidence/m0/network/raw/layered-nat.log",
+    "test/evidence/m0/network/raw/mapping-ownership.log",
+    "test/evidence/m0/network/raw/port-registry.log",
+    "test/evidence/m0/network/raw/tcp-linux.log",
+    "test/evidence/m0/network/raw/tcp-windows-cross-build.log",
+    "test/evidence/m0/network/raw/tdd-red.md",
+    "test/evidence/m0/network/raw/udp-linux.log",
+    "test/evidence/m0/network/tcp-shared-port-linux.json",
+    "test/evidence/m0/network/tcp-shared-port-windows.json",
+    "test/evidence/m0/network/udp-single-socket.json"
+  ],
+  "reviews": [
+    {
+      "task_id": "t_a1fc33c7",
+      "type": "specification-r1",
+      "head_sha": "1e16d2228818a59c1a4eb1d99dc4be5370963bea",
+      "verdict": "PASS"
+    },
+    {
+      "task_id": "t_b6457c9c",
+      "type": "quality-security-r1-full-scope",
+      "head_sha": "1e16d2228818a59c1a4eb1d99dc4be5370963bea",
+      "verdict": "PASS"
+    },
+    {
+      "task_id": "t_3386bcca",
+      "type": "network-protocol-r1",
+      "head_sha": "1e16d2228818a59c1a4eb1d99dc4be5370963bea",
+      "verdict": "PASS"
+    }
+  ],
+  "contracts_verified": [
+    {
+      "path": ".hermes/plans/v1-beta/00-master-orchestration.md",
+      "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4"
+    },
+    {
+      "path": ".hermes/plans/v1-beta/02-network-feasibility-spikes.md",
+      "sha256": "a1d93c391091024cac39f97bdb099eec5e880f384241056ced09fe743762ca16"
+    },
+    {
+      "path": ".hermes/plans/2026-08-09_055007-antinat-v1-reviewed-execution-plan.md",
+      "sha256": "5fb4216ae41c4fb77a757596274b9f8e1df6f32a81c399971b82e60c07527226"
+    },
+    {
+      "path": ".hermes/handoffs/project-inputs.json",
+      "sha256": "343a6c28876da36f5a386939bc4a66565f51f3a37345a878b593e13e1f6e7123"
+    },
+    {
+      "path": ".hermes/handoffs/P01-integrated.json",
+      "sha256": "5dcc97cc499c2d22685ae1b9702da48c433fcdecdfc568d4d15c8a3bfeeb7d0e"
+    }
+  ],
+  "tests": [
+    {
+      "phase": "candidate-pre-integration",
+      "command": "go test ./spike/network -run 'TestHiddenChallengeInvalidIngressDoesNotExhaustAuthenticatedAttemptBudget|TestUDPDemuxDoesNotRouteMalformedReservedFramesAsData|TestProcessLockRejectsSymlinkWithoutTouchingTarget|TestTCPLeaseRetainsRegistryOwnershipWhenListenerCloseFails' -count=1 -v",
+      "exit_code": 0
+    },
+    {
+      "phase": "candidate-pre-integration",
+      "command": "go test ./spike/network -count=1",
+      "exit_code": 0
+    },
+    {
+      "phase": "candidate-pre-integration",
+      "command": "go test -race ./spike/network -count=1",
+      "exit_code": 0
+    },
+    {
+      "phase": "candidate-pre-integration",
+      "command": "go vet ./spike/network/...",
+      "exit_code": 0
+    },
+    {
+      "phase": "candidate-pre-integration",
+      "command": "go test -tags=netns ./spike/network/... -count=1 -v",
+      "exit_code": 0,
+      "summary": "Live miniupnpd/coturn namespace lab passed; observed STUN tuple 11.0.0.2:52898."
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "go test ./spike/network -run 'TestHiddenChallengeInvalidIngressDoesNotExhaustAuthenticatedAttemptBudget|TestUDPDemuxDoesNotRouteMalformedReservedFramesAsData|TestProcessLockRejectsSymlinkWithoutTouchingTarget|TestTCPLeaseRetainsRegistryOwnershipWhenListenerCloseFails' -count=1 -v",
+      "exit_code": 0
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "go test ./... -count=1",
+      "exit_code": 0
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "go test -race ./... -count=1",
+      "exit_code": 0
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "go vet ./...",
+      "exit_code": 0
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "go mod verify",
+      "exit_code": 0
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "GOOS=windows GOARCH=amd64 go test -c -o <temporary>/network.test.exe ./spike/network",
+      "exit_code": 0,
+      "summary": "PE32+ x86-64 test binary produced; native Windows runtime was not claimed."
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "go run ./scripts/verify-evidence.go <each of 9 P02 evidence records>",
+      "exit_code": 0,
+      "summary": "All nine antinat.evidence/v1 records validated individually."
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "Python SHA-256 artifact digest and evidence_paths verification for all 9 records",
+      "exit_code": 0
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "gofmt -l spike/network; git diff --check 865f99d3..HEAD; bash -n spike/network/scripts/*.sh",
+      "exit_code": 0
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "make test",
+      "exit_code": 0
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "make check",
+      "exit_code": 0
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "make build",
+      "exit_code": 0
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "make clean",
+      "exit_code": 0
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "go test -tags=netns ./spike/network/... -count=1 -v",
+      "exit_code": 0,
+      "summary": "Live miniupnpd/coturn namespace lab passed; observed fresh STUN tuple 11.0.0.2:57996."
+    }
+  ],
+  "skipped_tests": [
+    {
+      "command": "govulncheck ./...",
+      "reason": "govulncheck is not installed on the orchestrator host."
+    },
+    {
+      "command": "native Windows TCP/UDP runtime gates",
+      "reason": "No native Windows host is available; only cross-build evidence was obtained."
+    },
+    {
+      "command": "physical CPE/router mapping and deletion/TOCTOU matrix",
+      "reason": "router_inventory is empty; namespace evidence does not replace physical CPE evidence."
+    },
+    {
+      "command": "independent remote WAN vantage",
+      "reason": "No remote probe vantage is provided; localhost and same-host namespaces are not independent WAN evidence."
+    },
+    {
+      "command": "half-open TCP SYN behavior",
+      "reason": "This spike measures established routing and half-close only; raw-SYN/remote-vantage evidence is unavailable and unpromoted."
+    },
+    {
+      "command": "go test ./test/e2e -count=1 -v and go test -tags=netns ./test/integration/... -count=1 -v",
+      "reason": "P02 does not own or create these later milestone suites; they are not applicable at this integration point."
+    }
+  ],
+  "evidence": [
+    "docs/evidence/m0-network-summary.md",
+    "test/evidence/m0/network/environment.json",
+    "test/evidence/m0/network/tcp-shared-port-linux.json",
+    "test/evidence/m0/network/tcp-shared-port-windows.json",
+    "test/evidence/m0/network/port-registry.json",
+    "test/evidence/m0/network/udp-single-socket.json",
+    "test/evidence/m0/network/hidden-challenge.json",
+    "test/evidence/m0/network/layered-nat.json",
+    "test/evidence/m0/network/mapping-ownership.json",
+    "test/evidence/m0/network/full-network.json",
+    "test/evidence/m0/network/full-network-netns.json",
+    "test/evidence/m0/network/raw/tdd-red.md",
+    "test/evidence/m0/network/raw/"
+  ],
+  "capability_result": "SUPPORTED_WITH_LIMITS",
+  "capability_results": {
+    "linux_tcp_shared_port": "SUPPORTED_WITH_LIMITS",
+    "windows_tcp_shared_port": "SUPPORTED_WITH_LIMITS",
+    "atomic_port_registry_process_lock": "SUPPORTED_WITH_LIMITS",
+    "linux_udp_single_socket": "SUPPORTED_WITH_LIMITS",
+    "windows_udp_single_socket": "SUPPORTED_WITH_LIMITS",
+    "provider_hidden_challenge": "PASS",
+    "restrictive_layered_cpe_cgn": "NO_GO",
+    "mapping_ownership": "SUPPORTED_WITH_LIMITS"
+  },
+  "known_limits": [
+    "No native Windows runtime evidence; Windows TCP shared-port and UDP capabilities remain disabled/unpromoted.",
+    "No physical CPE/router inventory; UPnP, NAT-PMP, and PCP adapters remain experimental and no real deletion/TOCTOU claim is made.",
+    "No independent remote WAN vantage; hidden-challenge tests prove protocol and same-host localhost transport behavior only.",
+    "The CPE-CGN lab uses isolated namespace addresses and is not Internet or address-ownership evidence.",
+    "Restrictive/symmetric layered NAT produced NO_GO: FIRST_HOP_MAPPED cannot be verified; the positive classification test is decision logic only, not traversal evidence.",
+    "Linux TCP shared-port needs SO_REUSEPORT, which permits a second process to join; the OS process lock and stop-old-before-start-new policy are mandatory.",
+    "Half-open TCP SYN behavior is not measured by this spike.",
+    "The P01 evidence validator accepts one record path rather than a directory; P02 validated all nine schema records individually.",
+    "Spike source is disposable and must not be copied into production packages."
+  ],
+  "cleanup_done": true,
+  "cleanup": [
+    "Candidate and integrated namespace runs removed all antinat-p02-* namespaces.",
+    "Candidate and integrated runs left no miniupnpd, turnserver, or turnutils lab processes.",
+    "coturn and miniupnpd services were inactive after the integrated run.",
+    "Temporary Windows test binary was created outside the repository; make clean removed repository build artifacts."
+  ],
+  "contracts_changed": [],
+  "conflicts": "none",
+  "remote_push": false,
+  "release_performed": false,
+  "integration_status": "PASS",
+  "worktree_preexisting_changes": [
+    ".hermes/orchestration/kanban-tasks.json",
+    ".hermes/orchestration/policy.json",
+    ".hermes/orchestration/supervisor-prompt.md",
+    ".hermes/plans/v1-beta/00-master-orchestration.md",
+    "AGENTS.md"
+  ]
+}
