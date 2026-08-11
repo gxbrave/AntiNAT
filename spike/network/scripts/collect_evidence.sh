@@ -126,7 +126,10 @@ run_evidence \
 windows_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 windows_command="GOOS=windows GOARCH=amd64 go test -c -o <temporary>/network.test.exe ./spike/network"
 set +e
-GOOS=windows GOARCH=amd64 go test -c -o "$windows_binary" ./spike/network >"$raw_dir/tcp-windows-cross-build.log" 2>&1
+{
+    printf 'commit_sha=%s\ntree_sha=%s\nsource_tree_clean=true\n' "$commit_sha" "$tree_sha"
+    GOOS=windows GOARCH=amd64 go test -c -o "$windows_binary" ./spike/network
+} >"$raw_dir/tcp-windows-cross-build.log" 2>&1
 windows_status=$?
 set -e
 if [[ $windows_status -eq 0 ]]; then
@@ -172,7 +175,7 @@ run_evidence \
 
 run_evidence \
     layered-nat.log layered-nat.json NO_GO 90 "linux/amd64 netns; miniupnpd 2.3.4; coturn 4.6.1" \
-    "Real miniupnpd plus coturn in Agent-CPE-CGN-vantage namespaces observed distinct first-hop and upstream tuples; restrictive/symmetric CGN correctly blocked UPnP publication. Fallback: retain tested single explicit layer only and never verify FIRST_HOP_MAPPED." \
+    "Real miniupnpd plus coturn in Agent-CPE-CGN-vantage namespaces observed distinct first-hop and upstream tuples; restrictive/symmetric CGN correctly blocked UPnP publication. This is a narrow NO_GO, not positive WAN evidence; the pure ClassifyLayeredObservation test does not add traversal evidence." \
     "go test -tags=netns ./spike/network -run '^TestLayeredNATWithRealUPnPDaemonAndUpstreamSTUN$' -count=1 -v" \
     spike/network/scripts/layered_nat_lab.sh spike/network/layered_nat_netns_test.go
 
