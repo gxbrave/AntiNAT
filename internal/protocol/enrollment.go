@@ -118,18 +118,20 @@ func ParseEnrollChallenge(raw []byte, controllerPub ed25519.PublicKey) (EnrollCh
 	if err != nil {
 		return c, err
 	}
+	// Validate every fixed width BEFORE any big-endian read or copy.
+	if len(parts[0]) != EnrollIDSize || len(parts[2]) != EnrollIDSize ||
+		len(parts[3]) != EnrollNonceSize || len(parts[5]) != 8 {
+		return c, ErrEnrollMalformed
+	}
+	if string(parts[4]) != EnrollVersion {
+		return c, ErrEnrollMalformed
+	}
 	copy(c.ControllerInstanceID[:], parts[0])
 	c.ControllerKeyID = string(parts[1])
 	copy(c.NodeID[:], parts[2])
 	copy(c.ServerNonce[:], parts[3])
 	c.ProtocolVersions = string(parts[4])
 	c.ExpiryUnix = binary.BigEndian.Uint64(parts[5])
-	if len(parts[0]) != EnrollIDSize || len(parts[2]) != EnrollIDSize || len(parts[3]) != EnrollNonceSize {
-		return c, ErrEnrollMalformed
-	}
-	if c.ProtocolVersions != EnrollVersion {
-		return c, ErrEnrollMalformed
-	}
 	if !framecrypto.Verify(controllerPub, c.SigningBytes(), sig) {
 		return c, ErrEnrollSignature
 	}
@@ -189,19 +191,22 @@ func ParseEnrollRequest(raw []byte, challengeHash [EnrollHashSize]byte) (EnrollR
 	if err != nil {
 		return r, err
 	}
+	// Validate every fixed width BEFORE any big-endian read or copy.
+	if len(parts[0]) != EnrollHashSize || len(parts[1]) != EnrollNonceSize ||
+		len(parts[2]) != EnrollKeySize || len(parts[3]) != 4 ||
+		len(parts[5]) != EnrollHashSize {
+		return r, ErrEnrollMalformed
+	}
+	token := parts[4]
+	if len(token) == 0 || len(token) > MaxTokenBytes {
+		return r, ErrEnrollMalformed
+	}
 	copy(r.ChallengeHash[:], parts[0])
 	copy(r.AgentNonce[:], parts[1])
 	copy(r.AgentPublicKey[:], parts[2])
 	r.AgentCredentialVersion = binary.BigEndian.Uint32(parts[3])
-	r.Token = string(parts[4])
+	r.Token = string(token)
 	copy(r.CapabilityHash[:], parts[5])
-	if len(parts[0]) != EnrollHashSize || len(parts[1]) != EnrollNonceSize ||
-		len(parts[2]) != EnrollKeySize || len(parts[5]) != EnrollHashSize {
-		return r, ErrEnrollMalformed
-	}
-	if len(r.Token) == 0 || len(r.Token) > MaxTokenBytes {
-		return r, ErrEnrollMalformed
-	}
 	if r.AgentCredentialVersion == 0 {
 		return r, ErrEnrollMalformed
 	}
@@ -263,6 +268,12 @@ func ParseEnrollResult(raw []byte, controllerPub ed25519.PublicKey) (EnrollResul
 	if err != nil {
 		return r, err
 	}
+	// Validate every fixed width BEFORE any big-endian read or copy.
+	if len(parts[0]) != EnrollIDSize || len(parts[2]) != EnrollIDSize ||
+		len(parts[3]) != EnrollHashSize || len(parts[4]) != 4 ||
+		len(parts[5]) != EnrollIDSize || len(parts[6]) != 8 {
+		return r, ErrEnrollMalformed
+	}
 	copy(r.ControllerInstanceID[:], parts[0])
 	r.ControllerKeyID = string(parts[1])
 	copy(r.NodeID[:], parts[2])
@@ -270,10 +281,6 @@ func ParseEnrollResult(raw []byte, controllerPub ed25519.PublicKey) (EnrollResul
 	r.AgentCredentialVersion = binary.BigEndian.Uint32(parts[4])
 	copy(r.EnrollmentResultID[:], parts[5])
 	r.ExpiryUnix = binary.BigEndian.Uint64(parts[6])
-	if len(parts[0]) != EnrollIDSize || len(parts[2]) != EnrollIDSize ||
-		len(parts[3]) != EnrollHashSize || len(parts[5]) != EnrollIDSize {
-		return r, ErrEnrollMalformed
-	}
 	if r.AgentCredentialVersion == 0 {
 		return r, ErrEnrollMalformed
 	}
