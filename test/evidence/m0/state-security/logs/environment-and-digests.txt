@@ -1,5 +1,17 @@
-spike/sqlite sha256:98e879575027a4be7b1ab2d7228ee312afefad5c4ddafef736a21012df78fe82
-spike/state sha256:ea6cc57106788a1d9646d299bb71d1e3470c6dd8c2e0d3f344cf5c09f42c3747
-spike/sandbox sha256:f2ac2a6cf3fc6ab89c1dbe2a700cc38c4d6ad9efa798a600a64c666fa9b7b618
-spike/datapath sha256:deaa10aa0c0700aa67d9cd612d631eb15ed21a3aef04996dfcb6146cf9919932
-spike/windows-identity sha256:454e3f6d5c580c70a3709b74ba352174fdb12f6743c9524964e0ca1908858902
+captured_at=2026-08-11T01:16:26Z
+commit=312999c73622798e581177c7584e48c94833d51b
+go version go1.26.5 linux/amd64
+Linux hermes 6.8.0-136-generic #136-Ubuntu SMP PREEMPT_DYNAMIC Wed Jul  1 21:53:05 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+os-release=PRETTY_NAME="Ubuntu 24.04.3 LTS" NAME="Ubuntu" VERSION_ID="24.04" VERSION="24.04.3 LTS (Noble Numbat)" VERSION_CODENAME=noble ID=ubuntu ID_LIKE=debian HOME_URL="https://www.ubuntu.com/" SUPPORT_URL="https://help.ubuntu.com/" BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/" PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy" UBUNTU_CODENAME=noble LOGO=ubuntu-logo
+uid=0
+arch=linux
+amd64
+1
+namespace=net:[4026531840]
+mnt:[4026531841]
+artifact digests
+spike/sqlite sha256:7af501865815e44680dcc52ab1b2ea6aa67ac5713c20f7e5fb9448f0b140a77b
+spike/state sha256:037a4b96825145bcc0db73e512b0553e117a100efaa715ec1460779f801d83ca
+spike/sandbox sha256:a8ea478c8f5250b33e3560730ac29887d996690b9e90e0d661e2c3a86b7fc638
+spike/datapath sha256:284d3b02b849ea68214d5ef8fb4a71229455c8f2003a39cff9241cef6462e3c1
+spike/windows-identity sha256:4219e0dcd15e34b9ddb7ece5fde57d3dbd4c1885821b980606dcc7285dd0570d

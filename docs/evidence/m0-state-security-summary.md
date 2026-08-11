@@ -1,6 +1,6 @@
 # M0 state and security feasibility summary
 
-Candidate code commit: `df3d36c67ebd30dca2bd7a3cf7a139dba49da84c`
+Candidate code commit: `312999c73622798e581177c7584e48c94833d51b`
 
 Environment: Ubuntu 24.04.3, Linux 6.8.0-136-generic, amd64, Go 1.26.5. No native Windows host was available. No router is relevant to this child.
 
