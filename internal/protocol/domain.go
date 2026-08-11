@@ -348,7 +348,7 @@ func ValidatePublicationCandidate(pubState, candidate string) error {
 	if err != nil || !ip.Is4() {
 		return errors.New("protocol: published candidate must be an IPv4 literal")
 	}
-	if !isGlobalIPv4(ip) {
+	if !IsGlobalEndpoint(ip) {
 		return fmt.Errorf("protocol: published candidate %q is not a global IPv4 literal", candidate)
 	}
 	return nil

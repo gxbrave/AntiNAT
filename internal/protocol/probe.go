@@ -483,7 +483,7 @@ func ValidateProbeEndpoint(endpoint string) error {
 	if err != nil || !ip.Is4() {
 		return ErrProbeEndpoint
 	}
-	if !isGlobalIPv4(ip) {
+	if !IsGlobalEndpoint(ip) {
 		return ErrProbeEndpoint
 	}
 	port, err := strconv.Atoi(portText)
@@ -491,34 +491,4 @@ func ValidateProbeEndpoint(endpoint string) error {
 		return ErrProbeEndpoint
 	}
 	return nil
-}
-
-// isGlobalIPv4 reports whether ip is a concrete global IPv4 literal for probe
-// purposes: not private/CGNAT/loopback/link-local/multicast/reserved/
-// benchmark/unspecified. Documentation (TEST-NET) ranges count as global per
-// the frozen contract.
-func isGlobalIPv4(ip netip.Addr) bool {
-	if !ip.Is4() || ip.IsUnspecified() {
-		return false
-	}
-	b := ip.As4()
-	switch {
-	case b[0] == 127: // loopback
-		return false
-	case b[0] == 10: // RFC 1918
-		return false
-	case b[0] == 172 && b[1] >= 16 && b[1] <= 31: // RFC 1918
-		return false
-	case b[0] == 192 && b[1] == 168: // RFC 1918
-		return false
-	case b[0] == 100 && b[1] >= 64 && b[1] <= 127: // CGNAT
-		return false
-	case b[0] == 169 && b[1] == 254: // link-local unicast
-		return false
-	case b[0] >= 224: // multicast + reserved
-		return false
-	case b[0] == 198 && b[1] >= 18 && b[1] <= 19: // benchmark
-		return false
-	}
-	return true
 }
