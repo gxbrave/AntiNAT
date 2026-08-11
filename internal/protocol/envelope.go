@@ -34,6 +34,10 @@ const (
 	// DirectionA2C marks an Agent→Controller frame.
 	DirectionA2C byte = 0x02
 
+	// MaxHeaderStringField is the frozen 1..255 bound on the variable-length
+	// protected-header string fields (docs/protocol.md §3.2).
+	MaxHeaderStringField = 255
+
 	// EnvelopeSigLen is the fixed Ed25519 signature length.
 	EnvelopeSigLen = ed25519.SignatureSize
 
@@ -114,10 +118,30 @@ type ProtectedHeader struct {
 	PayloadSHA256        [32]byte
 }
 
+// validateHeaderStringFields enforces the frozen 1..255 bound on the
+// variable-length protected-header string fields (docs/protocol.md §3.2:
+// controller_key_id, session_id, message_type) on both the encode and decode
+// paths so the codec never emits or accepts an out-of-range value.
+func validateHeaderStringFields(h ProtectedHeader) error {
+	if len(h.ControllerKeyID) == 0 || len(h.ControllerKeyID) > MaxHeaderStringField {
+		return errors.New("protocol: controller_key_id must be 1..255 bytes")
+	}
+	if len(h.SessionID) == 0 || len(h.SessionID) > MaxHeaderStringField {
+		return errors.New("protocol: session_id must be 1..255 bytes")
+	}
+	if len(h.MessageType) == 0 || len(h.MessageType) > MaxHeaderStringField {
+		return errors.New("protocol: message_type must be 1..255 bytes")
+	}
+	return nil
+}
+
 // EncodeProtectedHeader renders the canonical length-prefixed header. It is
 // used both by the encoder and by callers that must hash/pin the exact
 // protected bytes.
 func EncodeProtectedHeader(h ProtectedHeader) ([]byte, error) {
+	if err := validateHeaderStringFields(h); err != nil {
+		return nil, err
+	}
 	var buf bytes.Buffer
 	putField := func(b []byte) error {
 		if len(b) > math.MaxUint32 {
@@ -237,6 +261,9 @@ func decodeProtectedHeader(b []byte) (ProtectedHeader, error) {
 		return h, errors.New("protocol: payload_sha256 must be 32 bytes")
 	}
 	copy(h.PayloadSHA256[:], parts[13])
+	if err := validateHeaderStringFields(h); err != nil {
+		return h, err
+	}
 	return h, nil
 }
 

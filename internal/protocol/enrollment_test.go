@@ -63,6 +63,71 @@ func signEnrollForTest(domain string, canonical []byte, priv ed25519.PrivateKey)
 	return append(append([]byte(nil), canonical...), ed25519.Sign(priv, msg)...)
 }
 
+// TestEnrollFrozenFieldCapsAccepted pins the frozen §4 field bounds on the
+// size pre-filter: a contractually valid transcript at the maximum field
+// sizes (controller_key_id 1..255, token 1..256) must parse, not be rejected
+// as malformed by an undercounted Enroll*Max constant.
+func TestEnrollFrozenFieldCapsAccepted(t *testing.T) {
+	controller, agent := enrollTestKeys()
+	controllerPub := controller.Public().(ed25519.PublicKey)
+	ch := sha256.Sum256([]byte("server-issued-challenge"))
+
+	// EnrollChallenge with the maximum 255-byte controller_key_id.
+	{
+		c := enrollTestChallenge()
+		c.ControllerKeyID = string(bytes.Repeat([]byte{'a'}, 255))
+		raw := signEnrollForTest(enrollTestDomain, c.Canonical(), controller)
+		got, err := ParseEnrollChallenge(raw, controllerPub)
+		if err != nil {
+			t.Fatalf("valid 255-byte controller_key_id challenge rejected: %v", err)
+		}
+		if len(got.ControllerKeyID) != 255 {
+			t.Fatalf("controller_key_id length %d, want 255", len(got.ControllerKeyID))
+		}
+	}
+
+	// EnrollRequest with the maximum 256-byte token.
+	{
+		r := enrollTestRequest(ch)
+		r.Token = string(bytes.Repeat([]byte{'b'}, MaxTokenBytes))
+		raw := signEnrollForTest(enrollTestDomain, r.Canonical(), agent)
+		got, err := ParseEnrollRequest(raw, ch)
+		if err != nil {
+			t.Fatalf("valid 256-byte token request rejected: %v", err)
+		}
+		if len(got.Token) != MaxTokenBytes {
+			t.Fatalf("token length %d, want %d", len(got.Token), MaxTokenBytes)
+		}
+	}
+
+	// EnrollResult with the maximum 255-byte controller_key_id.
+	{
+		r := enrollTestResult()
+		r.ControllerKeyID = string(bytes.Repeat([]byte{'c'}, 255))
+		raw := signEnrollForTest(enrollTestDomain, r.Canonical(), controller)
+		got, err := ParseEnrollResult(raw, controllerPub)
+		if err != nil {
+			t.Fatalf("valid 255-byte controller_key_id result rejected: %v", err)
+		}
+		if len(got.ControllerKeyID) != 255 {
+			t.Fatalf("controller_key_id length %d, want 255", len(got.ControllerKeyID))
+		}
+	}
+}
+
+// TestEnrollOverCapTokenRejected pins the upper bound: a token beyond the
+// frozen 1..256 field cap is rejected as malformed.
+func TestEnrollOverCapTokenRejected(t *testing.T) {
+	_, agent := enrollTestKeys()
+	ch := sha256.Sum256([]byte("server-issued-challenge"))
+	r := enrollTestRequest(ch)
+	r.Token = string(bytes.Repeat([]byte{'d'}, MaxTokenBytes+1))
+	raw := signEnrollForTest(enrollTestDomain, r.Canonical(), agent)
+	if _, err := ParseEnrollRequest(raw, ch); err != ErrEnrollMalformed {
+		t.Fatalf("over-cap token: got %v, want ErrEnrollMalformed", err)
+	}
+}
+
 func TestEnrollChallengeValidRoundTrip(t *testing.T) {
 	controller, _ := enrollTestKeys()
 	c := enrollTestChallenge()

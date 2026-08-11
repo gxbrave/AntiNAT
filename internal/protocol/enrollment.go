@@ -15,6 +15,10 @@ import (
 )
 
 // Enrollment domain and size constants frozen by docs/protocol.md §4.
+// The Enroll*Max pre-filter bounds must count a 4-byte length prefix per
+// field (uint32 BE) plus each field's frozen cap; an undercount would reject
+// contractually valid transcripts as malformed. protocol_versions is pinned
+// to the 1-byte value "1" (§4.1 field 5), so it contributes 1, not 255.
 const (
 	EnrollDomain       = "AntiNAT-Enroll-v1"
 	EnrollVersion      = "1"
@@ -24,9 +28,9 @@ const (
 	EnrollHashSize     = sha256.Size
 	EnrollIDSize       = 16
 	EnrollSigLen       = ed25519.SignatureSize
-	EnrollChallengeMax = 4 + 16 + 255 + 16 + 32 + 64 + 8 + EnrollSigLen
-	EnrollRequestMax   = 4 + 32 + 32 + 32 + 4 + MaxTokenBytes + 32 + EnrollSigLen
-	EnrollResultMax    = 4 + 16 + 255 + 16 + 32 + 4 + 16 + 8 + EnrollSigLen
+	EnrollChallengeMax = 6*4 + EnrollIDSize + 255 + EnrollIDSize + EnrollNonceSize + 1 + 8 + EnrollSigLen
+	EnrollRequestMax   = 6*4 + EnrollHashSize + EnrollNonceSize + EnrollKeySize + 4 + MaxTokenBytes + EnrollHashSize + EnrollSigLen
+	EnrollResultMax    = 7*4 + EnrollIDSize + 255 + EnrollIDSize + EnrollHashSize + 4 + EnrollIDSize + 8 + EnrollSigLen
 )
 
 // Stable enrollment rejection reasons.

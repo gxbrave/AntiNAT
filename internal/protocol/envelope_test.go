@@ -246,6 +246,78 @@ func TestEnvelopeMalformedVectorsFailsBeforePayloadDecode(t *testing.T) {
 	}
 }
 
+// TestEnvelopeHeaderStringFieldBounds pins the frozen §3.2 1..255 bound on
+// the variable-length protected-header string fields (controller_key_id,
+// session_id, message_type): empty and over-cap values are rejected at
+// StageHeader, before any consistency/signature stage.
+func TestEnvelopeHeaderStringFieldBounds(t *testing.T) {
+	priv, peer := testKeys()
+	payload := []byte(`{"a":1}`)
+	h := testHeader()
+	h.PayloadLength = uint64(len(payload))
+	h.PayloadSHA256 = sha256.Sum256(payload)
+	h.ProtocolDomain = ProtocolDomain
+
+	cases := []struct {
+		name  string
+		field int
+		value []byte
+	}{
+		{"controller-key-id-empty", 4, nil},
+		{"controller-key-id-over-cap", 4, bytes.Repeat([]byte{'k'}, 256)},
+		{"session-id-empty", 7, nil},
+		{"session-id-over-cap", 7, bytes.Repeat([]byte{'s'}, 256)},
+		{"message-type-empty", 11, nil},
+		{"message-type-over-cap", 11, bytes.Repeat([]byte{'m'}, 256)},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			header := encodeHeaderForTest(h, map[int][]byte{tc.field: tc.value})
+			frame := craftEnvelope(priv, []byte(EnvelopeMagic), WireVersion, uint32(len(header)), uint32(len(payload)), header, payload)
+			_, stage, err := ParseEnvelope(frame, peer)
+			if err == nil {
+				t.Fatalf("frame with %s accepted", tc.name)
+			}
+			if stage != StageHeader {
+				t.Fatalf("frame with %s rejected at stage %v, want StageHeader (err=%v)", tc.name, stage, err)
+			}
+		})
+	}
+}
+
+// TestEnvelopeEncodeRejectsInvalidStringFields pins the encoder counterpart:
+// BuildEnvelope refuses to emit a protected header whose variable-length
+// string fields violate the frozen 1..255 bound.
+func TestEnvelopeEncodeRejectsInvalidStringFields(t *testing.T) {
+	priv, _ := testKeys()
+	h := testHeader()
+	h.ProtocolDomain = ProtocolDomain
+
+	over := func(n int) string { return string(bytes.Repeat([]byte{'x'}, n)) }
+	cases := []struct {
+		name   string
+		mutate func(*ProtectedHeader)
+	}{
+		{"controller-key-id-empty", func(h *ProtectedHeader) { h.ControllerKeyID = "" }},
+		{"controller-key-id-over-cap", func(h *ProtectedHeader) { h.ControllerKeyID = over(256) }},
+		{"session-id-empty", func(h *ProtectedHeader) { h.SessionID = "" }},
+		{"session-id-over-cap", func(h *ProtectedHeader) { h.SessionID = over(256) }},
+		{"message-type-empty", func(h *ProtectedHeader) { h.MessageType = "" }},
+		{"message-type-over-cap", func(h *ProtectedHeader) { h.MessageType = over(256) }},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			hh := h
+			tc.mutate(&hh)
+			if _, err := BuildEnvelope(priv, hh, nil); err == nil {
+				t.Fatalf("BuildEnvelope accepted %s", tc.name)
+			}
+		})
+	}
+}
+
 // TestEnvelopeEncodeRejectsOverCap pins the bounded encoder: an oversized
 // payload or header must fail rather than emit an invalid frame.
 func TestEnvelopeEncodeRejectsOverCap(t *testing.T) {
