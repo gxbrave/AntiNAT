@@ -250,3 +250,151 @@ Test keys are deterministic, published TEST-ONLY fixture keys (seeds `0x11`,
   in `test/contracts/manifest.json`.
 - A contract revision requires a proposal, orchestrator approval, and a new
   schema version (`/v2`); old vectors remain valid for their schema version.
+
+## 7. Probe wire and operation contract
+
+Two-phase arm + provider-hidden challenge, same-path Agent signature, and
+signed control receipt. The arm never contains the provider challenge; the
+provider introduces the challenge only at WAN ingress. All frames are fixed
+binary (never JSON) with the magics below.
+
+| Magic | Frame | Signed by | Direction |
+|---|---|---|---|
+| `ARM1` | probe arm | Controller | control channel → Agent |
+| `RDY1` | probe armed | Agent (node key) | control channel → Controller |
+| `WAN1` | provider frame | Provider | WAN ingress → Agent |
+| `ACK1` | same-path ACK | Agent (node key) | WAN ingress → Provider |
+| `RCT1` | control receipt | Agent (node key) | control channel → Controller |
+
+Length-prefixed fields use a 1-byte length prefix (fields are <= 255 bytes).
+All multi-byte integers are big-endian.
+
+### 7.1 ProbeArm (`ARM1`, Controller → Agent)
+
+| Field | Encoding | Size |
+|---|---|---|
+| magic | `"ARM1"` | 4 |
+| `probe_id` | raw | 16 |
+| `provider_id` | raw | 16 |
+| `provider_public_key` | Ed25519 | 32 |
+| `expected_source_ip` | IPv4 | 4 |
+| `activation` | raw | 16 |
+| `endpoint` | 1-byte length + utf8 IPv4:port | 1..256 |
+| `ttl_ms` | uint64 BE, 0 < ttl <= 24h | 8 |
+| `expiry_opaque` | raw (opaque) | 16 |
+
+The arm is delivered inside a signed control envelope (Section 3), so the
+Controller signature lives at the envelope layer. The arm payload itself must
+**never** contain the challenge or any per-probe secret material (anti-oracle).
+`endpoint` must be a concrete global IPv4 literal and port; hostnames, private,
+loopback, link-local, multicast, and reserved addresses are rejected.
+
+### 7.2 ProbeArmed (`RDY1`, Agent → Controller)
+
+| Field | Encoding | Size |
+|---|---|---|
+| magic | `"RDY1"` | 4 |
+| `arm_digest` | sha256 of the canonical ARM1 | 32 |
+| signature | Ed25519 over `RDY1 || arm_digest` | 64 |
+
+The Agent persists the outstanding operation with a monotonic deadline derived
+from `ttl_ms` and returns `probe_armed` only after durable persistence. The
+Controller requests the provider only after it persists `probe_armed`.
+
+### 7.3 ProviderFrame (`WAN1`, Provider → Agent)
+
+| Field | Encoding | Size |
+|---|---|---|
+| magic | `"WAN1"` | 4 |
+| `arm_digest` | sha256 of the canonical ARM1 | 32 |
+| `probe_id` | raw | 16 |
+| `provider_id` | raw | 16 |
+| `activation` | raw | 16 |
+| `endpoint` | 1-byte length + utf8 IPv4:port | 1..256 |
+| `expiry_opaque` | raw | 16 |
+| `challenge` | raw | 32 |
+| signature | Ed25519 over the above fields | 64 |
+
+The provider signs the full WAN frame and introduces the challenge only at
+ingress. The Agent accepts the frame only when every field matches the armed
+operation and the signature verifies against the arm's `provider_public_key`.
+
+### 7.4 ProbeACK (`ACK1`, Agent → Provider, same path)
+
+| Field | Encoding | Size |
+|---|---|---|
+| magic | `"ACK1"` | 4 |
+| `arm_digest` | sha256 of the canonical ARM1 | 32 |
+| `challenge_hash` | sha256 of the challenge | 32 |
+| signature | Ed25519 over `ACK1 || arm_digest || challenge_hash` | 64 |
+
+TCP: returned on the accepted ingress connection. UDP: returned through the
+original ingress socket from the exact published IPv4:port, no larger than the
+request. The ACK proves the WAN ingress/return path.
+
+### 7.5 ProbeReceipt (`RCT1`, Agent → Controller)
+
+| Field | Encoding | Size |
+|---|---|---|
+| magic | `"RCT1"` | 4 |
+| `arm_digest` | sha256 of the canonical ARM1 | 32 |
+| `challenge_hash` | sha256 of the challenge | 32 |
+| `provider_id` | raw | 16 |
+| signature | Ed25519 over `RCT1 || arm_digest || challenge_hash || provider_id` | 64 |
+
+The control receipt is `Sign(node_key, challenge_hash + probe_id + activation
++ endpoint + provider)`. It is sent over the signed control channel.
+
+### 7.6 Outcome and anti-oracle rules
+
+- The Controller records `OPEN_FROM_VANTAGE` + `RETURN_PATH_VERIFIED` only
+  after joining the provider result, the same-path ACK, and the Agent control
+  receipt for the same probe ID, activation, endpoint, challenge hash, opaque
+  expiry, and TTL window.
+- A control-only malicious Agent that guesses a challenge cannot satisfy the
+  join.
+- Every failed ingress (wrong source, wrong activation, wrong provider, wrong
+  endpoint, wrong opaque expiry, bad signature, expired TTL, replay) returns
+  the same generic `REJECTED`/`DROPPED` outcome with zero authenticated
+  material. No timing/detail leakage distinguishes victim behavior.
+- A probe ID is consumed exactly once. Consumed IDs enter a bounded replay
+  cache (TTL window) keyed by digest: re-arm of the same ID with the same
+  material is a replay rejection; different material is an ID conflict.
+- TTL semantics: the Agent uses a monotonic deadline from `ttl_ms`; the
+  provider and Controller use their own trusted clocks to verify the absolute
+  opaque expiry. The Controller aggregates bilateral results only within the
+  operation deadline.
+- Probe state, replay state, and attempt budgets are bounded and expirable.
+
+### 7.7 TCP and UDP golden vectors
+
+`internal/protocol/testdata/probe-frame/**` pins:
+
+- ARM1/RDY1/WAN1/ACK1/RCT1 valid golden frames (TCP and UDP transports share
+  the same canonical bytes; the transport differs only in how the stream is
+  framed: TCP uses a bounded stream reader with a deadline, UDP uses the
+  single-socket demux).
+- Invalid structural vectors (bad magic, truncated, zero/over-cap TTL,
+  hostname endpoint, wrong key, wrong digest).
+- Full operation transcripts that run the frozen probe state machine:
+  ingress-ok (accepted once, replayed rejected, ACK+receipt join), wrong
+  source/activation/provider, expired TTL, and replay/conflict.
+
+## 8. Outcome registry
+
+The probe operation outcome registry is the frozen enum of possible probe
+results. The Controller persists exactly one of these per probe operation:
+
+| Outcome | Meaning |
+|---|---|
+| `ARMED` | Agent durably armed the operation (persisted `probe_armed`) |
+| `ACCEPTED` | Agent accepted the provider frame at ingress and returned ACK |
+| `REJECTED` | Ingress was rejected for any reason (generic, no detail leak) |
+| `DROPPED` | Ingress was dropped without a response (malformed/overflow) |
+| `OPEN_FROM_VANTAGE` | Controller joined provider result + ACK + receipt |
+| `TIMEOUT` | No valid ingress before the operation deadline |
+| `NO_INDEPENDENT_VANTAGE` | No independent vantage is configured for this node |
+| `PROBE_INFRA_UNAVAILABLE` | Probe infrastructure unavailable |
+| `UNKNOWN` | No terminal outcome recorded |
+
+`OPEN_FROM_VANTAGE` is the only outcome that may drive a verified publication.
