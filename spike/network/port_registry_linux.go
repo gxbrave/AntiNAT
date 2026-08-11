@@ -55,6 +55,12 @@ func (registry *PortRegistry) AcquireTCP(ctx context.Context, owner string, requ
 	if owner == "" {
 		return nil, errors.New("owner is required")
 	}
+	if requested == nil {
+		return nil, errors.New("requested address is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	requestedKey := keyForTCPAddr(requested)
 	if requested.Port != 0 && registry.overlaps(requestedKey) {
 		return nil, ErrTupleOverlap
@@ -123,6 +129,12 @@ func (lease *TCPLease) Release() error {
 	if !ok || entry.owner != lease.owner || entry.generation != lease.generation || entry.lease != lease {
 		return ErrStaleLease
 	}
+	if err := lease.Listener.Close(); err != nil {
+		// Retain the registry entry when the OS close fails. Dropping ownership
+		// before a successful close would permit a new lease to overlap a live
+		// descriptor and makes a later stale Release able to close the new owner.
+		return err
+	}
 	delete(registry.entries, lease.key)
-	return lease.Listener.Close()
+	return nil
 }

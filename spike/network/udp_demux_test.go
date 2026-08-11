@@ -1,6 +1,7 @@
 package network
 
 import (
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -20,10 +21,10 @@ func TestUDPDemuxConsumesSTUNOnlyForFullOutstandingMatch(t *testing.T) {
 		want     DatagramKind
 	}{
 		{name: "exact", source: server, payload: valid, deadline: now.Add(time.Second), want: DatagramSTUN},
-		{name: "wrong source", source: &net.UDPAddr{IP: server.IP, Port: 9999}, payload: valid, deadline: now.Add(time.Second), want: DatagramData},
-		{name: "wrong transaction", source: server, payload: EncodeSTUNFixture(STUNSuccessResponse, [12]byte{99}), deadline: now.Add(time.Second), want: DatagramData},
-		{name: "wrong class", source: server, payload: EncodeSTUNFixture(STUNRequest, transaction), deadline: now.Add(time.Second), want: DatagramData},
-		{name: "expired", source: server, payload: valid, deadline: now.Add(-time.Nanosecond), want: DatagramData},
+		{name: "wrong source", source: &net.UDPAddr{IP: server.IP, Port: 9999}, payload: valid, deadline: now.Add(time.Second), want: DatagramDropped},
+		{name: "wrong transaction", source: server, payload: EncodeSTUNFixture(STUNSuccessResponse, [12]byte{99}), deadline: now.Add(time.Second), want: DatagramDropped},
+		{name: "wrong class", source: server, payload: EncodeSTUNFixture(STUNRequest, transaction), deadline: now.Add(time.Second), want: DatagramDropped},
+		{name: "expired", source: server, payload: valid, deadline: now.Add(-time.Nanosecond), want: DatagramDropped},
 		{name: "lookalike", source: server, payload: append([]byte("STUN"), make([]byte, 13)...), deadline: now.Add(time.Second), want: DatagramData},
 	}
 
@@ -60,13 +61,13 @@ func TestUDPDemuxConsumesProbeOnlyForAuthenticatedOutstandingMatch(t *testing.T)
 		want     DatagramKind
 	}{
 		{name: "exact", source: provider, payload: valid, expected: expected, key: key, deadline: now.Add(time.Second), want: DatagramProbe},
-		{name: "wrong source", source: &net.UDPAddr{IP: provider.IP, Port: provider.Port + 1}, payload: valid, expected: expected, key: key, deadline: now.Add(time.Second), want: DatagramData},
-		{name: "wrong probe", source: provider, payload: valid, expected: withProbeID(expected, [16]byte{9}), key: key, deadline: now.Add(time.Second), want: DatagramData},
-		{name: "wrong activation", source: provider, payload: valid, expected: withActivation(expected, [16]byte{9}), key: key, deadline: now.Add(time.Second), want: DatagramData},
-		{name: "wrong endpoint", source: provider, payload: valid, expected: withEndpoint(expected, &net.UDPAddr{IP: expected.Endpoint.IP, Port: 9999}), key: key, deadline: now.Add(time.Second), want: DatagramData},
-		{name: "wrong challenge", source: provider, payload: valid, expected: withChallenge(expected, [32]byte{9}), key: key, deadline: now.Add(time.Second), want: DatagramData},
-		{name: "bad signature", source: provider, payload: valid, expected: expected, key: []byte("different-key"), deadline: now.Add(time.Second), want: DatagramData},
-		{name: "expired", source: provider, payload: valid, expected: expected, key: key, deadline: now.Add(-time.Nanosecond), want: DatagramData},
+		{name: "wrong source", source: &net.UDPAddr{IP: provider.IP, Port: provider.Port + 1}, payload: valid, expected: expected, key: key, deadline: now.Add(time.Second), want: DatagramDropped},
+		{name: "wrong probe", source: provider, payload: valid, expected: withProbeID(expected, [16]byte{9}), key: key, deadline: now.Add(time.Second), want: DatagramDropped},
+		{name: "wrong activation", source: provider, payload: valid, expected: withActivation(expected, [16]byte{9}), key: key, deadline: now.Add(time.Second), want: DatagramDropped},
+		{name: "wrong endpoint", source: provider, payload: valid, expected: withEndpoint(expected, &net.UDPAddr{IP: expected.Endpoint.IP, Port: 9999}), key: key, deadline: now.Add(time.Second), want: DatagramDropped},
+		{name: "wrong challenge", source: provider, payload: valid, expected: withChallenge(expected, [32]byte{9}), key: key, deadline: now.Add(time.Second), want: DatagramDropped},
+		{name: "bad signature", source: provider, payload: valid, expected: expected, key: []byte("different-key"), deadline: now.Add(time.Second), want: DatagramDropped},
+		{name: "expired", source: provider, payload: valid, expected: expected, key: key, deadline: now.Add(-time.Nanosecond), want: DatagramDropped},
 	}
 
 	for _, test := range tests {
@@ -116,8 +117,8 @@ func TestUDPDemuxRejectsProbeReplayAfterOutstandingMatchIsConsumed(t *testing.T)
 	if got := demux.Classify(provider, payload, now); got != DatagramProbe {
 		t.Fatalf("first classify = %s, want PROBE", got)
 	}
-	if got := demux.Classify(provider, payload, now); got != DatagramData {
-		t.Fatalf("replay classify = %s, want DATA", got)
+	if got := demux.Classify(provider, payload, now); got != DatagramDropped {
+		t.Fatalf("replay classify = %s, want DROPPED", got)
 	}
 }
 
@@ -138,5 +139,69 @@ func TestUDPDemuxBoundsNewDataSessions(t *testing.T) {
 	}
 	if got := demux.Classify(first, []byte("again"), now); got != DatagramData {
 		t.Fatalf("existing session = %s, want DATA", got)
+	}
+}
+
+func TestUDPDemuxDoesNotRouteMalformedReservedFramesAsData(t *testing.T) {
+	demux := NewUDPDemux(8)
+	source := &net.UDPAddr{IP: net.ParseIP("192.0.2.10"), Port: 1001}
+	for _, payload := range [][]byte{[]byte("STN1"), []byte("PRB1"), []byte("WAN1"), []byte("ACK1"), []byte("ARM1")} {
+		if got := demux.Classify(source, payload, time.Unix(1_700_000_000, 0)); got != DatagramDropped {
+			t.Fatalf("reserved payload %q classified as %s, want DROPPED", payload, got)
+		}
+	}
+}
+
+func TestUDPDemuxEvictsExpiredStateAndBoundsPerSourceSessions(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	demux := NewUDPDemuxWithLimits(2, 1, 1, 1, time.Second)
+	first := &net.UDPAddr{IP: net.ParseIP("192.0.2.1"), Port: 1001}
+	secondPort := &net.UDPAddr{IP: net.ParseIP("192.0.2.1"), Port: 1002}
+	other := &net.UDPAddr{IP: net.ParseIP("192.0.2.2"), Port: 1003}
+	if got := demux.Classify(first, []byte("one"), now); got != DatagramData {
+		t.Fatalf("first session = %s, want DATA", got)
+	}
+	if got := demux.Classify(secondPort, []byte("two"), now); got != DatagramDropped {
+		t.Fatalf("same-source churn = %s, want DROPPED", got)
+	}
+	if got := demux.Classify(other, []byte("three"), now); got != DatagramData {
+		t.Fatalf("second source = %s, want DATA", got)
+	}
+	if got := demux.Classify(first, []byte("expired"), now.Add(2*time.Second)); got != DatagramData {
+		t.Fatalf("expired first session = %s, want DATA after eviction", got)
+	}
+	if got := demux.SessionCount(); got != 1 {
+		t.Fatalf("session count after expiry = %d, want 1", got)
+	}
+}
+
+func TestUDPDemuxExpectationStateIsBoundedAndExpires(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	demux := NewUDPDemuxWithLimits(8, 8, 1, 1, time.Second)
+	server := &net.UDPAddr{IP: net.ParseIP("192.0.2.10"), Port: 3478}
+	if err := demux.ExpectSTUN(server, STUNSuccessResponse, [12]byte{1}, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := demux.ExpectSTUN(server, STUNSuccessResponse, [12]byte{2}, now.Add(time.Second)); !errors.Is(err, ErrDemuxStateFull) {
+		t.Fatalf("second STUN expectation error = %v, want ErrDemuxStateFull", err)
+	}
+	demux.Expire(now.Add(2 * time.Second))
+	if err := demux.ExpectSTUN(server, STUNSuccessResponse, [12]byte{2}, now.Add(3*time.Second)); err != nil {
+		t.Fatalf("STUN expectation after expiry: %v", err)
+	}
+}
+
+func TestUDPProbeFixtureRejectsMalformedEndpointInsteadOfPanicking(t *testing.T) {
+	invalid := UDPProbeFields{Endpoint: nil}
+	if payload := EncodeUDPProbeFixture(invalid, []byte("key")); payload != nil {
+		t.Fatal("nil endpoint unexpectedly encoded")
+	}
+	invalid.Endpoint = &net.UDPAddr{IP: net.ParseIP("203.0.113.9"), Port: 0}
+	if payload := EncodeUDPProbeFixture(invalid, []byte("key")); payload != nil {
+		t.Fatal("zero port unexpectedly encoded")
+	}
+	invalid.Endpoint = &net.UDPAddr{IP: net.ParseIP("203.0.113.9"), Port: 3111}
+	if payload := EncodeUDPProbeFixture(invalid, nil); payload != nil {
+		t.Fatal("empty key unexpectedly encoded")
 	}
 }

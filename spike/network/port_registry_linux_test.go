@@ -152,6 +152,75 @@ func TestProcessLockHelper(t *testing.T) {
 	fmt.Println("LOCK_ACQUIRED")
 }
 
+func TestProcessLockRejectsSymlinkWithoutTouchingTarget(t *testing.T) {
+	directory := t.TempDir()
+	target := filepath.Join(directory, "target")
+	path := filepath.Join(directory, "agent.lock")
+	if err := os.WriteFile(target, []byte("must-remain"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AcquireProcessLock(path); err == nil {
+		t.Fatal("symlink lock path unexpectedly acquired")
+	}
+	content, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "must-remain" {
+		t.Fatalf("symlink target changed to %q", content)
+	}
+}
+
+func TestTCPLeaseRetainsRegistryOwnershipWhenListenerCloseFails(t *testing.T) {
+	registry := NewPortRegistry()
+	lease, err := registry.AcquireTCP(context.Background(), "owner", &net.TCPAddr{IP: net.ParseIP("127.0.0.1")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.Listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.Release(); err == nil {
+		t.Fatal("release after external close unexpectedly succeeded")
+	}
+	if got := registry.Len(); got != 1 {
+		t.Fatalf("registry length after close failure = %d, want 1", got)
+	}
+}
+
+func TestProcessLockRecoversAfterAbruptOwnerExit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent.lock")
+	command := exec.Command(os.Args[0], "-test.run=^TestProcessLockCrashHelper$")
+	command.Env = append(os.Environ(), "ANTINAT_P02_LOCK_CRASH_HELPER="+path)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("crash helper: %v\n%s", err, output)
+	}
+	lock, err := AcquireProcessLock(path)
+	if err != nil {
+		t.Fatalf("acquire after abrupt owner exit: %v", err)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProcessLockCrashHelper(t *testing.T) {
+	path := os.Getenv("ANTINAT_P02_LOCK_CRASH_HELPER")
+	if path == "" {
+		t.Skip("subprocess helper")
+	}
+	lock, err := AcquireProcessLock(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprintln(os.Stdout, "LOCK_CRASHED_OWNER")
+	_ = lock
+	os.Exit(0)
+}
+
 func TestPortRegistryConcurrentAcquireHasSingleOwner(t *testing.T) {
 	probe, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.ParseIP("127.0.0.1")})
 	if err != nil {

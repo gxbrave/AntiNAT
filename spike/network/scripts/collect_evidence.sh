@@ -7,8 +7,29 @@ evidence_dir="test/evidence/m0/network"
 raw_dir="$evidence_dir/raw"
 mkdir -p "$raw_dir"
 commit_sha="$(git rev-parse HEAD)"
+tree_sha="$(git rev-parse HEAD^{tree})"
 windows_binary="/tmp/antinat-p02-network-$$.test.exe"
-trap 'rm -f "$windows_binary"' EXIT INT TERM
+
+# Evidence must be bound to a clean source tree. Generated evidence and the
+# untracked handoff are intentionally outside this preflight path set.
+if [[ -n "$(git status --porcelain --untracked-files=all -- spike/network docs/evidence/m0-network-summary.md)" ]]; then
+    echo "source tree is dirty; commit source changes before collecting evidence" >&2
+    exit 1
+fi
+
+# Remove prior generated success records before starting. If any later command
+# fails, the EXIT trap removes the partial run too rather than leaving stale
+# PASS JSON that can be mistaken for the current artifact.
+rm -f "$evidence_dir"/*.json "$raw_dir"/*.log
+cleanup() {
+    status=$?
+    rm -f "$windows_binary"
+    if [[ $status -ne 0 ]]; then
+        rm -f "$evidence_dir"/*.json "$raw_dir"/*.log
+    fi
+    exit "$status"
+}
+trap cleanup EXIT INT TERM
 
 write_record() {
     local filename=$1 result=$2 command=$3 timeout_seconds=$4 started=$5 finished=$6 os_name=$7 summary=$8 raw_path=$9
@@ -47,7 +68,10 @@ run_evidence() {
     local started finished status
     started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     set +e
-    timeout --signal=TERM "${timeout_seconds}s" bash -lc "$command" >"$raw_path" 2>&1
+    {
+        printf 'commit_sha=%s\ntree_sha=%s\nsource_tree_clean=true\n' "$commit_sha" "$tree_sha"
+        timeout --signal=TERM "${timeout_seconds}s" bash -lc "$command"
+    } >"$raw_path" 2>&1
     status=$?
     set -e
     finished="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -59,7 +83,7 @@ run_evidence() {
     write_record "$record" "$result" "$command" "$timeout_seconds" "$started" "$finished" "$os_name" "$summary" "$raw_path" "$@"
 }
 
-python3 - "$evidence_dir/environment.json" "$commit_sha" <<'PY'
+python3 - "$evidence_dir/environment.json" "$commit_sha" "$tree_sha" <<'PY'
 import json
 import platform
 from pathlib import Path
@@ -73,6 +97,8 @@ def output(*command):
 record = {
     "plan": "P02",
     "commit_sha": sys.argv[2],
+    "tree_sha": sys.argv[3],
+    "source_tree_clean": True,
     "owner": "sub-agent-sol",
     "approver": "PENDING_INDEPENDENT_REVIEW",
     "os": platform.platform(),
@@ -92,9 +118,9 @@ Path(sys.argv[1]).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-
 PY
 
 run_evidence \
-    tcp-linux.log tcp-shared-port-linux.json PASS 60 "linux/amd64 native" \
-    "Linux unique listener plus three connected sockets shared one local tuple with deterministic four-tuple routing; baseline conflict, half-close, and exact close/rebind assertions passed." \
-    "go test ./spike/network -run '^TestTCP(Baseline|SharedPort)' -count=1 -v" \
+    tcp-linux.log tcp-shared-port-linux.json SUPPORTED_WITH_LIMITS 60 "linux/amd64 native" \
+    "Linux unique listener plus three connected sockets shared one local tuple with deterministic four-tuple routing; baseline conflict, half-close, exact close/rebind, and process-lock crash-recovery assertions passed. Half-open SYN behavior remains unmeasured." \
+    "go test ./spike/network -run '^TestTCP(Baseline|SharedPort)|TestProcessLockRecoversAfterAbruptOwnerExit$' -count=1 -v" \
     spike/network/tcp_shared_linux.go spike/network/tcp_shared_linux_test.go
 
 windows_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -122,20 +148,20 @@ write_record tcp-shared-port-windows.json SUPPORTED_WITH_LIMITS "$windows_comman
 
 run_evidence \
     port-registry.log port-registry.json SUPPORTED_WITH_LIMITS 60 "linux/amd64 native" \
-    "Linux socket-owning acquire, port 0, wildcard overlap, stale release, concurrent owner, reuse-group interference, and process lock assertions passed; no native Windows process-lock evidence exists." \
-    "go test ./spike/network -run '^(TestPortRegistry|TestBindProbeClose|TestProcessLockBlocks|TestSecondProcess)' -count=1 -v" \
+    "Linux socket-owning acquire, port 0, wildcard overlap, stale release, concurrent owner, reuse-group interference, symlink rejection, abrupt-owner recovery, listener-close ownership retention, and process lock assertions passed; no native Windows process-lock evidence exists." \
+    "go test ./spike/network -run '^(TestPortRegistry|TestBindProbeClose|TestProcessLock|TestSecondProcess)' -count=1 -v" \
     spike/network/port_registry_linux.go spike/network/process_lock_linux.go
 
 run_evidence \
     udp-linux.log udp-single-socket.json SUPPORTED_WITH_LIMITS 60 "linux/amd64 native" \
-    "Linux one-socket STUN/probe/data demux, bounded sessions, exact-source target reply, replay rejection, truncation survival, and post-ICMP receive assertions passed; native Windows SIO_UDP_CONNRESET gate is pending." \
-    "go test ./spike/network -run '^(TestUDPDemux|TestSingleUDPSocket)' -count=1 -v" \
+    "Linux one-socket STUN/probe/data demux, bounded expectations and sessions, per-source churn limits, exact-source target reply, replay rejection, malformed-reserved-frame drops, truncation survival, kernel connected-UDP ICMP delivery, unconnected ingress survival, and provider-hidden challenge integration passed; native Windows SIO_UDP_CONNRESET gate is pending." \
+    "go test ./spike/network -run '^(TestUDPDemux|TestSingleUDPSocket|TestLinuxConnectedUDP)' -count=1 -v" \
     spike/network/udp_demux.go spike/network/udp_socket_linux.go spike/network/udp_socket_windows_test.go
 
 run_evidence \
     hidden-challenge.log hidden-challenge.json PASS 60 "linux/amd64 native localhost transport fixture" \
-    "Arm/armed, provider-hidden challenge, Ed25519 WAN frame, same-path TCP/UDP ACK, signed control receipt, replay/TTL/binding rejection, generic scanner result, and attempt budget assertions passed." \
-    "go test ./spike/network -run '^(TestHiddenChallenge|TestControlOnly)' -count=1 -v" \
+    "Arm/armed, provider-hidden challenge with arm-only ingress secrecy, bounded Ed25519 frame parser, integrated one-socket UDP classification, same-path ACK, signed control receipt, replay/TTL/binding rejection, generic malformed-frame result, invalid-auth attempt preservation, and bounded state assertions passed." \
+    "go test ./spike/network -run '^(TestHiddenChallenge|TestControlOnly|TestProviderFrame|TestProbeArm|TestReadProviderFrame|TestProbeAgent)' -count=1 -v" \
     spike/network/hidden_probe.go spike/network/hidden_probe_test.go
 
 run_evidence \

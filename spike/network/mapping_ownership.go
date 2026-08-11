@@ -34,7 +34,29 @@ func ClassifyPublication(mapping MappingState, wan WANState) PublicationState {
 	return PublicationUnverified
 }
 
+type LayeredObservation struct {
+	FirstHopTuple string
+	UpstreamTuple string
+	UpstreamOpen  bool
+}
+
+// ClassifyLayeredObservation is the positive/negative decision pipeline used
+// by the fixture: a first-hop tuple alone is never enough for publication.
+func ClassifyLayeredObservation(observation LayeredObservation) (MappingState, WANState, PublicationState, error) {
+	if observation.FirstHopTuple == "" || observation.UpstreamTuple == "" || observation.FirstHopTuple == observation.UpstreamTuple {
+		return MappingFirstHop, WANNotTested, PublicationNone, ErrInvalidLayeredObservation
+	}
+	wan := WANNotTested
+	mapping := MappingFirstHop
+	if observation.UpstreamOpen {
+		wan = WANOpenFromVantage
+		mapping = MappingPublicCandidate
+	}
+	return mapping, wan, ClassifyPublication(mapping, wan), nil
+}
+
 var ErrNATPMPDeleteAllForbidden = errors.New("NAT-PMP internal port 0 delete-all is forbidden")
+var ErrInvalidLayeredObservation = errors.New("layered observation requires distinct non-empty tuples")
 
 func ValidateNATPMPDelete(internalPort uint16) error {
 	if internalPort == 0 {

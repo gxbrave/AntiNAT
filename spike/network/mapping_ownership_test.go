@@ -62,3 +62,23 @@ func TestMappingOwnershipStrengthIsProtocolSpecific(t *testing.T) {
 		t.Fatalf("UPnP ownership = %s", got)
 	}
 }
+
+func TestLayeredObservationRequiresUpstreamOpenForVerifiedPublication(t *testing.T) {
+	mapping, wan, publication, err := ClassifyLayeredObservation(LayeredObservation{FirstHopTuple: "100.64.0.2:3111", UpstreamTuple: "11.0.0.2:42000"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mapping != MappingFirstHop || wan != WANNotTested || publication != PublicationNone {
+		t.Fatalf("closed upstream observation = %s/%s/%s", mapping, wan, publication)
+	}
+	mapping, wan, publication, err = ClassifyLayeredObservation(LayeredObservation{FirstHopTuple: "100.64.0.2:3111", UpstreamTuple: "11.0.0.2:42000", UpstreamOpen: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mapping != MappingPublicCandidate || wan != WANOpenFromVantage || publication != PublicationVerified {
+		t.Fatalf("open upstream observation = %s/%s/%s", mapping, wan, publication)
+	}
+	if _, _, _, err := ClassifyLayeredObservation(LayeredObservation{FirstHopTuple: "same", UpstreamTuple: "same", UpstreamOpen: true}); !errors.Is(err, ErrInvalidLayeredObservation) {
+		t.Fatalf("same tuple error = %v, want ErrInvalidLayeredObservation", err)
+	}
+}

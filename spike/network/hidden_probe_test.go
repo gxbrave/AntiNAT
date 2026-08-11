@@ -5,9 +5,11 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 )
@@ -153,8 +155,8 @@ func TestHiddenChallengeRejectsReplayAndBoundsScannerAttempts(t *testing.T) {
 			t.Fatalf("scanner attempt %d = %s, want REJECTED", attempt, outcome)
 		}
 	}
-	if outcome, _, _ := limitedAgent.HandleIngress(arm.ExpectedSourceIP, frame, now); outcome != ProbeRejected {
-		t.Fatalf("over-budget valid frame = %s, want REJECTED", outcome)
+	if outcome, _, _ := limitedAgent.HandleIngress(arm.ExpectedSourceIP, frame, now); outcome != ProbeAccepted {
+		t.Fatalf("authenticated ingress after invalid source flood = %s, want ACCEPTED", outcome)
 	}
 }
 
@@ -338,5 +340,174 @@ func TestHiddenChallengeUDPACKReturnsFromPublishedTuple(t *testing.T) {
 		if !VerifyProbeCompletion(nodePublic, arm, frame, ack, receipt) {
 			t.Fatal("UDP same-path ACK and control receipt failed verification")
 		}
+	}
+}
+
+func TestHiddenChallengeInvalidIngressDoesNotExhaustAuthenticatedAttemptBudget(t *testing.T) {
+	providerPublic, providerPrivate, _ := ed25519.GenerateKey(rand.Reader)
+	_, nodePrivate, _ := ed25519.GenerateKey(rand.Reader)
+	now := time.Unix(1_700_000_000, 0)
+	arm := ProbeArm{ProbeID: [16]byte{7}, ProviderID: [16]byte{8}, ProviderPublicKey: providerPublic,
+		ExpectedSourceIP: [4]byte{198, 51, 100, 20}, Activation: [16]byte{9},
+		Endpoint: "203.0.113.9:3111", TTL: time.Second, ExpiryOpaque: [16]byte{10}}
+	agent := NewProbeAgent(nodePrivate, 1)
+	if _, err := agent.Arm(arm, now); err != nil {
+		t.Fatal(err)
+	}
+	frame, err := SignProviderFrame(providerPrivate, arm, [32]byte{11})
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame.Signature[0] ^= 0xff
+	for attempt := 0; attempt < 100; attempt++ {
+		if outcome, _, _ := agent.HandleIngress([4]byte{203, 0, 113, 99}, frame, now); outcome != ProbeRejected {
+			t.Fatalf("invalid ingress %d outcome = %s, want REJECTED", attempt, outcome)
+		}
+	}
+	frame, err = SignProviderFrame(providerPrivate, arm, [32]byte{11})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome, _, _ := agent.HandleIngress(arm.ExpectedSourceIP, frame, now); outcome != ProbeAccepted {
+		t.Fatalf("authenticated ingress after invalid flood = %s, want ACCEPTED", outcome)
+	}
+}
+
+func TestHiddenChallengeDuplicateArmIsIdempotentAndCompletedProbeCannotRearm(t *testing.T) {
+	providerPublic, providerPrivate, _ := ed25519.GenerateKey(rand.Reader)
+	_, nodePrivate, _ := ed25519.GenerateKey(rand.Reader)
+	now := time.Unix(1_700_000_000, 0)
+	arm := ProbeArm{ProbeID: [16]byte{12}, ProviderID: [16]byte{13}, ProviderPublicKey: providerPublic,
+		ExpectedSourceIP: [4]byte{198, 51, 100, 20}, Activation: [16]byte{14},
+		Endpoint: "203.0.113.9:3111", TTL: time.Second, ExpiryOpaque: [16]byte{15}}
+	agent := NewProbeAgent(nodePrivate, 2)
+	first, err := agent.Arm(arm, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := agent.Arm(arm, now.Add(900*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ArmDigest != second.ArmDigest {
+		t.Fatal("duplicate arm changed its digest")
+	}
+	frame, err := SignProviderFrame(providerPrivate, arm, [32]byte{16})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome, _, _ := agent.HandleIngress(arm.ExpectedSourceIP, frame, now.Add(1100*time.Millisecond)); outcome != ProbeRejected {
+		t.Fatal("duplicate arm unexpectedly extended the original deadline")
+	}
+	if _, err := agent.Arm(arm, now.Add(1200*time.Millisecond)); !errors.Is(err, ErrProbeReplay) {
+		t.Fatalf("completed probe re-arm error = %v, want ErrProbeReplay", err)
+	}
+}
+
+func TestProbeAgentConcurrentArmAndIngressIsRaceFree(t *testing.T) {
+	providerPublic, providerPrivate, _ := ed25519.GenerateKey(rand.Reader)
+	_, nodePrivate, _ := ed25519.GenerateKey(rand.Reader)
+	now := time.Unix(1_700_000_000, 0)
+	agent := NewProbeAgent(nodePrivate, 4)
+	var wait sync.WaitGroup
+	for index := 0; index < 32; index++ {
+		probeID := [16]byte{byte(index + 1)}
+		arm := ProbeArm{ProbeID: probeID, ProviderID: [16]byte{2}, ProviderPublicKey: providerPublic,
+			ExpectedSourceIP: [4]byte{198, 51, 100, 20}, Activation: [16]byte{3},
+			Endpoint: "203.0.113.9:3111", TTL: time.Second, ExpiryOpaque: [16]byte{4}}
+		frame, err := SignProviderFrame(providerPrivate, arm, [32]byte{byte(index)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		wait.Add(2)
+		go func() {
+			defer wait.Done()
+			_, _ = agent.Arm(arm, now)
+		}()
+		go func() {
+			defer wait.Done()
+			_, _, _ = agent.HandleIngress(arm.ExpectedSourceIP, frame, now)
+		}()
+	}
+	wait.Wait()
+}
+
+func TestProviderFrameParserRejectsMalformedWireAndValidatesEndpoint(t *testing.T) {
+	providerPublic, providerPrivate, _ := ed25519.GenerateKey(rand.Reader)
+	arm := ProbeArm{ProbeID: [16]byte{17}, ProviderID: [16]byte{18}, ProviderPublicKey: providerPublic,
+		ExpectedSourceIP: [4]byte{198, 51, 100, 20}, Activation: [16]byte{19},
+		Endpoint: "203.0.113.9:3111", TTL: time.Second, ExpiryOpaque: [16]byte{20}}
+	frame, err := SignProviderFrame(providerPrivate, arm, [32]byte{21})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseProviderFrame(frame.MarshalBinary())
+	if err != nil || parsed.Endpoint != arm.Endpoint {
+		t.Fatalf("valid frame parse = %+v, %v", parsed, err)
+	}
+	wire := frame.MarshalBinary()
+	if _, err := ParseProviderFrame(wire[:len(wire)-1]); err == nil {
+		t.Fatal("truncated provider frame unexpectedly parsed")
+	}
+	frame.Endpoint = "203.0.113.9:0"
+	if _, err := ParseProviderFrame(frame.MarshalBinary()); err == nil {
+		t.Fatal("invalid endpoint port unexpectedly parsed")
+	}
+}
+
+func TestProbeArmRejectsMalformedEd25519KeyAndEndpoint(t *testing.T) {
+	bad := ProbeArm{ProviderPublicKey: ed25519.PublicKey{1}, Endpoint: "203.0.113.9:3111", TTL: time.Second}
+	if _, err := bad.MarshalBinary(); err == nil {
+		t.Fatal("malformed provider key unexpectedly marshaled")
+	}
+	bad.ProviderPublicKey = make(ed25519.PublicKey, ed25519.PublicKeySize)
+	bad.Endpoint = "203.0.113.9:0"
+	if _, err := bad.MarshalBinary(); err == nil {
+		t.Fatal("zero endpoint port unexpectedly marshaled")
+	}
+}
+
+func TestReadProviderFrameRejectsSlowPartialIngress(t *testing.T) {
+	reader, writer := net.Pipe()
+	defer reader.Close()
+	defer writer.Close()
+	providerPublic, providerPrivate, _ := ed25519.GenerateKey(rand.Reader)
+	arm := ProbeArm{ProbeID: [16]byte{22}, ProviderID: [16]byte{23}, ProviderPublicKey: providerPublic,
+		ExpectedSourceIP: [4]byte{127, 0, 0, 1}, Activation: [16]byte{24},
+		Endpoint: "203.0.113.9:3111", TTL: time.Second, ExpiryOpaque: [16]byte{25}}
+	frame, err := SignProviderFrame(providerPrivate, arm, [32]byte{26})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		wire := frame.MarshalBinary()
+		_, _ = writer.Write(wire[:20])
+	}()
+	if _, err := ReadProviderFrame(reader, providerFrameMax, time.Now().Add(20*time.Millisecond)); err == nil {
+		t.Fatal("slow partial provider frame unexpectedly parsed")
+	}
+}
+
+func TestProbeAgentBoundsOutstandingAndReplayState(t *testing.T) {
+	providerPublic, _, _ := ed25519.GenerateKey(rand.Reader)
+	_, nodePrivate, _ := ed25519.GenerateKey(rand.Reader)
+	now := time.Unix(1_700_000_000, 0)
+	agent := NewProbeAgentWithLimits(nodePrivate, 1, 2, 2)
+	makeArm := func(id byte) ProbeArm {
+		return ProbeArm{ProbeID: [16]byte{id}, ProviderID: [16]byte{40}, ProviderPublicKey: providerPublic,
+			ExpectedSourceIP: [4]byte{127, 0, 0, 1}, Activation: [16]byte{41}, Endpoint: "203.0.113.9:3111",
+			TTL: time.Second, ExpiryOpaque: [16]byte{42}}
+	}
+	if _, err := agent.Arm(makeArm(43), now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := agent.Arm(makeArm(44), now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := agent.Arm(makeArm(45), now); !errors.Is(err, ErrProbeStateFull) {
+		t.Fatalf("third outstanding arm error = %v, want ErrProbeStateFull", err)
+	}
+	if _, err := agent.Arm(makeArm(45), now.Add(2*time.Second)); err != nil {
+		t.Fatalf("arm after expired-state eviction: %v", err)
 	}
 }

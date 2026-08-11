@@ -4,8 +4,12 @@ package network
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"net"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -143,6 +147,33 @@ func TestSingleUDPSocketContinuesAfterCorrelatedICMPPortUnreachable(t *testing.T
 	}
 }
 
+func TestLinuxConnectedUDPReceivesICMPPortUnreachable(t *testing.T) {
+	closedSocket, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
+	if err != nil {
+		t.Fatalf("allocate closed destination: %v", err)
+	}
+	closedAddress := closedSocket.LocalAddr().(*net.UDPAddr)
+	if err := closedSocket.Close(); err != nil {
+		t.Fatal(err)
+	}
+	connection, err := net.DialUDP("udp4", nil, closedAddress)
+	if err != nil {
+		t.Fatalf("connect UDP probe: %v", err)
+	}
+	defer connection.Close()
+	if _, err := connection.Write([]byte("icmp-proof")); err != nil {
+		t.Fatalf("write ICMP probe: %v", err)
+	}
+	if err := connection.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	buffer := make([]byte, 32)
+	_, err = connection.Read(buffer)
+	if !errors.Is(err, syscall.ECONNREFUSED) {
+		t.Fatalf("connected UDP read error = %v, want ECONNREFUSED", err)
+	}
+}
+
 func TestSingleUDPSocketDemuxesSTUNProbeAndData(t *testing.T) {
 	ingress, err := OpenSingleUDPSocket(&net.UDPAddr{IP: net.ParseIP("127.0.0.1")}, 512, 8)
 	if err != nil {
@@ -195,5 +226,60 @@ func assertNextDatagramKind(t *testing.T, ingress *SingleUDPSocket, deadline tim
 	}
 	if datagram.Kind != want {
 		t.Fatalf("datagram kind = %s, want %s", datagram.Kind, want)
+	}
+}
+
+func TestSingleUDPSocketIntegratesProviderHiddenChallengeIngress(t *testing.T) {
+	ingress, err := OpenSingleUDPSocket(&net.UDPAddr{IP: net.ParseIP("127.0.0.1")}, 1024, 8)
+	if err != nil {
+		t.Fatalf("open ingress: %v", err)
+	}
+	defer ingress.Close()
+	provider, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
+	if err != nil {
+		t.Fatalf("open provider: %v", err)
+	}
+	defer provider.Close()
+	providerPublic, providerPrivate, _ := ed25519.GenerateKey(rand.Reader)
+	nodePublic, nodePrivate, _ := ed25519.GenerateKey(rand.Reader)
+	now := time.Now()
+	arm := ProbeArm{ProbeID: [16]byte{31}, ProviderID: [16]byte{32}, ProviderPublicKey: providerPublic,
+		ExpectedSourceIP: [4]byte{127, 0, 0, 1}, Activation: [16]byte{33}, Endpoint: ingress.LocalAddr().String(),
+		TTL: 2 * time.Second, ExpiryOpaque: [16]byte{34}}
+	agent := NewProbeAgent(nodePrivate, 2)
+	if _, err := agent.Arm(arm, now); err != nil {
+		t.Fatal(err)
+	}
+	ingress.AttachProbeAgent(agent)
+	frame, err := SignProviderFrame(providerPrivate, arm, [32]byte{35})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.WriteToUDP(frame.MarshalBinary(), ingress.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+	datagram, err := ingress.ReadOne(time.Now().Add(2 * time.Second))
+	if err != nil {
+		t.Fatalf("read provider frame: %v", err)
+	}
+	if datagram.Kind != DatagramProbe || len(datagram.Response) == 0 || datagram.Receipt == nil {
+		t.Fatalf("integrated provider datagram = kind %s response=%d receipt=%v", datagram.Kind, len(datagram.Response), datagram.Receipt != nil)
+	}
+	if err := ingress.WriteResponse(datagram); err != nil {
+		t.Fatalf("write same-path ACK: %v", err)
+	}
+	provider.SetReadDeadline(time.Now().Add(2 * time.Second))
+	ackBytes := make([]byte, len(datagram.Response))
+	n, source, err := provider.ReadFromUDP(ackBytes)
+	if err != nil {
+		t.Fatalf("read same-path ACK: %v", err)
+	}
+	if source.String() != ingress.LocalAddr().String() || n != len(datagram.Response) {
+		t.Fatalf("ACK source/length = %s/%d, want %s/%d", source, n, ingress.LocalAddr(), len(datagram.Response))
+	}
+	challengeHash := sha256.Sum256(frame.Challenge[:])
+	ack := ProbeACK{ArmDigest: frame.ArmDigest, ChallengeHash: challengeHash, Signature: append([]byte(nil), ackBytes[len((ProbeACK{}).signingBytes()):]...)}
+	if !VerifyProbeCompletion(nodePublic, arm, frame, ack, *datagram.Receipt) {
+		t.Fatal("integrated UDP hidden challenge did not verify")
 	}
 }
