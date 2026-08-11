@@ -1,3 +1,6 @@
+commit_sha=c0bf1b2a0045dcb7a140f15d4bcf42187c3bbd16
+tree_sha=c3de0a33d887877458cf873fe2c9a30ef74a7029
+source_tree_clean=true
 === RUN   TestHiddenChallengeRequiresWANIngressBeforeAuthenticatedCompletion
 --- PASS: TestHiddenChallengeRequiresWANIngressBeforeAuthenticatedCompletion (0.00s)
 === RUN   TestHiddenChallengeUsesOneGenericRejectionForInvalidIngress
@@ -22,7 +25,21 @@
 --- PASS: TestHiddenChallengeTCPACKReturnsOnIngressConnection (0.00s)
 === RUN   TestHiddenChallengeUDPACKReturnsFromPublishedTuple
 --- PASS: TestHiddenChallengeUDPACKReturnsFromPublishedTuple (0.00s)
+=== RUN   TestHiddenChallengeInvalidIngressDoesNotExhaustAuthenticatedAttemptBudget
+--- PASS: TestHiddenChallengeInvalidIngressDoesNotExhaustAuthenticatedAttemptBudget (0.00s)
+=== RUN   TestHiddenChallengeDuplicateArmIsIdempotentAndCompletedProbeCannotRearm
+--- PASS: TestHiddenChallengeDuplicateArmIsIdempotentAndCompletedProbeCannotRearm (0.00s)
+=== RUN   TestProbeAgentConcurrentArmAndIngressIsRaceFree
+--- PASS: TestProbeAgentConcurrentArmAndIngressIsRaceFree (0.01s)
+=== RUN   TestProviderFrameParserRejectsMalformedWireAndValidatesEndpoint
+--- PASS: TestProviderFrameParserRejectsMalformedWireAndValidatesEndpoint (0.00s)
+=== RUN   TestProbeArmRejectsMalformedEd25519KeyAndEndpoint
+--- PASS: TestProbeArmRejectsMalformedEd25519KeyAndEndpoint (0.00s)
+=== RUN   TestReadProviderFrameRejectsSlowPartialIngress
+--- PASS: TestReadProviderFrameRejectsSlowPartialIngress (0.02s)
+=== RUN   TestProbeAgentBoundsOutstandingAndReplayState
+--- PASS: TestProbeAgentBoundsOutstandingAndReplayState (0.00s)
 PASS
-ok  	github.com/gxbrave/AntiNAT/spike/network	0.008s
+ok  	github.com/gxbrave/AntiNAT/spike/network	0.036s
 
 exit_code=0

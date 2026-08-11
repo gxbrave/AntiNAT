@@ -1,3 +1,6 @@
+commit_sha=c0bf1b2a0045dcb7a140f15d4bcf42187c3bbd16
+tree_sha=c3de0a33d887877458cf873fe2c9a30ef74a7029
+source_tree_clean=true
 === RUN   TestLayeredNATWithRealUPnPDaemonAndUpstreamSTUN
     layered_nat_netns_test.go:34: layered NAT lab assertions:
         TOPOLOGY=CPE_TO_CGN
@@ -5,10 +8,10 @@
         UPNP_MAPPING=BLOCKED_RESTRICTIVE_CGN
         UPSTREAM_STUN=coturn
         FIRST_HOP=100.64.0.2
-        STUN_OBSERVED=11.0.0.2:34256
+        STUN_OBSERVED=11.0.0.2:41175
         LAYERED_ENDPOINTS_DIFFER=PASS
---- PASS: TestLayeredNATWithRealUPnPDaemonAndUpstreamSTUN (8.45s)
+--- PASS: TestLayeredNATWithRealUPnPDaemonAndUpstreamSTUN (8.46s)
 PASS
-ok  	github.com/gxbrave/AntiNAT/spike/network	8.453s
+ok  	github.com/gxbrave/AntiNAT/spike/network	8.460s
 
 exit_code=0

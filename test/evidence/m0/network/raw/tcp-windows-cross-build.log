@@ -1,5 +1,8 @@
-cross_build_bytes=5572608
-47bbda6fe2574c1979ea3941be0611b00522ee20aaf9496058db12ac31fe81bf  /tmp/antinat-p02-network-277660.test.exe
+commit_sha=c0bf1b2a0045dcb7a140f15d4bcf42187c3bbd16
+tree_sha=c3de0a33d887877458cf873fe2c9a30ef74a7029
+source_tree_clean=true
+cross_build_bytes=5640704
+2f34022b0ef46038a527f0421a9d70dd24a7e53d82c3225820a0c474452e8576  /tmp/antinat-p02-network-407286.test.exe
 native_execution=false
 native_windows_host=unavailable
 exit_code=0

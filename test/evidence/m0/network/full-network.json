@@ -1,14 +1,14 @@
 {
   "schema_version": "antinat.evidence/v1",
   "plan": "P02",
-  "commit_sha": "6c7a223aa6950cd3c5ddeca23abf2c2626207a66",
+  "commit_sha": "c0bf1b2a0045dcb7a140f15d4bcf42187c3bbd16",
   "command": "go test ./spike/network/... -count=1 -v",
   "result": "SUPPORTED_WITH_LIMITS",
-  "artifact_digest": "sha256:3d296a9f7a064f3da3fa3232d07e9d5585b67dd69c519474e6ce3b2a3cb5473c",
+  "artifact_digest": "sha256:bdb527c5fdfb36a816e1e941b9639170fc96dd8df1701b13108cd9f4c63696d3",
   "os": "linux/amd64 native",
   "timeout": 120,
-  "started_at": "2026-08-09T16:32:38Z",
-  "finished_at": "2026-08-09T16:32:39Z",
+  "started_at": "2026-08-11T00:42:54Z",
+  "finished_at": "2026-08-11T00:42:55Z",
   "summary": "All non-privileged P02 network spike tests passed together; platform and real-CPE limits remain classified by individual records.",
   "evidence_paths": [
     "test/evidence/m0/network/raw/full-network.log",

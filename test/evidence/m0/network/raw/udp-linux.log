@@ -1,3 +1,6 @@
+commit_sha=c0bf1b2a0045dcb7a140f15d4bcf42187c3bbd16
+tree_sha=c3de0a33d887877458cf873fe2c9a30ef74a7029
+source_tree_clean=true
 === RUN   TestUDPDemuxConsumesSTUNOnlyForFullOutstandingMatch
 === RUN   TestUDPDemuxConsumesSTUNOnlyForFullOutstandingMatch/exact
 === RUN   TestUDPDemuxConsumesSTUNOnlyForFullOutstandingMatch/wrong_source
@@ -34,15 +37,25 @@
 --- PASS: TestUDPDemuxRejectsProbeReplayAfterOutstandingMatchIsConsumed (0.00s)
 === RUN   TestUDPDemuxBoundsNewDataSessions
 --- PASS: TestUDPDemuxBoundsNewDataSessions (0.00s)
+=== RUN   TestUDPDemuxDoesNotRouteMalformedReservedFramesAsData
+--- PASS: TestUDPDemuxDoesNotRouteMalformedReservedFramesAsData (0.00s)
+=== RUN   TestUDPDemuxEvictsExpiredStateAndBoundsPerSourceSessions
+--- PASS: TestUDPDemuxEvictsExpiredStateAndBoundsPerSourceSessions (0.00s)
+=== RUN   TestUDPDemuxExpectationStateIsBoundedAndExpires
+--- PASS: TestUDPDemuxExpectationStateIsBoundedAndExpires (0.00s)
 === RUN   TestSingleUDPSocketForwardsTargetResponseFromPublishedTuple
 --- PASS: TestSingleUDPSocketForwardsTargetResponseFromPublishedTuple (0.00s)
 === RUN   TestSingleUDPSocketDropsTruncatedDatagramAndContinues
 --- PASS: TestSingleUDPSocketDropsTruncatedDatagramAndContinues (0.00s)
 === RUN   TestSingleUDPSocketContinuesAfterCorrelatedICMPPortUnreachable
 --- PASS: TestSingleUDPSocketContinuesAfterCorrelatedICMPPortUnreachable (0.02s)
+=== RUN   TestLinuxConnectedUDPReceivesICMPPortUnreachable
+--- PASS: TestLinuxConnectedUDPReceivesICMPPortUnreachable (0.00s)
 === RUN   TestSingleUDPSocketDemuxesSTUNProbeAndData
 --- PASS: TestSingleUDPSocketDemuxesSTUNProbeAndData (0.00s)
+=== RUN   TestSingleUDPSocketIntegratesProviderHiddenChallengeIngress
+--- PASS: TestSingleUDPSocketIntegratesProviderHiddenChallengeIngress (0.00s)
 PASS
-ok  	github.com/gxbrave/AntiNAT/spike/network	0.023s
+ok  	github.com/gxbrave/AntiNAT/spike/network	0.026s
 
 exit_code=0

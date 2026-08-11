@@ -1,14 +1,14 @@
 {
   "schema_version": "antinat.evidence/v1",
   "plan": "P02",
-  "commit_sha": "6c7a223aa6950cd3c5ddeca23abf2c2626207a66",
+  "commit_sha": "c0bf1b2a0045dcb7a140f15d4bcf42187c3bbd16",
   "command": "go test ./spike/network -run '^(TestFirstHop|TestNATPMP|TestUPnP|TestMappingOwnership)' -count=1 -v",
   "result": "SUPPORTED_WITH_LIMITS",
-  "artifact_digest": "sha256:b29480d9facc03775055113e1476c9456af707f958aadffd97db2841aa01a64e",
+  "artifact_digest": "sha256:e3f0c5114bac36b0375edefae63bc25068af6e6f4ed36300bc15c3e685f2671a",
   "os": "platform-independent fixture on linux/amd64",
   "timeout": 60,
-  "started_at": "2026-08-09T16:32:30Z",
-  "finished_at": "2026-08-09T16:32:30Z",
+  "started_at": "2026-08-11T00:42:45Z",
+  "finished_at": "2026-08-11T00:42:46Z",
   "summary": "FIRST_HOP publication guard, NAT-PMP port-zero delete rejection, exact UPnP query-before-delete match, and protocol-specific ownership assertions passed; no real CPE delete was attempted.",
   "evidence_paths": [
     "test/evidence/m0/network/raw/mapping-ownership.log",
