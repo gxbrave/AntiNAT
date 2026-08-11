@@ -1,0 +1,1342 @@
+openapi: 3.0.3
+info:
+  title: AntiNAT Controller API
+  version: 1.0.0-beta
+  description: >
+    Frozen AntiNAT v1.0-beta management API. All resource modifications use
+    ETag/If-Match; missing precondition returns 428, revision mismatch 412,
+    and port/state conflict 409. Creates accept a durable Idempotency-Key.
+    Error responses use the registry in docs/error-codes.md.
+servers:
+  - url: /
+tags:
+  - name: health
+  - name: auth
+  - name: nodes
+  - name: forwards
+  - name: navigation
+  - name: hooks
+  - name: observability
+  - name: settings
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      operationId: getHealthz
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Service is alive
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Healthz" }
+  /readyz:
+    get:
+      tags: [health]
+      operationId: getReadyz
+      summary: Readiness probe
+      responses:
+        "200":
+          description: Service is ready
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Readyz" }
+        "503":
+          description: Service not ready
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Authenticate an administrator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Session created
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthSession" }
+        "400":
+          description: Malformed or invalid credentials body
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429":
+          description: Login rate limit exceeded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: End the current session
+      responses:
+        "204":
+          description: Session ended
+  /api/v1/auth/me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      summary: Current administrator
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "403":
+          description: Authenticated but not permitted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/v1/nodes:
+    get:
+      tags: [nodes]
+      operationId: listNodes
+      summary: List nodes
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/PageParam" }
+        - { $ref: "#/components/parameters/PageSizeParam" }
+        - { $ref: "#/components/parameters/SortParam" }
+        - { $ref: "#/components/parameters/FilterParam" }
+      responses:
+        "200":
+          description: Page of nodes
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NodePage" }
+    post:
+      tags: [nodes]
+      operationId: createNode
+      summary: Create a node
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKeyHeader" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NodeCreate" }
+      responses:
+        "201":
+          description: Node created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Node" }
+        "400":
+          description: Malformed request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Idempotency-key conflict or duplicate
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "413":
+          description: Request body too large
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429":
+          description: Per-principal rate limit exceeded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "500":
+          description: Unexpected server error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/v1/nodes/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/NodeIdParam" }
+    patch:
+      tags: [nodes]
+      operationId: updateNode
+      summary: Update a node
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/IfMatchHeader" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NodePatch" }
+      responses:
+        "200":
+          description: Node updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Node" }
+        "412":
+          description: ETag/revision mismatch
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "428":
+          description: ETag/If-Match required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/v1/nodes/{id}/enrollment-token:
+    post:
+      tags: [nodes]
+      operationId: createEnrollmentToken
+      summary: Issue a single-use enrollment token for a node
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/NodeIdParam" }
+      responses:
+        "201":
+          description: Token issued (shown once)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnrollmentToken" }
+  /api/v1/nodes/{id}/traversal-detection:
+    post:
+      tags: [nodes]
+      operationId: runTraversalDetection
+      summary: Run sequential/bounded-parallel capability detection
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/NodeIdParam" }
+      responses:
+        "202":
+          description: Detection started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Operation" }
+  /api/v1/nodes/{id}/traversal-defaults:
+    put:
+      tags: [nodes]
+      operationId: setTraversalDefaults
+      summary: Set TCP/UDP default traversal strategies
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/NodeIdParam" }
+        - { $ref: "#/components/parameters/IfMatchHeader" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TraversalDefaults" }
+      responses:
+        "200":
+          description: Defaults saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Node" }
+        "412":
+          description: ETag/revision mismatch
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "428":
+          description: ETag/If-Match required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/v1/nodes/{id}/delete:
+    post:
+      tags: [nodes]
+      operationId: deleteNode
+      summary: Normal or force delete of a node
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/NodeIdParam" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NodeDeleteRequest" }
+      responses:
+        "202":
+          description: Deletion operation accepted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Operation" }
+  /api/v1/node-deletions/{operation_id}:
+    get:
+      tags: [nodes]
+      operationId: getNodeDeletion
+      summary: Poll a node deletion operation
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/OperationIdParam" }
+      responses:
+        "200":
+          description: Operation state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Operation" }
+        "404":
+          description: Unknown operation
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/v1/forwards:
+    get:
+      tags: [forwards]
+      operationId: listForwards
+      summary: List forwards
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/PageParam" }
+        - { $ref: "#/components/parameters/PageSizeParam" }
+        - { $ref: "#/components/parameters/SortParam" }
+        - { $ref: "#/components/parameters/FilterParam" }
+      responses:
+        "200":
+          description: Page of forwards
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ForwardPage" }
+    post:
+      tags: [forwards]
+      operationId: createForward
+      summary: Create a forward
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKeyHeader" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ForwardCreate" }
+      responses:
+        "201":
+          description: Forward created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Forward" }
+        "409":
+          description: Port/state conflict
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/v1/forwards/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/ForwardIdParam" }
+    patch:
+      tags: [forwards]
+      operationId: updateForward
+      summary: Update a forward (target hot update, revision-bumped)
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/IfMatchHeader" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ForwardPatch" }
+      responses:
+        "200":
+          description: Forward updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Forward" }
+        "412":
+          description: ETag/revision mismatch
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "428":
+          description: ETag/If-Match required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      tags: [forwards]
+      operationId: deleteForward
+      summary: Online delete (immediate disconnect) or offline pending delete
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/ForwardIdParam" }
+        - { $ref: "#/components/parameters/IfMatchHeader" }
+      responses:
+        "202":
+          description: Deletion operation accepted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Operation" }
+        "412":
+          description: ETag/revision mismatch
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "428":
+          description: ETag/If-Match required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/v1/forward-deletions/{operation_id}:
+    get:
+      tags: [forwards]
+      operationId: getForwardDeletion
+      summary: Poll a forward deletion operation
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/OperationIdParam" }
+      responses:
+        "200":
+          description: Operation state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Operation" }
+        "404":
+          description: Unknown operation
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/v1/forwards/{id}/retry:
+    post:
+      tags: [forwards]
+      operationId: retryForward
+      summary: Re-issue the desired state for a forward
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/ForwardIdParam" }
+      responses:
+        "202":
+          description: Retry accepted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Operation" }
+  /api/v1/forwards/{id}/force-publish:
+    post:
+      tags: [forwards]
+      operationId: forcePublish
+      summary: Publish an unverified endpoint with an explicit audit event
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/ForwardIdParam" }
+        - { $ref: "#/components/parameters/IfMatchHeader" }
+      responses:
+        "200":
+          description: Published as PUBLISHED_UNVERIFIED
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Forward" }
+        "428":
+          description: ETag/If-Match required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/v1/forwards/{id}/force-cutover:
+    post:
+      tags: [forwards]
+      operationId: forceCutover
+      summary: Immediately activate a replacement activation and cut over
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/ForwardIdParam" }
+        - { $ref: "#/components/parameters/IfMatchHeader" }
+      responses:
+        "200":
+          description: Cutover accepted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Forward" }
+        "428":
+          description: ETag/If-Match required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "501":
+          description: Capability not implemented in this build
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/v1/navigation/categories:
+    get:
+      tags: [navigation]
+      operationId: listNavigationCategories
+      summary: List navigation categories in order
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Categories
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/NavigationCategory" }
+    post:
+      tags: [navigation]
+      operationId: createNavigationCategory
+      summary: Create a category
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKeyHeader" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NavigationCategoryCreate" }
+      responses:
+        "201":
+          description: Category created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NavigationCategory" }
+  /api/v1/navigation/categories/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/NavigationCategoryIdParam" }
+    patch:
+      tags: [navigation]
+      operationId: updateNavigationCategory
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/IfMatchHeader" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NavigationCategoryPatch" }
+      responses:
+        "200":
+          description: Category updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NavigationCategory" }
+        "428":
+          description: ETag/If-Match required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      tags: [navigation]
+      operationId: deleteNavigationCategory
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/NavigationCategoryIdParam" }
+        - { $ref: "#/components/parameters/IfMatchHeader" }
+      responses:
+        "204":
+          description: Category deleted
+        "428":
+          description: ETag/If-Match required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/v1/navigation/items:
+    get:
+      tags: [navigation]
+      operationId: listNavigationItems
+      summary: List navigation items in order
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Items
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/NavigationItem" }
+    post:
+      tags: [navigation]
+      operationId: createNavigationItem
+      summary: Create an item linked to a forward
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKeyHeader" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NavigationItemCreate" }
+      responses:
+        "201":
+          description: Item created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NavigationItem" }
+  /api/v1/navigation/items/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/NavigationItemIdParam" }
+    patch:
+      tags: [navigation]
+      operationId: updateNavigationItem
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/IfMatchHeader" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NavigationItemPatch" }
+      responses:
+        "200":
+          description: Item updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NavigationItem" }
+        "428":
+          description: ETag/If-Match required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      tags: [navigation]
+      operationId: deleteNavigationItem
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/NavigationItemIdParam" }
+        - { $ref: "#/components/parameters/IfMatchHeader" }
+      responses:
+        "204":
+          description: Item deleted
+        "428":
+          description: ETag/If-Match required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/v1/navigation/order:
+    put:
+      tags: [navigation]
+      operationId: setNavigationOrder
+      summary: Persist drag-and-drop ordering
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/IfMatchHeader" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NavigationOrder" }
+      responses:
+        "200":
+          description: Order saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NavigationOrder" }
+        "428":
+          description: ETag/If-Match required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/v1/hooks/definitions:
+    get:
+      tags: [hooks]
+      operationId: listHookDefinitions
+      summary: List hook definitions
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Hook definitions
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/HookDefinition" }
+    post:
+      tags: [hooks]
+      operationId: createHookDefinition
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKeyHeader" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HookDefinitionCreate" }
+      responses:
+        "201":
+          description: Hook definition created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HookDefinition" }
+  /api/v1/hooks/definitions/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/HookDefinitionIdParam" }
+    patch:
+      tags: [hooks]
+      operationId: updateHookDefinition
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/IfMatchHeader" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HookDefinitionPatch" }
+      responses:
+        "200":
+          description: Hook definition updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HookDefinition" }
+        "428":
+          description: ETag/If-Match required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      tags: [hooks]
+      operationId: deleteHookDefinition
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/HookDefinitionIdParam" }
+        - { $ref: "#/components/parameters/IfMatchHeader" }
+      responses:
+        "204":
+          description: Hook definition deleted
+        "428":
+          description: ETag/If-Match required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/v1/hooks/secrets:
+    get:
+      tags: [hooks]
+      operationId: listHookSecrets
+      summary: List hook secret metadata (never the secret values)
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Hook secret metadata
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/HookSecret" }
+    post:
+      tags: [hooks]
+      operationId: createHookSecret
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKeyHeader" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HookSecretCreate" }
+      responses:
+        "201":
+          description: Hook secret created (value never returned)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HookSecret" }
+  /api/v1/hooks/secrets/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/HookSecretIdParam" }
+    delete:
+      tags: [hooks]
+      operationId: deleteHookSecret
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/HookSecretIdParam" }
+        - { $ref: "#/components/parameters/IfMatchHeader" }
+      responses:
+        "204":
+          description: Hook secret deleted
+        "428":
+          description: ETag/If-Match required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/v1/hook-deliveries/{id}/retry:
+    post:
+      tags: [hooks]
+      operationId: retryHookDelivery
+      summary: Retry a failed hook delivery
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/HookDeliveryIdParam" }
+      responses:
+        "202":
+          description: Retry accepted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Operation" }
+  /api/v1/audit:
+    get:
+      tags: [observability]
+      operationId: listAudit
+      summary: List admin audit log entries
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/PageParam" }
+        - { $ref: "#/components/parameters/PageSizeParam" }
+        - { $ref: "#/components/parameters/CursorParam" }
+      responses:
+        "200":
+          description: Page of audit entries
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuditPage" }
+  /api/v1/traffic:
+    get:
+      tags: [observability]
+      operationId: getTraffic
+      summary: Traffic rollups
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/PageParam" }
+        - { $ref: "#/components/parameters/PageSizeParam" }
+      responses:
+        "200":
+          description: Traffic rollups
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TrafficPage" }
+  /api/v1/events:
+    get:
+      tags: [observability]
+      operationId: streamEvents
+      summary: Server-sent events with durable Last-Event-ID cursor
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/LastEventIdHeader" }
+      responses:
+        "200":
+          description: text/event-stream
+          headers:
+            Cache-Control:
+              schema: { type: string }
+          content:
+            text/event-stream:
+              schema:
+                type: object
+                properties:
+                  event:
+                    type: string
+                  id:
+                    type: string
+                  data:
+                    type: string
+  /api/v1/settings:
+    get:
+      tags: [settings]
+      operationId: getSettings
+      summary: Read global settings (secret values redacted)
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Settings" }
+    put:
+      tags: [settings]
+      operationId: putSettings
+      summary: Replace global settings
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/IfMatchHeader" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SettingsPatch" }
+      responses:
+        "200":
+          description: Settings saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Settings" }
+        "412":
+          description: ETag/revision mismatch
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "428":
+          description: ETag/If-Match required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+components:
+  securitySchemes:
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: antinat_session
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      description: One-based page number
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSizeParam:
+      name: page_size
+      in: query
+      description: Page size, 1..200
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    SortParam:
+      name: sort
+      in: query
+      description: Sort field and direction, e.g. -created_at
+      schema: { type: string }
+    FilterParam:
+      name: filter
+      in: query
+      description: Field filter, e.g. state=ONLINE
+      schema: { type: string }
+    CursorParam:
+      name: cursor
+      in: query
+      description: Opaque pagination cursor (preferred over page for streams)
+      schema: { type: string }
+    IfMatchHeader:
+      name: If-Match
+      in: header
+      required: true
+      description: ETag precondition; missing returns 428
+      schema: { type: string }
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Durable idempotency key for creates
+      schema: { type: string, minLength: 8, maxLength: 128 }
+    LastEventIdHeader:
+      name: Last-Event-ID
+      in: header
+      required: false
+      description: Durable SSE event cursor; replay from this id
+      schema: { type: string }
+    NodeIdParam:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    ForwardIdParam:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    OperationIdParam:
+      name: operation_id
+      in: path
+      required: true
+      schema: { type: string }
+    NavigationCategoryIdParam:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    NavigationItemIdParam:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    HookDefinitionIdParam:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    HookSecretIdParam:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    HookDeliveryIdParam:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+  schemas:
+    Healthz:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [ok] }
+    Readyz:
+      type: object
+      required: [status, readiness]
+      properties:
+        status: { type: string, enum: [ok] }
+        readiness:
+          type: object
+          additionalProperties: { type: string }
+    Error:
+      type: object
+      required: [code, message, request_id]
+      properties:
+        code: { type: string, description: Error code from docs/error-codes.md }
+        message: { type: string }
+        request_id: { type: string }
+        details:
+          type: object
+          additionalProperties: true
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        password: { type: string, format: password }
+    AuthSession:
+      type: object
+      required: [user, session_id]
+      properties:
+        user: { $ref: "#/components/schemas/User" }
+        session_id: { type: string }
+    User:
+      type: object
+      required: [id, username]
+      properties:
+        id: { type: string }
+        username: { type: string }
+    Node:
+      type: object
+      required: [id, name, control_state, created_at, etag]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        control_state: { type: string, enum: [ONLINE, OFFLINE] }
+        os_arch: { type: string }
+        network_fingerprint: { type: string }
+        created_at: { type: string, format: date-time }
+        etag: { type: string }
+    NodeCreate:
+      type: object
+      properties:
+        name: { type: string, description: Optional; generated when empty }
+    NodePatch:
+      type: object
+      properties:
+        name: { type: string }
+    NodeDeleteRequest:
+      type: object
+      required: [mode]
+      properties:
+        mode: { type: string, enum: [normal, force] }
+    NodePage:
+      type: object
+      required: [items, page, page_size, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Node" }
+        page: { type: integer }
+        page_size: { type: integer }
+        total: { type: integer }
+        next_cursor: { type: string }
+    EnrollmentToken:
+      type: object
+      required: [token, expires_at]
+      properties:
+        token: { type: string, description: Single-use; shown once }
+        expires_at: { type: string, format: date-time }
+    TraversalDefaults:
+      type: object
+      properties:
+        tcp_strategy: { type: string }
+        udp_strategy: { type: string }
+    Forward:
+      type: object
+      required: [id, node_id, name, protocol, target, strategy, desired_revision, etag]
+      properties:
+        id: { type: string }
+        node_id: { type: string }
+        name: { type: string }
+        protocol: { type: string, enum: [tcp, udp] }
+        target: { type: string, description: IPv4:port }
+        strategy: { type: string }
+        source_interface: { type: string }
+        requested_local_port: { type: integer }
+        requested_public_port: { type: integer }
+        manual_expected_endpoint: { type: string }
+        rate_limit_bps: { type: integer }
+        detailed_stats: { type: boolean }
+        publish_scheme: { type: string, enum: [http, https] }
+        published_host: { type: string }
+        custom_uri_template: { type: string }
+        desired_revision: { type: integer }
+        etag: { type: string }
+        states:
+          $ref: "#/components/schemas/ActivationStates"
+    ActivationStates:
+      type: object
+      properties:
+        control_state: { type: string }
+        listener_state: { type: string }
+        mapping_state: { type: string }
+        keepalive_state: { type: string }
+        wan_reachability_state: { type: string }
+        return_path_state: { type: string }
+        target_health_state: { type: string }
+        publication_state: { type: string }
+        data_plane_state: { type: string }
+    ForwardCreate:
+      type: object
+      required: [node_id, name, protocol, target, strategy]
+      properties:
+        node_id: { type: string }
+        name: { type: string }
+        protocol: { type: string, enum: [tcp, udp] }
+        target: { type: string }
+        strategy: { type: string }
+        source_interface: { type: string }
+        requested_local_port: { type: integer }
+        requested_public_port: { type: integer }
+        manual_expected_endpoint: { type: string }
+        rate_limit_bps: { type: integer }
+        detailed_stats: { type: boolean }
+        publish_scheme: { type: string, enum: [http, https] }
+        published_host: { type: string }
+        custom_uri_template: { type: string }
+    ForwardPatch:
+      type: object
+      properties:
+        name: { type: string }
+        target: { type: string, description: Hot update; old sessions stay on old target }
+        rate_limit_bps: { type: integer }
+        detailed_stats: { type: boolean }
+        disconnect_existing: { type: boolean, description: NEW_SESSIONS_ONLY unless true }
+    ForwardPage:
+      type: object
+      required: [items, page, page_size, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Forward" }
+        page: { type: integer }
+        page_size: { type: integer }
+        total: { type: integer }
+        next_cursor: { type: string }
+    Operation:
+      type: object
+      required: [operation_id, state]
+      properties:
+        operation_id: { type: string }
+        state: { type: string }
+        detail: { type: string }
+        remote_cleanup_confirmed: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    NavigationCategory:
+      type: object
+      required: [id, name, order_index, etag]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        order_index: { type: integer }
+        etag: { type: string }
+    NavigationCategoryCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        order_index: { type: integer }
+    NavigationCategoryPatch:
+      type: object
+      properties:
+        name: { type: string }
+        order_index: { type: integer }
+    NavigationItem:
+      type: object
+      required: [id, name, category_id, forward_id, etag]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        protocol: { type: string }
+        category_id: { type: string }
+        forward_id: { type: string }
+        order_index: { type: integer }
+        etag: { type: string }
+    NavigationItemCreate:
+      type: object
+      required: [name, category_id, forward_id]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        category_id: { type: string }
+        forward_id: { type: string }
+        order_index: { type: integer }
+    NavigationItemPatch:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        category_id: { type: string }
+        forward_id: { type: string }
+        order_index: { type: integer }
+    NavigationOrder:
+      type: object
+      required: [category_ids, item_ids]
+      properties:
+        category_ids:
+          type: array
+          items: { type: string }
+        item_ids:
+          type: array
+          items: { type: string }
+    HookDefinition:
+      type: object
+      required: [id, name, kind, etag]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind: { type: string, enum: [webhook] }
+        url: { type: string, format: uri }
+        etag: { type: string }
+    HookDefinitionCreate:
+      type: object
+      required: [name, kind, url]
+      properties:
+        name: { type: string }
+        kind: { type: string, enum: [webhook] }
+        url: { type: string, format: uri }
+    HookDefinitionPatch:
+      type: object
+      properties:
+        name: { type: string }
+        url: { type: string, format: uri }
+    HookSecret:
+      type: object
+      required: [id, secret_id, algorithm, etag]
+      properties:
+        id: { type: string }
+        secret_id: { type: string }
+        algorithm: { type: string }
+        etag: { type: string }
+    HookSecretCreate:
+      type: object
+      required: [secret_id, algorithm, value]
+      properties:
+        secret_id: { type: string }
+        algorithm: { type: string }
+        value: { type: string, format: password, description: Never returned }
+    AuditPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AuditEntry" }
+        next_cursor: { type: string }
+    AuditEntry:
+      type: object
+      required: [id, event, created_at]
+      properties:
+        id: { type: string }
+        event: { type: string }
+        detail: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+    TrafficPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/TrafficRollup" }
+    TrafficRollup:
+      type: object
+      required: [forward_id, period, bytes_in, bytes_out]
+      properties:
+        forward_id: { type: string }
+        period: { type: string }
+        bytes_in: { type: integer }
+        bytes_out: { type: integer }
+        legacy_connection_count: { type: integer }
+        fully_effective: { type: boolean }
+    Settings:
+      type: object
+      required: [etag]
+      properties:
+        etag: { type: string }
+        controller_endpoint: { type: string }
+        private_site: { type: boolean }
+        language: { type: string, enum: [zh, en] }
+        tcp_stun_servers:
+          type: array
+          items: { type: string }
+        udp_stun_servers:
+          type: array
+          items: { type: string }
+        probe_provider_pin: { type: string }
+        probe_vantage: { type: string }
+        detection_scheduler: { type: string }
+        retention_days: { type: integer }
+        update_policy: { type: string }
+    SettingsPatch:
+      type: object
+      properties:
+        controller_endpoint: { type: string }
+        private_site: { type: boolean }
+        language: { type: string, enum: [zh, en] }
+        tcp_stun_servers:
+          type: array
+          items: { type: string }
+        udp_stun_servers:
+          type: array
+          items: { type: string }
+        probe_provider_pin: { type: string }
+        probe_vantage: { type: string }
+        detection_scheduler: { type: string }
+        retention_days: { type: integer }
+        update_policy: { type: string }
