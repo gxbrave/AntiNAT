@@ -1,0 +1,7 @@
+{
+  "schema": "antinat.contracts/installer/v1",
+  "vector_id": "purge-no-residue-valid",
+  "kind": "purge",
+  "expect": "valid",
+  "purge_state": "NO_RESIDUE_CONFIRMED"
+}

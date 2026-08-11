@@ -1,0 +1,10 @@
+{
+  "schema": "antinat.contracts/installer/v1",
+  "vector_id": "token-tty-valid",
+  "kind": "token",
+  "expect": "valid",
+  "token_mode": "tty",
+  "has_fd": false,
+  "has_file": false,
+  "file_mode": 0
+}

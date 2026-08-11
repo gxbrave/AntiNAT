@@ -1,0 +1,8 @@
+{
+  "schema": "antinat.contracts/compat/v1",
+  "vector_id": "compat-regression-invalid",
+  "kind": "compat",
+  "expect": "invalid",
+  "current_version": 2,
+  "previous_version": 3
+}

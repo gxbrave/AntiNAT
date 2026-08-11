@@ -1,0 +1,8 @@
+{
+  "schema": "antinat.contracts/compat/v1",
+  "vector_id": "compat-skip-version-invalid",
+  "kind": "compat",
+  "expect": "invalid",
+  "current_version": 4,
+  "previous_version": 2
+}

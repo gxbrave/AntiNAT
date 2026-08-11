@@ -1,0 +1,7 @@
+{
+  "schema": "antinat.contracts/installer/v1",
+  "vector_id": "exit-0-valid",
+  "kind": "exit",
+  "expect": "valid",
+  "exit_code": 0
+}

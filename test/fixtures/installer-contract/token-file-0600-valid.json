@@ -1,0 +1,10 @@
+{
+  "schema": "antinat.contracts/installer/v1",
+  "vector_id": "token-file-0600-valid",
+  "kind": "token",
+  "expect": "valid",
+  "token_mode": "file",
+  "has_fd": false,
+  "has_file": true,
+  "file_mode": 384
+}

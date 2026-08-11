@@ -1,0 +1,7 @@
+{
+  "schema": "antinat.contracts/installer/v1",
+  "vector_id": "purge-unknown-state-invalid",
+  "kind": "purge",
+  "expect": "invalid",
+  "purge_state": "HALF_REMOVED"
+}

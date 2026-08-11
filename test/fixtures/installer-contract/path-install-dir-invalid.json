@@ -1,0 +1,8 @@
+{
+  "schema": "antinat.contracts/installer/v1",
+  "vector_id": "path-install-dir-invalid",
+  "kind": "path",
+  "expect": "invalid",
+  "path_key": "install_dir",
+  "path_value": "/usr/local/bin"
+}

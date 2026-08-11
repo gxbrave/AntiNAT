@@ -1,0 +1,13 @@
+{
+  "schema": "antinat.contracts/installer/v1",
+  "vector_id": "cli-install-token-fd-valid",
+  "kind": "cli",
+  "expect": "valid",
+  "command": "install",
+  "args": [
+    "--controller-endpoint",
+    "https://ctl.example.com:3111",
+    "--token-fd",
+    "3"
+  ]
+}
