@@ -1,0 +1,18 @@
+{
+  "schema_version": "antinat.evidence/v1",
+  "plan": "P03",
+  "commit_sha": "995408c2cd0d2984cce149a4632a017d4f9412fb",
+  "command": "go test ./spike/state/... ./spike/sqlite/... ./spike/sandbox/... ./spike/datapath/... -count=1 -v",
+  "result": "SUPPORTED_WITH_LIMITS",
+  "artifact_digest": "sha256:9add6675f8b9b03368bb4bdbe56fdb3df6c02cef986e12f9d0401cdd8b590170",
+  "os": "Ubuntu 24.04.3; Linux 6.8.0-136-generic; linux/amd64; Go 1.26.5; host hermes; no native Windows host; router not applicable",
+  "timeout": 3600,
+  "summary": "owner=sub-agent-sol; approver=pending independent specification and quality/security review; assertions=Linux dedicated UID/GID, sanitized env, no inherited parent FD, NoNewPrivileges, separate network and mount namespaces, empty chroot, amd64 seccomp socket/connect/execve/execveat/ptrace/mount denial, host-file denial, CPU limit, allocation/address-space limit; Windows restricted-token/Job/AppContainer API probe cross-builds only; capability promotion=Linux amd64 isolated-JS feasibility PASS under recorded root-launch constraints; Windows isolated JS NO_GO; scope fallback=webhook-only on Windows and on any Linux environment missing a minimum gate",
+  "evidence_paths": [
+    "spike/sandbox/README.md",
+    "test/evidence/m0/state-security/logs/focused-spikes.txt.gz",
+    "test/evidence/m0/state-security/logs/race-spikes.txt",
+    "test/evidence/m0/state-security/logs/environment-and-digests.txt",
+    "test/evidence/m0/state-security/checksums.sha256"
+  ]
+}

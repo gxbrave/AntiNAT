@@ -1,0 +1,18 @@
+{
+  "schema_version": "antinat.evidence/v1",
+  "plan": "P03",
+  "commit_sha": "995408c2cd0d2984cce149a4632a017d4f9412fb",
+  "command": "go test ./spike/state/... ./spike/sqlite/... ./spike/sandbox/... ./spike/datapath/... -count=1 -v",
+  "result": "PASS",
+  "artifact_digest": "sha256:636e8a18aed2e3d9143479004cae2c3a8937548ccf56bd9b8216400a7e21b89b",
+  "os": "Ubuntu 24.04.3; Linux 6.8.0-136-generic; linux/amd64; Go 1.26.5; host hermes; router not applicable",
+  "timeout": 3600,
+  "summary": "owner=sub-agent-sol; approver=pending independent specification and quality/security review; assertions=partial apply preserves old LKG, abrupt exit at intent/marker/side-effect/result/ACK/receipt recovers deterministically, marker-and-later cleanup never resurrects LKG or secrets, corrupt bbolt fails closed, atomic secret mode is 0600, persisted dual-side epoch fencing rejects stale work, duplicate-ID conflicts fail closed, semantic result survives reconnect and receipt gates GC; bbolt=v1.5.0; capability promotion=Linux state semantics PASS; native Windows crash semantics remain unpromoted",
+  "evidence_paths": [
+    "spike/state/README.md",
+    "test/evidence/m0/state-security/logs/focused-spikes.txt.gz",
+    "test/evidence/m0/state-security/logs/race-spikes.txt",
+    "test/evidence/m0/state-security/logs/environment-and-digests.txt",
+    "test/evidence/m0/state-security/checksums.sha256"
+  ]
+}
