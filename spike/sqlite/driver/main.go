@@ -65,6 +65,10 @@ func backupDatabase(db *sql.DB, destination string) error {
 }
 
 func databaseHealthy(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
 	db, err := openDatabase(path)
 	if err != nil {
 		return false

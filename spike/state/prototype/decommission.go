@@ -20,7 +20,7 @@ type RecoveryState struct {
 
 func WriteSecretFileAtomic(path string, data []byte) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := ensurePrivateDirectory(dir); err != nil {
 		return err
 	}
 	temporary, err := os.CreateTemp(dir, ".antinat-secret-*")
@@ -48,6 +48,23 @@ func WriteSecretFileAtomic(path string, data []byte) error {
 		return err
 	}
 	return syncDirectory(dir)
+}
+
+func ensurePrivateDirectory(path string) error {
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(path, 0o700); err != nil {
+		return err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode().Perm() != 0o700 {
+		return fmt.Errorf("private directory %s has mode %v", path, info.Mode())
+	}
+	return nil
 }
 
 func syncDirectory(path string) error {

@@ -3,7 +3,6 @@ package state
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -27,7 +26,7 @@ type Store struct {
 }
 
 func OpenStore(dir string) (*Store, error) {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := ensurePrivateDirectory(dir); err != nil {
 		return nil, err
 	}
 	db, err := bolt.Open(filepath.Join(dir, "state.db"), 0o600, &bolt.Options{Timeout: time.Second})

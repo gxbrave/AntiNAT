@@ -88,3 +88,20 @@ func TestAtomicSecretFileUsesRestrictivePermissions(t *testing.T) {
 		t.Fatalf("secret read = %q, %v", data, err)
 	}
 }
+
+func TestAtomicSecretFileRestrictsExistingStateDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteSecretFileAtomic(filepath.Join(dir, "identity.key"), []byte("test-secret")); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Fatalf("state directory mode = %#o, want 0700", got)
+	}
+}

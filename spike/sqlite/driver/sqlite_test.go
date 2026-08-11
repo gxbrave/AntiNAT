@@ -153,6 +153,16 @@ func TestCorruptDatabaseFailsClosed(t *testing.T) {
 	}
 }
 
+func TestMissingDatabaseFailsClosed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing.db")
+	if databaseHealthy(path) {
+		t.Fatal("missing database reported healthy; want fail closed without creating it")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("health check created missing database: %v", err)
+	}
+}
+
 func TestFullDiskErrorIsReportedWithoutCorruptingDatabase(t *testing.T) {
 	db, err := openDatabase(filepath.Join(t.TempDir(), "controller.db"))
 	if err != nil {
