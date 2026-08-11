@@ -1,0 +1,331 @@
+{
+  "plan": "P03",
+  "branch": "integration/v1-beta",
+  "candidate_branch": "ai/P03-state-security-feasibility-spikes",
+  "integration_base_sha": "865f99d3b303d7a7e8c4057d2b5f693275d0f516",
+  "integrated_dependency_product_sha": "5cfc6ec5331ce34fc7a713ead88ba141505b4086",
+  "candidate_head_sha": "e16527e2078ac93493b334b6e046f581732e6a49",
+  "candidate_tree_sha": "0f988871bb5e44b74069112362cbbc0d71ba147d",
+  "integrated_sha": "05b18b11438f7e657735cc71b8566cf58833aa3f",
+  "integrated_tree_sha": "c71663fd0f9f737ce2698be8e39dbc41f61be825",
+  "candidate_handoff_path": "/root/AntiNAT/.worktrees/t_5b73742c/.hermes/handoffs/P03.json",
+  "candidate_handoff_sha256": "56f7af8ecf76bd6e162aadd959fd1edfc48fee99c7370affe1ab69e92037cb73",
+  "candidate_commits": [
+    "96b3daff2d03a5d723a229a0b29501460ace6257",
+    "8140b0892ab31b04e21bf09ba87164fa6731b014",
+    "51f0549dbe671684684396c92a67f9ff31b360f3",
+    "bcee4f0795c02cf8caa19cae9b309a3a699eee7f",
+    "9a31183bd6c7854d29e208b9b79400b331fd2177",
+    "995408c2cd0d2984cce149a4632a017d4f9412fb",
+    "874072a0ac0eec0d5d221cb156e592753d3fc535",
+    "df3d36c67ebd30dca2bd7a3cf7a139dba49da84c",
+    "c9716cebc3d1498079fb432f294566c2de45f10c",
+    "312999c73622798e581177c7584e48c94833d51b",
+    "dae3858bb29f081651b1407ad3c4367b9c8092c8",
+    "689ca5788321ba80bd9b108230d89024dccbfecd",
+    "e16527e2078ac93493b334b6e046f581732e6a49"
+  ],
+  "integrated_commits": [
+    "dcf6aa6f61aa529bffa1037f678a715377360d59",
+    "23dafe09cf2ce7a8190cc4bd545db571a6bb4ba3",
+    "9511bc3716fc78e037f7f8e0eb9346bfd7290b71",
+    "ebd5b3d9a14f3362206f93ea3051fb4b64c5ab8b",
+    "a56e27d28e3c9bef56a86fbbe6c6d62d321fe7c2",
+    "759c28973d934cc2c39af98ca1fe8fc31c40afd7",
+    "b0763e78388cdbec3aad026fdc4b3be640ade58d",
+    "14b991b938a798cf92cacb67e13fa60c7386f2b5",
+    "72cce968e110493555ab3381421e25eebbcfe7c6",
+    "3ae224f5269a3ed937099628bf1923a35916ef2e",
+    "8f94d89632a340a8d3f7a198cf9bb66244de6ee0",
+    "6db3ffd345de405c535a79174582b5a05dbc1e32",
+    "05b18b11438f7e657735cc71b8566cf58833aa3f"
+  ],
+  "files_changed_count": 62,
+  "files_changed": [
+    "docs/evidence/m0-state-security-summary.md",
+    "spike/datapath/README.md",
+    "spike/datapath/baseline_linux_test.go",
+    "spike/datapath/copy.go",
+    "spike/datapath/copy_test.go",
+    "spike/datapath/evidence.go",
+    "spike/datapath/evidence_test.go",
+    "spike/sandbox/README.md",
+    "spike/sandbox/bounded_linux_test.go",
+    "spike/sandbox/identity_linux.go",
+    "spike/sandbox/identity_linux_test.go",
+    "spike/sandbox/result.go",
+    "spike/sandbox/result_test.go",
+    "spike/sandbox/sandbox_linux.go",
+    "spike/sandbox/sandbox_test.go",
+    "spike/sandbox/windows_build_test.go",
+    "spike/sandbox/windowsprobe/go.mod",
+    "spike/sandbox/windowsprobe/go.sum",
+    "spike/sandbox/windowsprobe/main_windows.go",
+    "spike/sqlite/README.md",
+    "spike/sqlite/driver/go.mod",
+    "spike/sqlite/driver/go.sum",
+    "spike/sqlite/driver/main.go",
+    "spike/sqlite/driver/sqlite_test.go",
+    "spike/sqlite/license-inventory.json",
+    "spike/sqlite/license_test.go",
+    "spike/sqlite/spike_test.go",
+    "spike/state/README.md",
+    "spike/state/prototype/concurrency_test.go",
+    "spike/state/prototype/control.go",
+    "spike/state/prototype/control_test.go",
+    "spike/state/prototype/corrupt_test.go",
+    "spike/state/prototype/crash_test.go",
+    "spike/state/prototype/decommission.go",
+    "spike/state/prototype/fsm_test.go",
+    "spike/state/prototype/go.mod",
+    "spike/state/prototype/go.sum",
+    "spike/state/prototype/signed.go",
+    "spike/state/prototype/signed_test.go",
+    "spike/state/prototype/store.go",
+    "spike/state/prototype/store_test.go",
+    "spike/state/state_test.go",
+    "spike/windows-identity/README.md",
+    "spike/windows-identity/classify.go",
+    "spike/windows-identity/classify_test.go",
+    "spike/windows-identity/probe/go.mod",
+    "spike/windows-identity/probe/go.sum",
+    "spike/windows-identity/probe/main_windows.go",
+    "spike/windows-identity/windows_identity_test.go",
+    "test/evidence/m0/state-security/checksums.sha256",
+    "test/evidence/m0/state-security/data-path-baseline.json",
+    "test/evidence/m0/state-security/hook-isolation.json",
+    "test/evidence/m0/state-security/logs/directory-validator-incompatibility.txt",
+    "test/evidence/m0/state-security/logs/environment-and-digests.txt",
+    "test/evidence/m0/state-security/logs/evidence-validation.txt",
+    "test/evidence/m0/state-security/logs/focused-spikes.txt.gz",
+    "test/evidence/m0/state-security/logs/race-spikes.txt",
+    "test/evidence/m0/state-security/logs/tdd-red.txt",
+    "test/evidence/m0/state-security/logs/windows-identity-cross-build.txt",
+    "test/evidence/m0/state-security/sqlite-driver.json",
+    "test/evidence/m0/state-security/state-crash-recovery.json",
+    "test/evidence/m0/state-security/windows-identity.json"
+  ],
+  "reviews": [
+    {
+      "task_id": "t_4420175f",
+      "type": "specification",
+      "cycle": 0,
+      "head_sha": "dae3858bb29f081651b1407ad3c4367b9c8092c8",
+      "verdict": "FAIL",
+      "summary": "F1 per-Story RED evidence missing; F2 two-sided signed-command coverage missing."
+    },
+    {
+      "task_id": "t_4a082a95",
+      "type": "quality-security",
+      "cycle": 0,
+      "head_sha": "dae3858bb29f081651b1407ad3c4367b9c8092c8",
+      "verdict": "FAIL",
+      "summary": "Q1 receipt/FSM fencing bypassable; Q2 dedicated_uid accepts shared nobody 65534; Q3 sandbox resource gate not fail-closed; Q4 no bilateral signed-command evidence."
+    },
+    {
+      "task_id": "t_ed8d8772",
+      "type": "specification-r1",
+      "cycle": 1,
+      "head_sha": "e16527e2078ac93493b334b6e046f581732e6a49",
+      "verdict": "PASS",
+      "summary": "SPEC F1 resolved (raw tdd-red.txt + 7 per-Story red_phase entries); SPEC F2 resolved (distinct Controller/Agent Ed25519 stores with bilateral stale/replay/tamper/wrong-key/wrong-direction rejection). Ownership and contract hashes verified."
+    },
+    {
+      "task_id": "t_c808706f",
+      "type": "quality-security-r1-full-scope",
+      "cycle": 1,
+      "head_sha": "e16527e2078ac93493b334b6e046f581732e6a49",
+      "verdict": "PASS",
+      "summary": "Q1-Q4 verified resolved with fresh external adversarial harness; full suite, -race, -count=5 -shuffle, vet, evidence validators, checksums all green. One non-blocking test-quality note (TestBoundedActionRealCPULimitTermination hard-fails instead of skipping off the provisioned host; fails closed)."
+    }
+  ],
+  "contracts_verified": [
+    {
+      "path": ".hermes/plans/v1-beta/00-master-orchestration.md",
+      "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4"
+    },
+    {
+      "path": ".hermes/plans/v1-beta/03-state-security-feasibility-spikes.md",
+      "sha256": "1fa9456709c1fdd5feee53ee33ed44b6506e9780bf901769f38a5034392afd73"
+    },
+    {
+      "path": ".hermes/plans/2026-08-09_055007-antinat-v1-reviewed-execution-plan.md",
+      "sha256": "5fb4216ae41c4fb77a757596274b9f8e1df6f32a81c399971b82e60c07527226"
+    },
+    {
+      "path": ".hermes/handoffs/project-inputs.json",
+      "sha256": "343a6c28876da36f5a386939bc4a66565f51f3a37345a878b593e13e1f6e7123"
+    },
+    {
+      "path": ".hermes/handoffs/P01-integrated.json",
+      "sha256": "5dcc97cc499c2d22685ae1b9702da48c433fcdecdfc568d4d15c8a3bfeeb7d0e"
+    }
+  ],
+  "tests": [
+    {
+      "phase": "candidate-pre-integration",
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./spike/state/... ./spike/sqlite/... ./spike/sandbox/... ./spike/datapath/... -count=1 -v",
+      "exit_code": 0,
+      "summary": "Focused P03 spike suites pass at exact head e16527e on orchestrator host under provisioned dedicated sandbox identity (antinat-sandbox 12001)."
+    },
+    {
+      "phase": "candidate-pre-integration",
+      "command": "cd spike/state/prototype && GOWORK=off go test -count=1 -v",
+      "exit_code": 0,
+      "summary": "State prototype module: 30 PASS / 0 FAIL, including 21 adversarial FSM fencing tests (premature receipt GC, double claim, claim-after-ACK, ACK-without-SENT, stale-writer overwrite, cross-session receipt GC, receipt-without-ACK, duplicate receipt, epoch fencing, resurrection) and 7 two-sided signed-command tests (valid, tampered, wrong-key, wrong-direction, stale, replay, conflicting replay)."
+    },
+    {
+      "phase": "candidate-pre-integration",
+      "command": "GOWORK=off go test ./spike/windows-identity/... -count=1 -v",
+      "exit_code": 0,
+      "summary": "Windows-identity spike suite passes; fail-closed Defender-ownership classifier and cross-build probe tests pass."
+    },
+    {
+      "phase": "candidate-pre-integration",
+      "command": "GOWORK=off go test -race -count=1 ./spike/...",
+      "exit_code": 0,
+      "summary": "All five spike packages pass under race detector."
+    },
+    {
+      "phase": "candidate-pre-integration",
+      "command": "GOWORK=off go vet ./spike/...",
+      "exit_code": 0
+    },
+    {
+      "phase": "candidate-pre-integration",
+      "command": "sha256sum -c test/evidence/m0/state-security/checksums.sha256",
+      "exit_code": 0,
+      "summary": "All pinned checksums verify at exact head."
+    },
+    {
+      "phase": "candidate-pre-integration",
+      "command": "GOWORK=off go run ./scripts/verify-evidence.go <each of 5 state-security JSON records>",
+      "exit_code": 0,
+      "summary": "data-path-baseline, hook-isolation, sqlite-driver, state-crash-recovery, windows-identity: all five antinat.evidence/v1 records validate individually (directory form remains incompatible with the P01 validator; documented limit)."
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1",
+      "exit_code": 0,
+      "summary": "Cumulative suite on integration/v1-beta @ 05b18b1: P02 network + P03 spike packages all pass."
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./... -count=1",
+      "exit_code": 0
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "GOWORK=off go vet ./...",
+      "exit_code": 0
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "make test",
+      "exit_code": 0
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "make check",
+      "exit_code": 0
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "make build",
+      "exit_code": 0,
+      "summary": "Both cmd binaries (bin/antinat-controller, bin/antinat-agent) build; bin/ is gitignored."
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "python3 scripts/verify-evidence-parity.py",
+      "exit_code": 0,
+      "summary": "21 schema/Go parity cases pass."
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "git diff --check 865f99d3..HEAD",
+      "exit_code": 0
+    },
+    {
+      "phase": "integrated-post-cherry-pick",
+      "command": "make clean",
+      "exit_code": 0,
+      "summary": "Build artifacts removed after verification."
+    }
+  ],
+  "skipped_tests": [
+    {
+      "command": "govulncheck ./...",
+      "reason": "govulncheck is not installed on the orchestrator host; it remains a cumulative release lane."
+    },
+    {
+      "command": "native Windows runtime gates (SQLite, hook isolation, identity/Defender, data path)",
+      "reason": "No native Windows host is available; only cross-build/probe-compile evidence is claimed, and every Windows capability is honestly unpromoted."
+    },
+    {
+      "command": "go test ./test/e2e -count=1 -v and go test -tags=netns ./test/integration/... -count=1 -v",
+      "reason": "Later milestone suites not owned or created at this integration point; not applicable."
+    },
+    {
+      "command": "go run ./scripts/verify-evidence.go ./test/evidence/m0/state-security (directory form)",
+      "reason": "The P01 evidence validator accepts one JSON path per invocation; directory form returns EVIDENCE_READ_ERROR, documented in logs/directory-validator-incompatibility.txt. All five records were validated individually instead."
+    }
+  ],
+  "evidence": [
+    "docs/evidence/m0-state-security-summary.md",
+    "test/evidence/m0/state-security/checksums.sha256",
+    "test/evidence/m0/state-security/data-path-baseline.json",
+    "test/evidence/m0/state-security/hook-isolation.json",
+    "test/evidence/m0/state-security/sqlite-driver.json",
+    "test/evidence/m0/state-security/state-crash-recovery.json",
+    "test/evidence/m0/state-security/windows-identity.json",
+    "test/evidence/m0/state-security/logs/directory-validator-incompatibility.txt",
+    "test/evidence/m0/state-security/logs/environment-and-digests.txt",
+    "test/evidence/m0/state-security/logs/evidence-validation.txt",
+    "test/evidence/m0/state-security/logs/focused-spikes.txt.gz",
+    "test/evidence/m0/state-security/logs/race-spikes.txt",
+    "test/evidence/m0/state-security/logs/tdd-red.txt",
+    "test/evidence/m0/state-security/logs/windows-identity-cross-build.txt",
+    "spike/state/README.md",
+    "spike/sqlite/README.md",
+    "spike/sandbox/README.md",
+    "spike/datapath/README.md",
+    "spike/windows-identity/README.md",
+    "spike/sqlite/license-inventory.json"
+  ],
+  "capability_result": "SUPPORTED_WITH_LIMITS",
+  "known_limits": [
+    "No native Windows host was available; every Windows claim (SQLite driver, hook isolation, identity/Defender, data path) is cross-build or probe-compile evidence only, not native runtime evidence.",
+    "Linux hook isolation passes only under the recorded root-launch constraints with a provisioned, unique, non-nobody dedicated UID/GID (evidence host provisioned antinat-sandbox UID/GID 12001), sanitized env, no inherited FDs, NoNewPrivileges, separate network/mount namespaces, empty chroot, seccomp denials, bounded process count, capped child output, and CPU/address-space limits proven by limit-specific observables; any missing gate changes capability to UNSUPPORTED with webhook-only fallback.",
+    "Windows isolated JS is NO_GO: restricted-token/Job/AppContainer APIs cross-build only; Windows falls back to webhook-only.",
+    "Windows identity/firewall is NO_GO pending native service SID, DPAPI LocalMachine, protected key ACL, and managed/manual Defender ownership tests; the classifier fails closed while Defender ownership is UNVALIDATED.",
+    "Data-path evidence reports only go_tcp_copy_splice_eligible plus eligibility labels; exact runtime splice/fallback bytes are never reported. CPU/allocation/RSS values are evidence labels, not SLO pass/fail.",
+    "Pessimistic fallback reserves 64 KiB per bidirectional connection (two 32 KiB buffers); splice eligibility is Linux-only and Windows remains buffered.",
+    "The P01 evidence validator accepts one JSON path per invocation; the directory form returns EVIDENCE_READ_ERROR (documented).",
+    "govulncheck is not installed on this host and is not part of the P03 gate; it remains a cumulative release lane.",
+    "SQLite Windows runtime behavior remains unpromoted until native execution; Linux runtime is the M1 candidate.",
+    "Native Windows crash semantics for bbolt/terminal marker remain unpromoted; Linux state semantics PASS is the M1 basis.",
+    "The sandbox CPU gate's real-path proof uses a Go-runtime SIGXCPU observer; the on-stdout SIGXCPU marker plus distinctive exit code 42 is the limit-specific observable.",
+    "Non-blocking test-quality note from QUALITY-R1: TestBoundedActionRealCPULimitTermination's skip condition substring never matches, so it hard-fails (fails closed) instead of skipping when the dedicated identity is unprovisioned."
+  ],
+  "cleanup_done": true,
+  "cleanup": [
+    "Candidate and integrated verification runs left no namespaces or lab processes (P03 has no netns labs).",
+    "make clean removed repository build artifacts after the integrated verification.",
+    "Temporary logs kept outside the repository (/tmp/p03-*.log) and are not part of the committed tree.",
+    "The candidate worktree .hermes/handoffs/P03.json remains untracked on the candidate branch as the child's handoff; it is not part of integration."
+  ],
+  "contracts_changed": [],
+  "conflicts": "none",
+  "remote_push": false,
+  "release_performed": false,
+  "integration_status": "PASS",
+  "worktree_preexisting_changes": [
+    ".hermes/orchestration/antinat_supervisor.py",
+    ".hermes/orchestration/kanban-tasks.json",
+    ".hermes/orchestration/policy.json",
+    ".hermes/orchestration/supervisor-prompt.md",
+    ".hermes/plans/v1-beta/00-master-orchestration.md",
+    "AGENTS.md"
+  ]
+}
