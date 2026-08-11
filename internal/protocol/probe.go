@@ -42,6 +42,13 @@ const (
 
 	ProbeReplayWindow = 5 * time.Minute
 	ProbeTTLMax       = 24 * time.Hour
+
+	// ProbeOpMax bounds the number of concurrently armed probe operations
+	// the ProbeAgent keeps in memory. Frozen docs/protocol.md §7.6 requires
+	// probe state to be bounded and expirable; arming beyond this cap fails
+	// with ErrProbeStateFull (an implementation resource bound, not a wire
+	// constant).
+	ProbeOpMax = 1024
 )
 
 // Probe frame maximum: magic + digest + ids + activation + 1-byte endpoint
@@ -365,6 +372,23 @@ func NewProbeAgent(nodeKey ed25519.PrivateKey) *ProbeAgent {
 	}
 }
 
+// sweep evicts operations whose deadline has passed and replay entries whose
+// window has elapsed, keeping both maps bounded and expirable (§7.6). The
+// expiry predicates match the readers exactly: an operation dies strictly
+// after its deadline, a replay entry dies at-or-after its window end.
+func (s *ProbeAgent) sweep(now time.Time) {
+	for id, op := range s.ops {
+		if now.After(op.deadline) {
+			delete(s.ops, id)
+		}
+	}
+	for id, expire := range s.replay {
+		if !now.Before(expire) {
+			delete(s.replay, id)
+		}
+	}
+}
+
 // ArmProbe validates and persists an arm, returning the signed armed
 // response. Re-arm of the same probe ID with identical material is
 // idempotent; different material is an ID conflict; a consumed ID within the
@@ -374,6 +398,11 @@ func (s *ProbeAgent) ArmProbe(arm ProbeArm, now time.Time) (ProbeArmed, error) {
 		return ProbeArmed{}, err
 	}
 	digest := arm.Digest()
+	// Bounded/expirable state (docs/protocol.md §7.6): evict expired
+	// operations and expired replay entries before any read or insert, so
+	// the maps never retain state past its deadline and capacity below is
+	// measured against live operations only.
+	s.sweep(now)
 	// Replay/conflict resolution before any state is written.
 	if expire, ok := s.replay[arm.ProbeID]; ok {
 		if now.Before(expire) {
@@ -389,6 +418,9 @@ func (s *ProbeAgent) ArmProbe(arm ProbeArm, now time.Time) (ProbeArmed, error) {
 			return ProbeArmed{}, ErrProbeIDConflict
 		}
 		return s.signArmed(digest), nil
+	}
+	if len(s.ops) >= ProbeOpMax {
+		return ProbeArmed{}, ErrProbeStateFull
 	}
 	s.ops[arm.ProbeID] = &armedProbeState{
 		arm:      arm,

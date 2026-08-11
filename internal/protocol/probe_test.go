@@ -293,6 +293,132 @@ func TestProbeAgentStateMachineTTLAndWrongSource(t *testing.T) {
 	}
 }
 
+// TestProbeAgentStateCapacityBounded pins frozen docs/protocol.md §7.6:
+// armed probe operations are bounded, and arming beyond the cap fails with
+// ErrProbeStateFull instead of growing the state map without bound.
+func TestProbeAgentStateCapacityBounded(t *testing.T) {
+	_, agent, _ := probeTestKeys()
+	state := NewProbeAgent(agent)
+	now := time.Unix(2_000_000_000, 0)
+	for i := 0; i < ProbeOpMax; i++ {
+		arm := probeTestArm()
+		copy(arm.ProbeID[:], []byte{byte(i / 256), byte(i % 256)})
+		if _, err := state.ArmProbe(arm, now); err != nil {
+			t.Fatalf("arm %d: %v", i, err)
+		}
+	}
+	// A distinct probe beyond the cap must fail closed with ErrProbeStateFull.
+	extra := probeTestArm()
+	copy(extra.ProbeID[:], []byte{0xff, 0xfe})
+	if _, err := state.ArmProbe(extra, now); err != ErrProbeStateFull {
+		t.Fatalf("arm beyond cap: got %v, want ErrProbeStateFull", err)
+	}
+	// Re-arming an existing ID while full stays idempotent.
+	existing := probeTestArm()
+	copy(existing.ProbeID[:], []byte{0, 0})
+	if _, err := state.ArmProbe(existing, now); err != nil {
+		t.Fatalf("re-arm of existing ID while full: %v", err)
+	}
+	// A conflicting re-arm while full still reports the ID conflict.
+	conflict := existing
+	conflict.Endpoint = "203.0.113.9:4444"
+	if _, err := state.ArmProbe(conflict, now); err != ErrProbeIDConflict {
+		t.Fatalf("conflicting re-arm while full: got %v, want ErrProbeIDConflict", err)
+	}
+}
+
+// TestProbeAgentStateEvictsExpiredOnArm pins the §7.6 expirability rule:
+// when the armed-operation map is full, an ArmProbe that arrives after every
+// resident operation has passed its deadline must succeed — expired state is
+// evicted rather than kept forever.
+func TestProbeAgentStateEvictsExpiredOnArm(t *testing.T) {
+	_, agent, _ := probeTestKeys()
+	state := NewProbeAgent(agent)
+	now := time.Unix(2_000_000_000, 0)
+	for i := 0; i < ProbeOpMax; i++ {
+		arm := probeTestArm()
+		copy(arm.ProbeID[:], []byte{byte(i / 256), byte(i % 256)})
+		arm.TTLMS = 1 // 1ms: expires almost immediately
+		if _, err := state.ArmProbe(arm, now); err != nil {
+			t.Fatalf("arm %d: %v", i, err)
+		}
+	}
+	// Every resident operation is now past its deadline.
+	late := now.Add(2 * time.Millisecond)
+	fresh := probeTestArm()
+	copy(fresh.ProbeID[:], []byte{0xff, 0xfe})
+	if _, err := state.ArmProbe(fresh, late); err != nil {
+		t.Fatalf("arm after resident expiry: got %v, want success (expired state evicted)", err)
+	}
+}
+
+// TestProbeAgentStateReArmExpiredIsFresh pins that an arm whose operation
+// deadline has passed is fully evicted: re-arming the same probe ID with
+// different material afterwards is a fresh arm, not an ID conflict.
+func TestProbeAgentStateReArmExpiredIsFresh(t *testing.T) {
+	_, agent, _ := probeTestKeys()
+	state := NewProbeAgent(agent)
+	now := time.Unix(2_000_000_000, 0)
+	arm := probeTestArm()
+	arm.TTLMS = 1
+	if _, err := state.ArmProbe(arm, now); err != nil {
+		t.Fatal(err)
+	}
+	// Different material on the same ID once the old operation expired.
+	rearm := arm
+	rearm.Endpoint = "203.0.113.9:4444"
+	if _, err := state.ArmProbe(rearm, now.Add(2*time.Millisecond)); err != nil {
+		t.Fatalf("re-arm of expired operation with different material: got %v, want fresh arm", err)
+	}
+}
+
+// TestProbeAgentStateReplayEntryExpires pins that both the armed operation and
+// the replay cache entry are swept against the wall clock: after the operation
+// TTL and the replay window have both passed, re-arming the consumed ID with
+// different material is a fresh arm, not an ID conflict against lingering
+// state.
+func TestProbeAgentStateReplayEntryExpires(t *testing.T) {
+	_, agent, provider := probeTestKeys()
+	state := NewProbeAgent(agent)
+	now := time.Unix(2_000_000_000, 0)
+	arm := probeTestArm()
+	if _, err := state.ArmProbe(arm, now); err != nil {
+		t.Fatal(err)
+	}
+	// Consume the operation so a replay entry is recorded.
+	var challenge [ProbeNonceLen]byte
+	copy(challenge[:], bytes.Repeat([]byte{0x09}, 32))
+	wan := ProviderFrame{
+		ArmDigest:    arm.Digest(),
+		ProbeID:      arm.ProbeID,
+		ProviderID:   arm.ProviderID,
+		Activation:   arm.Activation,
+		Endpoint:     arm.Endpoint,
+		ExpiryOpaque: arm.ExpiryOpaque,
+		Challenge:    challenge,
+	}
+	canonical := wan.Canonical()
+	sig, err := signProbeForTest(ProbeMagicWAN, canonical[4:], provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wanRaw := append(append([]byte(nil), canonical...), sig...)
+	parsed, err := ParseProviderFrame(wanRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.HandleProbeIngress(parsed, arm.ExpectedSourceIP, now) {
+		t.Fatal("valid ingress rejected")
+	}
+	// Past the replay window (5m) and the operation TTL (30s).
+	late := now.Add(ProbeReplayWindow + time.Minute)
+	rearm := arm
+	rearm.Endpoint = "203.0.113.9:4444"
+	if _, err := state.ArmProbe(rearm, late); err != nil {
+		t.Fatalf("re-arm after replay+op expiry with different material: got %v, want fresh arm", err)
+	}
+}
+
 // signProbeForTest signs magic || payload for probe frames (test helper).
 func signProbeForTest(magic string, payload []byte, priv ed25519.PrivateKey) ([]byte, error) {
 	if len(priv) != ed25519.PrivateKeySize {
