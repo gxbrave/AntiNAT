@@ -1,6 +1,6 @@
 # M0 state and security feasibility summary
 
-Candidate code commit: `REPAIRED_HEAD` (P03 repair cycle 1; replaces `312999c`)
+Candidate code commit: `689ca5788321ba80bd9b108230d89024dccbfecd` (P03 repair cycle 1; replaces `312999c`)
 
 Environment: Ubuntu 24.04.3, Linux 6.8.0-136-generic, amd64, Go 1.26.5. A dedicated sandbox identity `antinat-sandbox` (UID/GID 12001) was provisioned on the evidence host; the recorded Linux hook-isolation gates use it. No native Windows host was available. No router is relevant to this child.
 

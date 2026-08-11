@@ -1,5 +1,10 @@
 PASS test/evidence/m0/state-security/data-path-baseline.json: evidence record is valid
+exit=0
 PASS test/evidence/m0/state-security/hook-isolation.json: evidence record is valid
+exit=0
 PASS test/evidence/m0/state-security/sqlite-driver.json: evidence record is valid
+exit=0
 PASS test/evidence/m0/state-security/state-crash-recovery.json: evidence record is valid
+exit=0
 PASS test/evidence/m0/state-security/windows-identity.json: evidence record is valid
+exit=0
