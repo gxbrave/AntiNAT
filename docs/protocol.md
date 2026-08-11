@@ -123,8 +123,9 @@ semantic use:
 2. Duplicate keys are rejected.
 3. Unknown fields are rejected against the per-message schema.
 4. Nesting depth is bounded at 16.
-5. All numbers must be finite integers within the int64 range; fractional and
-   exponential forms are rejected.
+5. All numbers must be finite integers within the int64 range, excluding
+   int64 min (`-9223372036854775808`); fractional and exponential forms are
+   rejected.
 6. Payload size is bounded by `maxPayloadBytes`.
 
 ### 3.5 Message dedup semantics
@@ -286,8 +287,11 @@ All multi-byte integers are big-endian.
 The arm is delivered inside a signed control envelope (Section 3), so the
 Controller signature lives at the envelope layer. The arm payload itself must
 **never** contain the challenge or any per-probe secret material (anti-oracle).
-`endpoint` must be a concrete global IPv4 literal and port; hostnames, private,
-loopback, link-local, multicast, and reserved addresses are rejected.
+`endpoint` must be a concrete global IPv4 literal and port; hostnames, IPv6,
+private (RFC 1918), loopback, link-local (unicast and multicast), multicast,
+and unspecified addresses are rejected. IANA documentation ranges (TEST-NET,
+e.g. `198.51.100.7`) are global unicast and are the addresses used by the
+golden vectors.
 
 ### 7.2 ProbeArmed (`RDY1`, Agent → Controller)
 
@@ -342,8 +346,9 @@ request. The ACK proves the WAN ingress/return path.
 | `provider_id` | raw | 16 |
 | signature | Ed25519 over `RCT1 || arm_digest || challenge_hash || provider_id` | 64 |
 
-The control receipt is `Sign(node_key, challenge_hash + probe_id + activation
-+ endpoint + provider)`. It is sent over the signed control channel.
+The control receipt is `Sign(node_key, RCT1 || arm_digest || challenge_hash ||
+provider_id)`, matching the RCT1 layout above. It is sent over the signed
+control channel.
 
 ### 7.6 Outcome and anti-oracle rules
 

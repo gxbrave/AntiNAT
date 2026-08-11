@@ -123,18 +123,31 @@ func validateCLIFixture(t *testing.T, fx installerFixture) {
 }
 
 func validateCLIArgs(command string, args []string) error {
-	for _, a := range args {
+	for i, a := range args {
 		// A literal token argument is always forbidden.
 		if forbiddenTokenFlags[a] {
 			return errors.New("forbidden token flag in argv")
 		}
+		// No short flags exist in the frozen surface; any "-x" is unknown.
+		if strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && a != "-" {
+			return errors.New("unknown short flag " + a)
+		}
 		if strings.HasPrefix(a, "--") {
 			name := a
+			hasValue := false
 			if eq := strings.IndexByte(a, '='); eq >= 0 {
 				name = a[:eq]
+				hasValue = true
 			}
 			if !installFlags[name] {
 				return errors.New("unknown installer flag " + name)
+			}
+			// --token-fd / --token-file require a value; a bare flag with no
+			// `=value` and no following non-flag argument is rejected.
+			if (name == "--token-fd" || name == "--token-file") && !hasValue {
+				if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+					return errors.New("flag " + name + " requires a value")
+				}
 			}
 		}
 	}

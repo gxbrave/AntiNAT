@@ -35,6 +35,7 @@ FROZEN_DIRS = [
     "internal/protocol/testdata",
     "test/fixtures/compat",
     "test/fixtures/installer-contract",
+    "test/contracts/testdata/state-model",
 ]
 
 

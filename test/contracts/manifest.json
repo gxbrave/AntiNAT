@@ -13,15 +13,15 @@
     },
     {
       "path": "docs/installer-contract.md",
-      "sha256": "02f9349a4e86e52e3a9f0b60a159724fbd3e3acddeb500ea5280401e40700657"
+      "sha256": "c7f83ea2fedcf9b1c393dae290ff1168bcd9f495d064a2ea74d386f3d38c630a"
     },
     {
       "path": "docs/protocol.md",
-      "sha256": "2d0bb3b372cb63c229ebb50180cb05b7ba65b2a490dcdea1708d7a04b270205b"
+      "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"
     },
     {
       "path": "docs/state-model.md",
-      "sha256": "f44884b9ef84ac3db40b4b97dd1f41fd6b988eab9c543a0349b31fc6cb603f56"
+      "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
     },
     {
       "path": "docs/test-strategy.md",
@@ -164,12 +164,36 @@
       "sha256": "3714d4d0a9d227ee1544535a6d2274830046b91be7174733495eb73dd354affa"
     },
     {
+      "path": "internal/protocol/testdata/probe-frame/arm-linklocal-endpoint.json",
+      "sha256": "2f1fb2891b97c400b37b8b098fbd8f135d4f3f2cbbe21aa5f6ddcd440a46e540"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/arm-loopback-endpoint.json",
+      "sha256": "97ee3cdbb7cafb6b139a37025c218d9cf4502e4376e13c7a0b48e92ea47a6d72"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/arm-multicast-endpoint.json",
+      "sha256": "d8dde77eacee9f75eb272aeedb353f87590e785cba1214e2361648931344e708"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/arm-private-endpoint-a.json",
+      "sha256": "ae1482f41755e1efbe2b751bc8115047defbacb260f2b1c01ddb72746b9e2eb5"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/arm-private-endpoint-b.json",
+      "sha256": "d19457ae085ee642093b41cae8c116ec6d3c390bc8700b1c8cc31f1ca42c1701"
+    },
+    {
       "path": "internal/protocol/testdata/probe-frame/arm-truncated.json",
       "sha256": "69cd5400c2d2922553b02048c042be4616881c644788e763fffeaa9be9abdd80"
     },
     {
       "path": "internal/protocol/testdata/probe-frame/arm-ttl-over-cap.json",
       "sha256": "a9434b451ed26cd1a31235dfc0d00da22eaf62039e588a4d3cf5c7c063cfd5e9"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/arm-unspecified-endpoint.json",
+      "sha256": "401d2d086abcf04ae901c9d889acb0a694b0dff2970e4b33f48cd7b7a0a4d451"
     },
     {
       "path": "internal/protocol/testdata/probe-frame/arm-valid-tcp.json",
@@ -248,6 +272,166 @@
       "sha256": "def46579b46ab72e1b0cb75aa7857f80e87446b083f3a05471cfe5b5ff3027aa"
     },
     {
+      "path": "test/contracts/testdata/state-model/applied-forward-empty-id-invalid.json",
+      "sha256": "20f641cfb0ee036c2bd4410127d2a648f894e23d84fb8ccdd76c5e12212c7232"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/applied-forward-revision-regression-invalid.json",
+      "sha256": "173b8afe044ccc68b945415cc0e17e08c712fbae5929e249e4bcb8bc159d3e40"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/applied-forward-unknown-strategy-invalid.json",
+      "sha256": "b6033156a7fa8bba001d42ae473374d09da9497df144463f02442c33082405ef"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/applied-forward-valid.json",
+      "sha256": "3f31d93df588f56848f7abb446ca2e88cf57e99dc0b6109868f64dea16b30cd3"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/decommission-active-decommissioned-rejected.json",
+      "sha256": "b81e4e8a70e3bf3fab06cf13eec22cb53ddcffa2ca89705c952158f080c55f05"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/decommission-active-decommissioning-allowed.json",
+      "sha256": "ee2239e834bd2fe1acd2f780b73485c0d20e5acddc7d2d5eca9562f072df799b"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/decommission-decommissioned-cleanup-only-allowed.json",
+      "sha256": "052bb023a8d77bb4dd33c8ca103d8d337225e9b7e80de076b4503c72f9c89722"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/decommission-decommissioning-decommissioned-allowed.json",
+      "sha256": "de3b7c980bd9b19e257a2e926b1f605d782364d65985760c587703b34cb59bb9"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/inbox-applied-nacked-rejected.json",
+      "sha256": "0c7ffd441225782bd288eb608582cfbbe9f50e5b73befbd4562c4fee9ee09cf8"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/inbox-applying-applied-allowed.json",
+      "sha256": "947eda2abcfe08a93e824a2606e960873d10691e01f94c2271c70f544e204efc"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/inbox-applying-nacked-allowed.json",
+      "sha256": "8ac34aab02f7cf43c00a47ec8faa638df4ed6cb09ead87146d99c2672c710a4a"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/inbox-intent-persisted-applying-allowed.json",
+      "sha256": "7a31cd28a74b12c3ae50500de49e70df45fcf8b4db1428f7e402dedf94f27060"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/inbox-received-applied-rejected.json",
+      "sha256": "11f3a5e69400a97768f2bae2f307fd02b8c72535e19977e731f871703c82a6ac"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/inbox-received-intent-persisted-allowed.json",
+      "sha256": "7d1db1496553460f970862ee7798d87b4f06a45a1934394c944b00da718a2690"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/key-rotation-acked-active-allowed.json",
+      "sha256": "5541c2519eac6dd391d6d80357ce31fbb17d60da6570e32e28fe274f160f7cf2"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/key-rotation-active-retired-allowed.json",
+      "sha256": "eba925c43284b997507485ff949665b5d85416788bf65e45c8ccfa6b003df8e5"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/key-rotation-announced-acked-allowed.json",
+      "sha256": "f98a3e49c864f4b37b01af2d58a3f4c8bc217b990e071e48cd90ca9c00670c71"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/key-rotation-prepared-active-rejected.json",
+      "sha256": "0ecec1162be16f3fc5a82e49b77201ce57025d0801b91d7dd8fb6b4cf213bf77"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/key-rotation-prepared-announced-allowed.json",
+      "sha256": "124db09eb8202e4ca592fb0ae9e6a4bef2dd9e9d0cfe3e00f4561b2dd85ec9be"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/outbox-claimed-sent-allowed.json",
+      "sha256": "d3b490bdb954b8489014c98d3664330973771e1f36e0e3afa9239f94a6b6c1ee"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/outbox-gc-claimed-rejected.json",
+      "sha256": "da0320c1534ff8179122edebcab68ac7dd3d7d329ac03a63916a1647bd2819a3"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/outbox-pending-claimed-allowed.json",
+      "sha256": "3811a67e3d418f4d5daa08b22734064f7d81d136700c4b2b758793a715f8df70"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/outbox-pending-sent-rejected.json",
+      "sha256": "dc28817525d961b0cfefb9515effb54933d3c8ad1c45f5cd41551ec2c17e70c6"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/outbox-receipted-gc-allowed.json",
+      "sha256": "27741a3ff9f1e7e0df384893d7020edb118555d93bb9ce1421985fa45f9f269b"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/outbox-semantic-acked-gc-rejected.json",
+      "sha256": "66d30ab96ad73494b92cbce3cdbdfbf71dcf7acbbf5ff47f62228927dab9221f"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/outbox-semantic-acked-receipted-allowed.json",
+      "sha256": "3335100109aa6409c71b2ecbee807f96090bfbc33cc6efea4287f5456a889eb4"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/outbox-sent-gc-rejected.json",
+      "sha256": "bfa2ee17914f5a21c1ed9a2976816ac92a0e05c55afadffa962386dfeef475f6"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/outbox-sent-pending-rejected.json",
+      "sha256": "6f8e30a457d98058bdaaeb22d07c5e0caba8482f6a3f85eb24ec40c4402340b9"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/outbox-sent-semantic-acked-allowed.json",
+      "sha256": "1be88c113b54021fd23fbfe83ce727bc9ccc0d8e8a7dfc41408facf03b714e25"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/publication-unverified-with-vantage-invalid.json",
+      "sha256": "fdda6dbb4a563cd1175653b9d900552d76abaf14c34a73235490892171ff4b23"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/publication-verified-valid.json",
+      "sha256": "2fb4b368570488500293c1e94ab0ea259068a205d93fcd519a6b8046d9d256d2"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/publication-verified-without-return-path-invalid.json",
+      "sha256": "26f1be28d51489f64fd0fbef57fa42204673a74e14efda9fcc5b3af0440bf2f4"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/publication-verified-without-vantage-invalid.json",
+      "sha256": "f334ec5dddbaaf368dedb50243067d210d113e4d899e154ecbac113e3a45dd1d"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/restore-reconciling-authorized-allowed.json",
+      "sha256": "aa0bed248d7c42d570a34e217bb3d418dd0ec95313b5a39d9c8354bc413b08a2"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/restore-recovery-quarantine-reconciling-allowed.json",
+      "sha256": "b6c4fbd737b5f93ce4c05bd35dd4f6a97bb31b6e1bae678dba73d2ec7d108b1d"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/restore-restored-authorized-rejected.json",
+      "sha256": "c7ea18c22faa3e29414294d2738259ffbb5f8987dd6f20a1b64a9293e05a55ff"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/restore-restored-recovery-quarantine-allowed.json",
+      "sha256": "c0e3f05d5fcab257c82f16655d5b943314ab467f2af762e5678912203e42f0f6"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/snapshot-invalid-illegal-value.json",
+      "sha256": "9cdce5ac35f80569adec342aa9f9fba7ef91e9b6d1b6d9d53b46e56fc1068b23"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/snapshot-invalid-missing-axis.json",
+      "sha256": "1d010fd53e75c061ee535e8a57a79bd11c2401ed064e77e91b478e8ebb40cff6"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/snapshot-valid-all-axes.json",
+      "sha256": "beca6d3021f310d92a07b9b5ca766d26b0ca8348d4b179dd254b1fb9f8dab2d0"
+    },
+    {
       "path": "test/fixtures/compat/compat-n-minus-one-valid.json",
       "sha256": "6e262d620ecfa973b336a9f00098b7e55739db02f0e6bcf7eb3fefbda1fa2e94"
     },
@@ -284,12 +468,20 @@
       "sha256": "ee2c28799c478e59a75ee48fca19ce657226db785fa5b5f07c5605b706e210dc"
     },
     {
+      "path": "test/fixtures/installer-contract/cli-token-fd-bare-invalid.json",
+      "sha256": "bddf0ff9455e257e2101df8de8df175f50d072371029ec5a550d03eaafb90e46"
+    },
+    {
       "path": "test/fixtures/installer-contract/cli-token-literal-forbidden.json",
       "sha256": "aa967e214b896b9d1759c85bdd14fd79ab33660f248cf4b8be779a934d039c04"
     },
     {
       "path": "test/fixtures/installer-contract/cli-unknown-flag-invalid.json",
       "sha256": "3b15b7cb2daae509d7c252ec829eee00fd4c0ae8181146a5044a9ce360ae70cf"
+    },
+    {
+      "path": "test/fixtures/installer-contract/cli-unknown-short-flag-invalid.json",
+      "sha256": "c42a080f066d51d85252c9e8f80f11e63b8167bafadbf21358287eb13197619d"
     },
     {
       "path": "test/fixtures/installer-contract/exit-0-valid.json",

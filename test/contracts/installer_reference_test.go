@@ -80,7 +80,7 @@ const (
 //   - exactly one of tty/fd/file must be selected;
 //   - fd and file require their flag;
 //   - a literal token argument is always rejected;
-//   - file mode requires 0600 (or stricter) ownership/ACL.
+//   - file mode requires exactly 0600 (no stricter or looser mode).
 func validateTokenInvocation(mode tokenMode, hasFD, hasFile bool, fileMode os.FileMode) error {
 	selected := 0
 	if mode == tokenModeTTY {

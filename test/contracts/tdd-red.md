@@ -124,3 +124,60 @@ Environment note: `ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001`
 is required for the P03-owned sandbox spike suite (provisioned
 `antinat-sandbox` identity); without it `TestBoundedActionRealCPULimitTermination`
 fails closed exactly as documented by P03 QUALITY-R1 (non-blocking note).
+
+## Repair cycle 1 (P04-FIX1) — RED observations
+
+All RED observations were captured before the corresponding GREEN fix.
+
+Q1 (endpoint address classes). RED command:
+`go test ./test/contracts/... -count=1 -v -run 'TestProbeGoldenVectors/(arm-loopback|arm-private|arm-linklocal|arm-multicast|arm-unspecified)'`
+RED reason: the reference validator accepted non-global IPv4 literals
+(loopback/private/link-local/multicast/unspecified); each of the 6 new
+fixtures failed with:
+
+```
+probe_test.go:67: invalid arm parsed successfully
+```
+
+GREEN: `validProbeEndpoint` now rejects non-global IPv4 via
+`netip` (`IsPrivate/IsLoopback/IsLinkLocalMulticast/IsLinkLocalUnicast/
+IsMulticast/IsUnspecified`); TEST-NET-2 (198.51.100.7) vectors remain valid.
+
+Q2 (state-model manifest pinning). RED command:
+`go test ./test/contracts/... -count=1 -run TestContractManifest -v`
+RED reason: state-model fixtures were not listed in manifest.json after being
+added to the completeness set:
+
+```
+manifest_test.go:85: frozen artifact "test/contracts/testdata/state-model/applied-forward-empty-id-invalid.json" not present in manifest
+```
+
+GREEN: `test/contracts/testdata/state-model` added to FROZEN_DIRS
+(generate_manifest.py) and to both manifest_test.go functions; manifest
+regenerated (136 artifacts) and byte-deterministic on re-run.
+
+Q4c (CLI shape). RED command:
+`go test ./test/contracts/... -count=1 -v -run 'TestInstallerContractGoldenVectors/(cli-unknown-short-flag|cli-token-fd-bare)'`
+RED reason: `validateCLIArgs` accepted an unknown short flag and a bare
+`--token-fd` with no value:
+
+```
+installer_test.go:74: invalid CLI accepted
+```
+
+GREEN: unknown short flags and bare `--token-fd`/`--token-file` (no `=value`,
+no following non-flag argument) are rejected.
+
+## Repair-cycle final verification commands (all exit 0)
+
+```text
+go test ./test/contracts/... -count=1 -v           # 10 PASS
+go test ./...                                      # with ANTINAT_DEDICATED_UID/GID=12001
+go test -race ./...                                # with ANTINAT_DEDICATED_UID/GID=12001
+go vet ./...
+make test
+make check
+make build
+python3 test/contracts/generate_manifest.py .      # deterministic: re-run byte-identical
+python3 test/contracts/validate_openapi.py
+```

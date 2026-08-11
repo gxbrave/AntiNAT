@@ -1,0 +1,12 @@
+{
+  "schema": "antinat.contracts/installer/v1",
+  "vector_id": "cli-unknown-short-flag-invalid",
+  "kind": "cli",
+  "expect": "invalid",
+  "command": "install",
+  "args": [
+    "--controller-endpoint",
+    "https://ctl.example.com:3111",
+    "-x"
+  ]
+}

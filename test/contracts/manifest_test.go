@@ -108,6 +108,7 @@ func collectFrozenManifestFiles(root string) []string {
 		filepath.Join("internal", "protocol", "testdata"),
 		filepath.Join("test", "fixtures", "compat"),
 		filepath.Join("test", "fixtures", "installer-contract"),
+		filepath.Join("test", "contracts", "testdata", "state-model"),
 	}
 	var out []string
 	for _, rel := range frozenPaths {
@@ -158,6 +159,7 @@ func isFrozenManifestFile(rel string) bool {
 		"internal/protocol/testdata/",
 		"test/fixtures/compat/",
 		"test/fixtures/installer-contract/",
+		"test/contracts/testdata/state-model/",
 	} {
 		if strings.HasPrefix(rel, dir) && strings.HasSuffix(rel, ".json") {
 			return true

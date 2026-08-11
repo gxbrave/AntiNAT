@@ -181,3 +181,7 @@ change, route/interface change, or resume from suspend:
 - complete valid/invalid orthogonal snapshots (missing axis, illegal value);
 - publication truth invariants;
 - valid/invalid `AppliedForwardState` records.
+
+Every fixture in this directory is additionally SHA-256 pinned in
+`test/contracts/manifest.json`, so a silent byte-level edit that preserves the
+validation outcome is still detected by the manifest gate.

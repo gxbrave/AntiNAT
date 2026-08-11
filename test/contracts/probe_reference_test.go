@@ -25,6 +25,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"net"
+	"net/netip"
 	"strconv"
 	"time"
 )
@@ -426,8 +427,16 @@ func validProbeEndpoint(endpoint string) error {
 	if err != nil || host == "" {
 		return ErrProbeEndpoint
 	}
-	ip := net.ParseIP(host)
-	if ip == nil || ip.To4() == nil {
+	ip, err := netip.ParseAddr(host)
+	if err != nil || !ip.Is4() {
+		return ErrProbeEndpoint
+	}
+	// Only a concrete global IPv4 literal is a valid probe endpoint
+	// (docs/protocol.md §7.1): private, loopback, link-local, multicast, and
+	// unspecified addresses are rejected. Documentation ranges (TEST-NET),
+	// which the golden vectors use, are global unicast and remain valid.
+	if ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalMulticast() ||
+		ip.IsLinkLocalUnicast() || ip.IsMulticast() || ip.IsUnspecified() {
 		return ErrProbeEndpoint
 	}
 	port, err := strconv.Atoi(portText)

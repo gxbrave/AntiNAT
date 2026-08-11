@@ -524,7 +524,8 @@ func checkScalar(t json.Token, kind fieldKind) error {
 	return nil
 }
 
-// isBoundedJSONNumber returns true for finite JSON numbers within int64 range.
+// isBoundedJSONNumber returns true for finite JSON numbers within the int64
+// range, excluding int64 min (-9223372036854775808).
 func isBoundedJSONNumber(n json.Number) bool {
 	s := n.String()
 	if strings.ContainsAny(s, ".eE") {

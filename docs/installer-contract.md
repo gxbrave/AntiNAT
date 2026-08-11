@@ -11,7 +11,7 @@
 2. The enrollment token is displayed separately and once.
 3. The installer reads the token from a hidden TTY prompt (interactive
    default), or non-interactively only from `--token-fd <n>` or a strict-ACL
-   `--token-file <path>` (mode 0600 or stricter).
+   `--token-file <path>` (mode exactly 0600).
 4. The token is consumed and its file securely deleted after use.
 5. Tests must prove no token literal appears in shell/PowerShell history,
    `ps`, service units, environment, config, or logs.
@@ -44,7 +44,7 @@ Flags (frozen):
 (`--token`, `--token-value`, `-t`). The token is never in argv.
 
 Token input must be exactly one of: interactive TTY (default), `--token-fd`,
-or `--token-file`. `--token-file` requires mode 0600 (or stricter).
+or `--token-file`. `--token-file` requires mode exactly 0600.
 
 ## 3. Frozen Linux paths and service (primary target)
 
@@ -120,7 +120,8 @@ previous version; a second run must find no residue.
 ## 8. Fixture summary
 
 `test/fixtures/installer-contract/**` pins CLI shape (valid + forbidden token
-in argv + unknown flags), token input rules (tty/fd/file, 0600 enforcement,
+in argv + unknown long and short flags + bare value-less `--token-fd`/
+`--token-file`), token input rules (tty/fd/file, 0600 enforcement,
 exactly-one rule), frozen paths, exit codes, artifact-manifest trust rules,
 and purge states.
 
