@@ -1,4 +1,4 @@
 === RUN   TestWindowsIdentityProbeCrossBuilds
---- PASS: TestWindowsIdentityProbeCrossBuilds (0.14s)
+--- PASS: TestWindowsIdentityProbeCrossBuilds (0.15s)
 PASS
-ok  	github.com/gxbrave/AntiNAT/spike/windows-identity	0.147s
+ok  	github.com/gxbrave/AntiNAT/spike/windows-identity	0.150s

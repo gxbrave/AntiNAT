@@ -1,10 +1,10 @@
 {
   "schema_version": "antinat.evidence/v1",
   "plan": "P03",
-  "commit_sha": "995408c2cd0d2984cce149a4632a017d4f9412fb",
+  "commit_sha": "df3d36c67ebd30dca2bd7a3cf7a139dba49da84c",
   "command": "go test ./spike/state/... ./spike/sqlite/... ./spike/sandbox/... ./spike/datapath/... -count=1 -v",
   "result": "SUPPORTED_WITH_LIMITS",
-  "artifact_digest": "sha256:5ee9c88cca02d44da17f759ba0bcd7c942ec9e0225f0bbc82368e8f2de2a7376",
+  "artifact_digest": "sha256:deaa10aa0c0700aa67d9cd612d631eb15ed21a3aef04996dfcb6146cf9919932",
   "os": "Ubuntu 24.04.3; Linux 6.8.0-136-generic; linux/amd64; Go 1.26.5; host hermes; router not applicable",
   "timeout": 3600,
   "summary": "owner=sub-agent-sol; approver=pending independent specification and quality/security review; assertions=raw TCPConn io.Copy path and explicit 32KiB buffered path preserve identical payload hash, evidence reports only go_tcp_copy_splice_eligible plus eligible, forbidden exact runtime splice/fallback byte claims are absent, pessimistic fallback reserves 65536 bytes per bidirectional connection, CPU/Go allocation/RSS observations are label-only rather than SLO claims; capability promotion=Linux splice eligibility supported with limits; exact splice activity remains lab-only; Windows buffered",
