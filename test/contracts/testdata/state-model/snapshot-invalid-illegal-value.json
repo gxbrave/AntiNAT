@@ -1,0 +1,17 @@
+{
+  "schema": "antinat.contracts/state-model/v1",
+  "vector_id": "snapshot-invalid-illegal-value",
+  "kind": "snapshot",
+  "expect": "invalid",
+  "snapshot": {
+    "control_state": "ONLINE",
+    "listener_state": "READY",
+    "mapping_state": "PUBLIC_CANDIDATE",
+    "keepalive_state": "HEALTHY",
+    "wan_reachability_state": "OPEN_FROM_VANTAGE",
+    "return_path_state": "VERIFIED",
+    "target_health_state": "PASS",
+    "publication_state": "VERIFIED_EVERYWHERE",
+    "data_plane_state": "READY"
+  }
+}

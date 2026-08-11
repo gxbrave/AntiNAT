@@ -1,0 +1,9 @@
+{
+  "schema": "antinat.contracts/state-model/v1",
+  "vector_id": "restore-restored-recovery-quarantine-allowed",
+  "kind": "transition",
+  "expect": "allowed",
+  "fsm": "restore",
+  "from": "RESTORED",
+  "to": "RECOVERY_QUARANTINE"
+}

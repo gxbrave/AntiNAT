@@ -1,0 +1,9 @@
+{
+  "schema": "antinat.contracts/state-model/v1",
+  "vector_id": "outbox-sent-semantic-acked-allowed",
+  "kind": "transition",
+  "expect": "allowed",
+  "fsm": "outbox",
+  "from": "SENT",
+  "to": "SEMANTIC_ACKED"
+}

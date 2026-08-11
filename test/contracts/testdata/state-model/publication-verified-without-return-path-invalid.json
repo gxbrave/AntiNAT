@@ -1,0 +1,11 @@
+{
+  "schema": "antinat.contracts/state-model/v1",
+  "vector_id": "publication-verified-without-return-path-invalid",
+  "kind": "publication",
+  "expect": "invalid",
+  "publication": {
+    "publication_state": "PUBLISHED_VERIFIED",
+    "wan_reachability_state": "OPEN_FROM_VANTAGE",
+    "return_path_state": "NOT_TESTED"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "schema": "antinat.contracts/state-model/v1",
+  "vector_id": "outbox-sent-pending-rejected",
+  "kind": "transition",
+  "expect": "rejected",
+  "fsm": "outbox",
+  "from": "SENT",
+  "to": "PENDING"
+}

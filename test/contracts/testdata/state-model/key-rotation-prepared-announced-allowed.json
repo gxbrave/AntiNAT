@@ -1,0 +1,9 @@
+{
+  "schema": "antinat.contracts/state-model/v1",
+  "vector_id": "key-rotation-prepared-announced-allowed",
+  "kind": "transition",
+  "expect": "allowed",
+  "fsm": "key_rotation",
+  "from": "PREPARED",
+  "to": "ANNOUNCED"
+}

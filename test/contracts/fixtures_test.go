@@ -32,12 +32,16 @@ func loadFixtureJSON(t *testing.T, path string, out any) {
 	}
 }
 
-// walkJSONFiles returns all *.json files under dir sorted by path.
+// walkJSONFiles returns all *.json files under dir sorted by path. A missing
+// directory yields an empty list (callers report the "no fixtures" RED).
 func walkJSONFiles(t *testing.T, dir string) []string {
 	t.Helper()
 	var files []string
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
 			return err
 		}
 		if info.IsDir() || !strings.HasSuffix(path, ".json") {
