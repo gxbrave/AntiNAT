@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"runtime"
 	"strconv"
 	"strings"
@@ -31,6 +32,10 @@ const (
 	seccompReturnErrno       = 0x00050000
 	seccompReturnAllow       = 0x7fff0000
 	auditArchX8664           = 0xc000003e
+
+	// rlimitNPROC is RLIMIT_NPROC (6) on linux/amd64; the syscall package does
+	// not expose it, so the prototype defines the constant for this target.
+	rlimitNPROC = 6
 )
 
 func Probe(executable string) Result {
@@ -42,9 +47,24 @@ func Probe(executable string) Result {
 		return unsupportedResult("prototype requires root to create namespaces/chroot and drop to a dedicated UID")
 	}
 
-	inspect := runAction(executable, "inspect")
-	for _, name := range []string{"dedicated_uid", "no_new_privileges", "network_namespace", "mount_namespace_empty_root"} {
-		result.Gates[name] = inspect
+	// The dedicated-identity minimum gate: a provisioned, unique, non-nobody
+	// service UID/GID must be supplied. A shared nobody/nogroup identity or a
+	// missing provision is a failed gate, not a PASS.
+	uid, gid, identityErr := dedicatedIdentity()
+	if identityErr != nil {
+		result.Gates["dedicated_uid"] = GateResult{Detail: "dedicated identity required: " + identityErr.Error()}
+	} else {
+		inspect := runAction(executable, "inspect")
+		result.Gates["dedicated_uid"] = inspect
+		if inspect.Pass {
+			result.Gates["dedicated_uid"] = GateResult{
+				Pass:   true,
+				Detail: inspect.Detail + "; dropped to dedicated service UID " + strconv.Itoa(uid) + " GID " + strconv.Itoa(gid),
+			}
+		}
+	}
+	for _, name := range []string{"no_new_privileges", "network_namespace", "mount_namespace_empty_root"} {
+		result.Gates[name] = runAction(executable, "inspect")
 	}
 	result.Gates["sanitized_env"] = runAction(executable, "env")
 	result.Gates["no_inherited_fd"] = runAction(executable, "fd")
@@ -85,7 +105,10 @@ func runAction(executable, action string) GateResult {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, executable, "-test.run=TestSandboxChildHelper", "-test.v")
-	cmd.SysProcAttr = &syscall.SysProcAttr{Cloneflags: syscall.CLONE_NEWNET | syscall.CLONE_NEWNS}
+	// Setpgid places the child (and any descendants it manages to create) in a
+	// private process group so the parent can contain and kill the whole tree
+	// after termination, not just the direct child.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Cloneflags: syscall.CLONE_NEWNET | syscall.CLONE_NEWNS, Setpgid: true}
 	environment := []string{
 		"PATH=/usr/bin:/bin",
 		"ANTINAT_SANDBOX_HELPER=1",
@@ -93,6 +116,8 @@ func runAction(executable, action string) GateResult {
 		"ANTINAT_SANDBOX_ROOT=" + root,
 		"ANTINAT_PARENT_NETNS=" + parentNetNS,
 		"ANTINAT_PARENT_MNTNS=" + parentMountNS,
+		"ANTINAT_DEDICATED_UID=" + os.Getenv("ANTINAT_DEDICATED_UID"),
+		"ANTINAT_DEDICATED_GID=" + os.Getenv("ANTINAT_DEDICATED_GID"),
 	}
 	var sentinel *os.File
 	if action == "fd" {
@@ -108,18 +133,35 @@ func runAction(executable, action string) GateResult {
 		environment = append(environment, "ANTINAT_SENTINEL_FD="+strconv.Itoa(int(sentinel.Fd())))
 	}
 	cmd.Env = environment
-	output, err := cmd.CombinedOutput()
-	fullDetail := strings.TrimSpace(string(output))
+	// Stream the child output through a bounded writer so an unbounded
+	// malicious stdout/stderr cannot exhaust the parent's memory before the
+	// displayed detail is truncated.
+	output := &cappedWriter{max: maxActionOutput}
+	cmd.Stdout = output
+	cmd.Stderr = output
+	startErr := cmd.Start()
+	if startErr != nil {
+		return GateResult{Detail: startErr.Error()}
+	}
+	waitErr := cmd.Wait()
+	// Contain descendants: kill any surviving member of the child's process
+	// group, including processes forked/cloned by the fixture after the direct
+	// child was reaped or timed out.
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	fullDetail := strings.TrimSpace(output.String())
 	detail := fullDetail
+	if output.capped {
+		detail = "[[output truncated at " + strconv.Itoa(maxActionOutput) + " bytes]] " + detail
+	}
 	if len(detail) > 500 {
 		detail = detail[len(detail)-500:]
 	}
 	if action == "loop" || action == "allocation" {
-		if err == nil {
+		if waitErr == nil {
 			return GateResult{Detail: action + " unexpectedly completed"}
 		}
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if errors.As(waitErr, &exitErr) {
 			status, ok := exitErr.Sys().(syscall.WaitStatus)
 			if !ok {
 				return GateResult{Detail: action + " returned a non-Unix wait status"}
@@ -128,13 +170,41 @@ func runAction(executable, action string) GateResult {
 				return GateResult{Pass: true, Detail: reason + ": " + detail}
 			}
 		}
-		return GateResult{Detail: fmt.Sprintf("%s failed unexpectedly: %v: %s", action, err, detail)}
+		return GateResult{Detail: fmt.Sprintf("%s failed unexpectedly: %v: %s", action, waitErr, detail)}
 	}
-	if err != nil {
-		return GateResult{Detail: fmt.Sprintf("%s: %v: %s", action, err, detail)}
+	if waitErr != nil {
+		return GateResult{Detail: fmt.Sprintf("%s: %v: %s", action, waitErr, detail)}
 	}
 	return GateResult{Pass: true, Detail: detail}
 }
+
+// maxActionOutput caps how much child stdout/stderr the parent will buffer.
+const maxActionOutput = 64 * 1024
+
+// cappedWriter discards bytes beyond max while remembering that truncation
+// happened, so the parent memory use is bounded even for hostile output.
+type cappedWriter struct {
+	buf    []byte
+	max    int
+	capped bool
+}
+
+func (w *cappedWriter) Write(p []byte) (int, error) {
+	if len(w.buf) >= w.max {
+		w.capped = true
+		return len(p), nil
+	}
+	remaining := w.max - len(w.buf)
+	if len(p) > remaining {
+		w.buf = append(w.buf, p[:remaining]...)
+		w.capped = true
+	} else {
+		w.buf = append(w.buf, p...)
+	}
+	return len(p), nil
+}
+
+func (w *cappedWriter) String() string { return string(w.buf) }
 
 func boundedActionPassed(action string, contextErr error, status syscall.WaitStatus, output string) (bool, string) {
 	if contextErr == context.DeadlineExceeded {
@@ -142,16 +212,24 @@ func boundedActionPassed(action string, contextErr error, status syscall.WaitSta
 	}
 	switch action {
 	case "loop":
-		if status.Signaled() && (status.Signal() == syscall.SIGXCPU || status.Signal() == syscall.SIGKILL) {
-			return true, "loop terminated by RLIMIT_CPU signal " + status.Signal().String()
+		// The configured soft RLIMIT_CPU is proven only by limit-specific
+		// observables: a kernel-default SIGXCPU wait status, or the child's
+		// on-stdout SIGXCPU marker with its distinctive exit code. A generic
+		// SIGKILL (OOM killer, external kill, seccomp kill, unrelated
+		// supervisor) is not limit-specific evidence and fails closed.
+		if status.Signaled() && status.Signal() == syscall.SIGXCPU {
+			return true, "loop terminated by the configured RLIMIT_CPU soft limit (SIGXCPU)"
+		}
+		lower := strings.ToLower(output)
+		if status.ExitStatus() == 42 && strings.Contains(lower, "sigxcpu") {
+			return true, "loop observed the configured RLIMIT_CPU soft limit (SIGXCPU) and exited"
 		}
 	case "allocation":
+		// The address-space limit is proven only by the runtime's observable
+		// out-of-memory message; an arbitrary fatal exit or signal is not.
 		lower := strings.ToLower(output)
 		if strings.Contains(lower, "out of memory") || strings.Contains(lower, "cannot allocate memory") {
 			return true, "allocation terminated after the address-space limit"
-		}
-		if status.Signaled() && status.Signal() == syscall.SIGKILL {
-			return true, "allocation terminated by SIGKILL under the address-space limit"
 		}
 	}
 	return false, "termination did not prove the configured resource bound"
@@ -172,8 +250,17 @@ func RunSandboxChild(action, root, parentNetNS, parentMountNS string) error {
 	if childMountNS == parentMountNS {
 		return errors.New("mount namespace was not isolated")
 	}
+	// Resolve the provisioned dedicated identity before the chroot hides
+	// /etc/passwd and /etc/group.
+	uid, gid, err := dedicatedIdentity()
+	if err != nil {
+		return err
+	}
 	if action == "loop" {
-		if err := syscall.Setrlimit(syscall.RLIMIT_CPU, &syscall.Rlimit{Cur: 1, Max: 1}); err != nil {
+		// Soft limit 1s fires SIGXCPU (the observable, limit-specific proof);
+		// hard limit 2s is the backstop SIGKILL only if the fixture survived
+		// the soft limit.
+		if err := syscall.Setrlimit(syscall.RLIMIT_CPU, &syscall.Rlimit{Cur: 1, Max: 2}); err != nil {
 			return err
 		}
 	}
@@ -181,6 +268,11 @@ func RunSandboxChild(action, root, parentNetNS, parentMountNS string) error {
 		if err := limitAddressSpace(); err != nil {
 			return err
 		}
+	}
+	// Bound the number of processes/threads this identity may create so a
+	// malicious fixture cannot multiply descendants to exhaust the host.
+	if err := syscall.Setrlimit(rlimitNPROC, &syscall.Rlimit{Cur: 16, Max: 16}); err != nil {
+		return err
 	}
 	if err := syscall.Chroot(root); err != nil {
 		return err
@@ -191,10 +283,10 @@ func RunSandboxChild(action, root, parentNetNS, parentMountNS string) error {
 	if err := syscall.Setgroups([]int{}); err != nil {
 		return err
 	}
-	if err := syscall.Setgid(65534); err != nil {
+	if err := syscall.Setgid(gid); err != nil {
 		return err
 	}
-	if err := syscall.Setuid(65534); err != nil {
+	if err := syscall.Setuid(uid); err != nil {
 		return err
 	}
 	if err := setNoNewPrivileges(); err != nil {
@@ -203,8 +295,8 @@ func RunSandboxChild(action, root, parentNetNS, parentMountNS string) error {
 	if err := installSeccomp(); err != nil {
 		return err
 	}
-	if os.Geteuid() != 65534 {
-		return fmt.Errorf("effective UID = %d, want 65534", os.Geteuid())
+	if os.Geteuid() != uid || os.Getegid() != gid {
+		return fmt.Errorf("effective identity = %d/%d, want %d/%d", os.Geteuid(), os.Getegid(), uid, gid)
 	}
 
 	switch action {
@@ -250,6 +342,20 @@ func RunSandboxChild(action, root, parentNetNS, parentMountNS string) error {
 		}
 		return nil
 	case "loop":
+		// SIGXCPU is generated only by RLIMIT_CPU on Linux. The Go runtime
+		// otherwise swallows the soft-limit signal (dying only at the hard
+		// limit with a generic SIGKILL), so the child observes the configured
+		// soft-limit SIGXCPU and exits with a distinctive code plus an
+		// on-stdout marker. The parent requires that observable marker, so an
+		// unrelated OOM/external/seccomp kill can never masquerade as a
+		// CPU-limit PASS.
+		sigc := make(chan os.Signal, 1)
+		signal.Notify(sigc, syscall.SIGXCPU)
+		go func() {
+			<-sigc
+			fmt.Println("sandbox: received SIGXCPU from the configured RLIMIT_CPU soft limit")
+			os.Exit(42)
+		}()
 		for {
 		}
 	case "allocation":
@@ -286,6 +392,12 @@ func installSeccomp() error {
 		322, // execveat on linux/amd64
 		syscall.SYS_PTRACE,
 		syscall.SYS_MOUNT,
+		// fork/vfork are denied so a fixture cannot multiply into new
+		// processes; clone/clone3 remain available only because the Go
+		// runtime may need new threads, and are bounded by RLIMIT_NPROC plus
+		// the parent's process-group kill.
+		syscall.SYS_FORK,
+		syscall.SYS_VFORK,
 	}
 	filters := []syscall.SockFilter{
 		{Code: bpfLoadAbsolute, K: 4},

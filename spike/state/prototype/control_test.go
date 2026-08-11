@@ -48,7 +48,7 @@ func TestOldEpochACKResendsSemanticResultOnNewSession(t *testing.T) {
 	if err := store.AdvanceSession(20, "session-old"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RecordAndQueueResult("operation-1", "APPLIED"); err != nil {
+	if err := store.RecordAndQueueResult(20, "session-old", "operation-1", "APPLIED"); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.AdvanceSession(21, "session-new"); err != nil {
@@ -64,13 +64,21 @@ func TestOldEpochACKResendsSemanticResultOnNewSession(t *testing.T) {
 	if result != "APPLIED" {
 		t.Fatalf("resent semantic result = %q, want APPLIED", result)
 	}
+	// The new session re-envelopes the same semantic result through the strict
+	// FSM without repeating the side effect: claim -> sent -> semantic ACK.
+	if err := store.ClaimOutbox(21, "session-new", "operation-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkOutboxSent(21, "session-new", "operation-1"); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.AcceptSemanticACK(21, "session-new", "operation-1"); err != nil {
 		t.Fatal(err)
 	}
 	if !store.OutboxContains("operation-1") {
 		t.Fatal("semantic ACK garbage-collected outbox before durable receipt")
 	}
-	if err := store.AcceptReceipt("operation-1"); err != nil {
+	if err := store.AcceptReceipt(21, "session-new", "operation-1"); err != nil {
 		t.Fatal(err)
 	}
 	if store.OutboxContains("operation-1") {

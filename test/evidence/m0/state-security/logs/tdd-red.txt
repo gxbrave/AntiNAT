@@ -1,0 +1,121 @@
+P03 repair cycle 1 — raw TDD RED evidence (per-Story)
+=====================================================
+Captured 2026-08-11 during cumulative repair cycle 1 (task t_e3855607) on
+branch ai/P03-state-security-feasibility-spikes. Behavioral REDs were observed
+against the pre-repair head dae3858bb29f081651b1407ad3c4367b9c8092c8 before the
+GREEN implementations; sabotage REDs use throwaway copies and were discarded.
+Exit codes are the actual command exit codes.
+
+Story 1 — SQLite driver (WAL durability RED criterion)
+------------------------------------------------------
+Method: throwaway copy of spike/sqlite/driver with the journal_mode(WAL)
+pragma removed from openDatabase (journal_mode(DELETE) substituted), then the
+focused WAL test was run. The failure proves the test detects "loses WAL
+data" rather than passing vacuously. The copy was discarded; the checked-in
+driver is unchanged by this exercise.
+
+command:
+  cd /tmp/sqlite-red && GOWORK=off go test -count=1 -run TestMigrationsWALBusyTimeoutAndConcurrentWrites -v .
+exit_code: 1
+observed:
+  sqlite_test.go:27: journal_mode = "delete", want wal
+  --- FAIL: TestMigrationsWALBusyTimeoutAndConcurrentWrites (0.00s)
+  FAIL  github.com/gxbrave/AntiNAT/spike/sqlite/driver
+
+Story 3 — Durable control FSM (Q1 adversarial RED)
+--------------------------------------------------
+Method: new spike/state/prototype/fsm_test.go adversarial tests written
+against the pre-repair control.go API before the FSM fix. Every bypass
+reported by QUALITY Q1 failed closed only after the fix; against the
+pre-repair head all eight assertions failed behaviorally.
+
+command:
+  cd spike/state/prototype && GOWORK=off go test -count=1 -run 'TestPrematureReceiptCannotGC|TestDoubleClaimIsAnIllegal|TestClaimAfterSemanticACK|TestSemanticACKWithoutSent|TestStaleWriterCannotOverwrite|TestCrossSessionReceiptCannotGC|TestReceiptRequiresSemanticACK|TestDuplicateReceiptFailsClosed' -v .
+exit_code: 1
+observed (each expected assertion failed):
+  fsm_test.go:27: premature receipt was accepted for a PENDING operation; want fail closed
+  fsm_test.go:50: double claim was accepted; want fail closed on a CLAIMED operation
+  fsm_test.go:73: claim after semantic ACK was accepted; want fail closed
+  fsm_test.go:91: semantic ACK was accepted from PENDING without claim/sent; want fail closed
+  fsm_test.go:112: stale writer overwrote the current semantic result; want fail closed
+  fsm_test.go:139: unfenced receipt garbage-collected another session's operation; want fail closed
+  fsm_test.go:162: receipt was accepted from CLAIMED without a semantic ACK; want fail closed
+  fsm_test.go:191: duplicate receipt for an already-receipted operation was accepted; want fail closed
+  FAIL  github.com/gxbrave/AntiNAT/spike/state/prototype
+
+Story 3 — Two-sided signed commands (SPEC F2 / QUALITY Q4 RED)
+--------------------------------------------------------------
+Method: new spike/state/prototype/signed_test.go two-sided Controller/Agent
+Ed25519 envelope tests written before the signed-envelope prototype existed.
+The feature was entirely absent, so the tests failed to compile (undefined
+symbols) — the honest RED state for a missing feature.
+
+command:
+  cd spike/state/prototype && GOWORK=off go test -count=1 -run 'TestValidSignedCommandAccepted' .
+exit_code: 1
+observed:
+  ./signed_test.go:60:165: undefined: SignedMessage
+  ./signed_test.go:62:13: undefined: NewSignedMessage
+  ./signed_test.go:71:44: undefined: DirectionControllerToAgent
+  ./signed_test.go:72:12: undefined: DeliverSigned
+  FAIL  github.com/gxbrave/AntiNAT/spike/state/prototype [build failed]
+
+Story 4 — Sandbox dedicated UID gate (Q2 RED)
+---------------------------------------------
+Method: new spike/sandbox/identity_linux_test.go tests requiring the
+dedicated_uid gate to fail closed for the shared nobody identity 65534 and for
+a missing provisioned identity. Against the pre-repair head the gate passed in
+both cases (the vulnerability QUALITY Q2 reported).
+
+command:
+  GOWORK=off go test ./spike/sandbox/... -count=1 -run 'TestDedicatedUIDGate' -v
+exit_code: 1
+observed:
+  identity_linux_test.go:26: dedicated_uid gate passed for the shared nobody identity 65534
+  identity_linux_test.go:39: dedicated_uid gate passed without a provisioned identity
+  FAIL  github.com/gxbrave/AntiNAT/spike/sandbox
+
+Story 4 — Sandbox resource gate fail-closed (Q3 RED)
+----------------------------------------------------
+Method: spike/sandbox/bounded_linux_test.go rewritten to require
+limit-specific proof (SIGXCPU for the CPU limit, observable OOM message for
+the address-space limit) and to reject a generic SIGKILL. Against the
+pre-repair implementation the generic-SIGKILL acceptance tests failed, and the
+real bounded-path test failed because the real child terminated with a generic
+SIGKILL (Cur==Max RLIMIT_CPU), proving generic SIGKILL is not limit-specific.
+
+command:
+  ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./spike/sandbox/... -count=1 -run 'TestBoundedAction' -v
+exit_code: 1
+observed:
+  --- FAIL: TestBoundedActionRejectsGenericSIGKILLForCPULimit
+  --- FAIL: TestBoundedActionRejectsGenericSIGKILLForAllocation
+  --- FAIL: TestBoundedActionRealCPULimitTermination
+  FAIL  github.com/gxbrave/AntiNAT/spike/sandbox
+
+Story 6 — Evidence classification (enum RED)
+---------------------------------------------
+Method: throwaway copy of a machine-readable evidence record with the result
+field sabotaged to an invalid enum; the P01-compatible validator must reject
+the misclassified record. The throwaway was discarded.
+
+command:
+  GOWORK=off go run ./scripts/verify-evidence.go /tmp/sabotaged-evidence.json
+exit_code: 1
+observed:
+  FAIL /tmp/sabotaged-evidence.json: EVIDENCE_INVALID_RESULT: result must be PASS, SUPPORTED_WITH_LIMITS, NO_GO, or FAIL
+  exit status 1
+
+Windows-identity sub-spike — Defender ownership gating (RED)
+-------------------------------------------------------------
+Method: new spike/windows-identity/classify_test.go tests requiring the
+overall capability to fail closed while Defender firewall ownership is
+UNVALIDATED. The classification function did not exist before the repair, so
+the tests failed to compile (undefined symbol) — the honest RED state.
+
+command:
+  GOWORK=off go test ./spike/windows-identity/... -count=1 -run 'TestClassify' .
+exit_code: 1
+observed:
+  ./classify_test.go:15:12: undefined: ClassifyCapability
+  FAIL  github.com/gxbrave/AntiNAT/spike/windows-identity [build failed]

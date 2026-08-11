@@ -11,6 +11,7 @@ Assertions:
 - `VACUUM INTO` produces a consistent, integrity-checked snapshot and the file plus parent directory are synced;
 - a truncated database fails the integrity gate closed;
 - a deterministic `SQLITE_FULL` condition leaves the database integrity check clean;
+- committed WAL rows survive a hard `SIGKILL` of the writer before any checkpoint (regression-pinned as `TestWALCommittedDataSurvivesHardKill`);
 - Linux/amd64 and Windows/amd64 build with `CGO_ENABLED=0`;
 - every resolved module has a hashed license record in `license-inventory.json`.
 

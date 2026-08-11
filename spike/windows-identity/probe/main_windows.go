@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unsafe"
 
+	windowsidentity "github.com/gxbrave/AntiNAT/spike/windows-identity"
 	"golang.org/x/sys/windows"
 )
 
@@ -47,9 +48,12 @@ func main() {
 		result.ServiceSID = serviceSID
 	}
 	result.NativeValidated = result.DPAPIMachineRoundTrip && result.ProtectedKeyACL && result.ServiceSID != ""
-	if result.NativeValidated {
-		result.Capability = "SUPPORTED_WITH_LIMITS"
-	}
+	result.Capability = windowsidentity.ClassifyCapability(
+		result.DPAPIMachineRoundTrip,
+		result.ProtectedKeyACL,
+		result.ServiceSID,
+		result.DefenderRuleMode,
+	)
 	if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

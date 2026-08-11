@@ -17,7 +17,8 @@ var (
 	bucketSecrets    = []byte("secrets")
 	bucketSession    = []byte("session")
 	bucketInbox      = []byte("inbox")
-	allBuckets       = [][]byte{bucketLKG, bucketPending, bucketOperations, bucketOutbox, bucketSecrets, bucketSession, bucketInbox}
+	bucketReceipts   = []byte("receipts")
+	allBuckets       = [][]byte{bucketLKG, bucketPending, bucketOperations, bucketOutbox, bucketSecrets, bucketSession, bucketInbox, bucketReceipts}
 )
 
 type Store struct {

@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -185,4 +188,88 @@ func TestFullDiskErrorIsReportedWithoutCorruptingDatabase(t *testing.T) {
 	if integrity != "ok" {
 		t.Fatalf("integrity_check after SQLITE_FULL = %q, want ok", integrity)
 	}
+}
+
+// TestWALCommittedDataSurvivesHardKill pins the Story 1 RED criterion that a
+// WAL candidate must not lose committed data on an unclean shutdown: a helper
+// process commits rows and is SIGKILLed before any checkpoint; reopening the
+// database must still show every committed row. The driver satisfies the
+// criterion; this regression test keeps it pinned.
+func TestWALCommittedDataSurvivesHardKill(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "controller.db")
+	cmd := exec.Command(os.Args[0], "-test.run=TestWALCrashHelper", "--", path)
+	cmd.Env = append(os.Environ(), "ANTINAT_WAL_CRASH_HELPER=1")
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	ready := false
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		if strings.Contains(scanner.Text(), "READY") {
+			ready = true
+			break
+		}
+	}
+	if !ready {
+		t.Fatal("WAL crash helper never reported READY")
+	}
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = cmd.Wait()
+
+	db, err := openDatabase(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var count int
+	if err := db.QueryRow("SELECT count(*) FROM events").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 32 {
+		t.Fatalf("WAL committed rows after hard kill = %d, want 32", count)
+	}
+	var quickCheck string
+	if err := db.QueryRow("PRAGMA quick_check").Scan(&quickCheck); err != nil {
+		t.Fatal(err)
+	}
+	if quickCheck != "ok" {
+		t.Fatalf("quick_check after hard kill = %q, want ok", quickCheck)
+	}
+}
+
+func TestWALCrashHelper(t *testing.T) {
+	if os.Getenv("ANTINAT_WAL_CRASH_HELPER") != "1" {
+		return
+	}
+	separator := -1
+	for i, arg := range os.Args {
+		if arg == "--" {
+			separator = i
+			break
+		}
+	}
+	if separator < 0 || len(os.Args) != separator+2 {
+		os.Exit(2)
+	}
+	db, err := openDatabase(os.Args[separator+1])
+	if err != nil {
+		os.Exit(3)
+	}
+	if err := migrate(db); err != nil {
+		os.Exit(4)
+	}
+	for i := range 32 {
+		if _, err := db.Exec("INSERT INTO events(writer, sequence, value) VALUES (0, ?, 'crash-durable')", i); err != nil {
+			os.Exit(5)
+		}
+	}
+	fmt.Println("READY")
+	select {}
 }
