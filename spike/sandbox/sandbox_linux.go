@@ -36,16 +36,10 @@ const (
 func Probe(executable string) Result {
 	result := Result{Supported: true, Gates: make(map[string]GateResult)}
 	if runtime.GOARCH != "amd64" {
-		result.Supported = false
-		result.Fallback = "webhook-only"
-		result.Gates["seccomp_socket_connect"] = GateResult{Detail: "prototype seccomp program is amd64-only"}
-		return result
+		return unsupportedResult("prototype seccomp program is amd64-only")
 	}
 	if os.Geteuid() != 0 {
-		result.Supported = false
-		result.Fallback = "webhook-only"
-		result.Gates["dedicated_uid"] = GateResult{Detail: "prototype requires root to create namespaces/chroot and drop to a dedicated UID"}
-		return result
+		return unsupportedResult("prototype requires root to create namespaces/chroot and drop to a dedicated UID")
 	}
 
 	inspect := runAction(executable, "inspect")
@@ -115,7 +109,8 @@ func runAction(executable, action string) GateResult {
 	}
 	cmd.Env = environment
 	output, err := cmd.CombinedOutput()
-	detail := strings.TrimSpace(string(output))
+	fullDetail := strings.TrimSpace(string(output))
+	detail := fullDetail
 	if len(detail) > 500 {
 		detail = detail[len(detail)-500:]
 	}
@@ -123,12 +118,15 @@ func runAction(executable, action string) GateResult {
 		if err == nil {
 			return GateResult{Detail: action + " unexpectedly completed"}
 		}
-		if ctx.Err() == context.DeadlineExceeded {
-			return GateResult{Pass: true, Detail: action + " terminated by the 5s outer deadline"}
-		}
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			return GateResult{Pass: true, Detail: action + " terminated by resource limit: " + detail}
+			status, ok := exitErr.Sys().(syscall.WaitStatus)
+			if !ok {
+				return GateResult{Detail: action + " returned a non-Unix wait status"}
+			}
+			if pass, reason := boundedActionPassed(action, ctx.Err(), status, fullDetail); pass {
+				return GateResult{Pass: true, Detail: reason + ": " + detail}
+			}
 		}
 		return GateResult{Detail: fmt.Sprintf("%s failed unexpectedly: %v: %s", action, err, detail)}
 	}
@@ -136,6 +134,27 @@ func runAction(executable, action string) GateResult {
 		return GateResult{Detail: fmt.Sprintf("%s: %v: %s", action, err, detail)}
 	}
 	return GateResult{Pass: true, Detail: detail}
+}
+
+func boundedActionPassed(action string, contextErr error, status syscall.WaitStatus, output string) (bool, string) {
+	if contextErr == context.DeadlineExceeded {
+		return false, "outer deadline expired before a proven resource-limit termination"
+	}
+	switch action {
+	case "loop":
+		if status.Signaled() && (status.Signal() == syscall.SIGXCPU || status.Signal() == syscall.SIGKILL) {
+			return true, "loop terminated by RLIMIT_CPU signal " + status.Signal().String()
+		}
+	case "allocation":
+		lower := strings.ToLower(output)
+		if strings.Contains(lower, "out of memory") || strings.Contains(lower, "cannot allocate memory") {
+			return true, "allocation terminated after the address-space limit"
+		}
+		if status.Signaled() && status.Signal() == syscall.SIGKILL {
+			return true, "allocation terminated by SIGKILL under the address-space limit"
+		}
+	}
+	return false, "termination did not prove the configured resource bound"
 }
 
 func RunSandboxChild(action, root, parentNetNS, parentMountNS string) error {
