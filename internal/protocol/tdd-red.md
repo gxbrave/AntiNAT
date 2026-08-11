@@ -33,10 +33,11 @@ internal/protocol/golden_test.go:175:16: undefined: ValidateStrictJSON
 ```
 
 GREEN: golden gate over all frozen `internal/protocol/testdata/**` vectors
-(19 control-envelope, 11 enrollment, 32 probe-frame) plus the full bit-flip
-table; every valid vector parses, every invalid vector rejects at the frozen
-stage, and no single-bit mutation of a valid vector ever reaches payload
-decode. 66 fixture subtests, 0 failures.
+(19 control-envelope, 11 enrollment, 31 probe-frame = 61 fixtures) plus the
+full bit-flip table; every valid vector parses, every invalid vector rejects
+at the frozen stage, and no single-bit mutation of a valid vector ever
+reaches payload decode. 61 fixture subtests + 5 top-level golden tests =
+66 subtests, 0 failures.
 
 ## Story 2 — Strict payload decoding
 
@@ -136,3 +137,54 @@ Note: the plan's literal `-fuzz=Fuzz` matches five targets in one package;
 the Go toolchain refuses to fuzz when the regex matches more than one fuzz
 test, so the equivalent per-target invocations above are used (documented in
 the handoff).
+
+## Repair cycle 1 — findings F1, F2, F3 (P05-FIX1)
+
+All three RED observations were captured against the pre-fix code before the
+GREEN implementation, then re-verified GREEN.
+
+### F1 — ProbeAgent armed state bounded and expirable (docs/protocol.md §7.6)
+
+RED command: `go test ./internal/protocol -run 'TestProbeAgentState' -count=1`
+RED reason (fix absent: no sweep, no cap — ErrProbeStateFull never returned):
+
+```
+probe_test.go:314: arm beyond cap: got <nil>, want ErrProbeStateFull
+probe_test.go:371: re-arm of expired operation with different material: got protocol: probe ID already armed with different material, want fresh arm
+probe_test.go:418: re-arm after replay+op expiry with different material: got protocol: probe ID already armed with different material, want fresh arm
+```
+
+GREEN: `ArmProbe` sweeps expired operations and replay entries against the
+wall clock before any read/insert and rejects arming beyond `ProbeOpMax`
+(1024) with `ErrProbeStateFull`. Pins: capacity bounded, eviction on arm,
+expired re-arm is fresh, replay entry expires.
+
+### F2 — Enrollment size pre-filter undercounted frozen field caps (§4)
+
+RED command: `go test ./internal/protocol -run TestEnrollFrozenFieldCapsAccepted -count=1`
+RED reason (old constants assumed one 4-byte prefix and capped key_id /
+protocol_versions at 64, rejecting contract-valid maxima):
+
+```
+enrollment_test.go:96: valid 256-byte token request rejected: protocol: enrollment message malformed
+```
+
+GREEN: `Enroll*Max` recomputed with a 4-byte length prefix per field plus
+each field's frozen cap (protocol_versions pinned to the 1-byte value "1").
+Boundary tests pin 255-byte key_id / 256-byte token accepted and a 257-byte
+token rejected as malformed.
+
+### F3 — Protected-header string fields bounded to 1..255 (§3.2)
+
+RED command: `go test ./internal/protocol -run 'TestEnvelopeHeaderStringFieldBounds|TestEnvelopeEncodeRejectsInvalidStringFields' -count=1`
+RED reason (no bound enforced at decode or encode — empty and over-cap
+values accepted):
+
+```
+envelope_test.go:280: frame with controller-key-id-empty accepted
+envelope_test.go:315: BuildEnvelope accepted controller-key-id-empty
+```
+
+GREEN: `validateHeaderStringFields` enforces the frozen 1..255 bound on
+`controller_key_id`, `session_id`, `message_type` at `StageHeader` decode
+and on the encode path.
