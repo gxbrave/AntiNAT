@@ -127,6 +127,9 @@ func ParseEnrollChallenge(raw []byte, controllerPub ed25519.PublicKey) (EnrollCh
 		len(parts[3]) != EnrollNonceSize || len(parts[5]) != 8 {
 		return c, ErrEnrollMalformed
 	}
+	if len(parts[1]) == 0 {
+		return c, ErrEnrollMalformed
+	}
 	if string(parts[4]) != EnrollVersion {
 		return c, ErrEnrollMalformed
 	}
@@ -276,6 +279,9 @@ func ParseEnrollResult(raw []byte, controllerPub ed25519.PublicKey) (EnrollResul
 	if len(parts[0]) != EnrollIDSize || len(parts[2]) != EnrollIDSize ||
 		len(parts[3]) != EnrollHashSize || len(parts[4]) != 4 ||
 		len(parts[5]) != EnrollIDSize || len(parts[6]) != 8 {
+		return r, ErrEnrollMalformed
+	}
+	if len(parts[1]) == 0 {
 		return r, ErrEnrollMalformed
 	}
 	copy(r.ControllerInstanceID[:], parts[0])

@@ -128,6 +128,78 @@ func TestEnrollOverCapTokenRejected(t *testing.T) {
 	}
 }
 
+// TestEnrollControllerKeyIDBounds pins the frozen §4.1/4.3 controller_key_id
+// bound (utf8 1..255) on both ParseEnrollChallenge and ParseEnrollResult:
+// empty is rejected as malformed (finding R1-F6), the 1-byte minimum is
+// accepted, and a 256-byte key_id is rejected by the Enroll*Max pre-filter.
+// The 255-byte maximum is pinned by TestEnrollFrozenFieldCapsAccepted.
+func TestEnrollControllerKeyIDBounds(t *testing.T) {
+	controller, _ := enrollTestKeys()
+	controllerPub := controller.Public().(ed25519.PublicKey)
+
+	// Empty controller_key_id must be rejected as malformed.
+	{
+		c := enrollTestChallenge()
+		c.ControllerKeyID = ""
+		raw := signEnrollForTest(enrollTestDomain, c.Canonical(), controller)
+		if _, err := ParseEnrollChallenge(raw, controllerPub); err != ErrEnrollMalformed {
+			t.Fatalf("challenge empty controller_key_id: got %v, want ErrEnrollMalformed", err)
+		}
+	}
+	{
+		r := enrollTestResult()
+		r.ControllerKeyID = ""
+		raw := signEnrollForTest(enrollTestDomain, r.Canonical(), controller)
+		if _, err := ParseEnrollResult(raw, controllerPub); err != ErrEnrollMalformed {
+			t.Fatalf("result empty controller_key_id: got %v, want ErrEnrollMalformed", err)
+		}
+	}
+
+	// Minimum 1-byte controller_key_id must be accepted.
+	{
+		c := enrollTestChallenge()
+		c.ControllerKeyID = "k"
+		raw := signEnrollForTest(enrollTestDomain, c.Canonical(), controller)
+		got, err := ParseEnrollChallenge(raw, controllerPub)
+		if err != nil {
+			t.Fatalf("valid 1-byte controller_key_id challenge rejected: %v", err)
+		}
+		if len(got.ControllerKeyID) != 1 {
+			t.Fatalf("controller_key_id length %d, want 1", len(got.ControllerKeyID))
+		}
+	}
+	{
+		r := enrollTestResult()
+		r.ControllerKeyID = "k"
+		raw := signEnrollForTest(enrollTestDomain, r.Canonical(), controller)
+		got, err := ParseEnrollResult(raw, controllerPub)
+		if err != nil {
+			t.Fatalf("valid 1-byte controller_key_id result rejected: %v", err)
+		}
+		if len(got.ControllerKeyID) != 1 {
+			t.Fatalf("controller_key_id length %d, want 1", len(got.ControllerKeyID))
+		}
+	}
+
+	// 256-byte controller_key_id is rejected by the Enroll*Max pre-filter.
+	{
+		c := enrollTestChallenge()
+		c.ControllerKeyID = string(bytes.Repeat([]byte{'x'}, 256))
+		raw := signEnrollForTest(enrollTestDomain, c.Canonical(), controller)
+		if _, err := ParseEnrollChallenge(raw, controllerPub); err != ErrEnrollMalformed {
+			t.Fatalf("challenge 256-byte controller_key_id: got %v, want ErrEnrollMalformed", err)
+		}
+	}
+	{
+		r := enrollTestResult()
+		r.ControllerKeyID = string(bytes.Repeat([]byte{'x'}, 256))
+		raw := signEnrollForTest(enrollTestDomain, r.Canonical(), controller)
+		if _, err := ParseEnrollResult(raw, controllerPub); err != ErrEnrollMalformed {
+			t.Fatalf("result 256-byte controller_key_id: got %v, want ErrEnrollMalformed", err)
+		}
+	}
+}
+
 func TestEnrollChallengeValidRoundTrip(t *testing.T) {
 	controller, _ := enrollTestKeys()
 	c := enrollTestChallenge()

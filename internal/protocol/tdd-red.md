@@ -188,3 +188,27 @@ envelope_test.go:315: BuildEnvelope accepted controller-key-id-empty
 GREEN: `validateHeaderStringFields` enforces the frozen 1..255 bound on
 `controller_key_id`, `session_id`, `message_type` at `StageHeader` decode
 and on the encode path.
+
+## Repair cycle 2 — finding R1-F6 (P05-FIX2)
+
+RED observation captured against the pre-fix code before the GREEN
+implementation, then re-verified GREEN.
+
+### R1-F6 — Empty controller_key_id accepted by ParseEnrollChallenge/ParseEnrollResult (§4.1/4.3)
+
+RED command: `go test ./internal/protocol -run TestEnrollControllerKeyIDBounds -count=1`
+RED reason (lower bound 1..255 not enforced on the enrollment key_id; empty
+parses successfully — only the Enroll*Max pre-filter upper bound applied):
+
+```
+enrollment_test.go:146: challenge empty controller_key_id: got <nil>, want ErrEnrollMalformed
+```
+
+GREEN: both `ParseEnrollChallenge` (enrollment.go) and `ParseEnrollResult`
+(enrollment.go) reject a 0-byte `controller_key_id` as `ErrEnrollMalformed`,
+matching the resolved F3 codec-level 1..255 enforcement for protected-header
+strings and `ParseEnrollRequest`'s explicit token 1..256 check. Boundary
+test `TestEnrollControllerKeyIDBounds` pins: empty rejected (challenge +
+result), 1-byte accepted (challenge + result), 256-byte rejected by the
+Enroll*Max pre-filter (challenge + result); the 255-byte maximum remains
+pinned by `TestEnrollFrozenFieldCapsAccepted`.
