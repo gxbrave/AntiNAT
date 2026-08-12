@@ -118,6 +118,17 @@ func (s *Store) CreateForwardSpec(spec ForwardSpec) error {
 	return nil
 }
 
+// ForwardSpecCount returns the number of spec revisions recorded for a forward.
+func (s *Store) ForwardSpecCount(forwardID string) (int, error) {
+	var count int
+	if err := s.db.QueryRow(
+		"SELECT COUNT(*) FROM forward_specs WHERE forward_id = ?", forwardID,
+	).Scan(&count); err != nil {
+		return 0, fmt.Errorf("store: count forward specs: %w", err)
+	}
+	return count, nil
+}
+
 // ForwardDeletionOperation is a durable forward-deletion intent/result record.
 // It is independent of the forward row lifecycle.
 type ForwardDeletionOperation struct {

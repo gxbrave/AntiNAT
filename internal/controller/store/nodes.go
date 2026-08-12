@@ -76,3 +76,33 @@ func (s *Store) CASNodeConnectionEpoch(id string, expectedEpoch uint64, newSessi
 	}
 	return nil
 }
+
+// NodeDeletionOperation is a durable node deletion/decommission record. It is
+// independent of the node row lifecycle (frozen state-model §4). Mode is
+// 'normal' or 'force'.
+type NodeDeletionOperation struct {
+	ID          string
+	NodeID      string
+	Status      string
+	Mode        string
+	CreatedAt   int64
+	CompletedAt int64
+}
+
+// GetNodeDeletionOperation returns a node deletion operation by ID.
+func (s *Store) GetNodeDeletionOperation(id string) (NodeDeletionOperation, error) {
+	var op NodeDeletionOperation
+	var completedAt sql.NullInt64
+	err := s.db.QueryRow(
+		`SELECT id, node_id, status, mode, created_at, completed_at
+		   FROM node_deletion_operations WHERE id = ?`, id,
+	).Scan(&op.ID, &op.NodeID, &op.Status, &op.Mode, &op.CreatedAt, &completedAt)
+	op.CompletedAt = completedAt.Int64
+	if errors.Is(err, sql.ErrNoRows) {
+		return NodeDeletionOperation{}, ErrNotFound
+	}
+	if err != nil {
+		return NodeDeletionOperation{}, fmt.Errorf("store: get node deletion operation: %w", err)
+	}
+	return op, nil
+}
