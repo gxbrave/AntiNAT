@@ -29,6 +29,10 @@ const (
 	ApplyFailed
 	// ApplyDeleted writes the durable tombstone and removes applied state.
 	ApplyDeleted
+	// ApplySkipped writes nothing and counts as neither a success nor a
+	// failure (e.g. an old-revision duplicate or a policy rejection already
+	// decided by the reconcile layer).
+	ApplySkipped
 )
 
 // ForwardApply is one per-Forward decision handed to CommitDesired. Exactly
@@ -122,6 +126,8 @@ func (s *Store) CommitDesired(d protocol.DesiredState, outcomes []ForwardApply) 
 			}
 		case ApplyFailed:
 			// Old applied state is retained; nothing to validate.
+		case ApplySkipped:
+			// No write; nothing to validate.
 		default:
 			return ApplyReport{}, fmt.Errorf("localstate: forward %q has unknown outcome %d", o.ForwardID, o.Outcome)
 		}
@@ -185,6 +191,8 @@ func (s *Store) CommitDesired(d protocol.DesiredState, outcomes []ForwardApply) 
 					report.FailedForwards = append(report.FailedForwards, o.ForwardID)
 				}
 				report.FailedCount++
+			case ApplySkipped:
+				// No write; the decision lives in the caller's report.
 			}
 		}
 		return nil
