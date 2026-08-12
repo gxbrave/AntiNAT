@@ -3,7 +3,6 @@ package store
 import (
 	"errors"
 	"fmt"
-	"syscall"
 )
 
 // ErrDiskLow is returned when a growth write is refused because free space
@@ -12,18 +11,9 @@ import (
 // (v0.8 §9.1).
 var ErrDiskLow = errors.New("store: disk free space below threshold")
 
-// DiskFreeBytes returns free bytes on the filesystem containing path.
-func DiskFreeBytes(path string) (uint64, error) {
-	var st syscall.Statfs_t
-	if err := syscall.Statfs(path, &st); err != nil {
-		return 0, fmt.Errorf("store: statfs %s: %w", path, err)
-	}
-	return st.Bavail * uint64(st.Bsize), nil
-}
-
 // SetDiskPolicy configures the low-disk guard. minFreeBytes 0 disables the
-// guard. When check is nil the real filesystem is used; tests inject a fake
-// to simulate a full disk deterministically.
+// guard. When check is nil the platform free-space implementation is used;
+// tests inject a fake to simulate a full disk deterministically.
 func (s *Store) SetDiskPolicy(minFreeBytes uint64, check func(string) (uint64, error)) {
 	s.minFreeBytes = minFreeBytes
 	s.diskFree = check
