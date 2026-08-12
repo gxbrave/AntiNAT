@@ -1,0 +1,259 @@
+{
+ "plan": "P06",
+ "branch": "integration/v1-beta",
+ "candidate_branch": "ai/P06-controller-store-auth",
+ "integration_base_sha": "a85cb88f3b99a8f4908751f37e29d031aa44be42",
+ "integrated_dependency_product_sha": "a85cb88f3b99a8f4908751f37e29d031aa44be42",
+ "candidate_head_sha": "87dcc9a653cd2e2ad34c6d6f5a16f4b453303e50",
+ "candidate_tree_sha": "d17d70ba345c29b645ecbe171f7527fc4786ac50",
+ "integrated_sha": "b4edbc276138c02eaf37da015bad66979975114b",
+ "integrated_tree_sha": "d17d70ba345c29b645ecbe171f7527fc4786ac50",
+ "candidate_handoff_path": "/root/AntiNAT/.worktrees/t_850d9f5a/.hermes/handoffs/P06.json",
+ "candidate_handoff_sha256": "6b72139081510a3e578a5fd78bd597afe0cd286861c744c58e7ceda489d1ccee",
+ "candidate_commits": [
+  "cd95b62986a07bdc6611c77130d6eb6ab6f64687",
+  "327315b28fccc06ff7bb323f1280ff13c10272b0",
+  "cbaabac83876b25ea275542b82595f2c3007bd4a",
+  "2f9ed71fe10162a026b31ccb0bdf93a7cb05deb9",
+  "126f07e61698ab7f7d1d333b39e5a419416fa91a",
+  "c8fe82274be44fc695c23c35e5ac5deb2a271c82",
+  "00e8ba856df78e866038298163c9f52542a7030b",
+  "b194c8e0de99fe5eed99566a0ccac1ab128020f2",
+  "b4d977a06de5968dc43e6cd86809116b247e18c1",
+  "c4822e25e3fddc7ba03cab8fa9054cee8f57c9d7",
+  "87dcc9a653cd2e2ad34c6d6f5a16f4b453303e50"
+ ],
+ "integrated_commits": [
+  "d5dd1849c5712b4afc07267beb9fff7f767a90f4",
+  "3456e1ceccb0dcb750fbbe7cb6f37bc0c9aa9c91",
+  "fb109b9619b9e2de54ecd627f03e41fe3e19ce5e",
+  "cd300399af45ab71e6659d21039b4cfc0e03eb05",
+  "46c2e59de7e6443b8935a4e47ce5172b04a05ab7",
+  "e3506b640a31cb0036d47dac12ff00cb54e6435b",
+  "2ba4ee3b20adfb5fd09c83a834ddb0fc3a857931",
+  "b8f85269f2b2e2130a6f60659494f0f41151875c",
+  "18892acc57fc7db7e27b8fe49781e9d197023887",
+  "5613f771ea360f603baf473183ebbb490236cb5d",
+  "b4edbc276138c02eaf37da015bad66979975114b"
+ ],
+ "files_changed_count": 32,
+ "files_changed": [
+  "go.mod",
+  "go.sum",
+  "migrations/0001_core.sql",
+  "migrations/0002_control.sql",
+  "migrations/migrations.go",
+  "internal/controller/store/store.go",
+  "internal/controller/store/migrate.go",
+  "internal/controller/store/nodes.go",
+  "internal/controller/store/forwards.go",
+  "internal/controller/store/transactions.go",
+  "internal/controller/store/outbox.go",
+  "internal/controller/store/idempotency.go",
+  "internal/controller/store/events.go",
+  "internal/controller/store/users.go",
+  "internal/controller/store/backup.go",
+  "internal/controller/store/instance.go",
+  "internal/controller/store/disk.go",
+  "internal/controller/store/disk_linux.go",
+  "internal/controller/store/disk_windows.go",
+  "internal/controller/store/disk_other.go",
+  "internal/controller/store/migrate_test.go",
+  "internal/controller/store/transaction_test.go",
+  "internal/controller/store/idempotency_test.go",
+  "internal/controller/store/users_test.go",
+  "internal/controller/store/backup_test.go",
+  "internal/controller/store/backup_internal_test.go",
+  "internal/controller/store/corrupt_test.go",
+  "internal/controller/store/corrupt_internal_test.go",
+  "internal/controller/store/tdd-red.md",
+  "internal/controller/auth/password.go",
+  "internal/controller/auth/service.go",
+  "internal/controller/auth/auth_test.go"
+ ],
+ "reviews": [
+  {
+   "task_id": "t_16d534ac",
+   "type": "specification",
+   "cycle": 0,
+   "head_sha": "b194c8e0de99fe5eed99566a0ccac1ab128020f2",
+   "verdict": "PASS",
+   "summary": "P06-SPEC PASS on candidate b194c8e: all 6 Stories have focused RED-mapped tests and matching GREEN; 32 changed files all within declared ownership; contracts_changed empty and all 5 consumed-contract hashes byte-exact; plan verification + cumulative ./..., vet, gofmt, diff --check and win/darwin cross-builds re-run and pass; three non-blocking observations."
+  },
+  {
+   "task_id": "t_975cd845",
+   "type": "quality-security",
+   "cycle": 0,
+   "head_sha": "b194c8e0de99fe5eed99566a0ccac1ab128020f2",
+   "verdict": "FAIL",
+   "summary": "P06-QUALITY FAIL on candidate b194c8e: Q1 auth.VerifyPassword panics (process crash) on malformed argon2 stored hashes (t=0/p=0; p=256 wraps to 0) violating Story-6 fail-closed-on-corruption; Q2 StoreIdempotency check-then-act race — concurrent same-key requests hard-error (UNIQUE constraint) instead of contract-mandated replay (docs/error-codes.md section 4). Both empirically reproduced. Repair cycle 1 routed (t_2650e6a4)."
+  },
+  {
+   "task_id": "t_bbddc103",
+   "type": "specification-r1",
+   "cycle": 1,
+   "head_sha": "87dcc9a653cd2e2ad34c6d6f5a16f4b453303e50",
+   "verdict": "PASS",
+   "summary": "P06-SPEC-R1 PASS on exact repaired head 87dcc9a: handoff schema valid with repair-cycle-1 note, commits/files/repair lists match git exactly, all 32 changed files within P06 ownership, zero frozen contract/testdata edits, 5/5 contract hashes match committed base, all six Stories RED/GREEN/VERIFY intact with Q1/Q2 repairs RED-evidenced, all 13 commands re-run fresh at exit 0."
+  },
+  {
+   "task_id": "t_d130ac85",
+   "type": "quality-security-r1",
+   "cycle": 1,
+   "head_sha": "87dcc9a653cd2e2ad34c6d6f5a16f4b453303e50",
+   "verdict": "PASS",
+   "summary": "P06-QUALITY-R1 PASS on exact repaired head 87dcc9a: Q1 (argon2 panic) RESOLVED via t>=1/p in [1,255]/m<=1GiB validation before IDKey (17-case malformed-PHC fuzz probe, 0 panics); Q2 (idempotency race) RESOLVED via read-check-write in one BEGIN IMMEDIATE tx on dedicated conn (128-way same-key -> 1 create/127 replay/0 errors; expired-key reuse -> 1 win+1 conflict, no double-spend). Full re-scan found no new logic/race/leak/security/portability/test-quality issues; 13 commands re-run at exit 0; 5/5 contract hashes byte-exact; probes removed, worktree byte-clean. One non-blocking observation R1-O1 (no argon2 timeCost upper bound)."
+  }
+ ],
+ "contracts_verified": [
+  {
+   "path": ".hermes/plans/v1-beta/00-master-orchestration.md",
+   "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4"
+  },
+  {
+   "path": ".hermes/plans/v1-beta/06-controller-store-auth.md",
+   "sha256": "8324320a8e0b41e1a09dece134e43ca03a16566c6312e1593e57d970bcbeb08f"
+  },
+  {
+   "path": ".hermes/plans/2026-08-09_055007-antinat-v1-reviewed-execution-plan.md",
+   "sha256": "5fb4216ae41c4fb77a757596274b9f8e1df6f32a81c399971b82e60c07527226"
+  },
+  {
+   "path": ".hermes/handoffs/project-inputs.json",
+   "sha256": "343a6c28876da36f5a386939bc4a66565f51f3a37345a878b593e13e1f6e7123"
+  },
+  {
+   "path": ".hermes/handoffs/P05-integrated.json",
+   "sha256": "06bfcec852ffba155296b9510fa63ccad78135e0715f089f9c310634fd6b7b41"
+  }
+ ],
+ "tests": [
+  {
+   "phase": "candidate-pre-integration",
+   "command": "go test ./internal/controller/store ./internal/controller/auth -race -count=1",
+   "exit_code": 0,
+   "summary": "Focused race-enabled store+auth suites PASS on orchestrator host at exact candidate head 87dcc9a (store 5.662s, auth 5.325s)."
+  },
+  {
+   "phase": "candidate-pre-integration",
+   "command": "go test ./internal/controller/store -run 'Backup|Migration|Delete|Idempotency' -count=10",
+   "exit_code": 0,
+   "summary": "Stability run: 10 repetitions of backup/migration/delete/idempotency groups PASS (5.007s)."
+  },
+  {
+   "phase": "candidate-pre-integration",
+   "command": "go test ./internal/controller/auth -run TestVerifyPasswordRejectsMalformedParams -count=1 -v",
+   "exit_code": 0,
+   "summary": "Q1 focused test PASS: all 4 malformed-param subtests (t=0, p=0, p=256 wrap via uint8, m above 1GiB cap)."
+  },
+  {
+   "phase": "candidate-pre-integration",
+   "command": "go test ./internal/controller/store -run 'TestIdempotencyConcurrent' -count=10 -v",
+   "exit_code": 0,
+   "summary": "Q2 focused concurrent tests (SameKeySameHash + ExpiredKeyReuse) PASS reliably across 10 repetitions (2.601s)."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./... -count=1",
+   "exit_code": 0,
+   "summary": "Cumulative repo suite PASS on integration/v1-beta @ b4edbc2: 16 packages ok incl. spike/sandbox and test/contracts."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -race ./... -count=1",
+   "exit_code": 0,
+   "summary": "Repo-wide race detector clean on integrated HEAD b4edbc2; no data races across 16 packages."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "go vet ./...",
+   "exit_code": 0
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "gofmt -l . (empty) && git diff --check",
+   "exit_code": 0,
+   "summary": "gofmt clean, no output; no whitespace errors."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "make build",
+   "exit_code": 0,
+   "summary": "antinat-controller and antinat-agent build with trimpath+ldflags on integrated HEAD."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOOS=windows GOARCH=amd64 go build ./internal/controller/... ./migrations/",
+   "exit_code": 0,
+   "summary": "Windows cross-build of owned packages PASS."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOOS=darwin GOARCH=amd64 go build ./internal/controller/...",
+   "exit_code": 0,
+   "summary": "darwin cross-build of owned packages PASS."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "make cross-build",
+   "exit_code": 0,
+   "summary": "make cross-build (GOOS=windows ./cmd/...) PASS."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "git diff --stat 87dcc9a HEAD (empty) && candidate tree == integrated tree",
+   "exit_code": 0,
+   "summary": "Integrated tree byte-identical to candidate head tree (both d17d70ba)."
+  }
+ ],
+ "skipped_tests": [
+  {
+   "command": "go test -tags=netns ./test/integration/... and ./test/e2e",
+   "reason": "Later milestone suites not owned or created at this integration point; P06 owns controller SQLite store/auth services only."
+  },
+  {
+   "command": "govulncheck ./...",
+   "reason": "govulncheck is not installed on the orchestrator host; it remains a cumulative release lane (P01-P05 same limit)."
+  },
+  {
+   "command": "native Windows runtime gates",
+   "reason": "No native Windows host; P06 disk_*.go is cross-build-only evidence (same limit as P03)."
+  }
+ ],
+ "evidence": [
+  "internal/controller/store/tdd-red.md",
+  "internal/controller/store/idempotency.go",
+  "internal/controller/store/idempotency_test.go",
+  "internal/controller/auth/password.go",
+  "internal/controller/auth/auth_test.go"
+ ],
+ "capability_result": "PASS",
+ "known_limits": [
+  "go.mod/go.sum carry the P03-validated modernc.org/sqlite v1.56.0 and golang.org/x/crypto (Argon2id) dependencies; both BSD/MIT-family licensed, added as declared changed files, not contract edits.",
+  "Story 6 behaviors (integrity gate, transactional migrations) implemented during Story 1 GREEN; focused tests regression-pin those guarantees. Recorded in tdd-red.md as a deviation from strict RED-first for that story only.",
+  "Windows disk-free uses GetDiskFreeSpaceExW and is build-only evidence until native runtime validation (P03 limitation).",
+  "Disk policy guards CreateForward/CreateNode only; other growth writes (e.g. ApplyForwardDesired) unguarded by design decision; broader guard may be requested in P15.",
+  "Full repo test suite requires ANTINAT_DEDICATED_UID/GID=12001 for spike/sandbox (documented P03 environmental prerequisite).",
+  "R1-O1 (non-blocking, from P06-QUALITY-R1): no upper bound on argon2 timeCost — a tampered hash with t=2147483647 passes validation and causes unbounded CPU burn on login; one-line cap recommended for a future bounded repair, does not gate this integration."
+ ],
+ "cleanup_done": true,
+ "cleanup": [
+  "make clean removed bin/ artifacts after post-integration verification.",
+  "The candidate worktree .hermes/handoffs/P06.json remains untracked on the candidate branch as the child's handoff; it is not part of integration.",
+  "No remote push; no release; no commits to any branch other than integration/v1-beta (cherry-pick only)."
+ ],
+ "contracts_changed": [],
+ "conflicts": "none",
+ "remote_push": false,
+ "release_performed": false,
+ "integration_status": "PASS",
+ "worktree_preexisting_changes": [
+  ".hermes/orchestration/antinat_supervisor.py",
+  ".hermes/orchestration/kanban-tasks.json",
+  ".hermes/orchestration/policy.json",
+  ".hermes/orchestration/supervisor-prompt.md",
+  ".hermes/plans/v1-beta/00-master-orchestration.md",
+  "AGENTS.md"
+ ],
+ "deviation_notes": "None. Candidate required one bounded repair cycle (cycle-1 Q1 argon2 panic + Q2 idempotency race via P06-FIX1 t_2650e6a4), each followed by fresh spec (t_bbddc103) + full quality/security (t_d130ac85) re-reviews per master plan 4.4; both cycle-1 re-reviews PASS on the exact repaired head 87dcc9a. Handoff schema verified (parses, base/head SHAs exact, 32 owned files, 5/5 contract hashes byte-exact), child focused tests rerun on orchestrator host at the candidate head (all exit 0), then all 11 candidate commits cherry-picked onto integration/v1-beta with zero conflicts; no manual semantic conflict resolution performed. Integrated tree byte-identical to candidate tree (d17d70ba). Cumulative go test ./..., race ./..., vet, gofmt, diff --check, make build and win/darwin cross-builds all PASS on the integrated head b4edbc2. No remote push; no release performed."
+}
