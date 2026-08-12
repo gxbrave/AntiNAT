@@ -444,10 +444,11 @@ func (s *Store) AcceptSemanticACK(epoch uint64, sessionID, operationID string) e
 }
 
 // AcceptReceipt durably records a receipt bound to the current epoch/session
-// and to a SEMANTIC_ACKED row, then garbage-collects the outbox and operation
-// result. The receipt tombstone stays so a replayed record cannot resurrect
-// the operation. A premature, stale-session, or duplicate receipt fails
-// closed.
+// and to a SEMANTIC_ACKED row, then garbage-collects the outbox, operation
+// result, operation journal, and the control_inbox dedup row in the same
+// transaction. The receipt tombstone stays so a replayed record cannot
+// resurrect the operation. A premature, stale-session, or duplicate receipt
+// fails closed.
 func (s *Store) AcceptReceipt(epoch uint64, sessionID, operationID string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		if err := checkSession(tx, epoch, sessionID); err != nil {
@@ -464,6 +465,17 @@ func (s *Store) AcceptReceipt(epoch uint64, sessionID, operationID string) error
 		if state != phaseSemanticACKed {
 			return outboxPhaseError(operationID, phaseSemanticACKed, state)
 		}
+		// Capture the operation journal's message ID before it is deleted so
+		// the corresponding control_inbox dedup row can be GC'd in this same
+		// transaction (bounded inbox growth over the Agent lifetime). Rows
+		// queued outside the inbox FSM (QueueResult) have no journal and no
+		// inbox row to delete.
+		var messageID string
+		if j, ok, err := s.loadOperationJournal(tx, operationID); err != nil {
+			return err
+		} else if ok {
+			messageID = j.MessageID
+		}
 		if err := ops.Put(receiptKey(operationID), payload); err != nil {
 			return err
 		}
@@ -473,7 +485,15 @@ func (s *Store) AcceptReceipt(epoch uint64, sessionID, operationID string) error
 		if err := ops.Delete(key); err != nil {
 			return err
 		}
-		return ops.Delete(opJournalKey(operationID))
+		if err := ops.Delete(opJournalKey(operationID)); err != nil {
+			return err
+		}
+		if messageID != "" {
+			if err := tx.Bucket([]byte(bucketInbox)).Delete([]byte(messageID)); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
 

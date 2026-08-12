@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	bolt "go.etcd.io/bbolt"
+
 	"github.com/gxbrave/AntiNAT/internal/protocol"
 )
 
@@ -400,5 +402,66 @@ func TestQueueResultIdempotentForInFlightOutboxRow(t *testing.T) {
 	}
 	if store.OutboxContains("op-1") {
 		t.Fatal("durable receipt must GC the outbox row")
+	}
+}
+
+// Repair-cycle Q2 RED: AcceptReceipt must garbage-collect the control_inbox
+// dedup row in the same transaction as the outbox/result/journal GC, and a
+// replayed record must still fail closed via the receipt tombstone.
+func TestAcceptReceiptGCsInboxDedupRow(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.AdvanceSession(1, "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ReceiveCommand(1, "session-1", "op-1", "msg-1", "desired", "hash-1", string(protocol.OperationForwardDeletion)); err != nil {
+		t.Fatal(err)
+	}
+	inboxCount := func() int {
+		count := 0
+		if err := store.db.View(func(tx *bolt.Tx) error {
+			return tx.Bucket([]byte(bucketInbox)).ForEach(func(k, v []byte) error {
+				count++
+				return nil
+			})
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	if n := inboxCount(); n != 1 {
+		t.Fatalf("inbox rows before receipt = %d, want 1", n)
+	}
+	if err := store.PersistOperationIntent(1, "session-1", "op-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkOperationApplying(1, "session-1", "op-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CompleteOperation(1, "session-1", "op-1", []byte("deleted")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ClaimOutbox(1, "session-1", "op-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkOutboxSent(1, "session-1", "op-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AcceptSemanticACK(1, "session-1", "op-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AcceptReceipt(1, "session-1", "op-1"); err != nil {
+		t.Fatal(err)
+	}
+	if n := inboxCount(); n != 0 {
+		t.Fatalf("inbox rows after durable receipt = %d, want 0 (control_inbox GC'd)", n)
+	}
+	// A replayed record must still fail closed via the receipt tombstone,
+	// independent of the inbox dedup row.
+	if _, err := store.ReceiveCommand(1, "session-1", "op-1", "msg-1", "desired", "hash-1", string(protocol.OperationForwardDeletion)); !errors.Is(err, ErrAlreadyReceipted) {
+		t.Fatalf("replayed record after receipt error = %v, want ErrAlreadyReceipted", err)
 	}
 }
