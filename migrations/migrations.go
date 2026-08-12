@@ -1,0 +1,14 @@
+// Package migrations embeds the owned Controller migration SQL files so the
+// store can apply them hermetically. The canonical SQL lives in this
+// directory as 0001_core.sql and 0002_control.sql (plan 06 owns both); the
+// installer may still read them as plain files.
+package migrations
+
+import "embed"
+
+//go:embed 0001_core.sql 0002_control.sql
+var FS embed.FS
+
+// Names is the ordered migration list; the index (1-based) is the schema
+// version recorded in schema_migrations.
+var Names = []string{"0001_core.sql", "0002_control.sql"}
