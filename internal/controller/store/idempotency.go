@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -48,10 +49,46 @@ func (s *Store) StoreIdempotency(rec IdempotencyRecord) (IdempotencyRecord, bool
 	}
 	rec.ExpiresAt = expires
 
-	existing, err := s.GetIdempotency(rec.Key)
-	if errors.Is(err, ErrNotFound) {
+	// The read-check-write runs in a single BEGIN IMMEDIATE transaction so
+	// concurrent callers racing the same key serialize on the write lock:
+	// exactly one creates/reuses the row and every other caller observes the
+	// winner's record (replay or ErrIdempotencyConflict), per
+	// docs/error-codes.md §4. A deferred BEGIN would not be safe here: the
+	// read would run on a stale snapshot and the later write upgrade would
+	// either hit SQLITE_BUSY_SNAPSHOT or fail the UNIQUE constraint,
+	// hard-erroring instead of replaying. BEGIN IMMEDIATE is issued on a
+	// dedicated connection because database/sql Begin() issues a deferred
+	// BEGIN.
+	conn, err := s.db.Conn(context.Background())
+	if err != nil {
+		return IdempotencyRecord{}, false, fmt.Errorf("store: idempotency conn: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		return IdempotencyRecord{}, false, fmt.Errorf("store: begin idempotency: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+
+	var existing IdempotencyRecord
+	err = conn.QueryRowContext(context.Background(),
+		`SELECT key, route, principal, request_hash, response_status,
+		        response_body, created_at, expires_at
+		   FROM api_idempotency_keys WHERE key = ?`, rec.Key,
+	).Scan(&existing.Key, &existing.Route, &existing.Principal, &existing.RequestHash,
+		&existing.ResponseStatus, &existing.ResponseBody, &existing.CreatedAt, &existing.ExpiresAt)
+
+	var result IdempotencyRecord
+	replayed := false
+	conflict := false
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
 		rec.CreatedAt = ts
-		if _, err := s.db.Exec(
+		if _, err := conn.ExecContext(context.Background(),
 			`INSERT INTO api_idempotency_keys
 			    (key, route, principal, request_hash, response_status,
 			     response_body, created_at, expires_at)
@@ -61,29 +98,23 @@ func (s *Store) StoreIdempotency(rec IdempotencyRecord) (IdempotencyRecord, bool
 		); err != nil {
 			return IdempotencyRecord{}, false, fmt.Errorf("store: insert idempotency: %w", err)
 		}
-		return rec, false, nil
-	}
-	if err != nil {
-		return IdempotencyRecord{}, false, err
-	}
-
-	switch {
+		result = rec
+	case err != nil:
+		return IdempotencyRecord{}, false, fmt.Errorf("store: get idempotency: %w", err)
 	case existing.ExpiresAt > ts && existing.RequestHash == rec.RequestHash:
-		return existing, true, nil
+		result, replayed = existing, true
 	case existing.ExpiresAt > ts:
-		return IdempotencyRecord{}, false, ErrIdempotencyConflict
+		conflict = true
 	default:
-		// Expired: reuse the key for the new request, recording the expiry.
-		tx, err := s.db.Begin()
-		if err != nil {
-			return IdempotencyRecord{}, false, fmt.Errorf("store: begin idempotency reuse: %w", err)
-		}
-		defer tx.Rollback()
+		// Expired: reuse the key for the new request, recording the expiry as
+		// a durable admin event in the same transaction.
 		rec.CreatedAt = ts
-		if _, err := tx.Exec(`DELETE FROM api_idempotency_keys WHERE key = ?`, rec.Key); err != nil {
+		if _, err := conn.ExecContext(context.Background(),
+			`DELETE FROM api_idempotency_keys WHERE key = ?`, rec.Key,
+		); err != nil {
 			return IdempotencyRecord{}, false, fmt.Errorf("store: expire idempotency delete: %w", err)
 		}
-		if _, err := tx.Exec(
+		if _, err := conn.ExecContext(context.Background(),
 			`INSERT INTO api_idempotency_keys
 			    (key, route, principal, request_hash, response_status,
 			     response_body, created_at, expires_at)
@@ -93,18 +124,23 @@ func (s *Store) StoreIdempotency(rec IdempotencyRecord) (IdempotencyRecord, bool
 		); err != nil {
 			return IdempotencyRecord{}, false, fmt.Errorf("store: idempotency reuse insert: %w", err)
 		}
-		if _, err := tx.Exec(
+		if _, err := conn.ExecContext(context.Background(),
 			`INSERT INTO admin_events (event_type, payload, created_at) VALUES (?, ?, ?)`,
 			"IDEMPOTENCY_KEY_EXPIRED",
 			fmt.Sprintf(`{"key":%q,"route":%q}`, rec.Key, rec.Route), ts,
 		); err != nil {
 			return IdempotencyRecord{}, false, fmt.Errorf("store: idempotency expiry audit: %w", err)
 		}
-		if err := tx.Commit(); err != nil {
-			return IdempotencyRecord{}, false, fmt.Errorf("store: commit idempotency reuse: %w", err)
-		}
-		return rec, false, nil
+		result = rec
 	}
+	if _, err := conn.ExecContext(context.Background(), "COMMIT"); err != nil {
+		return IdempotencyRecord{}, false, fmt.Errorf("store: commit idempotency: %w", err)
+	}
+	committed = true
+	if conflict {
+		return IdempotencyRecord{}, false, ErrIdempotencyConflict
+	}
+	return result, replayed, nil
 }
 
 // GetIdempotency returns the stored record for a key.

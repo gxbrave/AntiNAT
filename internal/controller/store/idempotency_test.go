@@ -3,6 +3,7 @@ package store_test
 import (
 	"errors"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -176,5 +177,132 @@ func TestAdminEventsCursorSurvivesRestart(t *testing.T) {
 	}
 	if len(all) != 2 || all[0].ID != id1 || all[1].ID != id2 {
 		t.Fatalf("full replay after restart = %+v, want [id1 id2] in order", all)
+	}
+}
+
+// RED Q2 (repair cycle 1): concurrent callers with the same key and same
+// request hash must all succeed — exactly one creates the record and every
+// other caller replays the stored response (docs/error-codes.md §4). The
+// read-check-write must be atomic: no UNIQUE-constraint hard errors, no
+// double creation.
+func TestIdempotencyConcurrentSameKeySameHash(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "controller.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	rec := store.IdempotencyRecord{
+		Key: "key-race-1234", Route: "POST /api/v1/forwards",
+		Principal: "admin", RequestHash: "hash-race",
+		ResponseStatus: 201, ResponseBody: `{"id":"fwd-1"}`,
+	}
+
+	const n = 256
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	created := make(chan bool, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, replayed, err := s.StoreIdempotency(rec)
+			if err != nil {
+				errs <- err
+				return
+			}
+			created <- !replayed
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	close(created)
+
+	for err := range errs {
+		t.Fatalf("concurrent StoreIdempotency: %v", err)
+	}
+	nonReplays := 0
+	for c := range created {
+		if c {
+			nonReplays++
+		}
+	}
+	if nonReplays != 1 {
+		t.Fatalf("concurrent same-key stores: %d callers created the key, want exactly 1", nonReplays)
+	}
+}
+
+// RED Q2 (repair cycle 1): concurrent reuses of the same expired key with
+// different request hashes must serialize — exactly one request wins the
+// reuse and the other observes the winner's fresh record as a clean
+// ErrIdempotencyConflict. The key must never be double-spent.
+func TestIdempotencyConcurrentExpiredKeyReuse(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "controller.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	expired := store.IdempotencyRecord{
+		Key: "key-expired-race", Route: "POST /api/v1/forwards",
+		Principal: "admin", RequestHash: "hash-old",
+		ResponseStatus: 201, ResponseBody: `{"id":"fwd-old"}`,
+		ExpiresAt: 1, // long past
+	}
+	if _, _, err := s.StoreIdempotency(expired); err != nil {
+		t.Fatalf("store expired: %v", err)
+	}
+
+	future := time.Now().Add(store.IdempotencyKeyTTL).Unix()
+	a := expired
+	a.RequestHash = "hash-a"
+	a.ResponseBody = `{"id":"fwd-a"}`
+	a.ExpiresAt = future
+	b := expired
+	b.RequestHash = "hash-b"
+	b.ResponseBody = `{"id":"fwd-b"}`
+	b.ExpiresAt = future
+
+	type outcome struct {
+		replayed bool
+		err      error
+	}
+	var wg sync.WaitGroup
+	results := make(chan outcome, 2)
+	for _, r := range []store.IdempotencyRecord{a, b} {
+		wg.Add(1)
+		go func(r store.IdempotencyRecord) {
+			defer wg.Done()
+			_, replayed, err := s.StoreIdempotency(r)
+			results <- outcome{replayed, err}
+		}(r)
+	}
+	wg.Wait()
+	close(results)
+
+	wins, conflicts := 0, 0
+	for r := range results {
+		switch {
+		case r.err == nil && !r.replayed:
+			wins++
+		case errors.Is(r.err, store.ErrIdempotencyConflict):
+			conflicts++
+		default:
+			t.Fatalf("unexpected concurrent expired-key reuse result: replayed=%v err=%v", r.replayed, r.err)
+		}
+	}
+	if wins != 1 || conflicts != 1 {
+		t.Fatalf("concurrent expired-key reuse: wins=%d conflicts=%d, want exactly 1 and 1", wins, conflicts)
+	}
+
+	got, err := s.GetIdempotency(expired.Key)
+	if err != nil {
+		t.Fatalf("GetIdempotency after concurrent reuse: %v", err)
+	}
+	if got.RequestHash != "hash-a" && got.RequestHash != "hash-b" {
+		t.Fatalf("surviving row hash = %q, want hash-a or hash-b", got.RequestHash)
 	}
 }
