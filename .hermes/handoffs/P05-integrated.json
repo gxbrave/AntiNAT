@@ -1,0 +1,305 @@
+{
+ "plan": "P05",
+ "branch": "integration/v1-beta",
+ "candidate_branch": "ai/P05-protocol-domain-core",
+ "integration_base_sha": "770d9af988b39d02dcdc607a71068cff31ef0a94",
+ "integrated_dependency_product_sha": "770d9af988b39d02dcdc607a71068cff31ef0a94",
+ "candidate_head_sha": "7a6b9f0415442313384fa7e3078855168758f187",
+ "candidate_tree_sha": "48258e1eaa405065bdb6070bf7ea4e677b5cf0cd",
+ "integrated_sha": "e2ff106afbdf81a740d557671a598576ef946a80",
+ "integrated_tree_sha": "48258e1eaa405065bdb6070bf7ea4e677b5cf0cd",
+ "candidate_handoff_path": "/root/AntiNAT/.worktrees/t_e1e630eb/.hermes/handoffs/P05.json",
+ "candidate_handoff_sha256": "7823d0d9f2e1a353aea82e38f4b8a84bd0dac427f3486843891f7195d759e9a8",
+ "candidate_commits": [
+  "ea34fa0fce6a6aa149e1fd5f3c525c72a12c7ee9",
+  "820f6e52fed9fa0a7ac4391e034385163f05ed16",
+  "63d41111bd4110ed2b2abaeed4e0063c06ed0377",
+  "afa1da7a6ba8f4006312c8b5dc0ffa10aa0bd964",
+  "ebf6fe9876e61dfea82ce5276bf7463415e52d97",
+  "4ba6fc44d3389d6ef34d4771f8470b902caa841c",
+  "b194635c56f6f9a486b93562d43402e0750876e7",
+  "69f3ce74b35380cfb5a9d51ec54bca10bf51dcaa",
+  "49c20f031be04109895f7eba1af86a136637d164",
+  "7a6b9f0415442313384fa7e3078855168758f187"
+ ],
+ "integrated_commits": [
+  "1150b6bb6e34fd821079f044ca689460ba23ffe3",
+  "789ef546613f8005698df7fe994c586a5d244148",
+  "b6f2c518075cf06d9ec1913606c7ab898e8cb4af",
+  "956a5bf01d59349a26da4ffbce7d3ac51771ed95",
+  "adab8264fe65dd80424859945f52e5a46bf1c5d8",
+  "ef3bce538492fb8783ae2ba73b0205e9efe3f2c9",
+  "6de00dadca172daec178bcf5d2cc94155f88f9a0",
+  "0188aaf59288ad93a3a83cbd8c42fcc9d96e9a7c",
+  "24084829d94eed54150c97b4b7e2e393446b44b3",
+  "e2ff106afbdf81a740d557671a598576ef946a80"
+ ],
+ "files_changed_count": 22,
+ "files_changed": [
+  "internal/config/config.go",
+  "internal/config/config_test.go",
+  "internal/config/fuzz_test.go",
+  "internal/protocol/bounded_test.go",
+  "internal/protocol/domain.go",
+  "internal/protocol/domain_test.go",
+  "internal/protocol/endpoint.go",
+  "internal/protocol/endpoint_test.go",
+  "internal/protocol/enrollment.go",
+  "internal/protocol/enrollment_test.go",
+  "internal/protocol/envelope.go",
+  "internal/protocol/envelope_test.go",
+  "internal/protocol/fuzz_test.go",
+  "internal/protocol/golden_test.go",
+  "internal/protocol/probe.go",
+  "internal/protocol/probe_test.go",
+  "internal/protocol/regression_test.go",
+  "internal/protocol/strictjson.go",
+  "internal/protocol/strictjson_test.go",
+  "internal/protocol/tdd-red.md",
+  "internal/security/framecrypto/framecrypto.go",
+  "internal/security/framecrypto/framecrypto_test.go"
+ ],
+ "reviews": [
+  {
+   "task_id": "t_3c0920af",
+   "type": "specification",
+   "cycle": 0,
+   "head_sha": "4ba6fc44d3389d6ef34d4771f8470b902caa841c",
+   "verdict": "PASS",
+   "summary": "P05-SPEC PASS on exact candidate 4ba6fc44: all six Stories' RED/GREEN/VERIFY covered by real tests; 22 files within P05 ownership; zero frozen testdata/contract edits; 6 contracts_consumed hashes match on-disk; focused race/golden/cumulative/vet/frozen gate/fuzz rerun green."
+  },
+  {
+   "task_id": "t_5e097fc9",
+   "type": "quality-security",
+   "cycle": 0,
+   "head_sha": "4ba6fc44d3389d6ef34d4771f8470b902caa841c",
+   "verdict": "FAIL",
+   "summary": "P05-QUALITY REJECT: F1 MEDIUM blocking (ProbeAgent armed-state ops map unbounded/not expirable vs frozen protocol.md 7.6; ErrProbeStateFull declared but never returned; empirically confirmed) + F2/F3 LOW contract-bound issues + F4/F5 notes. Tests all green; findings block integration."
+  },
+  {
+   "task_id": "t_11f51388",
+   "type": "specification-r1",
+   "cycle": 1,
+   "head_sha": "49c20f031be04109895f7eba1af86a136637d164",
+   "verdict": "PASS",
+   "summary": "P05-SPEC-R1 PASS on exact repaired head 49c20f0: 22 owned files, zero frozen edits, 6/6 contract hashes, handoff schema valid, all six Stories' RED/GREEN/VERIFY re-verified; full battery rerun exit 0."
+  },
+  {
+   "task_id": "t_4488f909",
+   "type": "quality-security-r1",
+   "cycle": 1,
+   "head_sha": "49c20f031be04109895f7eba1af86a136637d164",
+   "verdict": "FAIL",
+   "summary": "P05-QUALITY-R1 REJECT: cycle-1 findings F1/F2/F3/F5 verified RESOLVED; ONE new LOW actionable finding R1-F6 (ParseEnrollChallenge/ParseEnrollResult accept empty 0-byte controller_key_id vs frozen protocol.md 4.1/4.3 1..255). All evidence rerun green; R1-F6 blocks integration."
+  },
+  {
+   "task_id": "t_d944f150",
+   "type": "specification-r2",
+   "cycle": 2,
+   "head_sha": "7a6b9f0415442313384fa7e3078855168758f187",
+   "verdict": "PASS",
+   "summary": "P05-SPEC-R2 PASS on exact cycle-2 head 7a6b9f0: R1-F6 fix is a bounded codec-layer field-bound check enforcing frozen 4.1/4.3 1..255; 22 owned files, zero frozen edits, 6/6 contract hashes, handoff schema valid with cycle-2 note; full battery rerun exit 0."
+  },
+  {
+   "task_id": "t_3ebc0a32",
+   "type": "quality-security-r2",
+   "cycle": 2,
+   "head_sha": "7a6b9f0415442313384fa7e3078855168758f187",
+   "verdict": "PASS",
+   "summary": "P05-QUALITY-R2 PASS on exact cycle-2 head 7a6b9f0: R1-F6 verified RESOLVED (both parsers reject empty controller_key_id as ErrEnrollMalformed; boundary tests empty/1/255/256); no regression in F1/F2/F3/F5; full battery rerun green (focused race, golden 66 subtests, cumulative 13 pkgs, repo-wide race, vet, 6 fuzz targets 25-26s clean, frozen gate, hygiene)."
+  }
+ ],
+ "contracts_verified": [
+  {
+   "path": ".hermes/plans/v1-beta/00-master-orchestration.md",
+   "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4"
+  },
+  {
+   "path": ".hermes/plans/v1-beta/05-protocol-domain-core.md",
+   "sha256": "2af16eb1069a2050648a5010cf56a540a62fb98e9fd6eb88dc3c00e1d1ee1c47"
+  },
+  {
+   "path": ".hermes/plans/2026-08-09_055007-antinat-v1-reviewed-execution-plan.md",
+   "sha256": "5fb4216ae41c4fb77a757596274b9f8e1df6f32a81c399971b82e60c07527226"
+  },
+  {
+   "path": ".hermes/handoffs/project-inputs.json",
+   "sha256": "343a6c28876da36f5a386939bc4a66565f51f3a37345a878b593e13e1f6e7123"
+  },
+  {
+   "path": ".hermes/handoffs/P04-integrated.json",
+   "sha256": "ee4d01040f8908700e34117bf8e299fb59df42c0b99bef2c4b2ab54ca421bc9f"
+  },
+  {
+   "path": "docs/protocol.md",
+   "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"
+  },
+  {
+   "path": "docs/state-model.md",
+   "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
+  },
+  {
+   "path": "docs/installer-contract.md",
+   "sha256": "c7f83ea2fedcf9b1c393dae290ff1168bcd9f495d064a2ea74d386f3d38c630a"
+  },
+  {
+   "path": "docs/error-codes.md",
+   "sha256": "be4f4c22c0cd7a5a04bc9076e14efef7028a4c7634eb926aa675e7f87cbfa3b5"
+  },
+  {
+   "path": "api/openapi.yaml",
+   "sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32"
+  },
+  {
+   "path": "test/contracts/manifest.json",
+   "sha256": "c300e1c883ca9aefd69f054827f9c8279fddeae140d330623d17b8477fe87121"
+  }
+ ],
+ "tests": [
+  {
+   "phase": "candidate-pre-integration",
+   "command": "go test ./internal/protocol ./internal/config ./internal/security/framecrypto -race -count=1",
+   "exit_code": 0,
+   "summary": "Focused race-enabled run of all three owned packages on repaired head 7a6b9f0 (rerun by QUALITY-R2)."
+  },
+  {
+   "phase": "candidate-pre-integration",
+   "command": "go test ./internal/protocol -run Golden -count=1 -v",
+   "exit_code": 0,
+   "summary": "Golden gate over all 61 frozen fixtures (19 control-envelope + 11 enrollment + 31 probe-frame); 61 fixture subtests + 5 top-level = 66 subtests, 0 failures."
+  },
+  {
+   "phase": "candidate-pre-integration",
+   "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1",
+   "exit_code": 0,
+   "summary": "Cumulative unit suite incl. P02/P03 spikes and frozen test/contracts gate on candidate 7a6b9f0 (13 packages)."
+  },
+  {
+   "phase": "candidate-pre-integration",
+   "command": "go vet ./... && gofmt -l . (empty) && git diff --check HEAD",
+   "exit_code": 0
+  },
+  {
+   "phase": "candidate-pre-integration",
+   "command": "6 fuzz targets, 20-30s each (FuzzParseEnvelope/FuzzParseEnrollment/FuzzParseProbe/FuzzStrictJSON/FuzzClassifyEndpoint in internal/protocol, FuzzParseConfigs in internal/config)",
+   "exit_code": 0,
+   "summary": "No panics, no crashes, no unbounded allocation. Plan's literal -fuzz=Fuzz multi-target form rejected by Go toolchain; per-target runs used (documented equivalence)."
+  },
+  {
+   "phase": "candidate-pre-integration",
+   "command": "go test ./test/contracts/... -count=1 && python3 test/contracts/validate_openapi.py && python3 test/contracts/generate_manifest.py .",
+   "exit_code": 0,
+   "summary": "Frozen contract gate GREEN on candidate; OpenAPI valid (32 paths); manifest regenerated byte-identical (136 artifacts)."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "go test ./internal/protocol ./internal/config ./internal/security/framecrypto -race -count=1",
+   "exit_code": 0,
+   "summary": "Focused race on integration/v1-beta @ e2ff106: protocol 6.737s, config 1.015s, framecrypto 1.015s, all ok."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "go test ./internal/protocol -run Golden -count=1 -v",
+   "exit_code": 0,
+   "summary": "Golden on integrated HEAD: 66 PASS subtests (61 fixtures + 5 top-level)."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1",
+   "exit_code": 0,
+   "summary": "Cumulative suite on integrated HEAD e2ff106: 13 packages ok incl. spike/sandbox and test/contracts."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "go test -race ./... -count=1",
+   "exit_code": 0,
+   "summary": "Repo-wide race detector clean on integrated HEAD e2ff106; no data races."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "go vet ./...",
+   "exit_code": 0
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "gofmt -l . (empty) && git diff --check HEAD",
+   "exit_code": 0
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "python3 test/contracts/validate_openapi.py",
+   "exit_code": 0,
+   "summary": "OpenAPI valid; 32 paths; 13 error statuses referenced; 13 registered."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "python3 test/contracts/generate_manifest.py . && cmp test/contracts/manifest.json /tmp/manifest.before.json",
+   "exit_code": 0,
+   "summary": "Manifest regeneration deterministic on integrated HEAD: byte-identical (136 artifacts, sha256 c300e1c8...), no working-tree diff."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "6 fuzz targets, 5s smoke each on integrated HEAD (FuzzParseEnvelope/FuzzParseEnrollment/FuzzParseProbe/FuzzStrictJSON/FuzzClassifyEndpoint, FuzzParseConfigs)",
+   "exit_code": 0,
+   "summary": "All 6 targets PASS, no panics (5.1-6.0s each)."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "git diff --stat 7a6b9f0 HEAD (empty) && git rev-parse 7a6b9f0^{tree} == git rev-parse HEAD^{tree}",
+   "exit_code": 0,
+   "summary": "Integrated tree byte-identical to candidate head tree (both 48258e1e)."
+  }
+ ],
+ "skipped_tests": [
+  {
+   "command": "go test -tags=netns ./test/integration/... and ./test/e2e",
+   "reason": "Later milestone suites not owned or created at this integration point; P05 owns protocol/config domain core only."
+  },
+  {
+   "command": "govulncheck ./...",
+   "reason": "govulncheck is not installed on the orchestrator host; it remains a cumulative release lane (P01-P04 same limit)."
+  },
+  {
+   "command": "native Windows runtime gates",
+   "reason": "No native Windows host; P05 protocol/config domain is platform-independent and makes no native-runtime claim."
+  }
+ ],
+ "evidence": [
+  "internal/protocol/tdd-red.md",
+  "internal/protocol/golden_test.go",
+  "internal/protocol/regression_test.go",
+  "internal/protocol/bounded_test.go",
+  "internal/protocol/fuzz_test.go",
+  "internal/config/fuzz_test.go"
+ ],
+ "capability_result": "PASS",
+ "known_limits": [
+  "The plan's literal `go test ./internal/protocol -fuzz=Fuzz -fuzztime=30s` cannot run as written: the Go toolchain refuses to fuzz when the regex matches more than one fuzz test (5 targets in the package). Equivalently ran each target individually; all PASS.",
+  "ProbeAgent in-memory state is single-threaded today and race-clean under -race; its maps remain unsynchronized (finding F4 note). P10 must add a mutex when wiring into a concurrent agent.",
+  "P05 config requires an enrollment_token_file as the minimal Controller enrollment source (fail-closed default). Token issuance/storage/consumption transactions are owned by P06/P08.",
+  "Controller admin authentication and TLS listener wiring are not implemented by P05 (config parsing only; no sockets per non-goals).",
+  "govulncheck not installed on the host (same cumulative lane limit as P01-P04)."
+ ],
+ "cleanup_done": true,
+ "cleanup": [
+  "make clean removed bin/ artifacts after candidate verification.",
+  "Manifest regeneration was byte-identical and left no diff in the committed tree.",
+  "Temporary manifest copy kept outside the repository (/tmp/manifest.before.json).",
+  "The candidate worktree .hermes/handoffs/P05.json remains untracked on the candidate branch as the child's handoff; it is not part of integration.",
+  "No fuzz crash artifacts written to the tree; corpora live in GOCACHE."
+ ],
+ "contracts_changed": [],
+ "conflicts": "none",
+ "remote_push": false,
+ "release_performed": false,
+ "integration_status": "PASS",
+ "worktree_preexisting_changes": [
+  ".hermes/orchestration/antinat_supervisor.py",
+  ".hermes/orchestration/kanban-tasks.json",
+  ".hermes/orchestration/policy.json",
+  ".hermes/orchestration/supervisor-prompt.md",
+  ".hermes/plans/v1-beta/00-master-orchestration.md",
+  "AGENTS.md"
+ ],
+ "deviation_notes": "None. Candidate required two bounded repair cycles (cycle-1 F1/F2/F3/F5 via P05-FIX1; cycle-2 R1-F6 via P05-FIX2), each followed by fresh spec + full quality/security re-reviews per master plan 4.4. Both cycle-2 re-reviews PASS on the exact repaired head 7a6b9f0. Cherry-pick of all 10 candidate commits applied cleanly with zero conflicts; no manual semantic conflict resolution performed. Integrated tree byte-identical to candidate tree (48258e1e). No remote push; no release performed."
+}
