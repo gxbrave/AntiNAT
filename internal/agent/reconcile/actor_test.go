@@ -3,6 +3,7 @@ package reconcile
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -144,6 +145,82 @@ func TestSupervisorStartTimeoutBoundsLifecycle(t *testing.T) {
 	result := <-supervisor.Results()
 	if result.Actor != "slow-start" || result.Outcome != ActorStartFailed {
 		t.Fatalf("result = %+v, want slow-start/ActorStartFailed", result)
+	}
+}
+
+// Repair-cycle N1 RED: a failed actor start (including the bounded
+// start-timeout path) must not leak the supervisor's WaitGroup. Before the
+// fix Start() called wg.Add(1) before the start attempt and never called
+// Done() on the error path — runActor owns the deferred Done and is only
+// launched on success — so Wait()/StopAll() blocked forever and Agent
+// shutdown deadlocked.
+func TestSupervisorWaitReturnsAfterStartFailure(t *testing.T) {
+	supervisor := NewSupervisor(WithStartTimeout(50 * time.Millisecond))
+	failing := &funcActor{
+		name: "fail-start",
+		start: func(ctx context.Context) error {
+			return errors.New("boom: start failed")
+		},
+		run: func(ctx context.Context) error { return nil },
+	}
+	if err := supervisor.Start(context.Background(), failing); err == nil {
+		t.Fatal("start of failing actor succeeded; want error")
+	}
+	// Drain the reported start-failure result so the bounded Results
+	// channel never blocks the finish path.
+	result := <-supervisor.Results()
+	if result.Actor != "fail-start" || result.Outcome != ActorStartFailed {
+		t.Fatalf("result = %+v, want fail-start/ActorStartFailed", result)
+	}
+	done := make(chan struct{})
+	go func() {
+		supervisor.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Wait() hung after a start failure: wg.Add(1) was leaked without Done()")
+	}
+	// StopAll shares the same Wait path and must also return.
+	if err := supervisor.StopAll(context.Background()); err != nil {
+		t.Fatalf("StopAll after a start failure error = %v, want nil", err)
+	}
+}
+
+// Repair-cycle N1 RED: Wait()/StopAll() must not deadlock when the caller
+// never drains the bounded Results channel. finish() reports on a channel
+// sized maxConcurrent+8; once it fills, a blocking send would pin the
+// completing actor (and its deferred wg.Done()) forever and hang Wait() even
+// on normal completion. The report is best-effort: a full channel drops the
+// result instead of coupling shutdown to draining.
+func TestSupervisorWaitReturnsWithUndrainedResults(t *testing.T) {
+	supervisor := NewSupervisor(WithMaxConcurrentActors(8)) // results channel cap 16
+	startBatch := func() {
+		for i := 0; i < 8; i++ {
+			a := &funcActor{name: fmt.Sprintf("a%d", i), run: func(ctx context.Context) error { return nil }}
+			if err := supervisor.Start(context.Background(), a); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	// Three batches of 8 completions = 24 results, overflowing the 16-slot
+	// channel. Wait() between batches so each batch's actors finish before
+	// the next starts (maxConcurrent would otherwise refuse the start).
+	startBatch()
+	supervisor.Wait()
+	startBatch()
+	supervisor.Wait()
+	startBatch()
+	done := make(chan struct{})
+	go func() {
+		supervisor.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Wait() hung with an undrained Results channel: finish() blocked on the bounded channel")
 	}
 }
 

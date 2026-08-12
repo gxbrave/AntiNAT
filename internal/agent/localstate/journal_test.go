@@ -330,6 +330,13 @@ func TestReceiptGCBlocksResurrection(t *testing.T) {
 	}
 }
 
+// A different payload on an already-queued result is tolerated: the durable
+// result is already recorded and queued for delivery, so the re-record is
+// never mutated in place and the fail-closed guard against silently
+// overwriting a persisted semantic result is preserved. The Controller
+// re-issues with a fresh operation ID when it needs a different outcome.
+// (Repair-cycle N2: before the fix this returned ErrStaleWriter and the
+// reconcile control loop exited.)
 func TestQueueResultStaleWriterFailsClosed(t *testing.T) {
 	store, err := Open(t.TempDir())
 	if err != nil {
@@ -342,11 +349,84 @@ func TestQueueResultStaleWriterFailsClosed(t *testing.T) {
 	if err := store.QueueResult(1, "session-1", "op-1", []byte("APPLIED")); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.QueueResult(1, "session-1", "op-1", []byte("DIFFERENT")); !errors.Is(err, ErrStaleWriter) {
-		t.Fatalf("conflicting overwrite error = %v, want ErrStaleWriter", err)
+	if err := store.QueueResult(1, "session-1", "op-1", []byte("DIFFERENT")); err != nil {
+		t.Fatalf("different payload on already-queued result error = %v, want nil (tolerated)", err)
 	}
 	if result, _ := store.ResultForOperation(1, "session-1", "op-1"); !bytes.Equal(result, []byte("APPLIED")) {
+		t.Fatalf("result after tolerated conflicting write = %q, want APPLIED (never overwritten)", result)
+	}
+}
+
+// The fail-closed stale-writer guard is preserved for a durable result that
+// is NOT queued for delivery: a different payload must still be refused and
+// the persisted result left untouched. (This state cannot be produced via
+// the public API — the durable result and its outbox row are written and
+// removed atomically together — so it is constructed directly to pin the
+// guard.)
+func TestQueueResultStaleWriterFailsClosedWithoutQueuedRow(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.AdvanceSession(1, "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte(bucketOperations)).Put([]byte("op-guard"), []byte("APPLIED"))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueueResult(1, "session-1", "op-guard", []byte("DIFFERENT")); !errors.Is(err, ErrStaleWriter) {
+		t.Fatalf("conflicting overwrite error = %v, want ErrStaleWriter", err)
+	}
+	if result, _ := store.ResultForOperation(1, "session-1", "op-guard"); !bytes.Equal(result, []byte("APPLIED")) {
 		t.Fatalf("result after conflicting write = %q, want APPLIED", result)
+	}
+}
+
+// Repair-cycle N2 RED: re-recording a CHANGED semantic result while the
+// earlier result is already durably queued (in flight: CLAIMED/SENT/
+// SEMANTIC_ACKED) must be tolerated — the result is already durable and
+// queued, and the Controller re-issues with a fresh deletion_operation_id if
+// it needs a different outcome — and must never overwrite the persisted
+// result (fail-closed guard against silent mutation). Before the fix the
+// re-record failed with ErrStaleWriter and the reconcile control loop exited.
+func TestQueueResultToleratesOutcomeFlipWhileQueued(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.AdvanceSession(1, "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	first := []byte(`{"deleted":false,"reason":"context deadline exceeded"}`)
+	flipped := []byte(`{"deleted":true}`)
+	if err := store.QueueResult(1, "session-1", "del-op-z", first); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ClaimOutbox(1, "session-1", "del-op-z"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkOutboxSent(1, "session-1", "del-op-z"); err != nil {
+		t.Fatal(err)
+	}
+	// The outcome flipped on the next reconcile while the earlier result is
+	// in flight: tolerated, and the durable row is never mutated.
+	if err := store.QueueResult(1, "session-1", "del-op-z", flipped); err != nil {
+		t.Fatalf("flipped re-record while row SENT error = %v, want nil (tolerated)", err)
+	}
+	state, present, err := store.OutboxState("del-op-z")
+	if err != nil || !present || state != "SENT" {
+		t.Fatalf("outbox after tolerated re-record = %q present=%v err=%v, want SENT (untouched)", state, present, err)
+	}
+	persisted, err := store.ResultForOperation(1, "session-1", "del-op-z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(persisted, first) {
+		t.Fatalf("durable result after tolerated re-record = %q, want original %q (no silent overwrite)", persisted, first)
 	}
 }
 

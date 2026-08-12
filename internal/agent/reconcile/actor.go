@@ -132,7 +132,6 @@ func (s *Supervisor) Start(ctx context.Context, a Actor) error {
 	s.active[a.Name()] = struct{}{}
 	s.mu.Unlock()
 
-	s.wg.Add(1)
 	startCtx, cancel := context.WithTimeout(s.baseCtx, s.startTimeout)
 	err := a.Start(startCtx)
 	cancel()
@@ -140,6 +139,11 @@ func (s *Supervisor) Start(ctx context.Context, a Actor) error {
 		s.finish(a.Name(), ActorStartFailed, fmt.Errorf("reconcile: actor %q start: %w", a.Name(), err))
 		return err
 	}
+	// wg.Add happens only on the launch path: runActor owns the matching
+	// wg.Done, so a failed start (including the bounded start-timeout path)
+	// must never increment the WaitGroup — otherwise StopAll()/Wait() would
+	// block forever waiting for a Done() that can never run.
+	s.wg.Add(1)
 	go s.runActor(a)
 	return nil
 }
@@ -175,18 +179,27 @@ func (s *Supervisor) runActor(a Actor) {
 	}
 }
 
+// finish records one actor result. Reporting is best-effort: a full bounded
+// Results channel (the caller is not draining) drops the report instead of
+// blocking, so a completing actor (and its deferred wg.Done) is never pinned
+// and Wait/StopAll cannot deadlock on an undrained channel.
 func (s *Supervisor) finish(name string, outcome ActorOutcome, err error) {
 	s.mu.Lock()
 	delete(s.active, name)
 	s.mu.Unlock()
-	s.results <- ActorResult{Actor: name, Outcome: outcome, Err: err}
+	select {
+	case s.results <- ActorResult{Actor: name, Outcome: outcome, Err: err}:
+	default:
+	}
 }
 
 // Results returns the per-actor result channel.
 func (s *Supervisor) Results() <-chan ActorResult { return s.results }
 
-// Wait blocks until every started actor has finished. Callers should drain
-// Results to avoid the bounded channel blocking a finish.
+// Wait blocks until every started actor has finished. A caller that never
+// drains Results cannot deadlock shutdown: finish() drops the report when
+// the bounded channel is full rather than blocking, so Wait always returns;
+// drain Results for full per-actor reporting.
 func (s *Supervisor) Wait() { s.wg.Wait() }
 
 // StopAll cancels the supervisor base context so every running actor's Run

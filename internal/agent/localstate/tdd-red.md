@@ -166,3 +166,63 @@ deviation from strict RED-first for these verification tests only.
 ```bash
 go test ./internal/agent/localstate ./internal/agent/reconcile -race -count=10
 ```
+
+## Repair cycle 2 (P07-FIX2) — RED evidence
+
+Trigger: P07-QUALITY-R1 (t_437d8a6e) FAIL on head 98a5037 with two findings
+(N1 WaitGroup leak on actor start failure; N2 deletion-outcome flip still
+terminates the Run loop). All RED observations were captured on head 98a5037
+before the FIX2 production changes.
+
+### N1 — Supervisor.Wait()/StopAll() deadlock after a start failure (wg leak)
+
+RED command: `go test ./internal/agent/reconcile/ -run 'TestSupervisorWaitReturnsAfterStartFailure|TestSupervisorWaitReturnsWithUndrainedResults' -count=1 -v`
+
+RED reason: Start() called `wg.Add(1)` before the start attempt and never
+called `Done()` on the error path (runActor owns the deferred Done and is only
+launched on success), so Wait()/StopAll() blocked forever; and finish()'s
+blocking send on the full bounded Results channel pinned runActor (and its
+deferred Done) when the caller never drained:
+
+```
+--- FAIL: TestSupervisorWaitReturnsAfterStartFailure (2.00s)
+    actor_test.go:183: Wait() hung after a start failure: wg.Add(1) was leaked without Done()
+--- FAIL: TestSupervisorWaitReturnsWithUndrainedResults (2.00s)
+    actor_test.go:223: Wait() hung with an undrained Results channel: finish() blocked on the bounded channel
+```
+
+### N2 — deletion-outcome flip still terminates the Run loop (ErrStaleWriter)
+
+RED command: `go test ./internal/agent/reconcile/ -run TestReconcileRunSurvivesStopOutcomeFlip -count=1 -v` and `go test ./internal/agent/localstate/ -run TestQueueResultToleratesOutcomeFlipWhileQueued -count=1 -v`
+
+RED reason: the Q1 same-payload idempotency did not cover a CHANGED payload;
+a durable "deleted=false" result advanced to SENT then re-recorded as
+"deleted=true" failed with ErrStaleWriter, ReconcileOnce propagated it, and
+Run exited permanently:
+
+```
+--- FAIL: TestReconcileRunSurvivesStopOutcomeFlip (0.07s)
+    reconciler_test.go:350: loop exited when the deletion outcome flipped: localstate: stale writer attempted to overwrite a persisted semantic result: operation "del-op-flip" result "...deleted":true..." conflicts with persisted "...deleted":false..."
+--- FAIL: TestQueueResultToleratesOutcomeFlipWhileQueued (0.01s)
+    journal_test.go:411: flipped re-record while row SENT error = localstate: stale writer ... want nil (tolerated)
+```
+
+### FIX2 GREEN
+
+- N1: `wg.Add(1)` moved to the launch path only (runActor owns the matching
+  Done, so a failed start never increments the WaitGroup); finish() is now
+  best-effort (drop-on-full) so an undrained Results channel cannot deadlock
+  shutdown. `TestSupervisorWaitReturnsAfterStartFailure` and
+  `TestSupervisorWaitReturnsWithUndrainedResults` PASS.
+- N2: `recordResultAndQueue` returns nil for an existing outbox row in ANY
+  phase (PENDING/CLAIMED/SENT/SEMANTIC_ACKED, no receipt) — the result is
+  already durably queued and is never mutated in place; the fail-closed
+  ErrStaleWriter guard is preserved for a differing durable result with no
+  queued row. `TestQueueResultToleratesOutcomeFlipWhileQueued`,
+  `TestReconcileRunSurvivesStopOutcomeFlip`,
+  `TestQueueResultStaleWriterFailsClosed` (updated contract), and the
+  guard-pin `TestQueueResultStaleWriterFailsClosedWithoutQueuedRow` all PASS.
+- Full re-verification at the FIX2 head: `go test ./internal/agent/localstate
+  ./internal/agent/reconcile -race -count=10` ok; crash matrix 5/5; cumulative
+  suite (GOWORK=off, dedicated UID/GID) 14 packages ok; vet/gofmt clean;
+  frozen manifest byte-identical.

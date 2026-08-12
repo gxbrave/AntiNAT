@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -273,5 +274,110 @@ func TestReconcileRunSurvivesInFlightDeletionResult(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("loop did not stop on cancel")
+	}
+}
+
+// Repair-cycle N2 RED: a deletion result whose outcome FLIPS between
+// reconciles while the earlier result is in flight must not terminate the
+// Run control loop. The stop hook fails on the first pass (durable
+// "deleted=false,reason=..." queued and advanced to SENT), then succeeds on
+// the re-reconcile ("deleted=true"); the re-record is tolerated because the
+// result is already durably queued (the Controller re-issues with a fresh
+// deletion_operation_id for a different outcome), so ReconcileOnce returns
+// nil and Run survives. Before the fix the second pass failed with
+// ErrStaleWriter and Run exited permanently.
+func TestReconcileRunSurvivesStopOutcomeFlip(t *testing.T) {
+	store := testStore(t)
+	if err := store.AdvanceSession(1, "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveReceivedDesired(testDesired(present("fwd-a", 1), absent("fwd-b", "del-op-flip", 1))); err != nil {
+		t.Fatal(err)
+	}
+	var stopCalls atomic.Int64
+	var stopFails atomic.Bool // when true the stop hook fails transiently
+	stopFails.Store(true)
+	reconciler := New(store, localstate.NewLatch(), localstate.MarkerActive,
+		func(ctx context.Context, spec protocol.ForwardSpec) (protocol.AppliedForwardState, error) {
+			return appliedFor(spec.ForwardID, spec.DesiredRevision), nil
+		},
+		func(ctx context.Context, forwardID string) error {
+			stopCalls.Add(1)
+			if stopFails.Load() {
+				return errors.New("stop hook transient failure")
+			}
+			return nil
+		})
+	trigger := make(chan struct{}, 2)
+	done := make(chan error, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { done <- reconciler.Run(ctx, trigger) }()
+
+	// First pass: the stop hook fails -> durable "deleted=false,reason=...".
+	trigger <- struct{}{}
+	deadline := time.Now().Add(2 * time.Second)
+	for !store.OutboxContains("del-op-flip") {
+		if time.Now().After(deadline) {
+			t.Fatal("deletion result was not queued by the first pass")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if stopCalls.Load() != 1 {
+		t.Fatalf("stop hook calls after first pass = %d, want 1", stopCalls.Load())
+	}
+	// Advance the earlier result to SENT while the loop is live.
+	if err := store.ClaimOutbox(1, "session-1", "del-op-flip"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkOutboxSent(1, "session-1", "del-op-flip"); err != nil {
+		t.Fatal(err)
+	}
+	// Second pass: the stop hook now succeeds -> the outcome flips while the
+	// earlier result is in flight. Run must survive.
+	stopFails.Store(false)
+	trigger <- struct{}{}
+	deadline = time.Now().Add(2 * time.Second)
+	for stopCalls.Load() != 2 {
+		if time.Now().After(deadline) {
+			t.Fatal("stop hook was not re-invoked by the second pass")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(50 * time.Millisecond)
+	select {
+	case err := <-done:
+		t.Fatalf("loop exited when the deletion outcome flipped: %v", err)
+	default:
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("loop exit error = %v, want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("loop did not stop on cancel")
+	}
+	// The durable result from the first pass must not have been silently
+	// overwritten with the flipped outcome, and the in-flight row must be
+	// untouched.
+	state, present, err := store.OutboxState("del-op-flip")
+	if err != nil || !present || state != "SENT" {
+		t.Fatalf("outbox after tolerated flip = %q present=%v err=%v, want SENT", state, present, err)
+	}
+	durable, err := store.ResultForOperation(1, "session-1", "del-op-flip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result DeleteForwardResult
+	if err := json.Unmarshal(durable, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.ForwardID != "fwd-b" || result.DeletionOperationID != "del-op-flip" {
+		t.Fatalf("durable result identity = %+v, want fwd-b/del-op-flip", result)
+	}
+	if result.Deleted {
+		t.Fatal("durable result was silently overwritten with the flipped outcome")
 	}
 }

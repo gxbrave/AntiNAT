@@ -350,12 +350,16 @@ func outboxPhaseError(operationID, want, got string) error {
 
 // recordResultAndQueue durably records a semantic result and queues it as a
 // PENDING outbox row, within the caller's transaction. It refuses to
-// overwrite a persisted result with a different value, refuses to resurrect a
-// receipted operation, and treats a same-payload duplicate as idempotent in
-// ANY outbox phase: a row already in flight (CLAIMED/SENT/SEMANTIC_ACKED,
-// no durable receipt yet) means the result is already durably queued and the
-// re-record returns nil without touching the row (state-model §3.2 — the same
-// semantic result is re-signed without repeating the side effect). The strict
+// resurrect a receipted operation. An existing outbox row in ANY phase
+// (PENDING/CLAIMED/SENT/SEMANTIC_ACKED, no durable receipt yet) means the
+// semantic result is already durably recorded AND queued for delivery; the
+// re-record is tolerated without touching the row — even for a different
+// payload, because the Controller re-issues with a fresh operation ID when
+// it needs a different outcome (state-model §3.2: the same semantic result
+// is re-signed without repeating the side effect). This preserves the
+// fail-closed guard against silently OVERWRITING a persisted semantic
+// result: the durable row is never mutated in place, and a different payload
+// with no queued row still fails closed (ErrStaleWriter). The strict
 // single-step FSM for Claim/Sent/ACK/Receipt remains enforced by the
 // transport-facing transitions.
 func (s *Store) recordResultAndQueue(tx *bolt.Tx, operationID string, result []byte) error {
@@ -365,15 +369,11 @@ func (s *Store) recordResultAndQueue(tx *bolt.Tx, operationID string, result []b
 	if ops.Get(receiptKey(operationID)) != nil {
 		return fmt.Errorf("%w: operation %q", ErrAlreadyReceipted, operationID)
 	}
+	if current := outbox.Get(key); current != nil {
+		return nil // already durably queued: tolerate, never mutate the row
+	}
 	if existing := ops.Get(key); existing != nil && !bytes.Equal(existing, result) {
 		return fmt.Errorf("%w: operation %q result %q conflicts with persisted %q", ErrStaleWriter, operationID, result, existing)
-	}
-	if current := outbox.Get(key); current != nil {
-		state, payload := splitOutboxValue(current)
-		if bytes.Equal(payload, result) {
-			return nil // idempotent: the same semantic result is already durably queued
-		}
-		return outboxPhaseError(operationID, phasePending, state)
 	}
 	if err := ops.Put(key, result); err != nil {
 		return err
