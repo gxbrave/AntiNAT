@@ -74,6 +74,76 @@ from S1, no new production code was added).
 (GetDiskFreeSpaceExW) and `disk_other.go` (explicit unsupported). Linux,
 Windows and darwin builds now pass.
 
+## Repair cycle 1 (P06-FIX1) — RED evidence
+
+Findings from quality/security review (t_975cd845, comment 251), fixed on
+top of `b194c8e` as repair cycle 1. Each fix followed RED → GREEN.
+
+### Q1 — `auth.VerifyPassword` panics on malformed stored hash
+
+RED (`auth_test.go` `TestVerifyPasswordRejectsMalformedParams`, run with
+`password.go` reverted to the reviewed head — i.e. the exact code the review
+rejected):
+
+```
+go test ./internal/controller/auth -run TestVerifyPasswordRejectsMalformedParams -count=1 -v
+panic: argon2: number of rounds too small [recovered, repanicked]
+golang.org/x/crypto/argon2.deriveKey
+    .../argon2/argon2.go:102
+golang.org/x/crypto/argon2.IDKey(...)
+    .../argon2/argon2.go:97
+...auth.VerifyPassword({{0x7edf99?, 0x9f5f08?}, {0x2013fc154230?, ...}})
+    internal/controller/auth/password.go:104
+FAIL    github.com/gxbrave/AntiNAT/internal/controller/auth
+```
+
+RED reason: a stored hash with `t=0` reached `argon2.IDKey` unvalidated and
+panicked the whole controller process on Login — the Story-6 fail-closed
+violation reported by the review. (`p=0` / `p=256`-wraps-to-0 and `m` above
+the cap are caught by the same validation.)
+
+GREEN: `password.go` now validates the parsed `t`/`p`/`m` against
+`argon2MinTime=1`, `argon2MinThreads=1`, `argon2MaxThreads=255` (uint8
+ceiling) and `argon2MaxMemory=1<<20` (1 GiB KiB cap) before `argon2.IDKey`
+and returns an actionable `auth: malformed hash parameter ...` error. All
+four malformed-hash subtests pass and the round-trip/migration tests still
+pass.
+
+### Q2 — `StoreIdempotency` check-then-act race (not atomic)
+
+RED (`store/idempotency_test.go` `TestIdempotencyConcurrentSameKeySameHash`,
+`TestIdempotencyConcurrentExpiredKeyReuse`, run against the reviewed head
+implementation):
+
+```
+# same key + same hash, 256 concurrent callers (timing-dependent; reproduced
+# at -count=10):
+go test ./internal/controller/store -run TestIdempotencyConcurrentSameKeySameHash -count=10
+--- FAIL: TestIdempotencyConcurrentSameKeySameHash (0.15s)
+    idempotency_test.go:225: concurrent StoreIdempotency: store: insert idempotency:
+      constraint failed: UNIQUE constraint failed: api_idempotency_keys.key (1555)
+
+# expired key reused concurrently with different hashes (deterministic):
+go test ./internal/controller/store -run TestIdempotencyConcurrentExpiredKeyReuse -count=1 -v
+--- FAIL: TestIdempotencyConcurrentExpiredKeyReuse (0.02s)
+    idempotency_test.go:298: concurrent expired-key reuse: wins=2 conflicts=0, want exactly 1 and 1
+```
+
+RED reason: `GetIdempotency` read and the subsequent INSERT/DELETE+INSERT ran
+outside one transaction, so racing callers either hard-errored on the UNIQUE
+constraint (instead of the contract-mandated replay, docs/error-codes.md §4)
+or both "won" an expired-key reuse (key double-spend).
+
+GREEN: `idempotency.go` `StoreIdempotency` now wraps the whole read-check-
+write in a single `BEGIN IMMEDIATE` transaction issued on a dedicated
+connection (`s.db.Conn` + `ExecContext("BEGIN IMMEDIATE")`; `database/sql`
+`Begin()` only issues a deferred `BEGIN`, whose stale snapshot/read→write
+upgrade is exactly the unsafe pattern above). Racing callers serialize on the
+write lock: one creates/reuses the row, the rest replay or get
+`ErrIdempotencyConflict`. The expired-reuse audit event commits in the same
+transaction. Both concurrent tests pass reliably (`-count=10`), and the
+`Backup|Migration|Delete|Idempotency` stability group passes `-count=10`.
+
 ## Final verification (exact commands and exit codes)
 
 ```
