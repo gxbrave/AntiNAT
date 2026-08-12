@@ -20,8 +20,12 @@ type Forward struct {
 }
 
 // CreateForward inserts a forward row. Foreign keys are enforced, so NodeID
-// must reference an existing node.
+// must reference an existing node. Growth writes are refused under low-disk
+// policy (delete paths are not).
 func (s *Store) CreateForward(f Forward) (Forward, error) {
+	if err := s.checkWriteCapacity(); err != nil {
+		return Forward{}, err
+	}
 	ts := now()
 	_, err := s.db.Exec(
 		`INSERT INTO forwards (id, node_id, name, protocol, current_activation_id,
@@ -125,6 +129,16 @@ func (s *Store) ForwardSpecCount(forwardID string) (int, error) {
 		"SELECT COUNT(*) FROM forward_specs WHERE forward_id = ?", forwardID,
 	).Scan(&count); err != nil {
 		return 0, fmt.Errorf("store: count forward specs: %w", err)
+	}
+	return count, nil
+}
+
+// ForwardCount returns the total number of forward rows (used by backup
+// restore verification).
+func (s *Store) ForwardCount() (int, error) {
+	var count int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM forwards").Scan(&count); err != nil {
+		return 0, fmt.Errorf("store: count forwards: %w", err)
 	}
 	return count, nil
 }

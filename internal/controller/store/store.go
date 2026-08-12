@@ -33,8 +33,10 @@ var (
 // concurrent use by multiple goroutines; database/sql manages the pool and
 // SQLite serializes writers via WAL + busy_timeout.
 type Store struct {
-	db   *sql.DB
-	path string
+	db           *sql.DB
+	path         string
+	minFreeBytes uint64
+	diskFree     func(string) (uint64, error)
 }
 
 // Open opens (or creates) the database at path, configures the frozen
@@ -53,16 +55,11 @@ func Open(path string) (*Store, error) {
 		}
 	}
 
-	dsn := "file:" + path +
-		"?_pragma=journal_mode(WAL)" +
-		"&_pragma=busy_timeout(5000)" +
-		"&_pragma=foreign_keys(1)" +
-		"&_pragma=synchronous(FULL)"
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open("sqlite", dsnFor(path))
 	if err != nil {
 		return nil, fmt.Errorf("store: open %q: %w", path, err)
 	}
-	s := &Store{db: db, path: path}
+	s := &Store{db: db, path: path, diskFree: DiskFreeBytes}
 
 	if err := s.checkIntegrity(); err != nil {
 		db.Close()
@@ -73,6 +70,16 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// dsnFor renders the frozen DSN: WAL, busy_timeout >= 5000ms, foreign keys
+// enabled and full synchronous (P03 spike sqlite-driver.json).
+func dsnFor(path string) string {
+	return "file:" + path +
+		"?_pragma=journal_mode(WAL)" +
+		"&_pragma=busy_timeout(5000)" +
+		"&_pragma=foreign_keys(1)" +
+		"&_pragma=synchronous(FULL)"
 }
 
 // Close closes the underlying database.

@@ -20,8 +20,12 @@ type Node struct {
 	UpdatedAt              int64
 }
 
-// CreateNode inserts a new node. A node name is unique.
+// CreateNode inserts a new node. A node name is unique. Growth writes are
+// refused under low-disk policy (delete paths are not).
 func (s *Store) CreateNode(n Node) error {
+	if err := s.checkWriteCapacity(); err != nil {
+		return err
+	}
 	ts := now()
 	_, err := s.db.Exec(
 		`INSERT INTO nodes (id, name, current_connection_epoch, current_session_id,
