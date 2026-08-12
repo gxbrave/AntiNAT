@@ -351,8 +351,13 @@ func outboxPhaseError(operationID, want, got string) error {
 // recordResultAndQueue durably records a semantic result and queues it as a
 // PENDING outbox row, within the caller's transaction. It refuses to
 // overwrite a persisted result with a different value, refuses to resurrect a
-// receipted operation, and treats a same-payload PENDING duplicate as
-// idempotent.
+// receipted operation, and treats a same-payload duplicate as idempotent in
+// ANY outbox phase: a row already in flight (CLAIMED/SENT/SEMANTIC_ACKED,
+// no durable receipt yet) means the result is already durably queued and the
+// re-record returns nil without touching the row (state-model §3.2 — the same
+// semantic result is re-signed without repeating the side effect). The strict
+// single-step FSM for Claim/Sent/ACK/Receipt remains enforced by the
+// transport-facing transitions.
 func (s *Store) recordResultAndQueue(tx *bolt.Tx, operationID string, result []byte) error {
 	ops := tx.Bucket([]byte(bucketOperations))
 	outbox := tx.Bucket([]byte(bucketOutbox))
@@ -365,8 +370,8 @@ func (s *Store) recordResultAndQueue(tx *bolt.Tx, operationID string, result []b
 	}
 	if current := outbox.Get(key); current != nil {
 		state, payload := splitOutboxValue(current)
-		if state == phasePending && bytes.Equal(payload, result) {
-			return nil // idempotent duplicate delivery of the same semantic result
+		if bytes.Equal(payload, result) {
+			return nil // idempotent: the same semantic result is already durably queued
 		}
 		return outboxPhaseError(operationID, phasePending, state)
 	}

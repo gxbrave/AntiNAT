@@ -347,3 +347,58 @@ func TestQueueResultStaleWriterFailsClosed(t *testing.T) {
 		t.Fatalf("result after conflicting write = %q, want APPLIED", result)
 	}
 }
+
+// Repair-cycle Q1 RED: re-recording the same semantic result while its outbox
+// row is in flight (CLAIMED/SENT/SEMANTIC_ACKED, no durable receipt yet) must
+// be idempotent, leave the row untouched, and not disturb the subsequent
+// receipt path. Before the fix, recordResultAndQueue returned ErrIllegalPhase
+// for any non-PENDING same-payload row and the reconcile control loop died.
+func TestQueueResultIdempotentForInFlightOutboxRow(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.AdvanceSession(1, "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueueResult(1, "session-1", "op-1", []byte("deleted")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ClaimOutbox(1, "session-1", "op-1"); err != nil {
+		t.Fatal(err)
+	}
+	// Re-record while CLAIMED: already durably queued, must not fail.
+	if err := store.QueueResult(1, "session-1", "op-1", []byte("deleted")); err != nil {
+		t.Fatalf("re-record while CLAIMED error = %v, want nil (idempotent)", err)
+	}
+	if err := store.MarkOutboxSent(1, "session-1", "op-1"); err != nil {
+		t.Fatal(err)
+	}
+	// Re-record while SENT: idempotent, row untouched.
+	if err := store.QueueResult(1, "session-1", "op-1", []byte("deleted")); err != nil {
+		t.Fatalf("re-record while SENT error = %v, want nil (idempotent)", err)
+	}
+	state, present, err := store.OutboxState("op-1")
+	if err != nil || !present || state != "SENT" {
+		t.Fatalf("outbox after re-record while SENT = %q present=%v err=%v, want SENT", state, present, err)
+	}
+	if err := store.AcceptSemanticACK(1, "session-1", "op-1"); err != nil {
+		t.Fatal(err)
+	}
+	// Re-record while SEMANTIC_ACKED: idempotent, row untouched.
+	if err := store.QueueResult(1, "session-1", "op-1", []byte("deleted")); err != nil {
+		t.Fatalf("re-record while SEMANTIC_ACKED error = %v, want nil (idempotent)", err)
+	}
+	state, present, err = store.OutboxState("op-1")
+	if err != nil || !present || state != "SEMANTIC_ACKED" {
+		t.Fatalf("outbox after re-record while SEMANTIC_ACKED = %q present=%v err=%v, want SEMANTIC_ACKED", state, present, err)
+	}
+	// The subsequent receipt path must still work on the untouched row.
+	if err := store.AcceptReceipt(1, "session-1", "op-1"); err != nil {
+		t.Fatalf("receipt after in-flight re-record error = %v", err)
+	}
+	if store.OutboxContains("op-1") {
+		t.Fatal("durable receipt must GC the outbox row")
+	}
+}

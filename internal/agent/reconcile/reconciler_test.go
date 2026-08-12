@@ -165,3 +165,113 @@ func TestReconcileOnceActorPanicDoesNotFailTheReconcile(t *testing.T) {
 		}
 	}
 }
+
+// Repair-cycle Q1 RED: re-reconciling the same desired snapshot while its
+// deletion result is in flight (SENT then SEMANTIC_ACKED, no durable receipt)
+// must return nil, leave the outbox row untouched, and not disturb the
+// subsequent receipt path. Before the fix ReconcileOnce propagated
+// ErrIllegalPhase and the control loop died.
+func TestReconcileOnceRepeatedWhileDeletionResultInFlight(t *testing.T) {
+	store := testStore(t)
+	if err := store.AdvanceSession(1, "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	reconciler := New(store, localstate.NewLatch(), localstate.MarkerActive,
+		func(ctx context.Context, spec protocol.ForwardSpec) (protocol.AppliedForwardState, error) {
+			return appliedFor(spec.ForwardID, spec.DesiredRevision), nil
+		},
+		func(ctx context.Context, forwardID string) error { return nil })
+	d := testDesired(present("fwd-a", 1), absent("fwd-b", "del-op-b", 1))
+	if _, err := reconciler.ReconcileOnce(context.Background(), d, 1, "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	// Advance the deletion result to SENT, then SEMANTIC_ACKED: the durable
+	// result is in flight with no receipt yet.
+	if err := store.ClaimOutbox(1, "session-1", "del-op-b"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkOutboxSent(1, "session-1", "del-op-b"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconciler.ReconcileOnce(context.Background(), d, 1, "session-1"); err != nil {
+		t.Fatalf("re-reconcile while row SENT error = %v, want nil", err)
+	}
+	state, present, err := store.OutboxState("del-op-b")
+	if err != nil || !present || state != "SENT" {
+		t.Fatalf("outbox after re-reconcile while SENT = %q present=%v err=%v, want SENT", state, present, err)
+	}
+	if err := store.AcceptSemanticACK(1, "session-1", "del-op-b"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconciler.ReconcileOnce(context.Background(), d, 1, "session-1"); err != nil {
+		t.Fatalf("re-reconcile while row SEMANTIC_ACKED error = %v, want nil", err)
+	}
+	state, present, err = store.OutboxState("del-op-b")
+	if err != nil || !present || state != "SEMANTIC_ACKED" {
+		t.Fatalf("outbox after re-reconcile while SEMANTIC_ACKED = %q present=%v err=%v, want SEMANTIC_ACKED", state, present, err)
+	}
+	// The subsequent receipt path must be undisturbed.
+	if err := store.AcceptReceipt(1, "session-1", "del-op-b"); err != nil {
+		t.Fatalf("receipt after in-flight re-reconcile error = %v", err)
+	}
+	if store.OutboxContains("del-op-b") {
+		t.Fatal("durable receipt must GC the outbox row")
+	}
+}
+
+// Repair-cycle Q1 RED: the Run control loop must survive a re-trigger while a
+// deletion result is in flight (SENT, no receipt). Before the fix the second
+// trigger's re-record returned ErrIllegalPhase and Run exited permanently.
+func TestReconcileRunSurvivesInFlightDeletionResult(t *testing.T) {
+	store := testStore(t)
+	if err := store.AdvanceSession(1, "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveReceivedDesired(testDesired(present("fwd-a", 1), absent("fwd-b", "del-op-b", 1))); err != nil {
+		t.Fatal(err)
+	}
+	reconciler := New(store, localstate.NewLatch(), localstate.MarkerActive,
+		func(ctx context.Context, spec protocol.ForwardSpec) (protocol.AppliedForwardState, error) {
+			return appliedFor(spec.ForwardID, spec.DesiredRevision), nil
+		},
+		func(ctx context.Context, forwardID string) error { return nil })
+	trigger := make(chan struct{}, 2)
+	done := make(chan error, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { done <- reconciler.Run(ctx, trigger) }()
+
+	trigger <- struct{}{}
+	// Wait until the first pass has durably queued the deletion result, then
+	// advance it to SENT while the loop is live.
+	deadline := time.Now().Add(2 * time.Second)
+	for !store.OutboxContains("del-op-b") {
+		if time.Now().After(deadline) {
+			t.Fatal("deletion result was not queued by the loop")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err := store.ClaimOutbox(1, "session-1", "del-op-b"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkOutboxSent(1, "session-1", "del-op-b"); err != nil {
+		t.Fatal(err)
+	}
+	// Second trigger while the row is SENT: the loop must not exit.
+	trigger <- struct{}{}
+	time.Sleep(50 * time.Millisecond)
+	select {
+	case err := <-done:
+		t.Fatalf("loop exited while deletion result in flight: %v", err)
+	default:
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("loop exit error = %v, want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("loop did not stop on cancel")
+	}
+}
