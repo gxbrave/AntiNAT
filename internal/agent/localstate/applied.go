@@ -146,6 +146,11 @@ func (s *Store) CommitDesired(d protocol.DesiredState, outcomes []ForwardApply) 
 			key := []byte(o.ForwardID)
 			switch o.Outcome {
 			case ApplyApplied:
+				// A durable deletion tombstone is authoritative: an old snapshot
+				// or Controller rollback must never resurrect this Forward.
+				if tx.Bucket([]byte(bucketTombstones)).Get(key) != nil {
+					return fmt.Errorf("%w: forward %q", ErrTombstonedForward, o.ForwardID)
+				}
 				raw, err := json.Marshal(o.Applied)
 				if err != nil {
 					return err

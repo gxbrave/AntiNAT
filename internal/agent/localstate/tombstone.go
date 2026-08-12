@@ -26,6 +26,11 @@ type ForwardTombstone struct {
 // yet reached a durable Controller receipt; GC is refused.
 var ErrTombstoneNotGCReady = fmt.Errorf("localstate: forward tombstone cannot be GC'd before the deletion operation is durably receipted")
 
+// ErrTombstonedForward reports an attempt to apply a Forward that carries a
+// durable deletion tombstone. Deletion intent followed by crash, an old
+// snapshot, or a Controller rollback must never resurrect the Forward.
+var ErrTombstonedForward = fmt.Errorf("localstate: forward has a durable deletion tombstone and cannot be resurrected")
+
 func nowUnix() int64 { return time.Now().Unix() }
 
 // TombstoneExists reports whether a durable tombstone exists for forwardID.
@@ -52,4 +57,27 @@ func (s *Store) ListTombstones() ([]ForwardTombstone, error) {
 		})
 	})
 	return tombstones, err
+}
+
+// GCForwardTombstone removes a tombstone only after the Controller's durable
+// receipt for its deletion operation exists (state-model §4: tombstone GC
+// waits for the durable receipt / sufficient high-water). Otherwise the GC is
+// refused so a replay of an old snapshot can never resurrect the Forward.
+func (s *Store) GCForwardTombstone(forwardID string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte(bucketTombstones))
+		raw := bucket.Get([]byte(forwardID))
+		if raw == nil {
+			return nil // already GC'd
+		}
+		var ts ForwardTombstone
+		if err := json.Unmarshal(raw, &ts); err != nil {
+			return fmt.Errorf("localstate: decode tombstone %q: %w", forwardID, err)
+		}
+		ops := tx.Bucket([]byte(bucketOperations))
+		if ops.Get(receiptKey(ts.DeletionOperationID)) == nil {
+			return fmt.Errorf("%w: forward %q deletion operation %q", ErrTombstoneNotGCReady, forwardID, ts.DeletionOperationID)
+		}
+		return bucket.Delete([]byte(forwardID))
+	})
 }
