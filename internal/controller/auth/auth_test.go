@@ -1,7 +1,9 @@
 package auth_test
 
 import (
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -65,6 +67,42 @@ func TestVerifyMigratesOutdatedParams(t *testing.T) {
 	}
 	if !rehash {
 		t.Fatal("outdated-params hash did not signal needsRehash")
+	}
+}
+
+// RED Q1 (repair cycle 1): VerifyPassword must return an error, never panic,
+// when the stored hash carries malformed Argon2id parameters (t=0, p=0,
+// p=256 wrapping to 0 via uint8, or memory above the safety cap). A
+// corrupted/tampered database must fail closed on the next Login instead of
+// crashing the whole controller (Story-6 fail-closed design).
+func TestVerifyPasswordRejectsMalformedParams(t *testing.T) {
+	phc := func(t, m, p uint32, keyLen int) string {
+		salt := make([]byte, 16)
+		key := make([]byte, keyLen)
+		return fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s",
+			m, t, p,
+			base64.RawStdEncoding.EncodeToString(salt),
+			base64.RawStdEncoding.EncodeToString(key))
+	}
+	cases := []struct {
+		name string
+		hash string
+	}{
+		{"t=0 rounds", phc(0, 65536, 4, 32)},
+		{"p=0 threads", phc(3, 65536, 0, 32)},
+		{"p=256 wraps to 0 via uint8", phc(3, 65536, 256, 32)},
+		{"m above 1 GiB cap", phc(3, 1<<21, 4, 32)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := auth.VerifyPassword(
+				auth.EncodedPassword{Algorithm: auth.PasswordAlgorithmArgon2id, Hash: tc.hash},
+				"whatever",
+			)
+			if err == nil {
+				t.Fatalf("VerifyPassword accepted malformed hash %q", tc.hash)
+			}
+		})
 	}
 }
 

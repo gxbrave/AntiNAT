@@ -32,6 +32,18 @@ const (
 	argon2SaltLen = 16
 )
 
+// Safety bounds enforced on STORED hash parameters before deriving a key.
+// x/crypto/argon2 panics when time<1 or threads<1, and p is truncated to
+// uint8, so a corrupted/tampered hash could crash the controller; an unbounded
+// m can demand up to ~4 TiB of memory. VerifyPassword fails closed with an
+// error on any hash outside these bounds.
+const (
+	argon2MinTime    = 1
+	argon2MinThreads = 1
+	argon2MaxThreads = 255     // uint8 ceiling; p=256 would wrap to 0
+	argon2MaxMemory  = 1 << 20 // 1 GiB (in KiB) cap on verify allocations
+)
+
 // EncodedPassword is a password hash plus its algorithm name. Hash is the PHC
 // string: $argon2id$v=19$m=...,t=...,p=...$salt$hash
 type EncodedPassword struct {
@@ -91,6 +103,18 @@ func VerifyPassword(enc EncodedPassword, password string) (ok, needsRehash bool,
 		default:
 			return false, false, fmt.Errorf("auth: unknown hash parameter %q", kv[0])
 		}
+	}
+	// Fail closed on malformed parameters: argon2.IDKey panics when time<1 or
+	// threads<1 (p=256 wraps to 0 through uint8), and an unbounded m can
+	// demand ~4 TiB of memory. A corrupted/tampered stored hash must surface
+	// as an error on Login, never a controller crash (Story-6 fail-closed).
+	switch {
+	case timeCost < argon2MinTime:
+		return false, false, fmt.Errorf("auth: malformed hash parameter t=%d: must be >= %d", timeCost, argon2MinTime)
+	case threads < argon2MinThreads || threads > argon2MaxThreads:
+		return false, false, fmt.Errorf("auth: malformed hash parameter p=%d: must be in [%d, %d]", threads, argon2MinThreads, argon2MaxThreads)
+	case memory > argon2MaxMemory:
+		return false, false, fmt.Errorf("auth: malformed hash parameter m=%d: exceeds %d KiB safety cap", memory, argon2MaxMemory)
 	}
 	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
 	if err != nil {
