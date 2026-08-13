@@ -366,7 +366,11 @@ func (h *Hub) handleAgentResult(s *ControlSession, env protocol.Envelope) error 
 }
 
 // handleAgentReceipt advances the controller outbox row SEMANTIC_ACKED ->
-// RECEIPTED -> GC.
+// RECEIPTED -> GC. A replayed receipt for a row the controller already
+// consumed (recorded in control_inbox, outbox row GC'd — the agent resends
+// because its C2A receipt was lost) is a cached duplicate: tolerate the
+// failed row match idempotently instead of killing the session (mirrors
+// handleAgentResult).
 func (h *Hub) handleAgentReceipt(s *ControlSession, env protocol.Envelope) error {
 	hdr := env.Header
 	item := store.ControlInboxItem{
@@ -376,7 +380,8 @@ func (h *Hub) handleAgentReceipt(s *ControlSession, env protocol.Envelope) error
 		SemanticPayload: string(env.Payload),
 		State:           "RECEIVED",
 	}
-	if _, err := h.store.RecordControlInbox(item); err != nil {
+	duplicate, err := h.store.RecordControlInbox(item)
+	if err != nil {
 		return err
 	}
 	op, err := operationIDFromReceipt(env.Payload)
@@ -385,6 +390,9 @@ func (h *Hub) handleAgentReceipt(s *ControlSession, env protocol.Envelope) error
 	}
 	row, _, err := h.matchOutboxRowByCommandMessageID(s, op)
 	if err != nil {
+		if duplicate {
+			return nil // cached duplicate of an already-consumed receipt
+		}
 		return err
 	}
 	return h.store.AcceptControlReceipt(row.OperationID, row.MessageType, s.session)
