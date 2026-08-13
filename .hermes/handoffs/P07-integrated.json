@@ -1,0 +1,276 @@
+{
+ "plan": "P07",
+ "branch": "integration/v1-beta",
+ "candidate_branch": "ai/P07-agent-localstate-reconciler",
+ "integration_base_sha": "cc9efd8248f6483f594f2bf2a97c9e37f2347c5f",
+ "integrated_dependency_product_sha": "a85cb88f3b99a8f4908751f37e29d031aa44be42",
+ "candidate_head_sha": "c21db39090f617ffa4a90ef8408d66fdd7252da6",
+ "candidate_tree_sha": "d9f5c23637fdcfd72ef6544d40ebc69dca8f5e13",
+ "integrated_sha": "231fae48f62e66e46fc53170093d543937ac7e28",
+ "integrated_tree_sha": "d9f5c23637fdcfd72ef6544d40ebc69dca8f5e13",
+ "candidate_handoff_path": "/root/AntiNAT/.worktrees/t_5b3010b6/.hermes/handoffs/P07.json",
+ "candidate_handoff_sha256": "9c537a7c195b4249443f4f689ac41906a7359b9b18cb66973d8ce82aed7f3977",
+ "candidate_commits": [
+  "919368912fc6cfb1c5b9ea91d4eef093e7c1947c",
+  "f1fd7affdfbd4ea9b657097e96ef72ccbb70c9af",
+  "6107eaf016d6e08c111c083333cd43ce71bdc79d",
+  "1a4373f6e7c6795f87b9aa28dd4839c6a7710e65",
+  "7dc127e225931212b5371488ed6fc03a5b5135b6",
+  "efe64844704402e586d16ef58f0246a1c1ffb031",
+  "2e508b6e04189d59895b491863da5b03d736c922",
+  "636790aa9dac23c1e5e8a91c3d2a1088963f617f",
+  "a6ebf295581e443207c6efa51122fbe548586290",
+  "5df0a762a59dc6102995f0013ce6d9ed4f63bc8d",
+  "c21db39090f617ffa4a90ef8408d66fdd7252da6"
+ ],
+ "integrated_commits": [
+  "d328d2d99b1c8e720470130206aeb42679f1c34d",
+  "e21bf44b5850dc05142c2e801ae6a214d8dddc06",
+  "233879833779067489251990c44cefb2a9f6667a",
+  "29580654962d14ba467dc3b9f62c700a8760c5c2",
+  "a7ed513b3bf49860b9cc87a28581452796b6720d",
+  "f3ae810493e0d9030f9e3fa2aafddf8ee8f49275",
+  "b022e8bb395e17216aab06b571e9a86559e2eb83",
+  "77c6e6f47b40e5ccc06306185201295624c4ebe3",
+  "b8382e5a037ce7700e11e8102c43b05af8e1d6c5",
+  "124053fc4ab7473187f56071707d063ada1a40d8",
+  "231fae48f62e66e46fc53170093d543937ac7e28"
+ ],
+ "files_changed_count": 24,
+ "files_changed": [
+  "go.mod",
+  "go.sum",
+  "internal/agent/localstate/applied.go",
+  "internal/agent/localstate/applied_test.go",
+  "internal/agent/localstate/crash_test.go",
+  "internal/agent/localstate/journal.go",
+  "internal/agent/localstate/journal_test.go",
+  "internal/agent/localstate/latch.go",
+  "internal/agent/localstate/marker.go",
+  "internal/agent/localstate/marker_test.go",
+  "internal/agent/localstate/schema.go",
+  "internal/agent/localstate/store.go",
+  "internal/agent/localstate/store_test.go",
+  "internal/agent/localstate/tdd-red.md",
+  "internal/agent/localstate/tombstone.go",
+  "internal/agent/localstate/tombstone_test.go",
+  "internal/agent/reconcile/actor.go",
+  "internal/agent/reconcile/actor_test.go",
+  "internal/agent/reconcile/desired.go",
+  "internal/agent/reconcile/desired_test.go",
+  "internal/agent/reconcile/operation.go",
+  "internal/agent/reconcile/operation_test.go",
+  "internal/agent/reconcile/reconciler.go",
+  "internal/agent/reconcile/reconciler_test.go"
+ ],
+ "reviews": [
+  {
+   "task_id": "t_79ee02d2",
+   "type": "specification",
+   "cycle": 0,
+   "head_sha": "5e20abfab886731eb17f0ee0e36fdb3677824d6c",
+   "verdict": "PASS",
+   "summary": "P07-SPEC PASS on candidate 5e20abf (base a85cb88 == integration/v1-beta HEAD): all 6 Stories have focused RED-mapped tests + GREEN implementation, reconcile layer covered, non-goals respected; 22 new additions under plan-owned paths + declared go.mod/go.sum (P06 precedent); 6/6 contract hashes byte-exact; plan-required -race -count=10, crash matrix, cumulative 14-pkg suite all re-run exit 0."
+  },
+  {
+   "task_id": "t_4c012187",
+   "type": "quality-security",
+   "cycle": 0,
+   "head_sha": "5e20abfab886731eb17f0ee0e36fdb3677824d6c",
+   "verdict": "FAIL",
+   "summary": "P07-QUALITY FAIL on candidate 5e20abf: Q1 BLOCKING liveness - re-reconcile of an in-flight deletion result (row past PENDING) makes ReconcileOnce return ErrIllegalPhase and the Run loop exits (reproduced); Q2 actionable resource bound - control_inbox dedup rows never GC'd, unbounded store growth. Both empirically reproduced. Repair cycle 1 routed (t_292ef0c8)."
+  },
+  {
+   "task_id": "t_c1a4abcd",
+   "type": "specification-r1",
+   "cycle": 1,
+   "head_sha": "98a5037c9cdfd198e198190e32febd183cc9400e",
+   "verdict": "PASS",
+   "summary": "P07-SPEC-R1 PASS on exact repaired head 98a5037 (base a85cb88): all six Stories RED/GREEN/VERIFY + reconcile layer verified incl. 4 repair-cycle RED tests present and GREEN; 24 changed files exactly match handoff, all owned paths; zero frozen contract/testdata edits; 6/6 contract hashes match on-disk; handoff valid with accurate cycle-1 repair note (Q1/Q2); full battery re-run fresh all exit 0."
+  },
+  {
+   "task_id": "t_437d8a6e",
+   "type": "quality-security-r1",
+   "cycle": 1,
+   "head_sha": "98a5037c9cdfd198e198190e32febd183cc9400e",
+   "verdict": "FAIL",
+   "summary": "P07-QUALITY-R1 FAIL on exact repaired head 98a5037: Q1/Q2 RESOLVED (re-verified with real output) but new scan found N1 BLOCKING - Supervisor.Start() leaks wg.Add(1) on actor start failure so StopAll()/Wait() deadlock (reproduced); N2 actionable - deletion outcome flip between reconciles still terminates the Run loop via ErrStaleWriter (same class as Q1, reproduced). Repair cycle 2 routed (t_8e4da393)."
+  },
+  {
+   "task_id": "t_18454a5b",
+   "type": "specification-r2",
+   "cycle": 2,
+   "head_sha": "5f50b86aa3078eb53f305abc4f36064468bcc1b9",
+   "verdict": "PASS",
+   "summary": "P07-SPEC-R2 PASS on exact repaired head 5f50b86 (base a85cb88 == P05 integrated SHA): all six Stories + reconcile layer RED/GREEN/VERIFY covered; 23 changed files strictly within owned scope; zero frozen contract/testdata edits; 6/6 contracts_consumed hashes byte-exact on-disk; handoff schema valid with accurate cycle-2 repair note (N1/N2); full battery re-run fresh at 5f50b86 all exit 0."
+  },
+  {
+   "task_id": "t_600c1825",
+   "type": "quality-security-r2",
+   "cycle": 2,
+   "head_sha": "5f50b86aa3078eb53f305abc4f36064468bcc1b9",
+   "verdict": "PASS",
+   "summary": "P07-QUALITY-R2 PASS on exact repaired head 5f50b86: N1 (wg leak/StopAll-Wait deadlock) and N2 (deletion outcome flip ErrStaleWriter) both RESOLVED with strict RED->GREEN evidence; fresh full scan found no new logic/race/leak/security/portability/resource-bound/test-quality findings; all verification independently re-run at head, all exit 0."
+  },
+  {
+   "task_id": "t_8d5dbdb4",
+   "type": "specification-r3",
+   "cycle": 3,
+   "head_sha": "c21db39090f617ffa4a90ef8408d66fdd7252da6",
+   "verdict": "PASS",
+   "summary": "P07-SPEC-R3 PASS on exact rebased head c21db39 (base cc9efd8 == live integration/v1-beta HEAD, merge-base==base, 11 commits matching handoff): byte-identity gate 22/22 P07 code files blob-identical to R2-reviewed head 5f50b86; only go.mod/go.sum differ and are MVS-correct (bbolt v1.5.0 added, x/sys v0.47.0 direct, lane versions preserved, go mod verify clean); change set = exactly go.mod/go.sum + 22 owned files; handoff updated with base cc9efd8 / head c21db39; 6/6 contract hashes recomputed match; frozen gate regeneration byte-identical; secrets scan clean."
+  },
+  {
+   "task_id": "t_9abf5986",
+   "type": "quality-security-r3",
+   "cycle": 3,
+   "head_sha": "c21db39090f617ffa4a90ef8408d66fdd7252da6",
+   "verdict": "PASS",
+   "summary": "P07-QUALITY-R3 PASS on exact rebased head c21db39: code byte-identical to R2-PASS head so Q1/Q2/N1/N2 fixes preserved, each fix site re-verified plus 10/10 fix-regression tests PASS at new head; manifest alignment correct (bbolt v1.5.0, x/sys v0.47.0 direct, go mod verify clean, no replace directives); all gates re-run at c21db39 (focused -race -count=10, crash matrix 5/5, cumulative 16 pkgs, vet/gofmt/diff-check/build, win/arm64/darwin cross-builds, frozen gate byte-identical); fresh full-candidate scan found no new findings."
+  }
+ ],
+ "contracts_verified": [
+  {
+   "path": "docs/state-model.md",
+   "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
+  },
+  {
+   "path": "docs/protocol.md",
+   "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"
+  },
+  {
+   "path": ".hermes/plans/v1-beta/00-master-orchestration.md",
+   "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4"
+  },
+  {
+   "path": ".hermes/plans/v1-beta/07-agent-localstate-reconciler.md",
+   "sha256": "8c4dc7cbe4a9671c67affab99d533d27c0a7b889d4d1f7edce48aa068071f378"
+  },
+  {
+   "path": ".hermes/plans/2026-08-09_055007-antinat-v1-reviewed-execution-plan.md",
+   "sha256": "5fb4216ae41c4fb77a757596274b9f8e1df6f32a81c399971b82e60c07527226"
+  },
+  {
+   "path": ".hermes/handoffs/project-inputs.json",
+   "sha256": "343a6c28876da36f5a386939bc4a66565f51f3a37345a878b593e13e1f6e7123"
+  }
+ ],
+ "tests": [
+  {
+   "phase": "candidate-pre-integration",
+   "command": "GOWORK=off go test ./internal/agent/localstate ./internal/agent/reconcile -race -count=10",
+   "exit_code": 0,
+   "summary": "Focused race-enabled 10x runs PASS on orchestrator host at exact candidate head c21db39 in worktree t_5b3010b6 (localstate 4.279s, reconcile 4.391s)."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off go test ./internal/agent/localstate ./internal/agent/reconcile -race -count=10",
+   "exit_code": 0,
+   "summary": "Focused race-enabled 10x runs PASS on integrated HEAD 231fae4 (localstate 4.326s, reconcile 4.387s)."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off go test ./internal/agent/localstate/ -run 'Crash' -count=1 -v",
+   "exit_code": 0,
+   "summary": "Crash matrix on integrated HEAD: helper + 5/5 scenarios PASS (partial-apply before/after, tombstone-before-stop, decommission marker, receipt tombstone)."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./... -count=1",
+   "exit_code": 0,
+   "summary": "Cumulative repo suite PASS on integration/v1-beta @ 231fae4: 16 packages ok incl. spike/*, P06 lane controller/auth+store, and test/contracts."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -race ./... -count=1",
+   "exit_code": 0,
+   "summary": "Repo-wide race detector clean on integrated HEAD 231fae4; no data races across 16 packages."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "go vet ./...",
+   "exit_code": 0
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "gofmt -l . (empty) && git diff --check",
+   "exit_code": 0,
+   "summary": "gofmt clean, no output; no whitespace errors."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "python3 test/contracts/generate_manifest.py . && git status --porcelain test/contracts/ (empty) && go test ./test/contracts/...",
+   "exit_code": 0,
+   "summary": "Frozen contract gate GREEN on integrated HEAD: manifest regeneration byte-identical (136 artifacts, no diff), contracts test ok."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOOS=windows GOARCH=amd64 go build ./internal/agent/... && GOOS=linux GOARCH=arm64 go build ./internal/agent/... && GOOS=darwin GOARCH=amd64 go build ./internal/agent/...",
+   "exit_code": 0,
+   "summary": "Windows/amd64, Linux/arm64, darwin/amd64 cross-builds of owned packages PASS on integrated HEAD."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "make build && make clean",
+   "exit_code": 0,
+   "summary": "antinat-controller and antinat-agent build with trimpath+ldflags on integrated HEAD; bin/ cleaned afterwards."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "git diff --stat c21db39 HEAD (empty) && candidate tree == integrated tree",
+   "exit_code": 0,
+   "summary": "Integrated tree byte-identical to candidate head tree (both d9f5c23637fdcfd72ef6544d40ebc69dca8f5e13)."
+  }
+ ],
+ "skipped_tests": [
+  {
+   "command": "go test -tags=netns ./test/integration/... and ./test/e2e",
+   "reason": "Later milestone suites not owned or created at this integration point; P07 owns bbolt localstate + reconcile core only."
+  },
+  {
+   "command": "govulncheck ./...",
+   "reason": "govulncheck is not installed on the orchestrator host; it remains a cumulative release lane (P01-P06 same limit)."
+  },
+  {
+   "command": "native Windows/arm64 runtime gates",
+   "reason": "No native Windows/arm64 host; P07 evidence is native Linux (crash matrix, fsync+rename) plus cross-builds only (P03 limitation)."
+  }
+ ],
+ "evidence": [
+  "internal/agent/localstate/tdd-red.md",
+  "internal/agent/localstate/crash_test.go"
+ ],
+ "capability_result": "PASS",
+ "known_limits": [
+  "go.mod/go.sum carry go.etcd.io/bbolt v1.5.0 (with golang.org/x/sys v0.47.0 direct + x/sync v0.21.0 in the graph). Resolved per Go MVS onto the P06 lane during repair cycle 3 (REBASE onto cc9efd8); lane versions (x/crypto v0.35.0, modernc.org/sqlite v1.56.0, x/sys v0.47.0, x/sync v0.21.0) adopted; integration cherry-pick applied cleanly with zero conflicts.",
+  "The reconcile apply/stop hooks are the P09 data-plane extension point: until a real data plane is wired, ApplyDesired with a nil apply hook leaves PRESENT Forwards unchanged (OutcomeUnchanged) and never fabricates bind tuples.",
+  "The durable inbox FSM (RECEIVED->INTENT_PERSISTED->APPLYING->APPLIED|NACKED) is implemented and pinned at the localstate store level; P08 wires transport message receipt into the journal and drives claim/send/ack/receipt for results.",
+  "ReconcileOnce records deletion results only when a connection session exists (epoch>0, session!=\"\"); without a session the tombstone and actor stop are still durable and the result is recorded once the session appears (P08 hello/high-water).",
+  "make test requires ANTINAT_DEDICATED_UID/GID=12001 for the P03 spike/sandbox package (pre-existing environmental prerequisite, same as P05/P06); the owned packages pass without it.",
+  "Windows/arm64 are cross-build-only evidence; the crash matrix and fsync+rename semantics are native Linux evidence (P03 limitation)."
+ ],
+ "cleanup_done": true,
+ "cleanup": [
+  "make clean removed bin/ artifacts after post-integration verification.",
+  "Manifest regeneration was byte-identical and left no diff in the committed tree.",
+  "The candidate worktree .hermes/handoffs/P07.json remains untracked on the candidate branch as the child's handoff; it is not part of integration.",
+  "No remote push; no release; no commits to any branch other than integration/v1-beta (cherry-pick + handoff record commit only)."
+ ],
+ "contracts_changed": [],
+ "conflicts": "none",
+ "remote_push": false,
+ "release_performed": false,
+ "integration_status": "PASS",
+ "worktree_preexisting_changes": [
+  ".hermes/orchestration/antinat_supervisor.py",
+  ".hermes/orchestration/kanban-tasks.json",
+  ".hermes/orchestration/policy.json",
+  ".hermes/orchestration/supervisor-prompt.md",
+  ".hermes/plans/v1-beta/00-master-orchestration.md",
+  "AGENTS.md",
+  ".hermes/handoffs/P04-integrated.json",
+  ".hermes/orchestration/kanban.db",
+  ".hermes/reviews/"
+ ],
+ "deviation_notes": "None in behavior. Gate condition: P07-SPEC (t_79ee02d2) PASS, P07-QUALITY (t_4c012187) FAIL -> repair cycle 1 (P07-FIX1 t_292ef0c8, Q1 liveness + Q2 inbox GC), fresh SPEC-R1 (t_c1a4abcd) PASS + QUALITY-R1 (t_437d8a6e) FAIL (N1 wg leak, N2 outcome flip) -> repair cycle 2 (P07-FIX2 t_8e4da393), fresh SPEC-R2 (t_18454a5b) PASS + QUALITY-R2 (t_600c1825) PASS at 5f50b86; first integration attempt (run 165) rejected at cherry-pick (go.mod/go.sum conflict vs P06 lane) per master plan sec8 -> repair cycle 3 (P07-FIX3-REBASE t_ade0ef38): all 11 commits rebased onto cc9efd8, manifest-only MVS resolution, byte-identity gate PASS (22/22 code files blob-identical), fresh SPEC-R3 (t_8d5dbdb4) PASS + QUALITY-R3 (t_9abf5986) PASS at c21db39. Mechanical verification at dispatch: branch/head exist and match handoff; merge-base(candidate, integration/v1-beta) == cc9efd8 == live HEAD == handoff base_sha; 11 commits match handoff (identical sets); 24 files == diff set; contracts_changed empty; 6/6 contract hashes byte-exact at committed base; capability PASS; cleanup true. Child focused tests re-run on orchestrator host at the candidate head (exit 0), then all 11 candidate commits cherry-picked onto integration/v1-beta with zero conflicts; no manual semantic conflict resolution performed. Integrated tree byte-identical to candidate tree (d9f5c23637fdcfd72ef6544d40ebc69dca8f5e13). Cumulative go test ./..., race ./..., vet, gofmt, diff --check, frozen contract gate, make build, and win/arm64/darwin cross-builds all PASS on the integrated head 231fae4. No remote push; no release performed."
+}
