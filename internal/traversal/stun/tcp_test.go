@@ -9,6 +9,7 @@ package stun
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"io"
 	"net"
@@ -64,6 +65,7 @@ func (s *fakeTCPServer) serve(t *testing.T) {
 
 func (s *fakeTCPServer) handle(t *testing.T, conn net.Conn) {
 	defer conn.Close()
+	var pending []byte
 	buf := make([]byte, 4096)
 	for {
 		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
@@ -71,29 +73,55 @@ func (s *fakeTCPServer) handle(t *testing.T, conn net.Conn) {
 		if err != nil {
 			return
 		}
-		msg, err := ParseMessage(buf[:n])
-		if err != nil {
-			continue
-		}
-		s.mu.Lock()
-		s.requests = append(s.requests, msg)
-		raw := s.rawWrites
-		closeAfter := s.closeAfter
-		silent := s.silent
-		chunked := s.chunked
-		count := len(s.requests)
-		s.mu.Unlock()
-		if closeAfter > 0 && count >= closeAfter {
-			return
-		}
-		if silent {
-			continue
-		}
-		if len(raw) > 0 {
-			// Raw path: emit the configured bytes (possibly truncated /
-			// malformed) then close the connection so the client observes
-			// the failure immediately.
-			wire := raw[count-1]
+		pending = append(pending, buf[:n]...)
+		// Parse every complete frame in the pending buffer; pipelined
+		// requests may arrive coalesced in one Read.
+		for {
+			msg, consumed, perr := parseFirstFrame(pending)
+			if perr != nil {
+				return
+			}
+			if msg == nil {
+				break // incomplete frame; wait for more bytes
+			}
+			pending = pending[consumed:]
+			s.mu.Lock()
+			s.requests = append(s.requests, msg)
+			raw := s.rawWrites
+			closeAfter := s.closeAfter
+			silent := s.silent
+			chunked := s.chunked
+			count := len(s.requests)
+			s.mu.Unlock()
+			if closeAfter > 0 && count >= closeAfter {
+				return
+			}
+			if silent {
+				continue
+			}
+			if len(raw) > 0 {
+				// Raw path: emit the configured bytes (possibly truncated /
+				// malformed) then close the connection so the client observes
+				// the failure immediately.
+				wire := raw[count-1]
+				if chunked {
+					for _, b := range wire {
+						if _, err := conn.Write([]byte{b}); err != nil {
+							return
+						}
+						time.Sleep(time.Millisecond)
+					}
+				} else if _, err := conn.Write(wire); err != nil {
+					return
+				}
+				return
+			}
+			reply := &Message{Type: MessageTypeBindingSuccess, TransactionID: msg.TransactionID}
+			_ = reply.AddXORMappedAddress(conn.LocalAddr().(*net.TCPAddr).AddrPort())
+			wire, err := reply.Marshal()
+			if err != nil {
+				return
+			}
 			if chunked {
 				for _, b := range wire {
 					if _, err := conn.Write([]byte{b}); err != nil {
@@ -104,25 +132,32 @@ func (s *fakeTCPServer) handle(t *testing.T, conn net.Conn) {
 			} else if _, err := conn.Write(wire); err != nil {
 				return
 			}
-			return
-		}
-		reply := &Message{Type: MessageTypeBindingSuccess, TransactionID: msg.TransactionID}
-		_ = reply.AddXORMappedAddress(conn.LocalAddr().(*net.TCPAddr).AddrPort())
-		wire, err := reply.Marshal()
-		if err != nil {
-			return
-		}
-		if chunked {
-			for _, b := range wire {
-				if _, err := conn.Write([]byte{b}); err != nil {
-					return
-				}
-				time.Sleep(time.Millisecond)
-			}
-		} else if _, err := conn.Write(wire); err != nil {
-			return
 		}
 	}
+}
+
+// parseFirstFrame returns the first complete STUN message in data, the
+// number of bytes it consumed, or (nil, 0, nil) when the buffer holds only a
+// prefix. A malformed cookie or length aborts the connection.
+func parseFirstFrame(data []byte) (*Message, int, error) {
+	if len(data) < HeaderSize {
+		return nil, 0, nil
+	}
+	if binary.BigEndian.Uint32(data[4:8]) != MagicCookie {
+		return nil, 0, ErrBadCookie
+	}
+	declared := int(binary.BigEndian.Uint16(data[2:4]))
+	if declared%4 != 0 || declared > MaxMessageSize {
+		return nil, 0, ErrMalformed
+	}
+	if len(data) < HeaderSize+declared {
+		return nil, 0, nil // partial frame
+	}
+	msg, err := ParseMessage(data[:HeaderSize+declared])
+	if err != nil {
+		return nil, 0, err
+	}
+	return msg, HeaderSize + declared, nil
 }
 
 func (s *fakeTCPServer) requestCount() int {
