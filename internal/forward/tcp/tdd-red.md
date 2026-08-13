@@ -59,7 +59,37 @@ distinct echo targets A/B: old session still echoes A after Update to B,
 new session echoes B) — NEW_SESSIONS_ONLY semantics (v0.8 §4.5).
 
 ## Story 5 — Budgets and delete hook
-(pending)
+
+RED command: `GOWORK=off go test ./internal/forward/... -count=1`
+
+RED reason: budget symbols, `Options.Budget/OnReject`, `Close`, and `Stats`
+did not exist (feature absent):
+
+```
+internal/forward/budget_test.go:13:17: undefined: NewBudget
+internal/forward/budget_test.go:13:27: undefined: Limits
+internal/forward/budget_test.go:21:21: undefined: ErrBudgetExceeded
+internal/forward/tcp/budget_stop_test.go:33:8: opts.Budget undefined (type *tcp.Options has no field or method Budget)
+internal/forward/tcp/budget_stop_test.go:144:20: proxy.Stats undefined (type *tcp.Forward has no field or method Stats)
+internal/forward/tcp/budget_stop_test.go:148:18: proxy.Close undefined (type *tcp.Forward has no field or method Close)
+FAIL
+```
+
+GREEN: `forward.Budget` bounds connections, FDs, and the pessimistic 64 KiB
+per-connection fallback-buffer reservation (v0.8 §4.4); exhaustion returns
+the explicit `*BudgetExceededError` carrying the axis kind, limit, and
+current usage, and never partially charges. Zero limits mean unlimited;
+negative limits are rejected. The proxy reserves the budget in the accept
+loop, rejects the excess connection with the explicit reason (surfaced via
+`OnReject` and the `Rejected` counter), and frees capacity on session end.
+`Close` — the delete hook (M1 online DELETE) — closes the listener, waits
+for the accept loop to exit, closes every tracked session, and waits for
+them; it is idempotent and safe before Run ever starts. A `runMu` serializes
+Close against the accept-loop lifetime so `wg.Add` can never race `wg.Wait`.
+
+Test-expectation fix during GREEN: the final stats assertion originally
+expected accepted=3, but the budget-rejected connection is never counted as
+accepted — corrected to accepted=2 (first + third), rejected=1.
 
 ## Story 6 — Data-path evidence
 (pending)
