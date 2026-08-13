@@ -19,19 +19,25 @@ import (
 	"time"
 )
 
-// fakeTCPServer accepts one connection and answers Binding requests with
-// XOR-MAPPED-ADDRESS. The handler receives the raw request and can emit
-// custom byte sequences, close the connection, or stay silent.
+// fakeTCPServer accepts connections and answers Binding requests. The
+// default handler reports XOR-MAPPED-ADDRESS with the observed source tuple;
+// a custom handler can override the mapped address or reply differently.
 type fakeTCPServer struct {
 	listener net.Listener
 	addr     netip.AddrPort
 	mu       sync.Mutex
 	requests []*Message
+	// handler, when set, replaces the default reply path. It receives the
+	// request and the observed source tuple.
+	handler func(req *Message, from netip.AddrPort) []replySpec
 	// rawWrites, when set, replaces the normal reply path: each element is
-	// written verbatim to the connection.
+	// written verbatim to the connection (then the connection closes).
 	rawWrites [][]byte
 	// closeAfter, when set, closes the connection after that many requests.
 	closeAfter int
+	// closeAfterResp, when set, closes the connection after that many
+	// replies have been written.
+	closeAfterResp int
 	// silent, when set, never replies.
 	silent bool
 	// chunked, when set, writes replies one byte at a time.
@@ -63,10 +69,18 @@ func (s *fakeTCPServer) serve(t *testing.T) {
 	}
 }
 
+// defaultTCPHandler reports the observed source as the mapped address.
+func (s *fakeTCPServer) defaultTCPHandler(req *Message, from netip.AddrPort) []replySpec {
+	reply := &Message{Type: MessageTypeBindingSuccess, TransactionID: req.TransactionID}
+	_ = reply.AddXORMappedAddress(from)
+	return []replySpec{{msg: reply}}
+}
+
 func (s *fakeTCPServer) handle(t *testing.T, conn net.Conn) {
 	defer conn.Close()
 	var pending []byte
 	buf := make([]byte, 4096)
+	replies := 0
 	for {
 		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		n, err := conn.Read(buf)
@@ -87,8 +101,10 @@ func (s *fakeTCPServer) handle(t *testing.T, conn net.Conn) {
 			pending = pending[consumed:]
 			s.mu.Lock()
 			s.requests = append(s.requests, msg)
+			handler := s.handler
 			raw := s.rawWrites
 			closeAfter := s.closeAfter
+			closeAfterResp := s.closeAfterResp
 			silent := s.silent
 			chunked := s.chunked
 			count := len(s.requests)
@@ -99,6 +115,8 @@ func (s *fakeTCPServer) handle(t *testing.T, conn net.Conn) {
 			if silent {
 				continue
 			}
+			source := conn.RemoteAddr().(*net.TCPAddr).AddrPort()
+			var specs []replySpec
 			if len(raw) > 0 {
 				// Raw path: emit the configured bytes (possibly truncated /
 				// malformed) then close the connection so the client observes
@@ -116,21 +134,30 @@ func (s *fakeTCPServer) handle(t *testing.T, conn net.Conn) {
 				}
 				return
 			}
-			reply := &Message{Type: MessageTypeBindingSuccess, TransactionID: msg.TransactionID}
-			_ = reply.AddXORMappedAddress(conn.LocalAddr().(*net.TCPAddr).AddrPort())
-			wire, err := reply.Marshal()
-			if err != nil {
-				return
+			if handler != nil {
+				specs = handler(msg, source)
+			} else {
+				specs = s.defaultTCPHandler(msg, source)
 			}
-			if chunked {
-				for _, b := range wire {
-					if _, err := conn.Write([]byte{b}); err != nil {
-						return
-					}
-					time.Sleep(time.Millisecond)
+			for _, spec := range specs {
+				wire, err := spec.msg.Marshal()
+				if err != nil {
+					return
 				}
-			} else if _, err := conn.Write(wire); err != nil {
-				return
+				if chunked {
+					for _, b := range wire {
+						if _, err := conn.Write([]byte{b}); err != nil {
+							return
+						}
+						time.Sleep(time.Millisecond)
+					}
+				} else if _, err := conn.Write(wire); err != nil {
+					return
+				}
+				replies++
+				if closeAfterResp > 0 && replies >= closeAfterResp {
+					return
+				}
 			}
 		}
 	}
