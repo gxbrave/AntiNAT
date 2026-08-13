@@ -63,7 +63,7 @@ func TestConcurrentWALWritesAndBackupRestore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BackupTo: %v", err)
 	}
-	if manifest.ControllerInstanceID == "" || manifest.SchemaVersion != 2 {
+	if manifest.ControllerInstanceID == "" || manifest.SchemaVersion != 3 {
 		t.Fatalf("returned manifest incomplete: %+v", manifest)
 	}
 	wg.Wait()
@@ -84,8 +84,8 @@ func TestConcurrentWALWritesAndBackupRestore(t *testing.T) {
 		t.Fatalf("OpenBackup: %v", err)
 	}
 	defer bs.Close()
-	if m.SchemaVersion != 2 {
-		t.Fatalf("backup schema version = %d, want 2", m.SchemaVersion)
+	if m.SchemaVersion != 3 {
+		t.Fatalf("backup schema version = %d, want 3", m.SchemaVersion)
 	}
 	if m.ControllerInstanceID == "" {
 		t.Fatal("backup manifest missing controller instance id")

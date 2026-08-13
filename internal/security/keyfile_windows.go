@@ -1,0 +1,88 @@
+// Platform key-file persistence (Windows): the node key blob is protected
+// with DPAPI (CryptProtectData) at rest and never written in plaintext.
+//go:build windows
+
+package security
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
+
+	"github.com/gxbrave/AntiNAT/internal/security/framecrypto"
+)
+
+func framecryptoSign(priv []byte, msg []byte) ([]byte, error) {
+	return framecrypto.Sign(priv, msg)
+}
+
+// protectDPAPI wraps plaintext with the current user's DPAPI key.
+func protectDPAPI(plain []byte) ([]byte, error) {
+	in := windows.DataBlob{Size: uint32(len(plain))}
+	if len(plain) > 0 {
+		in.Data = &plain[0]
+	}
+	var out windows.DataBlob
+	if err := windows.CryptProtectData(&in, nil, nil, 0, nil, 0, &out); err != nil {
+		return nil, fmt.Errorf("security: dpapi protect: %w", err)
+	}
+	defer windows.LocalFree(windows.Handle(unsafe.Pointer(out.Data)))
+	return unsafe.Slice(out.Data, int(out.Size)), nil
+}
+
+// unprotectDPAPI unwraps a DPAPI-protected blob.
+func unprotectDPAPI(blob []byte) ([]byte, error) {
+	if len(blob) == 0 {
+		return nil, fmt.Errorf("security: empty dpapi blob")
+	}
+	in := windows.DataBlob{Size: uint32(len(blob)), Data: &blob[0]}
+	var out windows.DataBlob
+	if err := windows.CryptUnprotectData(&in, nil, nil, 0, nil, 0, &out); err != nil {
+		return nil, fmt.Errorf("security: dpapi unprotect: %w", err)
+	}
+	defer windows.LocalFree(windows.Handle(unsafe.Pointer(out.Data)))
+	return unsafe.Slice(out.Data, int(out.Size)), nil
+}
+
+// loadKeyFile reads a DPAPI-protected key file. Windows file permissions are
+// not a sufficient at-rest guarantee, so the plaintext never touches disk.
+func loadKeyFile(path string) ([]byte, error) {
+	blob, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return unprotectDPAPI(blob)
+}
+
+// writeKeyFileAtomic persists the DPAPI-protected blob atomically.
+func writeKeyFileAtomic(path string, plain []byte) error {
+	protected, err := protectDPAPI(plain)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(path)
+	temp, err := os.CreateTemp(dir, ".node-key-*")
+	if err != nil {
+		return fmt.Errorf("security: create key temp: %w", err)
+	}
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
+	if _, err := temp.Write(protected); err != nil {
+		temp.Close()
+		return fmt.Errorf("security: key write: %w", err)
+	}
+	if err := temp.Sync(); err != nil {
+		temp.Close()
+		return fmt.Errorf("security: key fsync: %w", err)
+	}
+	if err := temp.Close(); err != nil {
+		return fmt.Errorf("security: key close: %w", err)
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return fmt.Errorf("security: key rename: %w", err)
+	}
+	return nil
+}
