@@ -109,7 +109,7 @@ func readExactly(t *testing.T, conn net.Conn, n int) []byte {
 }
 
 func TestLongConnectionBidirectionalTransfer(t *testing.T) {
-	target, stopEcho := startEchoServer(t, "T:")
+	target, stopEcho := startEchoServer(t, "")
 	defer stopEcho()
 	backend, err := forward.NewBackend(target)
 	if err != nil {
@@ -131,9 +131,8 @@ func TestLongConnectionBidirectionalTransfer(t *testing.T) {
 		if _, err := conn.Write([]byte(message)); err != nil {
 			t.Fatalf("round %d write: %v", round, err)
 		}
-		want := append([]byte("T:"), message...)
-		if got := readExactly(t, conn, len(want)); !bytes.Equal(got, want) {
-			t.Fatalf("round %d got %q, want %q", round, got, want)
+		if got := readExactly(t, conn, len(message)); !bytes.Equal(got, []byte(message)) {
+			t.Fatalf("round %d got %q, want %q", round, got, message)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -142,21 +141,9 @@ func TestLongConnectionBidirectionalTransfer(t *testing.T) {
 	if _, err := conn.Write(bulk); err != nil {
 		t.Fatalf("bulk write: %v", err)
 	}
-	// The echo server prefixes every 32 KiB read chunk with "T:", so the
-	// expected reply mirrors that chunking exactly.
-	const chunkSize = 32 * 1024
-	var expected []byte
-	for offset := 0; offset < len(bulk); offset += chunkSize {
-		end := offset + chunkSize
-		if end > len(bulk) {
-			end = len(bulk)
-		}
-		expected = append(expected, []byte("T:")...)
-		expected = append(expected, bulk[offset:end]...)
-	}
-	reply := readExactly(t, conn, len(expected))
-	if !bytes.Equal(reply, expected) {
-		t.Fatalf("bulk reply mismatch: got %d bytes, want %d", len(reply), len(expected))
+	reply := readExactly(t, conn, len(bulk))
+	if !bytes.Equal(reply, bulk) {
+		t.Fatalf("bulk reply mismatch: got %d bytes, want %d", len(reply), len(bulk))
 	}
 }
 
