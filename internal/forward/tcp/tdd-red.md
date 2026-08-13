@@ -92,4 +92,32 @@ expected accepted=3, but the budget-rejected connection is never counted as
 accepted — corrected to accepted=2 (first + third), rejected=1.
 
 ## Story 6 — Data-path evidence
-(pending)
+
+RED command: `GOWORK=off go test ./internal/forward/... -count=1`
+
+RED reason: the evidence symbols did not exist (feature absent):
+
+```
+internal/forward/tcp/evidence_test.go:17:18: undefined: tcp.Classify
+internal/forward/tcp/evidence_test.go:40:28: undefined: tcp.Evidence
+internal/forward/tcp/lab_trace_test.go:58:27: proxy.Evidence undefined (type *tcp.Forward has no field or method Evidence)
+FAIL
+```
+
+GREEN: `tcp.Evidence` is the frozen three-field shape (data_path,
+zero_copy_evidence, pessimistic_fallback_bytes_per_connection) with a
+reflection test pinning the shape so runtime splice/fallback byte counters
+can never leak into the runtime API (v0.8 §4.4: no exact splice counters
+without a custom-observability ADR). `Classify` maps Linux TCP-to-TCP
+io.Copy to `go_tcp_copy_splice_eligible`/`eligible` and everything else to
+`go_tcp_copy_buffered`/`not_applicable`, always with the 64 KiB pessimistic
+per-connection reservation. The Linux lab trace test runs a real loopback
+transfer and records the evidence separately in
+`testdata/lab-evidence.json` with deterministic fields (no wall-clock or
+duration), byte-stable across runs.
+
+Test-hardening during GREEN: the lab trace and long-connection bulk
+assertions initially assumed the echo server chunks reads at exactly 32 KiB
+boundaries; TCP segmentation is not guaranteed to align, so both were
+changed to a prefix-less echo server with exact byte comparison.
+
