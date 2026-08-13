@@ -163,3 +163,33 @@ output buffer after the deferred `windows.LocalFree` had freed it
 a Go-owned buffer before the deferred free. Windows-tagged round-trip test
 (`keyfile_windows_test.go`) compiles under GOOS=windows (vet + test -c);
 runtime requires a Windows host (cross-build evidence this milestone).
+
+## FIX2 — repair cycle 2 (P08-QUALITY-R1 F3)
+
+F3: `handleAgentReceipt` ignored the `RecordControlInbox` duplicate flag. A
+reconnect resend of an ALREADY-CONSUMED A2C receipt (controller outbox row
+GC'd + the agent's C2A receipt lost, so the agent never GC'd its own row)
+failed the row match and killed the session — repeating on every reconnect,
+leaving the node's control channel dead and the agent row leaked.
+
+RED command:
+`go test ./internal/controller/agenthub/ -run TestReconnectResendOfConsumedReceiptKeepsSessionAlive -count=1 -v`
+
+RED reason: `session killed by consumed-receipt resend: failed to get reader:
+failed to read frame header: EOF` — the replayed receipt (same deterministic
+message id + payload, `RecordControlInbox` reports the cached duplicate) hit
+`matchOutboxRowByCommandMessageID` with the row already GC'd; the match error
+was returned, the frame was rejected (`CONTROL_FRAME_REJECTED`), and the
+session closed at 0.04s.
+
+GREEN (F3):
+- `handleAgentReceipt` mirrors `handleAgentResult`: it captures the
+  `RecordControlInbox` duplicate flag and tolerates a failed row match when
+  the receipt is a cached duplicate (return nil instead of killing the
+  session). Non-duplicate receipts keep the strict fail-closed behavior.
+- `TestReconnectResendOfConsumedReceiptKeepsSessionAlive` drives the corner
+  state directly (receipt recorded, outbox row GC'd) with no live session
+  during setup (no hub audit/pump writes can race the store driving, the
+  FIX1 deterministic pattern), then reconnects, resends the receipt, and
+  asserts the session stays silent-alive (1.5s window) and the node stays
+  ONLINE. Stable under `-race -count=10`.
