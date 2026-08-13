@@ -57,22 +57,39 @@ func LoadOrCreateKeyring(dir string, generation uint64) (*Keyring, error) {
 	if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, fmt.Errorf("security: generate keyring: %w", err)
-	}
-	kr := &Keyring{priv: priv, generation: generation}
-	if err := kr.saveAtomic(path); err != nil {
+	// Same creator-lock pattern as the node key: concurrent LoadOrCreate
+	// callers converge on one keyring file.
+	var result *Keyring
+	err = withKeyLock(dir, func() error {
 		if raw2, err2 := loadKeyFile(path); err2 == nil {
-			return parseKeyring(raw2)
+			k, err := parseKeyring(raw2)
+			if err == nil {
+				result = k
+			}
+			return err
 		}
+		_, priv, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			return fmt.Errorf("security: generate keyring: %w", err)
+		}
+		kr := &Keyring{priv: priv, generation: generation}
+		if err := kr.saveAtomic(path); err != nil {
+			return err
+		}
+		raw3, err := loadKeyFile(path)
+		if err != nil {
+			return fmt.Errorf("security: reload keyring after write: %w", err)
+		}
+		k, err := parseKeyring(raw3)
+		if err == nil {
+			result = k
+		}
+		return err
+	})
+	if err != nil {
 		return nil, err
 	}
-	raw, err = loadKeyFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("security: reload keyring after write: %w", err)
-	}
-	return parseKeyring(raw)
+	return result, nil
 }
 
 func parseKeyring(raw []byte) (*Keyring, error) {

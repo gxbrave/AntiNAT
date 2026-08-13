@@ -9,12 +9,31 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"github.com/gxbrave/AntiNAT/internal/security/framecrypto"
 )
 
 func framecryptoSign(priv []byte, msg []byte) ([]byte, error) {
 	return framecrypto.Sign(priv, msg)
+}
+
+// withKeyLock serializes key creation so concurrent LoadOrCreate callers
+// converge on one key: the first creator writes, the rest reload the file.
+// The lock file is a sidecar; the key file itself is still written via
+// temp+fsync+rename so a crash never leaves a torn key.
+func withKeyLock(dir string, fn func() error) error {
+	lockPath := filepath.Join(dir, ".key.lock")
+	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("security: open key lock: %w", err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("security: lock key file: %w", err)
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	return fn()
 }
 
 // loadKeyFile reads a key file, failing closed when permissions are not

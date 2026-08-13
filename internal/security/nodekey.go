@@ -48,28 +48,40 @@ func LoadOrCreateNodeKey(dir string, version uint32) (*NodeKey, error) {
 	if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	// Generate a fresh key and persist atomically; the file is authoritative.
-	// After the write, reload and return the on-disk key so concurrent
-	// creators converge on the final file content even if another writer
-	// landed after us (last-writer-wins on the file, every caller returns the
-	// same bytes).
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, fmt.Errorf("security: generate node key: %w", err)
-	}
-	k := &NodeKey{priv: priv, version: version}
-	if err := k.saveAtomic(path); err != nil {
-		// The file may now exist from a concurrent creator — reload.
+	// Generate a fresh key and persist atomically under the creator lock; the
+	// file is authoritative. Concurrent creators serialize on the lock: the
+	// winner writes, every other caller reloads the final file content.
+	var result *NodeKey
+	err = withKeyLock(dir, func() error {
 		if raw2, err2 := loadKeyFile(path); err2 == nil {
-			return parseNodeKey(raw2)
+			k, err := parseNodeKey(raw2)
+			if err == nil {
+				result = k
+			}
+			return err
 		}
+		_, priv, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			return fmt.Errorf("security: generate node key: %w", err)
+		}
+		k := &NodeKey{priv: priv, version: version}
+		if err := k.saveAtomic(path); err != nil {
+			return err
+		}
+		raw3, err := loadKeyFile(path)
+		if err != nil {
+			return fmt.Errorf("security: reload node key after write: %w", err)
+		}
+		k, err = parseNodeKey(raw3)
+		if err == nil {
+			result = k
+		}
+		return err
+	})
+	if err != nil {
 		return nil, err
 	}
-	raw, err = loadKeyFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("security: reload node key after write: %w", err)
-	}
-	return parseNodeKey(raw)
+	return result, nil
 }
 
 // parseNodeKey validates the file layout before any copy.

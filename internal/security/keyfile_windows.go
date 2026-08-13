@@ -19,6 +19,14 @@ func framecryptoSign(priv []byte, msg []byte) ([]byte, error) {
 	return framecrypto.Sign(priv, msg)
 }
 
+// withKeyLock serializes key creation. Windows DPAPI blobs are bound to the
+// user's credentials and the agent runs one process per state directory; the
+// lock is a no-op here (the Windows path is cross-build evidence, not a
+// runtime target in this milestone).
+func withKeyLock(dir string, fn func() error) error {
+	return fn()
+}
+
 // protectDPAPI wraps plaintext with the current user's DPAPI key.
 func protectDPAPI(plain []byte) ([]byte, error) {
 	in := windows.DataBlob{Size: uint32(len(plain))}
