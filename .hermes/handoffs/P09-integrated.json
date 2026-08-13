@@ -1,0 +1,274 @@
+{
+ "plan": "P09",
+ "branch": "integration/v1-beta",
+ "candidate_branch": "ai/P09-linux-tcp-direct-dataplane",
+ "integration_base_sha": "4f316dc6e0ba85aae9b5d0e475e6e0cd8417d32a",
+ "candidate_head_sha": "5ac92cde0e4bb5cfc7306e3afb1717c36d428075",
+ "candidate_tree_sha": "b237c8198d441e9521236a17c97bef8fbae07aec",
+ "integrated_sha": "7377c66a3f24a6cb6f194e839231df0b76f76544",
+ "integrated_tree_sha": "b237c8198d441e9521236a17c97bef8fbae07aec",
+ "candidate_handoff": {
+  "path": "commit d7965ad857b238e0e6dc5a9a8cf012ebcecc3343:.hermes/handoffs/P09.json (handoff commit on candidate branch, not part of integration)",
+  "sha256": "2b5d72ba5f18eb921f8ba896ddffb8fe891ae2bff631e3241a54d78c40366231"
+ },
+ "candidate_commits": [
+  "aa03e95d4d00db67a7890565ac9d0181a7c6acff",
+  "e4bde5ad939f44f77e05da355bb14b7a3b0e1262",
+  "fd89f47e0c0595e27164609cbe94ca1ca3d76cec",
+  "35d1f6cbb80ee99bea5645601cfd09f57d075d97",
+  "7e50c3f267ec917edd9b5b37d7f8bf639765be1a",
+  "23a30d01c8e6da3862734c6ae3b347248a2e0b0b",
+  "90cb7f60b904d85bb89dfed28433d3cf59bf59d8",
+  "8279b90dbcfeb2ae1301910e776d3a269e7b5363",
+  "5ac92cde0e4bb5cfc7306e3afb1717c36d428075"
+ ],
+ "integrated_commits": [
+  "46b956daaf7c3dc54d51828bae8fb318477db767",
+  "377884794f51b1c84cc1199e7df3c879c6da8afd",
+  "cfc9e903e2f7df70e7337c47a7d2a171e26d3f6a",
+  "8298b1ed96e5a5c2c75359cf15283225b6c2d576",
+  "48512cf9bcc80273b154e4f1935c2a3f59e1d208",
+  "87d4ad409ed0e2467efbd42f80158bfad3e59581",
+  "7e2610243ad1eba2d1340e377d73c241805dc9eb",
+  "5e9805f2484e997ee875f6c0a4fd4a8fd66e6216",
+  "7377c66a3f24a6cb6f194e839231df0b76f76544"
+ ],
+ "files_changed_count": 25,
+ "files_changed": [
+  "internal/forward/backend.go",
+  "internal/forward/backend_hotupdate_test.go",
+  "internal/forward/backend_test.go",
+  "internal/forward/budget.go",
+  "internal/forward/budget_test.go",
+  "internal/forward/tcp/budget_stop_test.go",
+  "internal/forward/tcp/evidence.go",
+  "internal/forward/tcp/evidence_test.go",
+  "internal/forward/tcp/forward.go",
+  "internal/forward/tcp/forward_test.go",
+  "internal/forward/tcp/hotupdate_test.go",
+  "internal/forward/tcp/lab_trace_test.go",
+  "internal/forward/tcp/tdd-red.md",
+  "internal/forward/tcp/testdata/lab-evidence.json",
+  "internal/traversal/fingerprint.go",
+  "internal/traversal/fingerprint_test.go",
+  "internal/traversal/instance_lock_test.go",
+  "internal/traversal/network.go",
+  "internal/traversal/network_test.go",
+  "internal/traversal/portregistry.go",
+  "internal/traversal/portregistry_test.go",
+  "internal/traversal/socket_generic.go",
+  "internal/traversal/socket_linux.go",
+  "internal/traversal/socket_linux_test.go",
+  "internal/traversal/tdd-red.md"
+ ],
+ "reviews": [
+  {
+   "task_id": "t_e3f0e003",
+   "type": "specification",
+   "cycle": 0,
+   "head_sha": "90cb7f60b904d85bb89dfed28433d3cf59bf59d8",
+   "verdict": "PASS",
+   "summary": "P09-SPEC PASS on candidate 90cb7f6 (base 4f316dc == integration/v1-beta HEAD, merge-base==base, 7 commits, 25 files): 6/6 stories RED->GREEN evidence vs frozen contracts v0.8 2.3/3.1/4.1/4.2/4.4/4.5; 7/7 contract hashes byte-exact; plan-required race -count=10 suite + cumulative ./... + manifest gate green; ownership confined; no secrets."
+  },
+  {
+   "task_id": "t_c30d7e7f",
+   "type": "quality-security",
+   "cycle": 0,
+   "head_sha": "90cb7f60b904d85bb89dfed28433d3cf59bf59d8",
+   "verdict": "FAIL",
+   "summary": "P09-QUALITY FAIL on candidate 90cb7f6: F1 HIGH - IPv4Addresses() drops IPv4-mapped (::ffff:) addresses on IPv6-enabled Linux (Is4 gate before Unmap), Assess always V4_SOURCE_UNAVAILABLE; empirically reproduced + fix-verified; handoff known-limit was a misdiagnosis. Repair cycle 1 routed (P09-FIX1 t_141ef02f)."
+  },
+  {
+   "task_id": "t_92e835eb",
+   "type": "network",
+   "cycle": 0,
+   "head_sha": "90cb7f60b904d85bb89dfed28433d3cf59bf59d8",
+   "verdict": "FAIL",
+   "summary": "P09-NETWORK FAIL on candidate 90cb7f6: F1 (reproduced) ghost PortRegistry entry - Forward.Close then lease.Release returns net.ErrClosed, tuple pinned until restart; F2/F3 low (FD budget unit, IANA prefixes). Fixes routed with FIX1."
+  },
+  {
+   "task_id": "t_eb61d457",
+   "type": "specification-r1",
+   "cycle": 1,
+   "head_sha": "5ac92cde0e4bb5cfc7306e3afb1717c36d428075",
+   "verdict": "PASS",
+   "summary": "P09-SPEC-R1 PASS on repaired head 5ac92cd (base 4f316dc; FIX1 range 90cb7f6..d7965ad): F1 verified fixed via 4 RED states reproduced against pre-fix code; all 6 stories intact; ownership respected (26 files == handoff, 9 commits match); frozen contracts untouched (manifest byte-identical); host test runs unskipped (ens18 192.168.6.99). Zero findings."
+  },
+  {
+   "task_id": "t_a929d02d",
+   "type": "quality-security-r1",
+   "cycle": 1,
+   "head_sha": "d7965ad857b238e0e6dc5a9a8cf012ebcecc3343",
+   "verdict": "PASS",
+   "summary": "P09-QUALITY-R1 PASS on repaired head d7965ad (branch tip; FIX1 range 90cb7f6..d7965ad = repair/RED-evidence/handoff): F1 confirmed resolved with focused RED tests; all verification re-run green (focused -race 10x, cumulative + race, vet, gofmt, builds, win/arm64/darwin cross-builds, contracts byte-identical); no new findings."
+  },
+  {
+   "task_id": "t_0680c902",
+   "type": "network-r1",
+   "cycle": 1,
+   "head_sha": "5ac92cde0e4bb5cfc7306e3afb1717c36d428075",
+   "verdict": "PASS",
+   "summary": "P09-NETWORK-R1 PASS on exact repaired head 5ac92cd (base 4f316dc; FIX1 range 90cb7f6..5ac92cd = 2 isolated commits + handoff): NETWORK F1 (ghost registry) + QUALITY F1 (IPv4-mapped, empirically confirmed live) + F3 (IANA prefixes) all verified fixed with independent reproduction; all gates exit 0; no new findings."
+  }
+ ],
+ "contracts_verified": [
+  {
+   "path": "docs/state-model.md",
+   "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
+  },
+  {
+   "path": "docs/protocol.md",
+   "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"
+  },
+  {
+   "path": ".hermes/plans/v1-beta/00-master-orchestration.md",
+   "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4"
+  },
+  {
+   "path": ".hermes/plans/v1-beta/09-linux-tcp-direct-dataplane.md",
+   "sha256": "e1bb8afcfab7e3e829efc54222a417b0bc8df009dc3741907a7817ac6ac210f6"
+  },
+  {
+   "path": ".hermes/plans/2026-08-09_055007-antinat-v1-reviewed-execution-plan.md",
+   "sha256": "5fb4216ae41c4fb77a757596274b9f8e1df6f32a81c399971b82e60c07527226"
+  },
+  {
+   "path": ".hermes/handoffs/project-inputs.json",
+   "sha256": "343a6c28876da36f5a386939bc4a66565f51f3a37345a878b593e13e1f6e7123"
+  },
+  {
+   "path": "api/openapi.yaml",
+   "sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32"
+  }
+ ],
+ "tests": [
+  {
+   "phase": "candidate-pre-integration",
+   "command": "GOWORK=off go test ./internal/traversal ./internal/forward/tcp ./internal/forward -race -count=10",
+   "exit_code": 0,
+   "summary": "Focused race-enabled 10x runs PASS on orchestrator host at exact candidate head 5ac92cd in scratch worktree (traversal 21.275s, forward/tcp 12.584s, forward 1.021s)."
+  },
+  {
+   "phase": "candidate-pre-integration",
+   "command": "GOWORK=off go test ./internal/traversal -run TestHostRouteTableDeterministic -v -count=1",
+   "exit_code": 0,
+   "summary": "Host test PASSES with no skip at candidate head (real ens18 IPv4 via IPv4-mapped, post-fix canonicalized); worktree byte-clean after tests."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off go test ./internal/traversal ./internal/forward/tcp ./internal/forward -race -count=10",
+   "exit_code": 0,
+   "summary": "Focused race-enabled 10x runs PASS on integrated HEAD 7377c66 (traversal 21.274s, forward/tcp 12.580s, forward 1.021s)."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./... -count=1",
+   "exit_code": 0,
+   "summary": "Cumulative repo suite PASS on integration/v1-beta @ 7377c66: all packages ok incl. all P01-P07 lanes, spike/*, test/contracts."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -race ./... -count=1",
+   "exit_code": 0,
+   "summary": "Repo-wide race detector clean on integrated HEAD 7377c66; no data races."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off go vet ./...",
+   "exit_code": 0
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "gofmt -l internal (empty) && git diff --check",
+   "exit_code": 0,
+   "summary": "gofmt clean, no output; no whitespace errors."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "python3 test/contracts/generate_manifest.py . && git status --porcelain test/contracts/ (empty) && GOWORK=off go test ./test/contracts/... -count=1",
+   "exit_code": 0,
+   "summary": "Frozen contract gate GREEN on integrated HEAD: manifest regeneration byte-identical (136 artifacts, no diff), contracts test ok."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off go test ./internal/traversal -run TestHostRouteTableDeterministic -v -count=1",
+   "exit_code": 0,
+   "summary": "Host route test PASSES with no skip on integrated HEAD (F1 fix live-verified)."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off make build && make clean",
+   "exit_code": 0,
+   "summary": "antinat-controller and antinat-agent build with trimpath+ldflags on integrated HEAD; bin/ cleaned afterwards."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOOS=windows GOARCH=amd64 go build ./internal/traversal/... ./internal/forward/... && GOOS=linux GOARCH=arm64 go build ./internal/traversal/... ./internal/forward/... && GOOS=darwin GOARCH=amd64 go build ./internal/traversal/... ./internal/forward/...",
+   "exit_code": 0,
+   "summary": "Windows/amd64, Linux/arm64, darwin/amd64 cross-builds of owned packages PASS on integrated HEAD (compile checks only)."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "git rev-parse HEAD^{tree} == b237c8198d441e9521236a17c97bef8fbae07aec == candidate 5ac92cd tree",
+   "exit_code": 0,
+   "summary": "Integrated tree byte-identical to candidate head tree (b237c81); cherry-pick applied with zero conflicts."
+  }
+ ],
+ "skipped_tests": [
+  {
+   "command": "go test -tags=netns ./test/integration/... and ./test/e2e",
+   "reason": "Later milestone suites not owned or created at this integration point; P09 owns route/PortRegistry/TCP proxy components only (P10/P12 own E2E)."
+  },
+  {
+   "command": "govulncheck ./...",
+   "reason": "govulncheck is not installed on the orchestrator host; it remains a cumulative release lane (P01-P07 same limit)."
+  },
+  {
+   "command": "native Windows/arm64 runtime gates",
+   "reason": "No native Windows/arm64 host; P09 evidence is native Linux (route table, flock, splice classification) plus cross-builds only."
+  }
+ ],
+ "evidence": [
+  "internal/traversal/tdd-red.md",
+  "internal/forward/tcp/tdd-red.md",
+  "internal/forward/tcp/testdata/lab-evidence.json"
+ ],
+ "capability_result": "PASS",
+ "known_limits": [
+  "Native Linux-only runtime evidence for route/source selection, flock instance lock, and splice eligibility; Windows/arm64/darwin are cross-build compile checks only (socket_generic returns ErrUnsupportedPlatform).",
+  "Host's only non-loopback IPv4 is RFC 1918 private (ens18 192.168.6.99/24), so Assess correctly reports NO_GLOBAL_V4_SOURCE; DIRECT_V4_READY still requires a global IPv4 on the default-route interface.",
+  "FD budget unit = one accepted client socket; backend target socket is outside the unit (~2N OS FDs per N sessions plus one listener FD owned by the caller).",
+  "IsGlobalV4 excludes 192.88.99.0/24 (RFC 7526), 192.31.196.0/24 + 192.175.48.0/24 (RFC 7534), 192.52.193.0/24 (RFC 7450); 255.255.255.255 covered by 240/4.",
+  "Backend hot update is new-sessions-only; established sessions keep their original target (no draining migration - P10 concern).",
+  "go_tcp_copy_splice_eligible is a classification; exact runtime splice/fallback byte counters intentionally not exposed (v0.8 4.4 requires ADR + benchmark first).",
+  "lab_trace_test.go regenerates testdata/lab-evidence.json in-tree by design; fields deterministic, tree stays byte-clean.",
+  "UDP and IPv6 tuples rejected by PortRegistry (ErrUnsupportedTuple) - P13 extends the protocol axis; half-open TCP SYN measurement not part of P09.",
+  "No idle timeout on established sessions; keepalive-bounded reclamation is a P14 candidate.",
+  "Reconcile ApplyHook/StopHook wiring of the data plane is P10's app-composition concern; P09 delivers components (Backend, Budget, tcp.Forward with Close as delete-hook primitive)."
+ ],
+ "cleanup_done": true,
+ "cleanup": [
+  "make clean removed bin/ artifacts after post-integration verification.",
+  "Manifest regeneration was byte-identical and left no diff in the committed tree.",
+  "Scratch candidate worktree /tmp/p09-candidate removed after verification; candidate dev worktree /root/AntiNAT/.worktrees/t_c1628f94 left untouched.",
+  "The handoff commit d7965ad (.hermes/handoffs/P09.json) on the candidate branch is NOT part of integration (P07 precedent); the integrated record lives in .hermes/handoffs/P09-integrated.json.",
+  "No remote push; no release; no commits to any branch other than integration/v1-beta (cherry-pick + handoff record commit only)."
+ ],
+ "contracts_changed": [],
+ "conflicts": "none",
+ "remote_push": false,
+ "release_performed": false,
+ "integration_status": "PASS",
+ "worktree_preexisting_changes": [
+  ".hermes/orchestration/antinat_supervisor.py",
+  ".hermes/orchestration/kanban-tasks.json",
+  ".hermes/orchestration/policy.json",
+  ".hermes/orchestration/supervisor-prompt.md",
+  ".hermes/plans/v1-beta/00-master-orchestration.md",
+  "AGENTS.md",
+  ".hermes/handoffs/P04-integrated.json",
+  ".hermes/orchestration/kanban.db",
+  ".hermes/reviews/"
+ ],
+ "deviation_notes": "Gate condition: P09-SPEC (t_e3f0e003) PASS and P09-QUALITY (t_c30d7e7f) FAIL (F1 IPv4-mapped drop) and P09-NETWORK (t_92e835eb) FAIL (F1 ghost registry) at 90cb7f6 -> repair cycle 1 (P09-FIX1 t_141ef02f: 8279b90 repair + 5ac92cd RED evidence + d7965ad handoff), fresh SPEC-R1 (t_eb61d457) PASS @5ac92cd, QUALITY-R1 (t_a929d02d) PASS @d7965ad, NETWORK-R1 (t_0680c902) PASS @5ac92cd. Mechanical verification at dispatch: branch/head exist and match handoff; merge-base(candidate, integration/v1-beta) == 4f316dc == live HEAD == handoff base_sha; 9 code commits match handoff (handoff commit d7965ad excluded per P07 precedent); 25 files == diff set, all plan-owned (internal/traversal + internal/forward); contracts_changed empty (no docs/api/migrations/test-contracts edits); 7/7 contract hashes byte-exact at committed base (working-tree master-plan hash differs only because of pre-existing uncommitted supervisor edits, same as P07); capability PASS; cleanup true. Child focused tests re-run on orchestrator host at the candidate head (exit 0, host test no-skip), then all 9 candidate commits cherry-picked onto integration/v1-beta with zero conflicts; no manual semantic conflict resolution performed. Integrated tree byte-identical to candidate tree (b237c81). Cumulative go test ./..., race ./..., vet, gofmt, diff --check, frozen contract gate, make build, host route test, and win/linux-arm64/darwin cross-builds all PASS on the integrated head 7377c66. No remote push; no release performed. Non-blocking observation: review report files P09-SPEC.md, P09-QUALITY.md, P09-QUALITY-R1.md are not present under .hermes/reviews/ (only P09-NETWORK.md, P09-NETWORK-R1.md, P09-SPEC-R1.md are); their verdicts were taken from the kanban parent-task handoffs, which are complete and consistent."
+}
