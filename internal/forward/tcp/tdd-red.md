@@ -39,7 +39,24 @@ across the blocking real `Accept`, deadlocking `failureTimes()` under
 `-race` (and once without), fixed by releasing the lock before delegating.
 
 ## Story 4 — Backend hot update
-(pending)
+
+RED command: `GOWORK=off go test ./internal/forward/... -count=1`
+
+RED reason: `Backend.Update` did not exist (feature absent):
+
+```
+internal/forward/backend_hotupdate_test.go:18:20: backend.Update undefined (type *Backend has no field or method Update)
+internal/forward/tcp/hotupdate_test.go:58:20: backend.Update undefined (type *forward.Backend has no field or method Update)
+FAIL
+```
+
+GREEN: `Backend.Update` validates the new IPv4 literal:port and swaps the
+atomic snapshot; an invalid update leaves the snapshot untouched. The proxy
+already resolved the backend once per accepted session, so after a hot
+update the established connection keeps talking to its original target
+while new connections use the new snapshot (verified end-to-end with two
+distinct echo targets A/B: old session still echoes A after Update to B,
+new session echoes B) — NEW_SESSIONS_ONLY semantics (v0.8 §4.5).
 
 ## Story 5 — Budgets and delete hook
 (pending)

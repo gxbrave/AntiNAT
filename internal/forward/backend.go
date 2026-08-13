@@ -34,3 +34,19 @@ func NewBackend(target string) (*Backend, error) {
 func (b *Backend) Target() netip.AddrPort {
 	return *b.target.Load()
 }
+
+// Update swaps the target snapshot atomically. Only sessions accepted after
+// the swap resolve the new snapshot; established sessions keep their
+// original target (NEW_SESSIONS_ONLY semantics, v0.8 §4.5). An invalid
+// target leaves the current snapshot untouched.
+func (b *Backend) Update(target string) error {
+	addrPort, err := netip.ParseAddrPort(target)
+	if err != nil {
+		return fmt.Errorf("forward: invalid backend target %q: %w", target, err)
+	}
+	if !addrPort.Addr().Is4() {
+		return fmt.Errorf("forward: backend target %q is not an IPv4 literal (v1 Forwards are IPv4-only)", target)
+	}
+	b.target.Store(&addrPort)
+	return nil
+}
