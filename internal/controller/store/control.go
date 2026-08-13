@@ -203,14 +203,21 @@ func (s *Store) AcceptControlReceipt(operationID, messageType, sessionID string)
 	return nil
 }
 
-// RequeueControlOutboxForSession resets every non-PENDING, non-receipted row
-// of the node to PENDING so a new session re-envelopes the same semantic
-// payload (v0.8 §6.1). Returns the number of rows requeued.
+// RequeueControlOutboxForSession resets every in-flight row of the node to
+// PENDING so a new session re-envelopes the same semantic payload (v0.8
+// §6.1). Only CLAIMED/SENT rows are requeued: a SEMANTIC_ACKED row is the
+// controller's own proof that the agent's result was already processed and
+// the C2A receipt written, so re-delivering it could hand the agent a
+// command it has already durably receipted (journal tombstone fails closed
+// with ErrAlreadyReceipted and kills the session). SEMANTIC_ACKED rows are
+// healed by the result-resend path (RebindControlOutboxSession) or, for
+// rows whose A2C receipt was lost, left for the receipt-TTL sweeper (P14
+// lifecycle scope). Returns the number of rows requeued.
 func (s *Store) RequeueControlOutboxForSession(nodeID, sessionID string) (int, error) {
 	res, err := s.db.Exec(
 		`UPDATE control_outbox
 		    SET state = 'PENDING', session_id = ?, updated_at = ?
-		  WHERE node_id = ? AND state IN ('CLAIMED', 'SENT', 'SEMANTIC_ACKED')`,
+		  WHERE node_id = ? AND state IN ('CLAIMED', 'SENT')`,
 		sessionID, now(), nodeID,
 	)
 	if err != nil {
@@ -221,6 +228,43 @@ func (s *Store) RequeueControlOutboxForSession(nodeID, sessionID string) (int, e
 		return 0, fmt.Errorf("store: requeue outbox rows: %w", err)
 	}
 	return int(n), nil
+}
+
+// RebindControlOutboxSession re-binds a SEMANTIC_ACKED row to the session
+// that resends its result. The authenticated, deduped result resend proves
+// the new session is continuing the operation, so the follow-up A2C receipt
+// from that session may complete the GC; without the re-bind the receipt
+// would be rejected as stale-session and kill the session. The FSM state is
+// untouched (no advance past SEMANTIC_ACKED); any other state fails closed.
+func (s *Store) RebindControlOutboxSession(operationID, messageType, sessionID string) error {
+	res, err := s.db.Exec(
+		`UPDATE control_outbox SET session_id = ?, updated_at = ?
+		  WHERE operation_id = ? AND message_type = ? AND state = 'SEMANTIC_ACKED'`,
+		sessionID, now(), operationID, messageType,
+	)
+	if err != nil {
+		return fmt.Errorf("store: rebind outbox session: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("store: rebind outbox rows: %w", err)
+	}
+	if n == 0 {
+		var state string
+		err := s.db.QueryRow(
+			`SELECT state FROM control_outbox
+			  WHERE operation_id = ? AND message_type = ?`,
+			operationID, messageType,
+		).Scan(&state)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: operation %q has no outbox row", ErrIllegalPhase, operationID)
+		}
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("%w: operation %q is %s, want SEMANTIC_ACKED", ErrIllegalPhase, operationID, state)
+	}
+	return nil
 }
 
 // RecordControlInbox durably records an inbound A2C message. message_id is

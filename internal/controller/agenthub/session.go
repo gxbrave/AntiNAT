@@ -338,9 +338,27 @@ func (h *Hub) handleAgentResult(s *ControlSession, env protocol.Envelope) error 
 		if err := h.store.MarkControlOutboxSent(row.OperationID, row.MessageType, s.session); err != nil {
 			return err
 		}
+	case "SEMANTIC_ACKED":
+		// The result was already processed in an earlier session and the C2A
+		// receipt was written, but the connection died before the controller
+		// consumed the agent's A2C receipt. The result resend (deduped by
+		// deterministic message id) proves the new session is continuing the
+		// operation: re-bind the row so the follow-up A2C receipt can
+		// complete the GC, skip the FSM advance (no legal step exists past
+		// SEMANTIC_ACKED except the receipt), and re-write the idempotent
+		// C2A receipt so the agent can GC its own outbox row.
+		if err := h.store.RebindControlOutboxSession(row.OperationID, row.MessageType, s.session); err != nil {
+			return err
+		}
+		// SENT rows (result arrived right after the pump's re-send) and any
+		// other state fall through: the strict ack below fails closed on
+		// states that are not the legal SENT predecessor, exactly as before
+		// FIX1.
 	}
-	if err := h.store.AcceptControlSemanticACK(row.OperationID, row.MessageType, s.session); err != nil {
-		return err
+	if row.State != "SEMANTIC_ACKED" {
+		if err := h.store.AcceptControlSemanticACK(row.OperationID, row.MessageType, s.session); err != nil {
+			return err
+		}
 	}
 	receiptID := security.MessageID(agentOp, "message_receipt")
 	payload := fmt.Sprintf(`{"operation_id":%q}`, agentOp)

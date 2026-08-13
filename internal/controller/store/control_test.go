@@ -130,6 +130,97 @@ func TestControlOutboxRequeueForNewSession(t *testing.T) {
 	}
 }
 
+// FIX1 RED (F1-a): a new session requeues only in-flight rows (CLAIMED/SENT).
+// A SEMANTIC_ACKED row is the controller's own proof that the agent's result
+// was already processed and the C2A receipt was written; requeuing it
+// re-delivers an operation the agent may already have durably receipted
+// (journal tombstone), which fails the agent closed with ErrAlreadyReceipted
+// and kills the session (P08-QUALITY F1, reproduced in /tmp/p08-probe).
+func TestControlOutboxRequeueSkipsSemanticAcked(t *testing.T) {
+	s := openControlStore(t)
+	mustEnqueue(t, s, "op-1", "desired", "node-a") // will be SEMANTIC_ACKED
+	mustEnqueue(t, s, "op-2", "desired", "node-a") // will be SENT
+	if _, err := s.ClaimControlOutbox("node-a", "session-1", 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkControlOutboxSent("op-1", "desired", "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkControlOutboxSent("op-2", "desired", "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AcceptControlSemanticACK("op-1", "desired", "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.RequeueControlOutboxForSession("node-a", "session-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("requeued = %d, want 1 (only the SENT row; SEMANTIC_ACKED must not be requeued)", n)
+	}
+	got, err := s.ControlOutboxItemByOperation("op-1", "desired")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != "SEMANTIC_ACKED" {
+		t.Fatalf("op-1 state after requeue = %q, want SEMANTIC_ACKED (result already durably processed)", got.State)
+	}
+	got2, err := s.ControlOutboxItemByOperation("op-2", "desired")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2.State != "PENDING" {
+		t.Fatalf("op-2 state after requeue = %q, want PENDING", got2.State)
+	}
+}
+
+// FIX1 RED (F1-b store support): RebindControlOutboxSession re-binds a
+// SEMANTIC_ACKED row to the session that resends the result, so the follow-up
+// A2C receipt from that session can complete the GC. The FSM state is
+// untouched; a rebind of a row in any other state fails closed.
+func TestControlOutboxRebindSession(t *testing.T) {
+	s := openControlStore(t)
+	mustEnqueue(t, s, "op-1", "desired", "node-a")
+	if _, err := s.ClaimControlOutbox("node-a", "session-1", 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkControlOutboxSent("op-1", "desired", "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AcceptControlSemanticACK("op-1", "desired", "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RebindControlOutboxSession("op-1", "desired", "session-2"); err != nil {
+		t.Fatalf("rebind: %v", err)
+	}
+	got, err := s.ControlOutboxItemByOperation("op-1", "desired")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != "SEMANTIC_ACKED" {
+		t.Fatalf("state after rebind = %q, want SEMANTIC_ACKED (rebind must not advance the FSM)", got.State)
+	}
+	// The old session can no longer complete the GC; the new session can.
+	if err := s.AcceptControlReceipt("op-1", "desired", "session-1"); !errors.Is(err, ErrStaleSession) {
+		t.Fatalf("old-session receipt after rebind = %v, want ErrStaleSession", err)
+	}
+	if err := s.AcceptControlReceipt("op-1", "desired", "session-2"); err != nil {
+		t.Fatalf("new-session receipt after rebind: %v", err)
+	}
+	if _, err := s.ControlOutboxItemByOperation("op-1", "desired"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("row not GC'd after rebind+receipt: %v", err)
+	}
+	// Rebind of a non-SEMANTIC_ACKED row fails closed.
+	mustEnqueue(t, s, "op-2", "desired", "node-a")
+	if err := s.RebindControlOutboxSession("op-2", "desired", "session-2"); !errors.Is(err, ErrIllegalPhase) {
+		t.Fatalf("rebind of PENDING row = %v, want ErrIllegalPhase", err)
+	}
+	if err := s.RebindControlOutboxSession("no-such-op", "desired", "session-2"); !errors.Is(err, ErrIllegalPhase) {
+		t.Fatalf("rebind of missing row = %v, want ErrIllegalPhase", err)
+	}
+}
+
 // RED 5e: control inbox dedup — same message_id + same type + same payload is
 // a cached duplicate; same message_id + different material is a fail-closed
 // session conflict.
