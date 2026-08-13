@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"sync"
 	"time"
 
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
@@ -48,6 +49,9 @@ type Hub struct {
 	challenges *security.ChallengeManager
 	clock      func() time.Time
 	cfg        Config
+
+	sessionsMu sync.Mutex
+	sessions   map[string]*ControlSession
 }
 
 // NewHub validates the configuration and builds the hub.
@@ -70,7 +74,7 @@ func NewHub(cfg Config) (*Hub, error) {
 	if cfg.MaxEnrollBodyBytes <= 0 {
 		cfg.MaxEnrollBodyBytes = 4096
 	}
-	return &Hub{store: cfg.Store, keyring: cfg.Keyring, challenges: cfg.Challenges, clock: cfg.Clock, cfg: cfg}, nil
+	return &Hub{store: cfg.Store, keyring: cfg.Keyring, challenges: cfg.Challenges, clock: cfg.Clock, cfg: cfg, sessions: make(map[string]*ControlSession)}, nil
 }
 
 // Handler returns the hub's HTTP surface:

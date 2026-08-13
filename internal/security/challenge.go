@@ -14,6 +14,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -205,26 +206,38 @@ func (m *ChallengeManager) Size() int {
 const SessionDomain = "AntiNAT-Session-v1"
 
 // Session message size bounds (pre-filter, mirrors enrollment codec style).
+// Each bound = 4-byte length prefix per field + field caps + 64-byte sig.
 const (
 	SessionNonceSize  = 32
 	SessionIDMax      = 255
 	SessionIDSize     = 16
-	SessionHelloMax   = 5*4 + SessionIDSize + SessionIDSize + 4 + SessionNonceSize + 8 + 1 + 64
-	SessionWelcomeMax = 6*4 + SessionIDSize + 255 + SessionIDSize + SessionNonceSize + SessionNonceSize + 8 + 255 + 8 + 64
-	SessionFinalMax   = 4*4 + SessionIDSize + SessionIDSize + SessionNonceSize + 8 + 255 + 64
+	SessionHelloMax   = 7*4 + SessionIDSize + SessionIDSize + 4 + 32 + SessionNonceSize + 8 + 1 + 64
+	SessionWelcomeMax = 8*4 + SessionIDSize + SessionIDMax + SessionIDSize + SessionNonceSize + SessionNonceSize + 8 + SessionIDMax + 8 + 64
+	SessionFinalMax   = 5*4 + SessionIDSize + SessionIDSize + SessionNonceSize + 8 + SessionIDMax + 64
 )
 
 // SessionHello is the Agent→Controller session request (signed by the Agent
-// node key). It carries the Agent's highest accepted epoch so the Controller
-// can detect rollback (an Agent claiming an epoch the Controller never issued
-// fails closed).
+// node key). It carries the agent public key (the controller stores only its
+// hash, so the hello is the key-presentation step), the highest accepted
+// epoch (rollback detection), and a fresh nonce.
 type SessionHello struct {
 	ControllerInstanceID [16]byte
 	NodeID               [16]byte
 	AgentCredentialVer   uint32
+	AgentPublicKey       [32]byte
 	AgentNonce           [SessionNonceSize]byte
 	AgentMaxEpoch        uint64
 	ProtocolVersions     string
+}
+
+// NodeIDString returns the store-form (NUL-trimmed) node id.
+func (h SessionHello) NodeIDString() string {
+	return strings.TrimRight(string(h.NodeID[:]), "\x00")
+}
+
+// PublicKey returns the presented agent public key.
+func (h SessionHello) PublicKey() ed25519.PublicKey {
+	return ed25519.PublicKey(append([]byte(nil), h.AgentPublicKey[:]...))
 }
 
 // SessionWelcome is the Controller→Agent grant (signed by the Controller
@@ -288,7 +301,8 @@ func sessionVerify(pub ed25519.PublicKey, domain string, fields, sig []byte) boo
 func (h SessionHello) Canonical() []byte {
 	return sessionEncode(
 		h.ControllerInstanceID[:], h.NodeID[:], sessionU32(h.AgentCredentialVer),
-		h.AgentNonce[:], sessionU64(h.AgentMaxEpoch), []byte(h.ProtocolVersions),
+		h.AgentPublicKey[:], h.AgentNonce[:], sessionU64(h.AgentMaxEpoch),
+		[]byte(h.ProtocolVersions),
 	)
 }
 
@@ -297,9 +311,11 @@ func (h SessionHello) Sign(priv ed25519.PrivateKey) ([]byte, error) {
 	return sessionSign(priv, SessionDomain, h.Canonical())
 }
 
-// ParseSessionHello decodes and verifies a SessionHello against the Agent
-// public key. It validates every fixed width before any copy.
-func ParseSessionHello(raw []byte, agentPub ed25519.PublicKey) (SessionHello, error) {
+// ParseSessionHello decodes a SessionHello and verifies its signature against
+// the public key PRESENTED INSIDE the message (the controller then checks
+// that key against the stored credential hash). It validates every fixed
+// width before any copy.
+func ParseSessionHello(raw []byte) (SessionHello, error) {
 	var h SessionHello
 	if len(raw) > SessionHelloMax {
 		return h, errors.New("security: session hello too large")
@@ -308,24 +324,25 @@ func ParseSessionHello(raw []byte, agentPub ed25519.PublicKey) (SessionHello, er
 	if err != nil {
 		return h, err
 	}
-	parts, err := readFields(fields, 6)
+	parts, err := readFields(fields, 7)
 	if err != nil {
 		return h, err
 	}
 	if len(parts[0]) != 16 || len(parts[1]) != 16 || len(parts[2]) != 4 ||
-		len(parts[3]) != SessionNonceSize || len(parts[4]) != 8 {
+		len(parts[3]) != 32 || len(parts[4]) != SessionNonceSize || len(parts[5]) != 8 {
 		return h, errors.New("security: session hello malformed")
 	}
 	copy(h.ControllerInstanceID[:], parts[0])
 	copy(h.NodeID[:], parts[1])
 	h.AgentCredentialVer = binary.BigEndian.Uint32(parts[2])
-	copy(h.AgentNonce[:], parts[3])
-	h.AgentMaxEpoch = binary.BigEndian.Uint64(parts[4])
-	h.ProtocolVersions = string(parts[5])
+	copy(h.AgentPublicKey[:], parts[3])
+	copy(h.AgentNonce[:], parts[4])
+	h.AgentMaxEpoch = binary.BigEndian.Uint64(parts[5])
+	h.ProtocolVersions = string(parts[6])
 	if h.AgentCredentialVer == 0 {
 		return h, errors.New("security: session hello zero credential version")
 	}
-	if !sessionVerify(agentPub, SessionDomain, h.Canonical(), sig) {
+	if !sessionVerify(h.PublicKey(), SessionDomain, h.Canonical(), sig) {
 		return h, errors.New("security: session hello signature invalid")
 	}
 	return h, nil
@@ -438,6 +455,18 @@ func splitFields(raw []byte) (fields, sig []byte, err error) {
 		return nil, nil, errors.New("security: empty message fields")
 	}
 	return fields, sig, nil
+}
+
+// MessageID deterministically derives a 16-byte message id from an operation
+// id and message type. The controller outbox and the agent journal store
+// SEMANTIC payloads only; the envelope message id must be reproducible on
+// reconnect so the same operation/message id is re-enveloped and the receiver
+// dedups redelivery (v0.8 §6.1, protocol.md §3.5).
+func MessageID(operationID, messageType string) [16]byte {
+	h := sha256.Sum256([]byte("antinat-msgid-v1\x00" + operationID + "\x00" + messageType))
+	var id [16]byte
+	copy(id[:], h[:16])
+	return id
 }
 
 // readFields parses count length-prefixed fields with full bounds checks and

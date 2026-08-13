@@ -124,6 +124,12 @@ func (k *Keyring) Sign(msg []byte) ([]byte, error) {
 	return framecrypto.Sign(k.priv, msg)
 }
 
+// PrivateKey returns the signing private key (used to build control
+// envelopes; the Keyring remains the only owner of the key material).
+func (k *Keyring) PrivateKey() ed25519.PrivateKey {
+	return k.priv
+}
+
 // VerifyKeyringSignature verifies msg/sig against the given public key.
 func VerifyKeyringSignature(pub ed25519.PublicKey, msg, sig []byte) bool {
 	return framecrypto.Verify(pub, msg, sig)

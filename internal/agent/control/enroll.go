@@ -14,6 +14,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -126,6 +127,18 @@ func Enroll(ctx context.Context, store *localstate.Store, opts EnrollOptions) (*
 	}
 	if !strings.EqualFold(strings.TrimRight(string(res.NodeID[:]), "\x00"), opts.NodeID) {
 		return nil, errors.New("control: enrollment result binds a different node")
+	}
+
+	// Persist the pinned controller identity so sessions can verify
+	// controller-signed messages (the pin is the session trust anchor).
+	pin := localstate.ControllerPin{
+		InstanceID:   hex.EncodeToString(res.ControllerInstanceID[:]),
+		KeyID:        res.ControllerKeyID,
+		PublicKeyRaw: append([]byte(nil), opts.ControllerPublicKey...),
+		Generation:   1, // P14 rotation raises generations
+	}
+	if err := store.SaveControllerPin(pin); err != nil {
+		return nil, fmt.Errorf("control: persist controller pin: %w", err)
 	}
 	return key, nil
 }

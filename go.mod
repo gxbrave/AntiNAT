@@ -10,6 +10,8 @@ require (
 	modernc.org/sqlite v1.56.0
 )
 
+require github.com/coder/websocket v1.8.12 // indirect
+
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect

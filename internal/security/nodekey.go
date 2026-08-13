@@ -114,6 +114,12 @@ func (k *NodeKey) PublicKeyHash() [32]byte {
 // CredentialVersion returns the agent credential version carried by the key.
 func (k *NodeKey) CredentialVersion() uint32 { return k.version }
 
+// PrivateKey returns the Ed25519 private key (used to build control
+// envelopes; the NodeKey remains the only owner of the key material).
+func (k *NodeKey) PrivateKey() ed25519.PrivateKey {
+	return k.priv
+}
+
 // Sign signs msg with the node key.
 func (k *NodeKey) Sign(msg []byte) ([]byte, error) {
 	return framecryptoSign(k.priv, msg)
