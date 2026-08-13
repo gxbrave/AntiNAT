@@ -62,7 +62,8 @@ one critical section (never bind→close→rebind). Port 0 resolves to the
 actual port; wildcard/specific overlap, duplicate owner, and concurrent
 contenders are rejected with `ErrTupleOverlap`; a stale release with a
 mismatched owner/generation returns `ErrStaleLease` and can never close the
-new owner; a failed OS close retains the entry. UDP/IPv6 tuples are rejected
+new owner; a failed OS close (other than `net.ErrClosed`, where the
+descriptor is provably gone) retains the entry. UDP/IPv6 tuples are rejected
 with `ErrUnsupportedTuple` (P13 owns UDP). `AcquireInstanceLock` is the
 Linux flock single-instance lock with O_NOFOLLOW, regular-file, parent-dir
 ownership, and before/after inode checks; a second same-UID process is
@@ -70,5 +71,79 @@ blocked (`LOCK_BLOCKED` subprocess evidence) and an abrupt owner exit
 releases the flock so a quick restart re-acquires immediately. Non-Linux
 builds return `ErrUnsupportedPlatform`.
 
-## Story 3 — TCP forwarding and half-close
-(pending)
+## Repair cycle 1 (FIX1) — review findings
+
+FINDING F1 (QUALITY): `IPv4Addresses()` dropped every IPv4 address on
+IPv6-enabled hosts. Interface address lists deliver IPv4 as 16-byte
+IPv4-mapped addresses (`::ffff:x.x.x.x`); `netip.AddrFromSlice` returns
+those in IPv6 form, so the `Is4()` gate ran before `Unmap()` and filtered
+everything out.
+
+RED command: `GOWORK=off go test ./internal/traversal -run 'TestIPv4AddressesAcceptsMappedInput|TestUsableV4RejectsNonV4' -count=1`
+
+RED reason: the mapped-address seam was absent (feature absent):
+
+```
+internal/traversal/socket_linux_test.go:19:13: undefined: usableV4
+internal/traversal/socket_linux_test.go:27:12: undefined: usableV4
+internal/traversal/socket_linux_test.go:39:12: undefined: usableV4
+FAIL	github.com/gxbrave/AntiNAT/internal/traversal [build failed]
+```
+
+GREEN: `usableV4` runs `Unmap()` before the `Is4()` gate and is used by
+`IPv4Addresses()`; the 16-byte mapped fixture `net.IPv4(192,168,6,99)`
+resolves to canonical `192.168.6.99`.
+
+GREEN verification of the no-skip host test: with the pre-fix gate
+restored, `TestHostRouteTableDeterministic` FAILS on the live host instead
+of skipping:
+
+```
+    socket_linux_test.go:151: host must expose at least one non-loopback IPv4 address (F1 regression: IPv4-mapped addresses were silently dropped)
+--- FAIL: TestHostRouteTableDeterministic (0.00s)
+```
+
+Post-fix the test passes and exercises the real host IPv4 (ens18
+`192.168.6.99`).
+
+FINDING F1 (NETWORK): ghost `PortRegistry` entry broke delete→recreate.
+Composing the documented delete flow — `Forward.Close()` then
+`lease.Release()` — made `Release` return `net.ErrClosed`; the fail-safe
+retained the registry entry and re-acquiring the same tuple failed with
+`ErrTupleOverlap` until process restart.
+
+RED command: `GOWORK=off go test ./internal/traversal -run TestReleaseAfterExternalCloseFreesTuple -v -count=1`
+
+RED reason: the regression test asserts the required lifecycle and fails on
+the ghost behavior (bug present):
+
+```
+    portregistry_test.go:141: release after external close: close tcp4 127.0.0.1:35963: use of closed network connection
+--- FAIL: TestReleaseAfterExternalCloseFreesTuple (0.00s)
+```
+
+GREEN: `Lease.Release` treats `errors.Is(err, net.ErrClosed)` as a
+successful close — the descriptor is provably gone — and deletes the
+entry; acquire→Close→Release→re-acquire now succeeds while the generation
+guard still makes stale releases inert.
+
+FINDING F3 (NETWORK): `IsGlobalV4` missed four IANA special-purpose
+prefixes (deprecated 6to4 relay anycast `192.88.99.0/24` RFC 7526; direct
+delegation AS112 `192.31.196.0/24` and `192.175.48.0/24` RFC 7534; AMT
+default relay `192.52.193.0/24` RFC 7450).
+
+RED command: `GOWORK=off go test ./internal/traversal -run TestIsGlobalV4Classification -v -count=1`
+
+RED reason: the new rows were misclassified as global (bug present):
+
+```
+    network_test.go:70: IsGlobalV4(192.88.99.1) = true, want false
+    network_test.go:70: IsGlobalV4(192.31.196.1) = true, want false
+    network_test.go:70: IsGlobalV4(192.175.48.1) = true, want false
+    network_test.go:70: IsGlobalV4(192.52.193.1) = true, want false
+--- FAIL: TestIsGlobalV4Classification (0.00s)
+```
+
+GREEN: the four prefixes joined `nonGlobalV4Prefixes`; all rows pass.
+`255.255.255.255/32` needs no new exclusion — `240.0.0.0/4` already covers
+it (existing test row passes).
