@@ -40,5 +40,35 @@ initially used `203.0.113.7` (TEST-NET-3 documentation space) as the
 changed to `8.8.8.8` — the classifier behavior was right, the test data was
 wrong.
 
-## Story 2 — Atomic PortRegistry
+## Story 2 — Atomic PortRegistry and OS single-instance lock
+
+RED command: `GOWORK=off go test ./internal/traversal/ -count=1`
+
+RED reason: the registry and instance-lock symbols were absent (feature
+absent):
+
+```
+internal/traversal/portregistry_test.go:16:47: undefined: PortRegistry
+internal/traversal/portregistry_test.go:16:90: undefined: Lease
+internal/traversal/instance_lock_test.go:19:15: undefined: AcquireInstanceLock
+internal/traversal/instance_lock_test.go:42:20: undefined: ErrInstanceLocked
+internal/traversal/instance_lock_test.go:111:58: undefined: ErrInvalidLockPath
+FAIL    github.com/gxbrave/AntiNAT/internal/traversal [build failed]
+```
+
+GREEN: `PortRegistry.Acquire` validates the tuple, checks overlap, creates
+the actual socket, resolves the OS-assigned port, and publishes the entry in
+one critical section (never bind→close→rebind). Port 0 resolves to the
+actual port; wildcard/specific overlap, duplicate owner, and concurrent
+contenders are rejected with `ErrTupleOverlap`; a stale release with a
+mismatched owner/generation returns `ErrStaleLease` and can never close the
+new owner; a failed OS close retains the entry. UDP/IPv6 tuples are rejected
+with `ErrUnsupportedTuple` (P13 owns UDP). `AcquireInstanceLock` is the
+Linux flock single-instance lock with O_NOFOLLOW, regular-file, parent-dir
+ownership, and before/after inode checks; a second same-UID process is
+blocked (`LOCK_BLOCKED` subprocess evidence) and an abrupt owner exit
+releases the flock so a quick restart re-acquires immediately. Non-Linux
+builds return `ErrUnsupportedPlatform`.
+
+## Story 3 — TCP forwarding and half-close
 (pending)
