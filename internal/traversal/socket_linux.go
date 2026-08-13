@@ -30,6 +30,23 @@ func (HostRouteTable) DefaultRouteV4() (netip.Addr, string, bool, error) {
 	return parseProcNetRoute(data)
 }
 
+// usableV4 converts one interface address to canonical IPv4. IPv6-enabled
+// hosts deliver interface IPv4 as 16-byte IPv4-mapped addresses
+// (::ffff:x.x.x.x), which netip.AddrFromSlice returns in IPv6 form; Unmap
+// must run before the Is4 gate or every IPv4 address is silently dropped
+// (F1 regression). Real IPv6 and unparsable input are rejected.
+func usableV4(ip net.IP) (netip.Addr, bool) {
+	parsed, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return netip.Addr{}, false
+	}
+	parsed = parsed.Unmap()
+	if !parsed.Is4() {
+		return netip.Addr{}, false
+	}
+	return parsed, true
+}
+
 // IPv4Addresses lists the IPv4 addresses of up, non-loopback interfaces.
 func (HostRouteTable) IPv4Addresses() ([]IPv4Address, error) {
 	interfaces, err := net.Interfaces()
@@ -50,11 +67,11 @@ func (HostRouteTable) IPv4Addresses() ([]IPv4Address, error) {
 			if !ok {
 				continue
 			}
-			parsed, ok := netip.AddrFromSlice(ipNet.IP)
-			if !ok || !parsed.Is4() {
+			parsed, ok := usableV4(ipNet.IP)
+			if !ok {
 				continue
 			}
-			out = append(out, IPv4Address{Interface: iface.Name, Addr: parsed.Unmap()})
+			out = append(out, IPv4Address{Interface: iface.Name, Addr: parsed})
 		}
 	}
 	return out, nil

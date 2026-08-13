@@ -122,20 +122,34 @@ func TestStaleReleaseCannotCloseNewOwner(t *testing.T) {
 	bindConflict(t, address)
 }
 
-func TestReleaseAfterExternalCloseRetainsEntry(t *testing.T) {
+func TestReleaseAfterExternalCloseFreesTuple(t *testing.T) {
+	// F1 regression: the documented delete flow is Forward.Close (closes
+	// the listener) then lease.Release. Release must treat net.ErrClosed
+	// as a successful close — the descriptor is provably gone — so the
+	// tuple can be re-acquired. The previous behavior retained a ghost
+	// registry entry that blocked delete->recreate until process restart.
 	registry := NewPortRegistry()
 	lease, err := acquireLocalhost(t, registry, "owner", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
+	tuple := lease.Actual
 	if err := lease.Listener.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := lease.Release(); err == nil {
-		t.Fatal("release after external close unexpectedly succeeded")
+	if err := lease.Release(); err != nil {
+		t.Fatalf("release after external close: %v", err)
 	}
-	if got := registry.Len(); got != 1 {
-		t.Fatalf("registry length after close failure = %d, want 1", got)
+	if got := registry.Len(); got != 0 {
+		t.Fatalf("registry length after release = %d, want 0", got)
+	}
+	reacquired, err := acquireLocalhost(t, registry, "owner", tuple.Port)
+	if err != nil {
+		t.Fatalf("re-acquire same tuple: %v", err)
+	}
+	defer reacquired.Release()
+	if reacquired.Actual != tuple {
+		t.Fatalf("re-acquired tuple = %v, want %v", reacquired.Actual, tuple)
 	}
 }
 

@@ -48,6 +48,10 @@ func TestIsGlobalV4Classification(t *testing.T) {
 		{"198.51.100.9", false},  // TEST-NET-2 documentation
 		{"192.0.2.9", false},     // TEST-NET-1 documentation
 		{"192.0.0.9", false},     // IETF protocol assignments
+		{"192.88.99.1", false},   // deprecated 6to4 relay anycast (RFC 7526)
+		{"192.31.196.1", false},  // direct delegation AS112 (RFC 7534)
+		{"192.175.48.1", false},  // direct delegation AS112 (RFC 7534)
+		{"192.52.193.1", false},  // AMT default relay (RFC 7450)
 		{"198.18.0.9", false},    // benchmarking
 		{"10.1.2.3", false},      // RFC1918
 		{"172.16.0.1", false},    // RFC1918

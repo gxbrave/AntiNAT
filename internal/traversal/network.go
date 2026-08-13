@@ -65,12 +65,18 @@ type RouteTable interface {
 // nonGlobalV4Prefixes are the IANA-assigned ranges that are never a valid
 // global direct-v4 source even though netip does not classify them as
 // private/link-local/loopback: RFC 6598 CGNAT, IETF protocol assignments,
-// the three documentation TEST-NET ranges, benchmarking, and reserved space.
+// the three documentation TEST-NET ranges, benchmarking, reserved space,
+// the deprecated 6to4 relay anycast, and the special-purpose AS112/AMT
+// service prefixes.
 var nonGlobalV4Prefixes = []netip.Prefix{
 	mustPrefix("0.0.0.0/8"),
 	mustPrefix("100.64.0.0/10"),
 	mustPrefix("192.0.0.0/24"),
 	mustPrefix("192.0.2.0/24"),
+	mustPrefix("192.31.196.0/24"), // direct delegation AS112 (RFC 7534)
+	mustPrefix("192.52.193.0/24"), // AMT default relay (RFC 7450)
+	mustPrefix("192.88.99.0/24"),  // deprecated 6to4 relay anycast (RFC 7526)
+	mustPrefix("192.175.48.0/24"), // direct delegation AS112 (RFC 7534)
 	mustPrefix("198.18.0.0/15"),
 	mustPrefix("198.51.100.0/24"),
 	mustPrefix("203.0.113.0/24"),

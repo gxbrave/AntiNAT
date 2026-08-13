@@ -91,13 +91,17 @@ func (l *Lease) Release() error {
 	if !ok || entry.owner != l.owner || entry.generation != l.generation || entry.lease != l {
 		return ErrStaleLease
 	}
-	if err := l.Listener.Close(); err != nil {
+	if err := l.Listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		// Retain the registry entry when the OS close fails. Dropping
 		// ownership before a successful close would permit a new lease to
 		// overlap a live descriptor and would let a later stale Release
 		// close the new owner.
 		return err
 	}
+	// net.ErrClosed means the descriptor is provably already gone (the
+	// documented delete flow is Forward.Close then Release): treat it as a
+	// successful close so the tuple can be re-acquired instead of leaving
+	// a ghost entry that blocks delete->recreate until process restart.
 	delete(registry.entries, l.Actual)
 	return nil
 }

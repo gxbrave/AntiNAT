@@ -84,7 +84,10 @@ func NewBudget(limits Limits) (*Budget, error) {
 
 // Reserve charges one connection, one FD, and the pessimistic buffer
 // reservation, or returns the explicit *BudgetExceededError for the first
-// axis that is exhausted (no partial charge on failure).
+// axis that is exhausted (no partial charge on failure). The FD-axis unit
+// is one accepted client socket per session: each session additionally
+// holds the backend target socket outside this unit, so MaxFDs=N bounds
+// accepted sessions with up to ~2N OS descriptors in play.
 func (b *Budget) Reserve() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
