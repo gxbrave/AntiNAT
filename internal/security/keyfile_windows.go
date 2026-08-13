@@ -27,7 +27,10 @@ func withKeyLock(dir string, fn func() error) error {
 	return fn()
 }
 
-// protectDPAPI wraps plaintext with the current user's DPAPI key.
+// protectDPAPI wraps plaintext with the current user's DPAPI key. The
+// returned slice is a Go-owned copy: the deferred LocalFree runs after the
+// return expression is evaluated, so returning unsafe.Slice into the DPAPI
+// buffer would hand the caller a use-after-free slice (FIX1 F2).
 func protectDPAPI(plain []byte) ([]byte, error) {
 	in := windows.DataBlob{Size: uint32(len(plain))}
 	if len(plain) > 0 {
@@ -38,10 +41,15 @@ func protectDPAPI(plain []byte) ([]byte, error) {
 		return nil, fmt.Errorf("security: dpapi protect: %w", err)
 	}
 	defer windows.LocalFree(windows.Handle(unsafe.Pointer(out.Data)))
-	return unsafe.Slice(out.Data, int(out.Size)), nil
+	raw := unsafe.Slice(out.Data, int(out.Size))
+	copied := make([]byte, len(raw))
+	copy(copied, raw)
+	return copied, nil
 }
 
-// unprotectDPAPI unwraps a DPAPI-protected blob.
+// unprotectDPAPI unwraps a DPAPI-protected blob. The returned slice is a
+// Go-owned copy (see protectDPAPI: the DPAPI buffer is freed by the deferred
+// LocalFree after the return value is computed).
 func unprotectDPAPI(blob []byte) ([]byte, error) {
 	if len(blob) == 0 {
 		return nil, fmt.Errorf("security: empty dpapi blob")
@@ -52,7 +60,10 @@ func unprotectDPAPI(blob []byte) ([]byte, error) {
 		return nil, fmt.Errorf("security: dpapi unprotect: %w", err)
 	}
 	defer windows.LocalFree(windows.Handle(unsafe.Pointer(out.Data)))
-	return unsafe.Slice(out.Data, int(out.Size)), nil
+	raw := unsafe.Slice(out.Data, int(out.Size))
+	copied := make([]byte, len(raw))
+	copy(copied, raw)
+	return copied, nil
 }
 
 // loadKeyFile reads a DPAPI-protected key file. Windows file permissions are
