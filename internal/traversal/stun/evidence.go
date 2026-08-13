@@ -80,6 +80,13 @@ func ObserveMapping(ctx context.Context, options ObserveMappingOptions) (Mapping
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
+	if options.ReuseControl == nil {
+		// Documented default: the same-tuple rebind needs the reuse group
+		// (SO_REUSEADDR+SO_REUSEPORT) on every participant (v0.8 §4.2);
+		// without it the second bind collides with the first socket's
+		// TIME_WAIT and the observation silently degrades.
+		options.ReuseControl = traversal.StunSharedPortControl
+	}
 	if platformGate {
 		return observeConcurrent(ctx, options, timeout)
 	}

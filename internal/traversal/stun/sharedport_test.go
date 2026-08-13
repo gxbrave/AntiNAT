@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -251,4 +252,107 @@ func TestSharedPortReleaseClosesConnectedSockets(t *testing.T) {
 		t.Fatal("connected socket still readable after Release")
 	}
 
+}
+
+// connTracker accepts TCP connections, records them, and signals through
+// eof when a connection observes EOF (the peer closed its side).
+type connTracker struct {
+	addr  string
+	mu    sync.Mutex
+	conns []net.Conn
+	eof   chan struct{}
+}
+
+func newConnTracker(t *testing.T) *connTracker {
+	t.Helper()
+	tr := &connTracker{eof: make(chan struct{}, 1)}
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("tracker listen: %v", err)
+	}
+	tr.addr = listener.Addr().String()
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			tr.mu.Lock()
+			tr.conns = append(tr.conns, conn)
+			tr.mu.Unlock()
+			go func(c net.Conn) {
+				defer c.Close()
+				buf := make([]byte, 1)
+				if _, err := c.Read(buf); err != nil {
+					select {
+					case tr.eof <- struct{}{}:
+					default:
+					}
+				}
+			}(conn)
+		}
+	}()
+	t.Cleanup(func() { listener.Close() })
+	return tr
+}
+
+func (tr *connTracker) sawEOF(timeout time.Duration) bool {
+	select {
+	case <-tr.eof:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+func TestSharedPortDialRacingReleaseClosesSocket(t *testing.T) {
+	// A Dial in flight when Release runs must not leave an unowned socket
+	// bound to the tuple: the completed dial observes the released flag,
+	// closes its connection, and returns ErrStaleLease. The beforeAppend
+	// seam pauses the dial deterministically at the hand-over point so the
+	// race is exercised exactly, not probabilistically.
+	if !SharedPortSupported() {
+		t.Skip("shared-port requires native platform evidence")
+	}
+	registry := NewSharedPortRegistry()
+	lease, err := registry.Acquire(context.Background(), "owner", traversal.TupleKey{
+		Family: "ipv4", Protocol: "tcp", Address: "127.0.0.1", Port: 0,
+	})
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	tracker := newConnTracker(t)
+
+	dialResult := make(chan error, 1)
+	releaseDone := make(chan struct{})
+	proceed := make(chan struct{})
+	lease.beforeAppend = func() {
+		close(releaseDone) // dial completed; waiting at the hand-over point
+		<-proceed          // Release has run by the time this returns
+	}
+	go func() {
+		_, err := lease.Dial(context.Background(), tracker.addr)
+		dialResult <- err
+	}()
+	select {
+	case <-releaseDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("dial never reached the hand-over point")
+	}
+	if err := lease.Release(); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	close(proceed)
+	if err := <-dialResult; !errors.Is(err, traversal.ErrStaleLease) {
+		t.Fatalf("Dial = %v, want ErrStaleLease (socket must not outlive its lease)", err)
+	}
+	if !tracker.sawEOF(time.Second) {
+		t.Fatal("racing dial's socket was not closed after Release (leak)")
+	}
+	// The tuple is fully free: a new owner can acquire it again.
+	second, err := registry.Acquire(context.Background(), "owner-2", lease.Actual)
+	if err != nil {
+		t.Fatalf("re-Acquire after race: %v", err)
+	}
+	_ = second.Release()
 }

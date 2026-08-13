@@ -141,6 +141,92 @@ on success; Ready fails fast with ErrCooldown.
 Fuzz: single FuzzMessage target exercises ParseMessage and readFrame on the
 same corpus; `-fuzz=Fuzz -fuzztime=30s` ran 6.2M execs with zero panics.
 
+## P11-FIX1 — repair cycle 1 (P11-NETWORK findings N1–N3 + QUALITY #1)
+
+### FIX1-N1: alternate-server address-class policy (udp.go)
+
+RED command: `GOWORK=off go test ./internal/traversal/stun -run TestUDPExchangeAlternate -count=1 -v`
+
+RED reason: the new policy tests failed because the policy was absent — the
+client followed 300 Try Alternate unconditionally (default-enabled, no
+global-unicast validation):
+
+```
+--- FAIL: TestUDPExchangeAlternatesDisabledByDefault
+    udp_test.go:393: reply error code = 0 (stun: malformed message structure), want the 300 returned un-followed
+--- FAIL: TestUDPExchangeAlternatesExplicitlyDisabled
+    udp_test.go:393: reply error code = 0 (stun: malformed message structure), want the 300 returned un-followed
+--- FAIL: TestUDPExchangeAlternateRejectsNonGlobalAddress (loopback + rfc1918-private subtests)
+FAIL    github.com/gxbrave/AntiNAT/internal/traversal/stun
+```
+
+GREEN: `MaxAlternates` now defaults to 0 (redirection disabled by default,
+frozen design reference §6) with `DisableAlternates` as the explicit kill
+switch; when enabled, every alternate must pass `defaultAlternateAllowed`
+(global unicast per RFC 8489 §10 — implemented as IsGlobalUnicast AND NOT
+IsPrivate AND NOT RFC 6598 CGNAT, because Go's `netip.Addr.IsGlobalUnicast`
+reports true for RFC 1918 private space, which the finding's required
+private-alternate regression test must reject). Rejected alternates return
+ErrAlternateLoop. The two pre-existing redirection tests (300-follow,
+loop-bounded) were updated per the finding: they opt in via MaxAlternates
+and the unexported `alternateAllowed` test seam (loopback servers are not
+global unicast). Regression coverage: loopback, RFC 1918, and RFC 6598
+CGNAT alternates rejected with zero datagrams sent to the alternate;
+disabled-by-default and explicit-kill-switch both return the 300 un-followed.
+
+### FIX1-N2: Dial-vs-Release race (sharedport.go)
+
+RED command: `GOWORK=off go test ./internal/traversal/stun -run TestSharedPortDialRacingReleaseClosesSocket -count=1 -v`
+
+RED reason: a dial completed after Release handed its socket to the released
+lease (no released check), leaving it unowned:
+
+```
+sharedport_test.go:347: Dial = <nil>, want ErrStaleLease (socket must not outlive its lease)
+--- FAIL: TestSharedPortDialRacingReleaseClosesSocket
+```
+
+GREEN: `released` flag set under l.mu before the conn list is drained; Dial
+checks it before dialing and again after the dial completes, closing the
+socket immediately and returning `traversal.ErrStaleLease` when Release won
+the race. The `beforeAppend` seam makes the race deterministic (the dial is
+paused exactly at the hand-over point); the test also asserts the server
+observes EOF (socket actually closed) and that the tuple is re-acquirable.
+
+### FIX1-N3: IPv4-mapped source matching (udp.go)
+
+RED command: `GOWORK=off go test ./internal/traversal/stun -run TestUDPExchangeIPv4MappedSourceOnDualStackSocket -count=1 -v`
+
+RED reason: on a dual-stack caller socket the response source arrives as
+::ffff:a.b.c.d and never equals the plain-IPv4 server tuple, so the exchange
+timed out:
+
+```
+udp_test.go:489: Exchange over dual-stack socket: stun: UDP transaction timed out
+--- FAIL: TestUDPExchangeIPv4MappedSourceOnDualStackSocket
+```
+
+GREEN: `readerLoop` unmaps the source (`source.Addr().Unmap()`) before the
+waiter tuple comparison (same idiom as P09 FIX1 / health.resolveIP).
+
+### FIX1-QUALITY#1: ReuseControl documented default (evidence.go)
+
+RED command: `GOWORK=off go test ./internal/traversal/stun -run TestObserveMappingSameLocalPortDefaultReuseControl -count=1 -v`
+
+RED reason: the doc promised `ReuseControl` defaults to
+`traversal.StunSharedPortControl`, but the code used the field as-is; the
+nil-control same-tuple rebind collided with the first socket's TIME_WAIT and
+the observation silently degraded:
+
+```
+evidence_test.go:126: verdict = MAPPED_UNVERIFIED, want PORT_REUSE_OBSERVED
+--- FAIL: TestObserveMappingSameLocalPortDefaultReuseControl
+```
+
+GREEN: `ObserveMapping` defaults a nil `ReuseControl` to
+`traversal.StunSharedPortControl` (mirroring the `PlatformGate` default),
+so gate-off sequential same-local-port observation works as documented.
+
 ## Required verification (final)
 
 - `go test ./internal/traversal/stun -race -count=10` — PASS (exit 0)

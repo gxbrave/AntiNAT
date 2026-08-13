@@ -128,6 +128,15 @@ type SharedPortLease struct {
 	generation uint64
 	mu         sync.Mutex
 	conns      []*net.TCPConn
+	// released is set by Release before the conn list is drained; a Dial
+	// completing afterwards closes its socket immediately instead of
+	// leaving an unowned descriptor bound to the tuple.
+	released bool
+	// beforeAppend, when non-nil, runs after the dial completes and before
+	// the socket is handed to the lease. Package-internal test seam that
+	// makes the Dial-vs-Release race deterministic; production callers
+	// cannot set it.
+	beforeAppend func()
 }
 
 // Owner returns the lease owner identity.
@@ -138,8 +147,16 @@ func (l *SharedPortLease) Generation() uint64 { return l.generation }
 
 // Dial binds a connected socket to the lease's local tuple (with the
 // platform reuse options) and connects it to remote. The socket becomes part
-// of the lease and is closed by Release.
+// of the lease and is closed by Release. A dial that completes after Release
+// has run is refused: its socket is closed immediately and ErrStaleLease is
+// returned, so no unowned descriptor can stay bound to the tuple.
 func (l *SharedPortLease) Dial(ctx context.Context, remote string) (*net.TCPConn, error) {
+	l.mu.Lock()
+	if l.released {
+		l.mu.Unlock()
+		return nil, traversal.ErrStaleLease
+	}
+	l.mu.Unlock()
 	dialer := net.Dialer{
 		LocalAddr: &net.TCPAddr{
 			IP:   net.ParseIP(l.Actual.Address),
@@ -156,7 +173,17 @@ func (l *SharedPortLease) Dial(ctx context.Context, remote string) (*net.TCPConn
 		conn.Close()
 		return nil, errors.New("stun: shared-port dial did not return *net.TCPConn")
 	}
+	if l.beforeAppend != nil { // package-internal test seam
+		l.beforeAppend()
+	}
 	l.mu.Lock()
+	if l.released {
+		// Release won the race: this socket would never be closed by
+		// anyone (a later Release is refused as stale), so close it here.
+		l.mu.Unlock()
+		tcpConn.Close()
+		return nil, traversal.ErrStaleLease
+	}
 	l.conns = append(l.conns, tcpConn)
 	l.mu.Unlock()
 	return tcpConn, nil
@@ -176,6 +203,7 @@ func (l *SharedPortLease) Release() error {
 	}
 
 	l.mu.Lock()
+	l.released = true
 	var joined error
 	for _, conn := range l.conns {
 		joined = errors.Join(joined, conn.Close())

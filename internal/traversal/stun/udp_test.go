@@ -252,7 +252,9 @@ func TestUDPExchangeDeadlineAndRetransmitCap(t *testing.T) {
 func TestUDPExchangeAlternateServer300(t *testing.T) {
 	// Primary server answers 300 Try Alternate with ALTERNATE-SERVER; the
 	// client must fail the current transaction and reattempt against the
-	// alternate server (RFC 8489 §10).
+	// alternate server (RFC 8489 §10). Alternates are disabled by default
+	// and restricted to global unicast addresses, so this test opts in via
+	// MaxAlternates and the package-internal loopback test seam.
 	alternate := newFakeUDPServer(t, successSpec)
 	primary := newFakeUDPServer(t, func(req *Message, from netip.AddrPort) []replySpec {
 		reply := NewErrorResponse(req.TransactionID, 300, "Try Alternate")
@@ -262,7 +264,12 @@ func TestUDPExchangeAlternateServer300(t *testing.T) {
 		return []replySpec{{msg: reply}}
 	})
 	conn := newClientSocket(t)
-	client := NewUDPClient(conn, UDPClientOptions{RTO: 10 * time.Millisecond, MaxRequests: 3})
+	client := NewUDPClient(conn, UDPClientOptions{
+		RTO:              10 * time.Millisecond,
+		MaxRequests:      3,
+		MaxAlternates:    DefaultMaxAlternates,
+		alternateAllowed: allowLoopbackAlternates,
+	})
 	req := NewBindingRequest([12]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12})
 	reply, err := client.Exchange(context.Background(), primary.addr, req)
 	if err != nil {
@@ -308,7 +315,12 @@ func TestUDPExchangeAlternateServerLoopBounded(t *testing.T) {
 	primaryAddr = primary.addr
 	mu.Unlock()
 	conn := newClientSocket(t)
-	client := NewUDPClient(conn, UDPClientOptions{RTO: 10 * time.Millisecond, MaxRequests: 2, MaxAlternates: 2})
+	client := NewUDPClient(conn, UDPClientOptions{
+		RTO:              10 * time.Millisecond,
+		MaxRequests:      2,
+		MaxAlternates:    2,
+		alternateAllowed: allowLoopbackAlternates,
+	})
 	req := NewBindingRequest([12]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12})
 	_, err := client.Exchange(context.Background(), primary.addr, req)
 	if !errors.Is(err, ErrAlternateLoop) {
@@ -317,6 +329,167 @@ func TestUDPExchangeAlternateServerLoopBounded(t *testing.T) {
 	if primary.requestCount()+alternate.requestCount() > 3 {
 		t.Fatalf("redirect ping-pong not bounded: primary=%d alternate=%d",
 			primary.requestCount(), alternate.requestCount())
+	}
+}
+
+// allowLoopbackAlternates is the package-internal alternate-policy test
+// seam: the production policy (RFC 8489 §10) restricts alternates to
+// global unicast addresses, which rejects the loopback servers these
+// redirection tests use. Tests opt in explicitly through the unexported
+// hook; production callers cannot set it.
+func allowLoopbackAlternates(ap netip.AddrPort) bool {
+	return ap.Addr().Unmap().IsLoopback()
+}
+
+func TestUDPExchangeAlternatesDisabledByDefault(t *testing.T) {
+	// ALTERNATE-SERVER handling is disabled by default (frozen design
+	// reference §6). A 300 reply is therefore the final transaction result
+	// and no datagram may ever be sent to the alternate.
+	alternate := newFakeUDPServer(t, successSpec)
+	primary := newFakeUDPServer(t, func(req *Message, from netip.AddrPort) []replySpec {
+		reply := NewErrorResponse(req.TransactionID, 300, "Try Alternate")
+		_ = reply.AddAlternateServer(alternate.addr)
+		return []replySpec{{msg: reply}}
+	})
+	conn := newClientSocket(t)
+	client := NewUDPClient(conn, UDPClientOptions{RTO: 10 * time.Millisecond, MaxRequests: 3})
+	req := NewBindingRequest([12]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12})
+	reply, err := client.Exchange(context.Background(), primary.addr, req)
+	if err != nil {
+		t.Fatalf("Exchange: %v", err)
+	}
+	code, _, codeErr := reply.ErrorCode()
+	if codeErr != nil || code != 300 {
+		t.Fatalf("reply error code = %d (%v), want the 300 returned un-followed", code, codeErr)
+	}
+	if got := alternate.requestCount(); got != 0 {
+		t.Fatalf("alternate received %d requests, want 0 (alternates disabled by default)", got)
+	}
+}
+
+func TestUDPExchangeAlternatesExplicitlyDisabled(t *testing.T) {
+	// DisableAlternates is the explicit kill switch: even with
+	// MaxAlternates set, the 300 reply is returned un-followed.
+	alternate := newFakeUDPServer(t, successSpec)
+	primary := newFakeUDPServer(t, func(req *Message, from netip.AddrPort) []replySpec {
+		reply := NewErrorResponse(req.TransactionID, 300, "Try Alternate")
+		_ = reply.AddAlternateServer(alternate.addr)
+		return []replySpec{{msg: reply}}
+	})
+	conn := newClientSocket(t)
+	client := NewUDPClient(conn, UDPClientOptions{
+		RTO:               10 * time.Millisecond,
+		MaxRequests:       3,
+		MaxAlternates:     DefaultMaxAlternates,
+		DisableAlternates: true,
+	})
+	req := NewBindingRequest([12]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12})
+	reply, err := client.Exchange(context.Background(), primary.addr, req)
+	if err != nil {
+		t.Fatalf("Exchange: %v", err)
+	}
+	code, _, codeErr := reply.ErrorCode()
+	if codeErr != nil || code != 300 {
+		t.Fatalf("reply error code = %d (%v), want the 300 returned un-followed", code, codeErr)
+	}
+	if got := alternate.requestCount(); got != 0 {
+		t.Fatalf("alternate received %d requests, want 0 (DisableAlternates)", got)
+	}
+}
+
+func TestUDPExchangeAlternateRejectsNonGlobalAddress(t *testing.T) {
+	// RFC 8489 §10 restricts alternates to global unicast addresses: a
+	// forged 300 must not redirect the client into probing loopback or
+	// private space (frozen design reference §6: "validate ... global
+	// address ...").
+	t.Run("loopback", func(t *testing.T) {
+		alternate := newFakeUDPServer(t, successSpec)
+		primary := newFakeUDPServer(t, func(req *Message, from netip.AddrPort) []replySpec {
+			reply := NewErrorResponse(req.TransactionID, 300, "Try Alternate")
+			_ = reply.AddAlternateServer(alternate.addr)
+			return []replySpec{{msg: reply}}
+		})
+		conn := newClientSocket(t)
+		client := NewUDPClient(conn, UDPClientOptions{
+			RTO:           10 * time.Millisecond,
+			MaxRequests:   3,
+			MaxAlternates: DefaultMaxAlternates,
+		})
+		req := NewBindingRequest([12]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12})
+		_, err := client.Exchange(context.Background(), primary.addr, req)
+		if !errors.Is(err, ErrAlternateLoop) {
+			t.Fatalf("Exchange = %v, want ErrAlternateLoop (loopback alternate rejected)", err)
+		}
+		if got := alternate.requestCount(); got != 0 {
+			t.Fatalf("alternate received %d probes, want 0 (non-global alternate must never be contacted)", got)
+		}
+		if got := primary.requestCount(); got != 1 {
+			t.Fatalf("primary saw %d requests, want 1", got)
+		}
+	})
+	t.Run("rfc1918-private", func(t *testing.T) {
+		primary := newFakeUDPServer(t, func(req *Message, from netip.AddrPort) []replySpec {
+			reply := NewErrorResponse(req.TransactionID, 300, "Try Alternate")
+			_ = reply.AddAlternateServer(netip.MustParseAddrPort("192.168.1.1:3478"))
+			return []replySpec{{msg: reply}}
+		})
+		conn := newClientSocket(t)
+		client := NewUDPClient(conn, UDPClientOptions{
+			RTO:           10 * time.Millisecond,
+			MaxRequests:   3,
+			MaxAlternates: DefaultMaxAlternates,
+		})
+		req := NewBindingRequest([12]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12})
+		_, err := client.Exchange(context.Background(), primary.addr, req)
+		if !errors.Is(err, ErrAlternateLoop) {
+			t.Fatalf("Exchange = %v, want ErrAlternateLoop (RFC 1918 alternate rejected)", err)
+		}
+	})
+	t.Run("rfc6598-cgnat", func(t *testing.T) {
+		// Optional hardening from the review: the RFC 6598 shared-address
+		// space (100.64.0.0/10) is carrier-internal and must not be probed
+		// either. Go's IsGlobalUnicast reports it as global, so the CGNAT
+		// prefix is excluded explicitly.
+		primary := newFakeUDPServer(t, func(req *Message, from netip.AddrPort) []replySpec {
+			reply := NewErrorResponse(req.TransactionID, 300, "Try Alternate")
+			_ = reply.AddAlternateServer(netip.MustParseAddrPort("100.64.0.1:3478"))
+			return []replySpec{{msg: reply}}
+		})
+		conn := newClientSocket(t)
+		client := NewUDPClient(conn, UDPClientOptions{
+			RTO:           10 * time.Millisecond,
+			MaxRequests:   3,
+			MaxAlternates: DefaultMaxAlternates,
+		})
+		req := NewBindingRequest([12]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12})
+		_, err := client.Exchange(context.Background(), primary.addr, req)
+		if !errors.Is(err, ErrAlternateLoop) {
+			t.Fatalf("Exchange = %v, want ErrAlternateLoop (RFC 6598 CGNAT alternate rejected)", err)
+		}
+	})
+}
+
+func TestUDPExchangeIPv4MappedSourceOnDualStackSocket(t *testing.T) {
+	// A dual-stack caller-owned socket reports IPv4 sources as IPv4-mapped
+	// (::ffff:a.b.c.d). The demux must unmap the source before comparing it
+	// with the plain-IPv4 server tuple, or every response is dropped as a
+	// wrong source and the exchange times out (P09 FIX1 bug class).
+	server := newFakeUDPServer(t, successSpec)
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6unspecified})
+	if err != nil {
+		t.Skipf("dual-stack listen unavailable: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	client := NewUDPClient(conn, UDPClientOptions{RTO: 10 * time.Millisecond, MaxRequests: 3})
+	req := NewBindingRequest([12]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	reply, err := client.Exchange(ctx, server.addr, req)
+	if err != nil {
+		t.Fatalf("Exchange over dual-stack socket: %v", err)
+	}
+	if reply.TransactionID != req.TransactionID {
+		t.Fatalf("reply txid = %x, want %x", reply.TransactionID, req.TransactionID)
 	}
 }
 

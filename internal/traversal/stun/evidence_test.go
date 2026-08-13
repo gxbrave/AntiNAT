@@ -104,6 +104,29 @@ func TestObserveMappingGateOffSequentialPortReuse(t *testing.T) {
 	}
 }
 
+func TestObserveMappingSameLocalPortDefaultReuseControl(t *testing.T) {
+	// ReuseControl is documented as defaulting to the shared-port reuse
+	// options: a gate-off sequential observation with SameLocalPort must
+	// succeed without the caller setting the hook — the first socket's
+	// TIME_WAIT must not block the same-tuple rebind (QUALITY #1).
+	serverA := newObserveTCPServer(t)
+	serverB := newObserveTCPServer(t)
+	observation, err := ObserveMapping(context.Background(), ObserveMappingOptions{
+		LocalIP:       netip.MustParseAddr("127.0.0.1"),
+		ServerA:       serverA.addr,
+		ServerB:       serverB.addr,
+		Timeout:       2 * time.Second,
+		PlatformGate:  func() bool { return false },
+		SameLocalPort: true,
+	})
+	if err != nil {
+		t.Fatalf("ObserveMapping: %v", err)
+	}
+	if observation.Verdict != VerdictPortReuseObserved {
+		t.Fatalf("verdict = %s, want PORT_REUSE_OBSERVED", observation.Verdict)
+	}
+}
+
 func TestObserveMappingGateOffMappedUnverified(t *testing.T) {
 	// Gate off and diverging mapped ports: nothing is verified.
 	divergent := netip.MustParseAddrPort("198.51.100.9:5000")

@@ -8,8 +8,10 @@
 // doubling after each retransmission), at most Rc requests in total, and a
 // final wait of Rm x RTO after the last request. Error 300 Try Alternate
 // reattempts the request against the ALTERNATE-SERVER with the same
-// transport, using a fresh transaction ID (RFC 8489 §5), bounded by a
-// visited-server set and a total alternate cap (RFC 8489 §10).
+// transport, using a fresh transaction ID (RFC 8489 §5). Redirection is
+// disabled by default (frozen design reference §6); when enabled it is
+// bounded by a visited-server set, a total alternate cap, and the RFC 8489
+// §10 global-unicast address rule.
 package stun
 
 import (
@@ -26,13 +28,15 @@ const (
 	DefaultRTO             = 500 * time.Millisecond
 	DefaultMaxRequests     = 7  // Rc
 	DefaultFinalWaitFactor = 16 // Rm
-	DefaultMaxAlternates   = 3
+	// DefaultMaxAlternates is the standard redirection hop cap used when a
+	// caller opts into 300 Try Alternate handling (MaxAlternates > 0).
+	DefaultMaxAlternates = 3
 )
 
 // UDP client sentinel errors.
 var (
 	ErrTimeout       = errors.New("stun: UDP transaction timed out")
-	ErrAlternateLoop = errors.New("stun: alternate-server redirection loop")
+	ErrAlternateLoop = errors.New("stun: alternate-server redirection rejected or looped")
 	ErrClientClosed  = errors.New("stun: UDP client is closed")
 	ErrNotARequest   = errors.New("stun: exchange requires a request-class message")
 )
@@ -42,7 +46,21 @@ type UDPClientOptions struct {
 	RTO             time.Duration // initial retransmission timeout; default 500 ms
 	MaxRequests     int           // Rc: total requests; default 7
 	FinalWaitFactor int           // Rm: final wait as a multiple of RTO; default 16
-	MaxAlternates   int           // total alternate-server hops; default 3
+	// MaxAlternates caps 300 Try Alternate redirection hops. Redirection is
+	// disabled by default (frozen design reference §6: ALTERNATE-SERVER
+	// disabled by default); set MaxAlternates > 0 to enable it. When
+	// enabled, every alternate must be a global unicast address
+	// (RFC 8489 §10) or the redirect is rejected with ErrAlternateLoop.
+	MaxAlternates int
+	// DisableAlternates is an explicit kill switch: when true, a 300 Try
+	// Alternate reply is returned to the caller as the final transaction
+	// result even when MaxAlternates is set.
+	DisableAlternates bool
+
+	// alternateAllowed overrides the global-unicast alternate policy.
+	// Package-internal test seam only: production callers cannot set it,
+	// so the RFC 8489 §10 default cannot be weakened outside this package.
+	alternateAllowed func(netip.AddrPort) bool
 }
 
 func (o UDPClientOptions) withDefaults() UDPClientOptions {
@@ -55,8 +73,8 @@ func (o UDPClientOptions) withDefaults() UDPClientOptions {
 	if o.FinalWaitFactor <= 0 {
 		o.FinalWaitFactor = DefaultFinalWaitFactor
 	}
-	if o.MaxAlternates <= 0 {
-		o.MaxAlternates = DefaultMaxAlternates
+	if o.MaxAlternates < 0 {
+		o.MaxAlternates = 0
 	}
 	return o
 }
@@ -108,10 +126,13 @@ func (c *UDPClient) Close() {
 
 // Exchange sends req to server and waits for the matching response. It
 // retransmits with doubling RTO until a response, the Rc cap, or the context
-// deadline. On 300 Try Alternate with ALTERNATE-SERVER it reattempts against
-// the alternate (bounded). The response is accepted only when its source is
-// the exact server tuple, its class is success/error, its method matches,
-// and its transaction ID matches the request (v0.8 §4.3).
+// deadline. 300 Try Alternate reattempts against the ALTERNATE-SERVER with
+// the same transport and a fresh transaction ID, but only when redirection
+// is enabled (MaxAlternates > 0 and DisableAlternates false; it is disabled
+// by default) and the alternate is a global unicast address (RFC 8489 §10).
+// The response is accepted only when its source is the exact server tuple,
+// its class is success/error, its method matches, and its transaction ID
+// matches the request (v0.8 §4.3).
 func (c *UDPClient) Exchange(ctx context.Context, server netip.AddrPort, req *Message) (*Message, error) {
 	if req.Type.Class() != ClassRequest {
 		return nil, ErrNotARequest
@@ -126,8 +147,19 @@ func (c *UDPClient) Exchange(ctx context.Context, server netip.AddrPort, req *Me
 		if codeErr != nil || code != 300 {
 			return reply, nil
 		}
+		if c.opts.DisableAlternates || c.opts.MaxAlternates <= 0 {
+			// ALTERNATE-SERVER handling is disabled by default (frozen
+			// design reference §6): the 300 error is the final result.
+			return reply, nil
+		}
 		alt, altErr := reply.AlternateServer()
 		if altErr != nil || visited[alt] || alternates >= c.opts.MaxAlternates {
+			return nil, ErrAlternateLoop
+		}
+		if !c.alternateAllowed(alt) {
+			// RFC 8489 §10 restricts alternates to global unicast
+			// addresses; a forged 300 must not redirect the client into
+			// probing private/internal/metadata space.
 			return nil, ErrAlternateLoop
 		}
 		// The current transaction is failed; reattempt against the alternate
@@ -147,6 +179,37 @@ func (c *UDPClient) Exchange(ctx context.Context, server netip.AddrPort, req *Me
 		alternates++
 	}
 }
+
+// alternateAllowed applies the ALTERNATE-SERVER address-class policy,
+// defaulting to the RFC 8489 §10 global-unicast rule. The unexported
+// override is a package-internal test seam (never settable by production
+// callers) that lets tests exercise the redirection path on loopback.
+func (c *UDPClient) alternateAllowed(alt netip.AddrPort) bool {
+	if c.opts.alternateAllowed != nil {
+		return c.opts.alternateAllowed(alt)
+	}
+	return defaultAlternateAllowed(alt)
+}
+
+// defaultAlternateAllowed reports whether an alternate server address may
+// be followed. The policy implements the RFC 8489 §10 global-unicast
+// restriction (frozen design reference §6: "validate transport, global
+// address, loop count, and redirect count"): loopback, link-local,
+// multicast, unspecified, RFC 1918 private, and RFC 6598 CGNAT addresses
+// are refused, so a forged 300 cannot redirect the client into probing
+// internal networks. netip.Addr.IsGlobalUnicast alone is not sufficient —
+// it reports true for RFC 1918 private space — so IsPrivate and the CGNAT
+// prefix are excluded explicitly.
+func defaultAlternateAllowed(alt netip.AddrPort) bool {
+	addr := alt.Addr().Unmap()
+	if !addr.IsGlobalUnicast() || addr.IsPrivate() || cgnatPrefix.Contains(addr) {
+		return false
+	}
+	return true
+}
+
+// cgnatPrefix is the RFC 6598 shared-address space (100.64.0.0/10).
+var cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
 
 // exchangeOnce runs one request/response transaction against a single server.
 func (c *UDPClient) exchangeOnce(ctx context.Context, server netip.AddrPort, req *Message) (*Message, error) {
@@ -256,7 +319,11 @@ func (c *UDPClient) readerLoop() {
 		if class != ClassSuccess && class != ClassError {
 			continue // wrong class (e.g. an echoed request) is not a response
 		}
+		// On a dual-stack caller-owned socket, IPv4 responses arrive with an
+		// IPv4-mapped source (::ffff:a.b.c.d); unmap before comparing against
+		// the plain-IPv4 server tuple (same bug class as P09 FIX1).
 		source := from.AddrPort()
+		source = netip.AddrPortFrom(source.Addr().Unmap(), source.Port())
 		c.mu.Lock()
 		w, ok := c.waiters[msg.TransactionID]
 		if ok && w.server == source && w.method == msg.Type.Method() {
