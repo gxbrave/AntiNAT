@@ -108,3 +108,58 @@ fallback; per-attempt deadline; no-address/malformed fail closed), oversize
 WS message closes the session (read limit = max envelope), oversize enroll
 bodies rejected, garbage handshake message fails closed, and plaintext
 public enrollment refused by default with loopback plaintext still allowed.
+
+## FIX1 — repair cycle 1 (P08-QUALITY F1 + F2)
+
+F1: the controller requeued SEMANTIC_ACKED outbox rows on reconnect,
+re-delivering a command the agent had already durably receipted; the agent
+journal failed closed with ErrAlreadyReceipted, the session died, and the
+row leaked in SENT with reconnect churn (liveness + unbounded retention).
+
+RED command (F1-a): `go test ./internal/controller/store/ -run TestControlOutboxRequeueSkipsSemanticAcked -count=1`
+
+RED reason: `requeued = 2, want 1` — RequeueControlOutboxForSession reset
+the SEMANTIC_ACKED row to PENDING.
+
+RED command (F1-c): `go test ./internal/agent/control/ -run TestReconnectAfterDurableAgentReceiptKeepsSessionAlive -count=1`
+
+RED reason: `op-1 state after reconnect = "PENDING", want SEMANTIC_ACKED` —
+the tombstoned-agent corner row was requeued (and re-delivered, killing the
+session).
+
+RED command (F1-b): `go test ./internal/agent/control/ -run TestReconnectResultResendHealsSemanticAckedRow -count=1`
+after the (a) requeue fix landed but before the (b) handler fix.
+
+RED reason: `op-1 row not GC'd by the result-resend heal: state=SEMANTIC_ACKED`
+— with the row no longer requeued, the result resend hit handleAgentResult
+with no SEMANTIC_ACKED case; the strict SENT->SEMANTIC_ACKED ack failed as
+stale-session and the session died, so the row never healed.
+
+RED command (rebind method): `go vet ./internal/controller/store/`
+
+RED reason: `s.RebindControlOutboxSession undefined` (new store method
+absent).
+
+GREEN (F1):
+- `RequeueControlOutboxForSession` requeues only CLAIMED/SENT; SEMANTIC_ACKED
+  rows are never re-delivered (late GC is P14 receipt-TTL sweeper scope).
+- `handleAgentResult` gains a SEMANTIC_ACKED case: the deduped result resend
+  re-binds the row to the new session (new `RebindControlOutboxSession`
+  store method, fail-closed for non-SEMANTIC_ACKED), skips the FSM advance,
+  and re-writes the idempotent C2A receipt so the agent GCs its own row and
+  the follow-up A2C receipt completes the controller GC — the receipt-window
+  row heals end to end. SENT rows keep the pre-FIX1 fall-through (the strict
+  ack is their legal advance).
+- `TestReconnectResendsResultWithoutDuplicateSideEffect` updated to the new
+  contract: rows are terminal when GONE or SEMANTIC_ACKED, and any retained
+  row must coexist with an ONLINE session (the pre-FIX1 code killed the
+  session and leaked the row in SENT). The second command is enqueued only
+  after the first apply so the hard disconnect is timed after processing,
+  never inside it.
+
+F2: `protectDPAPI`/`unprotectDPAPI` returned `unsafe.Slice` into the DPAPI
+output buffer after the deferred `windows.LocalFree` had freed it
+(use-after-free on every Windows key-file load/save). Fixed by copying into
+a Go-owned buffer before the deferred free. Windows-tagged round-trip test
+(`keyfile_windows_test.go`) compiles under GOOS=windows (vet + test -c);
+runtime requires a Windows host (cross-build evidence this milestone).
