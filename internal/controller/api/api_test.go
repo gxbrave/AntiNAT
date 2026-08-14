@@ -325,6 +325,75 @@ func TestForwardCreateListDelete(t *testing.T) {
 	if op["operation_id"] == nil {
 		t.Fatalf("delete response missing operation_id: %s", body5)
 	}
+	operationID := op["operation_id"].(string)
+	// The frozen deletion polling route is not nested below /forwards.
+	pollResp, pollBody := doReq(t, srv, http.MethodGet,
+		"/api/v1/forward-deletions/"+operationID, cookie, nil)
+	if pollResp.StatusCode != http.StatusOK {
+		t.Fatalf("poll deletion = %d, want 200 (%s)", pollResp.StatusCode, pollBody)
+	}
+}
+
+func TestForwardCreateIdempotencyReplayAndConflict(t *testing.T) {
+	srv, st := newTestServer(t)
+	user, pass := initAdmin(t, srv, st)
+	cookie := login(t, srv, user, pass)
+
+	createNode := func() string {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/nodes",
+			strings.NewReader(`{"name":"idempotent-node"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", "node-replay-0001")
+		req.AddCookie(cookie)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("create node = %d (%s)", resp.StatusCode, body)
+		}
+		var view map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&view); err != nil {
+			t.Fatal(err)
+		}
+		return view["id"].(string)
+	}
+	nodeID := createNode()
+
+	post := func(target string) (int, []byte) {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/forwards",
+			strings.NewReader(`{"node_id":"`+nodeID+`","name":"idempotent-forward","protocol":"tcp","target":"`+target+`","strategy":"direct-v4"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", "forward-replay-0001")
+		req.AddCookie(cookie)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, body
+	}
+	status, first := post("10.0.0.1:80")
+	if status != http.StatusCreated {
+		t.Fatalf("first forward create = %d (%s)", status, first)
+	}
+	status, replay := post("10.0.0.1:80")
+	if status != http.StatusCreated {
+		t.Fatalf("same-key replay = %d (%s)", status, replay)
+	}
+	var firstView, replayView map[string]any
+	_ = json.Unmarshal(first, &firstView)
+	_ = json.Unmarshal(replay, &replayView)
+	if firstView["id"] != replayView["id"] {
+		t.Fatalf("replay created a different forward: first=%s replay=%s", first, replay)
+	}
+	status, conflict := post("10.0.0.2:80")
+	if status != http.StatusConflict || !strings.Contains(string(conflict), "IDEMPOTENCY_CONFLICT") {
+		t.Fatalf("different-body reuse = %d (%s), want 409 IDEMPOTENCY_CONFLICT", status, conflict)
+	}
 }
 
 // TestIdempotencyConflict covers Story 4 RED: the same Idempotency-Key with a

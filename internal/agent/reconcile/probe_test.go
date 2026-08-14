@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"net"
 	"path/filepath"
 	"testing"
@@ -232,6 +233,10 @@ func TestProbeGateAcceptsAndAcks(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("no probe_ingress_receipt sent")
 	}
+	consumed, ok, err := e.store.LoadArmedProbe(arm.ProbeID)
+	if err != nil || !ok || !consumed.Consumed {
+		t.Fatalf("consumed probe not durably retained: ok=%v err=%v record=%+v", ok, err, consumed)
+	}
 
 	// The probe connection is consumed, NOT handed to business.
 	select {
@@ -286,6 +291,100 @@ func TestProbeGateWrongSourcePassesToBusiness(t *testing.T) {
 	case s := <-e.sent:
 		t.Fatalf("unexpected control message for business conn: %+v", s)
 	default:
+	}
+}
+
+// TestProbeIngressDemultiplexesSameSourceByFrame verifies that two active
+// operations sharing one source IP are selected by authenticated frame fields,
+// not by map iteration order.
+func TestProbeIngressDemultiplexesSameSourceByFrame(t *testing.T) {
+	e := newProbeTestEnv(t)
+	first := e.mustArm(t)
+
+	_, secondProvider, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := first
+	rand.Read(second.ProbeID[:])
+	rand.Read(second.ProviderID[:])
+	second.ProviderPublicKey = [32]byte(secondProvider.Public().(ed25519.PublicKey))
+	rand.Read(second.ExpiryOpaque[:])
+	if _, err := e.mgr.HandleProbeArm(context.Background(), second.Canonical(), e.forward); err != nil {
+		t.Fatalf("second arm: %v", err)
+	}
+
+	server, client := net.Pipe()
+	done := make(chan struct{})
+	go func() {
+		e.mgr.handleIngress(server, [4]byte{127, 0, 0, 1}, 2*time.Second)
+		close(done)
+	}()
+
+	challenge := [32]byte{}
+	rand.Read(challenge[:])
+	frame := protocol.ProviderFrame{
+		ArmDigest:    second.Digest(),
+		ProbeID:      second.ProbeID,
+		ProviderID:   second.ProviderID,
+		Activation:   second.Activation,
+		Endpoint:     second.Endpoint,
+		ExpiryOpaque: second.ExpiryOpaque,
+		Challenge:    challenge,
+	}
+	frame.Signature = ed25519.Sign(secondProvider, frame.SigningBytes())
+	go func() { _, _ = client.Write(wan1Bytes(frame)) }()
+	ackBytes := make([]byte, 4+32+32+64)
+	if _, err := readFull(client, ackBytes); err != nil {
+		t.Fatalf("same-source frame was not acknowledged: %v", err)
+	}
+	if _, err := protocol.ParseProbeACK(ackBytes, e.key.PublicKey()); err != nil {
+		t.Fatalf("same-source ACK invalid: %v", err)
+	}
+	client.Close()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("same-source ingress handler did not finish")
+	}
+	if rec, ok, err := e.store.LoadArmedProbe(second.ProbeID); err != nil || !ok || !rec.Consumed {
+		t.Fatalf("second operation was not consumed: ok=%v err=%v rec=%+v", ok, err, rec)
+	}
+	if rec, ok, err := e.store.LoadArmedProbe(first.ProbeID); err != nil || !ok || rec.Consumed {
+		t.Fatalf("first operation was consumed by second frame: ok=%v err=%v rec=%+v", ok, err, rec)
+	}
+	if _, err := e.mgr.HandleProbeArm(context.Background(), second.Canonical(), e.forward); !errors.Is(err, ErrProbeArmRejected) {
+		t.Fatalf("consumed operation was rearmed: %v", err)
+	}
+}
+
+// TestRetryPendingReceiptsMarksDurableReceiptSent covers restart/disconnect
+// recovery: a consumed row with an unsent receipt is retried and only then
+// marked sent.
+func TestRetryPendingReceiptsMarksDurableReceiptSent(t *testing.T) {
+	e := newProbeTestEnv(t)
+	arm := e.mustArm(t)
+	receipt := []byte("durable-receipt")
+	if err := e.store.MarkArmedProbeConsumed(arm.ProbeID, receipt); err != nil {
+		t.Fatalf("mark consumed: %v", err)
+	}
+	calls := 0
+	e.mgr.send = func(ctx context.Context, messageType string, payload []byte) error {
+		calls++
+		if messageType != "probe_ingress_receipt" || string(payload) != string(receipt) {
+			t.Fatalf("unexpected retry payload: %q %q", messageType, payload)
+		}
+		return nil
+	}
+	if err := e.mgr.RetryPendingReceipts(context.Background()); err != nil {
+		t.Fatalf("retry pending receipt: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("retry calls = %d, want 1", calls)
+	}
+	rec, ok, err := e.store.LoadArmedProbe(arm.ProbeID)
+	if err != nil || !ok || !rec.Consumed || !rec.ReceiptSent {
+		t.Fatalf("receipt state after retry: ok=%v err=%v rec=%+v", ok, err, rec)
 	}
 }
 

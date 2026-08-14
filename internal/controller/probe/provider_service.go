@@ -42,18 +42,21 @@ type ProviderConfig struct {
 	MaxConcurrent int
 	// ReplayWindow bounds the nonce replay cache.
 	ReplayWindow time.Duration
+	// MaxReplayEntries bounds the TTL replay cache.
+	MaxReplayEntries int
 	// MaxRequestBytes bounds request bodies.
 	MaxRequestBytes int64
 }
 
 // Provider is the bounded antinat-probe service.
 type Provider struct {
-	cfg      ProviderConfig
-	slots    chan struct{}
-	mu       sync.Mutex
-	replay   map[string]time.Time
-	started  time.Time
-	requests int64
+	cfg       ProviderConfig
+	slots     chan struct{}
+	mu        sync.Mutex
+	replay    map[string]time.Time
+	started   time.Time
+	requests  int64
+	maxReplay int
 }
 
 // NewProvider validates config and builds the provider.
@@ -79,14 +82,18 @@ func NewProvider(cfg ProviderConfig) (*Provider, error) {
 	if cfg.ReplayWindow <= 0 {
 		cfg.ReplayWindow = protocol.ProbeReplayWindow
 	}
+	if cfg.MaxReplayEntries <= 0 {
+		cfg.MaxReplayEntries = 4096
+	}
 	if cfg.MaxRequestBytes <= 0 {
 		cfg.MaxRequestBytes = 8192
 	}
 	return &Provider{
-		cfg:     cfg,
-		slots:   make(chan struct{}, cfg.MaxConcurrent),
-		replay:  map[string]time.Time{},
-		started: cfg.Clock(),
+		cfg:       cfg,
+		slots:     make(chan struct{}, cfg.MaxConcurrent),
+		replay:    map[string]time.Time{},
+		started:   cfg.Clock(),
+		maxReplay: cfg.MaxReplayEntries,
 	}, nil
 }
 
@@ -135,14 +142,33 @@ func (p *Provider) handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TTL nonce replay cache: the same request (by probe id) within the
-	// window is a replay and is refused generically.
+	// window is a replay and is refused generically. Expired entries and the
+	// oldest live entry are evicted before admitting a new id.
+	now := p.cfg.Clock()
 	p.mu.Lock()
-	if expire, ok := p.replay[req.ProbeID]; ok && p.cfg.Clock().Before(expire) {
+	for id, expire := range p.replay {
+		if !now.Before(expire) {
+			delete(p.replay, id)
+		}
+	}
+	if expire, ok := p.replay[req.ProbeID]; ok && now.Before(expire) {
 		p.mu.Unlock()
 		writeProviderResult(w, p.cfg.ProviderPrivateKey, providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "replay"})
 		return
 	}
-	p.replay[req.ProbeID] = p.cfg.Clock().Add(p.cfg.ReplayWindow)
+	if len(p.replay) >= p.maxReplay {
+		var oldestID string
+		var oldest time.Time
+		for id, expire := range p.replay {
+			if oldest.IsZero() || expire.Before(oldest) {
+				oldestID, oldest = id, expire
+			}
+		}
+		if oldestID != "" {
+			delete(p.replay, oldestID)
+		}
+	}
+	p.replay[req.ProbeID] = now.Add(p.cfg.ReplayWindow)
 	p.mu.Unlock()
 
 	// Bounded concurrency.

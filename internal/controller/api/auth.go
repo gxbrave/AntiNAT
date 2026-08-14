@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gxbrave/AntiNAT/internal/controller/auth"
@@ -72,6 +73,9 @@ type Server struct {
 	store  *store.Store
 	auth   *auth.AuthService
 	health *healthState
+	// idempotencyMu closes the create-side effect window within one API
+	// process; the durable store still owns replay/conflict decisions.
+	idempotencyMu sync.Mutex
 }
 
 // NewServer validates config and builds the minimal API server.
@@ -103,6 +107,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("/api/v1/forwards", s.requireAuth(s.handleForwards))
 	mux.HandleFunc("/api/v1/forwards/", s.requireAuth(s.handleForwardByID))
+	mux.HandleFunc("/api/v1/forward-deletions/", s.requireAuth(s.handleDeletionPollPath))
 }
 
 // handleInit implements POST /api/v1/auth/init (P10 bootstrap surface, not in

@@ -17,6 +17,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -25,11 +27,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
 	"github.com/gxbrave/AntiNAT/internal/controller/probe"
-	"github.com/gxbrave/AntiNAT/internal/security"
 )
 
 // providerConfig is the strict-JSON provider config.
@@ -82,7 +82,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "antinat-probe: controller_public_key is not hex: %v\n", err)
 		os.Exit(1)
 	}
-	provKey, err := security.LoadOrCreateKeyring(filepath.Dir(cfg.ProviderKeyFile), 1)
+	provKey, err := loadProviderPrivateKey(cfg.ProviderKeyFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "antinat-probe: provider key: %v\n", err)
 		os.Exit(1)
@@ -90,7 +90,7 @@ func main() {
 
 	provider, err := probe.NewProvider(probe.ProviderConfig{
 		ControllerPublicKey: ctrlPub,
-		ProviderPrivateKey:  provKey.PrivateKey(),
+		ProviderPrivateKey:  provKey,
 		MaxConcurrent:       cfg.MaxConcurrent,
 	})
 	if err != nil {
@@ -113,4 +113,31 @@ func main() {
 		fmt.Fprintf(os.Stderr, "antinat-probe: serve: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// loadProviderPrivateKey loads the exact operator-configured key file. The
+// file uses the same ANKC envelope as the security keyring, but unlike the
+// controller helper this function never substitutes a directory default.
+func loadProviderPrivateKey(path string) (ed25519.PrivateKey, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat key file: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return nil, errors.New("key file must be a regular non-symlink file")
+	}
+	if info.Mode().Perm() != 0o600 {
+		return nil, fmt.Errorf("key file mode %o is not 0600", info.Mode().Perm())
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read key file: %w", err)
+	}
+	if len(raw) != 4+8+ed25519.PrivateKeySize || string(raw[:4]) != "ANKC" {
+		return nil, errors.New("key file has invalid ANKC format")
+	}
+	if generation := binary.BigEndian.Uint64(raw[4:12]); generation != 1 {
+		return nil, fmt.Errorf("key file generation %d is unsupported", generation)
+	}
+	return ed25519.PrivateKey(append([]byte(nil), raw[12:]...)), nil
 }

@@ -51,6 +51,9 @@ type Config struct {
 	// RouteTable overrides the direct-v4 source assessment (tests inject a
 	// deterministic table; nil uses the live host table).
 	RouteTable traversal.RouteTable
+	// LivenessInterval controls route/interface capability polling. Zero uses
+	// a conservative default.
+	LivenessInterval time.Duration
 }
 
 // App is one composed agent process.
@@ -90,6 +93,12 @@ func New(cfg Config) (*App, error) {
 	}
 	if cfg.Clock == nil {
 		cfg.Clock = time.Now
+	}
+	if cfg.LivenessInterval <= 0 {
+		cfg.LivenessInterval = 5 * time.Second
+	}
+	if cfg.RouteTable == nil {
+		cfg.RouteTable = traversal.HostRouteTable{}
 	}
 	a := &App{cfg: cfg}
 
@@ -175,20 +184,71 @@ func New(cfg Config) (*App, error) {
 func (a *App) Start(ctx context.Context) error {
 	if err := a.client.Connect(ctx); err != nil {
 		a.client.Close()
+		a.dp.closeAll()
+		_ = a.store.Close()
 		return fmt.Errorf("agent: control connect: %w", err)
 	}
+	// A receipt may have been durably recorded immediately before a crash or
+	// control disconnect. Retry it after the new session is established; a
+	// transient send failure remains durable for the next reconnect.
+	_ = a.probeMgr.RetryPendingReceipts(ctx)
 	// Restart recovery: reopen listeners for durably applied forwards
 	// (Story 6: restart restores the listener, initially UNVERIFIED).
 	if err := a.dp.recover(ctx); err != nil {
 		a.client.Close()
+		a.dp.closeAll()
+		_ = a.store.Close()
 		return fmt.Errorf("agent: data plane recovery: %w", err)
 	}
+	go a.monitorLiveness(ctx)
 	a.ready.Store(true)
 	return nil
 }
 
 // Ready reports whether the control session is established.
 func (a *App) Ready() bool { return a.ready.Load() }
+
+// monitorLiveness polls the route/interface capability seam. A loss first
+// tears down listeners and unpublishes activation evidence; recovery then
+// reopens the durable desired forwards from the current bind state.
+func (a *App) monitorLiveness(ctx context.Context) {
+	ticker := time.NewTicker(a.cfg.LivenessInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_, capability, err := traversal.Assess(a.cfg.RouteTable)
+			available := err == nil && capability == traversal.CapabilityDirectV4Ready
+			if !available {
+				if a.dp.markCapabilityLost() {
+					a.markEvidenceLost()
+				}
+				continue
+			}
+			if a.dp.markCapabilityRestored() {
+				if err := a.dp.recover(ctx); err != nil {
+					// Keep the capability degraded so the next poll retries
+					// recovery, without claiming a listener is active.
+					a.dp.markCapabilityLost()
+				}
+			}
+		}
+	}
+}
+
+func (a *App) markEvidenceLost() {
+	a.dp.mu.Lock()
+	activations := make([]*reconcile.Activation, 0, len(a.activations))
+	for _, act := range a.activations {
+		activations = append(activations, act)
+	}
+	a.dp.mu.Unlock()
+	for _, act := range activations {
+		_ = act.EvidenceLost()
+	}
+}
 
 // handleCommand is the control client's OnCommand hook: durable commands
 // from the controller. It returns the semantic result payload or an error
@@ -315,9 +375,11 @@ func (a *App) Store() *localstate.Store { return a.store }
 // TCP listener per applied forward via the traversal PortRegistry, wraps it
 // in the probe gate, and proxies with the P09 tcp.Forward.
 type dataPlane struct {
-	cfg      dataPlaneConfig
-	mu       sync.Mutex
-	forwards map[string]*forwardActor
+	cfg             dataPlaneConfig
+	registry        *traversal.PortRegistry
+	mu              sync.Mutex
+	forwards        map[string]*forwardActor
+	capabilityReady bool
 }
 
 type dataPlaneConfig struct {
@@ -344,7 +406,7 @@ func newDataPlane(cfg dataPlaneConfig) *dataPlane {
 	if cfg.Clock == nil {
 		cfg.Clock = time.Now
 	}
-	return &dataPlane{cfg: cfg, forwards: make(map[string]*forwardActor)}
+	return &dataPlane{cfg: cfg, registry: traversal.NewPortRegistry(), forwards: make(map[string]*forwardActor), capabilityReady: true}
 }
 
 // apply implements reconcile.ApplyHook: it opens (or hot-updates) one
@@ -376,8 +438,7 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 		d.mu.Unlock()
 		return protocol.AppliedForwardState{}, traversal.ErrNoGlobalV4Source
 	}
-	registry := traversal.NewPortRegistry()
-	lease, err := registry.Acquire(ctx, spec.ForwardID, traversal.TupleKey{
+	lease, err := d.registry.Acquire(ctx, spec.ForwardID, traversal.TupleKey{
 		Address:  sel.Source.String(),
 		Port:     spec.RequestedLocalPort,
 		Family:   "ipv4",
@@ -415,6 +476,46 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 	return st, nil
 }
 
+// markCapabilityLost stops every data-plane actor before any remap/reprobe and
+// records a one-shot transition for the liveness watcher.
+func (d *dataPlane) markCapabilityLost() bool {
+	d.mu.Lock()
+	if !d.capabilityReady {
+		d.mu.Unlock()
+		return false
+	}
+	d.capabilityReady = false
+	actors := make([]*forwardActor, 0, len(d.forwards))
+	for id, actor := range d.forwards {
+		actors = append(actors, actor)
+		delete(d.forwards, id)
+	}
+	d.mu.Unlock()
+	for _, actor := range actors {
+		if actor.stop != nil {
+			actor.stop()
+		}
+		if actor.fwd != nil {
+			_ = actor.fwd.Close()
+		}
+		if actor.lease != nil {
+			_ = actor.lease.Release()
+		}
+	}
+	return true
+}
+
+// markCapabilityRestored returns true once per loss->restore transition.
+func (d *dataPlane) markCapabilityRestored() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.capabilityReady {
+		return false
+	}
+	d.capabilityReady = true
+	return true
+}
+
 // stop implements reconcile.StopHook: it stops one forward's actor.
 func (d *dataPlane) stop(ctx context.Context, forwardID string) error {
 	d.mu.Lock()
@@ -426,9 +527,16 @@ func (d *dataPlane) stop(ctx context.Context, forwardID string) error {
 	if !ok {
 		return nil
 	}
-	actor.stop()
-	_ = actor.fwd.Close()
-	return actor.lease.Release()
+	if actor.stop != nil {
+		actor.stop()
+	}
+	if actor.fwd != nil {
+		_ = actor.fwd.Close()
+	}
+	if actor.lease != nil {
+		return actor.lease.Release()
+	}
+	return nil
 }
 
 // recover reopens a listener for every durably applied PRESENT forward
@@ -457,7 +565,10 @@ func (d *dataPlane) recover(ctx context.Context) error {
 		if !ok {
 			continue
 		}
-		if _, exists := d.forwards[st.ForwardID]; exists {
+		d.mu.Lock()
+		_, exists := d.forwards[st.ForwardID]
+		d.mu.Unlock()
+		if exists {
 			continue
 		}
 		if err := d.reopen(ctx, spec, st); err != nil {
@@ -469,8 +580,7 @@ func (d *dataPlane) recover(ctx context.Context) error {
 
 // reopen restores one forward's actor on the durable bind tuple.
 func (d *dataPlane) reopen(ctx context.Context, spec protocol.ForwardSpec, st protocol.AppliedForwardState) error {
-	registry := traversal.NewPortRegistry()
-	lease, err := registry.Acquire(ctx, spec.ForwardID, traversal.TupleKey{
+	lease, err := d.registry.Acquire(ctx, spec.ForwardID, traversal.TupleKey{
 		Address:  st.ActualBindHost,
 		Port:     st.ActualBindPort,
 		Family:   "ipv4",
@@ -495,7 +605,16 @@ func (d *dataPlane) reopen(ctx context.Context, spec protocol.ForwardSpec, st pr
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
 	go fwd.Run(runCtx)
+	d.mu.Lock()
+	if _, exists := d.forwards[spec.ForwardID]; exists {
+		d.mu.Unlock()
+		cancel()
+		_ = fwd.Close()
+		_ = lease.Release()
+		return nil
+	}
 	d.forwards[spec.ForwardID] = &forwardActor{lease: lease, fwd: fwd, backend: backend, stop: cancel}
+	d.mu.Unlock()
 	if d.cfg.OnApplied != nil {
 		d.cfg.OnApplied(spec, appliedState(spec, lease, d.cfg.Clock))
 	}
@@ -506,9 +625,15 @@ func (d *dataPlane) closeAll() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for id, actor := range d.forwards {
-		actor.stop()
-		_ = actor.fwd.Close()
-		_ = actor.lease.Release()
+		if actor.stop != nil {
+			actor.stop()
+		}
+		if actor.fwd != nil {
+			_ = actor.fwd.Close()
+		}
+		if actor.lease != nil {
+			_ = actor.lease.Release()
+		}
 		delete(d.forwards, id)
 	}
 }

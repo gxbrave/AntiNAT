@@ -74,7 +74,7 @@ func (a *Activation) Set(s protocol.ActivationStates) error {
 func (a *Activation) Update(axis, value string, eventGeneration uint64) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if eventGeneration < a.generation {
+	if eventGeneration != a.generation {
 		return ErrStaleEvent
 	}
 	if !protocol.ValidAxisValue(axis, value) {

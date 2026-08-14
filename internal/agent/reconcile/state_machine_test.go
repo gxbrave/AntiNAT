@@ -97,6 +97,26 @@ func TestActivationStaleEventCannotOverwriteCurrentCAS(t *testing.T) {
 	}
 }
 
+// TestActivationFutureGenerationCannotBypassCAS covers the other side of the
+// generation fence: a future event must not mutate the current activation
+// while leaving its generation unchanged.
+func TestActivationFutureGenerationCannotBypassCAS(t *testing.T) {
+	act := NewActivation("fwd-future", "act-future", 1)
+	if err := act.Update("wan_reachability_state", "PROBING", 1); err != nil {
+		t.Fatalf("start probe state: %v", err)
+	}
+	if err := act.RecordProbeOutcome(protocol.OutcomeOpenFromVantage, 2); !errors.Is(err, ErrStaleEvent) {
+		t.Fatalf("future outcome error = %v, want ErrStaleEvent", err)
+	}
+	snap := act.Snapshot()
+	if snap.WanReachabilityState != "PROBING" || snap.PublicationState != "NONE" {
+		t.Fatalf("future event mutated snapshot: %+v", snap)
+	}
+	if got := act.Generation(); got != 1 {
+		t.Fatalf("future event advanced generation to %d", got)
+	}
+}
+
 // TestActivationEvidenceLossImmediateUnpublish covers Story 3 RED: on local
 // evidence loss the old publication is immediately marked stale/unpublished
 // (docs/state-model.md §5) before any remap/reprobe is attempted.

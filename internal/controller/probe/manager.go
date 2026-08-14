@@ -264,10 +264,19 @@ func (m *Manager) handleProbeResult(nodeID string, payload []byte) error {
 	if err != nil {
 		return err
 	}
-	if op.Status == string(protocol.OutcomeOpenFromVantage) {
+	if op.NodeID != nodeID {
+		return errors.New("probe: probe_result node mismatch")
+	}
+	outcome, err := protocol.ParseProbeOutcome(v.Outcome)
+	if err != nil || outcome == protocol.OutcomeArmed || outcome == protocol.OutcomeAccepted || outcome == protocol.OutcomeUnknown {
+		return errors.New("probe: invalid probe_result outcome")
+	}
+	if op.Status == string(protocol.OutcomeOpenFromVantage) || op.Status == string(protocol.OutcomeRejected) ||
+		op.Status == string(protocol.OutcomeDropped) || op.Status == string(protocol.OutcomeTimeout) ||
+		op.Status == string(protocol.OutcomeNoIndependentVantage) || op.Status == string(protocol.OutcomeProbeInfraUnavailable) {
 		return nil // terminal already
 	}
-	return m.store.SetProbeOperationStatus(op.ID, v.Outcome)
+	return m.store.SetProbeOperationStatus(op.ID, string(outcome))
 }
 
 // requestProvider sends the controller-signed provider request and records
@@ -323,8 +332,22 @@ func (m *Manager) requestProvider(op store.ProbeOperation, nodeID string, nodePu
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		_ = m.store.SetProbeOperationStatus(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
+		return
+	}
 	var res providerResult
 	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		_ = m.store.SetProbeOperationStatus(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
+		return
+	}
+	if res.ProbeID != op.ID {
+		_ = m.store.SetProbeOperationStatus(op.ID, string(protocol.OutcomeRejected))
+		return
+	}
+	const resultClockSkewSeconds int64 = 5 * 60
+	if res.TimestampUnix < op.CreatedAt-resultClockSkewSeconds || res.TimestampUnix > op.ExpiresAt+resultClockSkewSeconds {
+		_ = m.store.SetProbeOperationStatus(op.ID, string(protocol.OutcomeTimeout))
 		return
 	}
 	providerPub, err := hex.DecodeString(provider.PublicKey)

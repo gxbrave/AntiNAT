@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
 	"github.com/gxbrave/AntiNAT/internal/protocol"
@@ -60,9 +61,9 @@ func (s *Server) handleForwards(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				continue
 			}
-			states, _ := s.store.GetForwardRuntimeStatus(f.ID)
+			states, stateErr := s.store.GetForwardRuntimeStatus(f.ID)
 			var statesPtr *store.ForwardRuntimeStatus
-			if err == nil {
+			if stateErr == nil {
 				statesPtr = &states
 			}
 			items = append(items, s.forwardView(f, spec, statesPtr))
@@ -86,6 +87,30 @@ func (s *Server) handleForwards(w http.ResponseWriter, r *http.Request) {
 			PublicPort uint16 `json:"requested_public_port,omitempty"`
 		}
 		if !decodeJSON(w, r, &body) {
+			return
+		}
+		// Idempotency is checked before any forward side effect. The server
+		// mutex closes the in-process race between the check and persistence;
+		// the durable record remains the replay/conflict authority.
+		s.idempotencyMu.Lock()
+		defer s.idempotencyMu.Unlock()
+		principal := "admin"
+		if user, ok := s.currentUser(r); ok && user.ID != "" {
+			principal = user.ID
+		}
+		requestHash := requestHashOf(body)
+		if existing, err := s.store.GetIdempotency(key); err == nil && existing.ExpiresAt > time.Now().Unix() {
+			if existing.Route != "/api/v1/forwards" || existing.Principal != principal || existing.RequestHash != requestHash {
+				writeError(w, http.StatusConflict, "IDEMPOTENCY_CONFLICT", "Idempotency-Key reused with a different request")
+				return
+			}
+			if existing.ResponseBody == "" {
+				writeError(w, http.StatusConflict, "CONFLICT", "request with this Idempotency-Key is in progress")
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(existing.ResponseStatus)
+			_, _ = w.Write([]byte(existing.ResponseBody))
 			return
 		}
 		spec, err := buildForwardSpec(body.NodeID, body.Name, body.Protocol, body.Target, body.Strategy, body.LocalPort, body.PublicPort)
@@ -125,7 +150,29 @@ func (s *Server) handleForwards(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		got, _ := s.store.GetForward(id)
-		writeJSON(w, http.StatusCreated, s.forwardView(got, spec, nil))
+		view := s.forwardView(got, spec, nil)
+		raw, _ := json.Marshal(view)
+		if _, replayed, err := s.store.StoreIdempotency(store.IdempotencyRecord{
+			Key: key, Route: "/api/v1/forwards", Principal: principal,
+			RequestHash: requestHash, ResponseStatus: http.StatusCreated, ResponseBody: string(raw),
+		}); err != nil {
+			if errors.Is(err, store.ErrIdempotencyConflict) {
+				writeError(w, http.StatusConflict, "IDEMPOTENCY_CONFLICT", "Idempotency-Key reused with a different request")
+			} else {
+				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "idempotency persist failed")
+			}
+			return
+		} else if replayed {
+			// Another process won the race; replay its durable response rather
+			// than returning the newly-created forward.
+			if existing, getErr := s.store.GetIdempotency(key); getErr == nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(existing.ResponseStatus)
+				_, _ = w.Write([]byte(existing.ResponseBody))
+				return
+			}
+		}
+		writeJSON(w, http.StatusCreated, view)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "BAD_REQUEST", "method not allowed")
 	}
@@ -168,9 +215,9 @@ func (s *Server) handleForwardByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "spec read failed")
 			return
 		}
-		states, _ := s.store.GetForwardRuntimeStatus(id)
+		states, stateErr := s.store.GetForwardRuntimeStatus(id)
 		var statesPtr *store.ForwardRuntimeStatus
-		if err == nil {
+		if stateErr == nil {
 			statesPtr = &states
 		}
 		writeJSON(w, http.StatusOK, s.forwardView(f, spec, statesPtr))
@@ -275,6 +322,17 @@ func (s *Server) handleDeletionPoll(w http.ResponseWriter, r *http.Request, opID
 	writeJSON(w, http.StatusOK, map[string]any{
 		"operation_id": op.ID, "state": op.Status,
 	})
+}
+
+// handleDeletionPollPath is the frozen top-level deletion polling route:
+// GET /api/v1/forward-deletions/{operation_id}.
+func (s *Server) handleDeletionPollPath(w http.ResponseWriter, r *http.Request) {
+	const prefix = "/api/v1/forward-deletions/"
+	if len(r.URL.Path) <= len(prefix) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "deletion operation not found")
+		return
+	}
+	s.handleDeletionPoll(w, r, r.URL.Path[len(prefix):])
 }
 
 // --- helpers ---

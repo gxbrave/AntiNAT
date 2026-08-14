@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -200,6 +201,24 @@ func TestArmEnqueuesProbeArm(t *testing.T) {
 	item, _ := env.store.ControlOutboxItemByOperation(op.ID, "probe_arm")
 	if strings.Contains(item.SemanticPayload, "challenge") {
 		t.Fatal("challenge material leaked into the control outbox")
+	}
+}
+
+// TestProbeResultRejectsWrongNodeAndOutcome prevents an agent from mutating a
+// different node's operation or writing a non-terminal/unknown outcome.
+func TestProbeResultRejectsWrongNodeAndOutcome(t *testing.T) {
+	env := newTestEnv(t, false)
+	env.createNodeForward(t)
+	op, _ := env.armAndGetPayload(t, "198.51.100.7:8080")
+	payload, err := json.Marshal(map[string]string{"probe_id": op.ID, "outcome": string(protocol.OutcomeUnknown)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := env.manager.handleProbeResult("other-node", payload); err == nil {
+		t.Fatal("wrong-node probe result accepted")
+	}
+	if err := env.manager.handleProbeResult("n1", payload); err == nil {
+		t.Fatal("unknown probe outcome accepted")
 	}
 }
 

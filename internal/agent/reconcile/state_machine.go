@@ -35,7 +35,7 @@ func (a *Activation) EvidenceLost() error {
 func (a *Activation) StartProbe(eventGeneration uint64) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if eventGeneration < a.generation {
+	if eventGeneration != a.generation {
 		return ErrStaleEvent
 	}
 	next := a.states
@@ -56,7 +56,7 @@ func (a *Activation) StartProbe(eventGeneration uint64) error {
 func (a *Activation) RecordProbeOutcome(outcome protocol.ProbeOutcome, eventGeneration uint64) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if eventGeneration < a.generation {
+	if eventGeneration != a.generation {
 		return ErrStaleEvent
 	}
 	next := a.states

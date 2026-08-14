@@ -92,6 +92,40 @@ func TestProviderRefusesPrivateEndpoint(t *testing.T) {
 	}
 }
 
+// TestProviderReplayCacheIsBounded covers the resource bound: unique probe
+// ids cannot grow the TTL replay map without limit.
+func TestProviderReplayCacheIsBounded(t *testing.T) {
+	ctrlPub, ctrlPriv, _ := ed25519.GenerateKey(rand.Reader)
+	_, provPriv, _ := ed25519.GenerateKey(rand.Reader)
+	p, err := NewProvider(ProviderConfig{
+		ControllerPublicKey: ctrlPub,
+		ProviderPrivateKey:  provPriv,
+		MaxReplayEntries:    1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(p.Handler())
+	defer srv.Close()
+	for _, id := range []string{"cache-a", "cache-b"} {
+		req := providerRequest{
+			Schema: providerRequestSchema, ProbeID: id, Endpoint: "10.0.0.1:80",
+			TimestampUnix: time.Now().Unix(),
+		}
+		canonical, _ := req.canonical()
+		req.Signature = hex.EncodeToString(ed25519.Sign(ctrlPriv, canonical))
+		body, _ := json.Marshal(req)
+		resp, err := http.Post(srv.URL+"/probe/v1/request", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+	}
+	if got := p.Stats().ReplayCache; got != 1 {
+		t.Fatalf("replay cache size = %d, want 1", got)
+	}
+}
+
 // TestProviderFullExchange covers the happy path: a signed request leads to a
 // WAN1 dial, an agent-style ACK1 answer, and an accepted signed result with
 // the challenge hash and both frames.
