@@ -113,7 +113,6 @@ func wan1Wire(f protocol.ProviderFrame) []byte {
 	return append(f.Canonical(), f.Signature...)
 }
 
-
 func newTestEnv(t *testing.T, providerRejected bool) *testEnv {
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "controller.db"))
@@ -138,9 +137,9 @@ func newTestEnv(t *testing.T, providerRejected bool) *testEnv {
 	t.Cleanup(srv.Close)
 
 	mgr, err := NewManager(ManagerConfig{
-		Store:   st,
-		Keyring: kr,
-		Clock:   time.Now,
+		Store:      st,
+		Keyring:    kr,
+		Clock:      time.Now,
 		HTTPClient: srv.Client(),
 		NodePublicKey: func(nodeID string) (ed25519.PublicKey, bool) {
 			return nodePub, true

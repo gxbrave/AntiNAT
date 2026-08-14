@@ -34,10 +34,10 @@ import (
 
 // providerConfig is the strict-JSON provider config.
 type providerConfig struct {
-	ListenAddress     string `json:"listen_address"`
-	ControllerPubKey  string `json:"controller_public_key"`
-	ProviderKeyFile   string `json:"provider_key_file"`
-	MaxConcurrent     int    `json:"max_concurrent"`
+	ListenAddress    string `json:"listen_address"`
+	ControllerPubKey string `json:"controller_public_key"`
+	ProviderKeyFile  string `json:"provider_key_file"`
+	MaxConcurrent    int    `json:"max_concurrent"`
 }
 
 func (c *providerConfig) validate() error {

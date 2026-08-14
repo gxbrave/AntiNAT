@@ -147,9 +147,9 @@ func TestProviderFullExchange(t *testing.T) {
 
 	req := providerRequest{
 		Schema: providerRequestSchema, ControllerInstance: "inst", ControllerKeyID: "k1",
-		NodePublicKey: hex.EncodeToString(nodePub),
+		NodePublicKey:     hex.EncodeToString(nodePub),
 		NodePublicKeyHash: hex.EncodeToString(hash256(nodePub)),
-		ProbeID: hex.EncodeToString(probeID[:]), ProviderID: hex.EncodeToString(providerID[:]),
+		ProbeID:           hex.EncodeToString(probeID[:]), ProviderID: hex.EncodeToString(providerID[:]),
 		Activation: hex.EncodeToString(activation[:]), Endpoint: endpoint,
 		ExpectedSourceIP: "00000000", ExpiryOpaque: hex.EncodeToString(opaque[:]),
 		TTLMS: 30000, ArmDigest: hex.EncodeToString(digest[:]),

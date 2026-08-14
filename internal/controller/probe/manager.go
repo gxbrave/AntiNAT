@@ -286,20 +286,20 @@ func (m *Manager) requestProvider(op store.ProbeOperation, nodeID string, nodePu
 		return
 	}
 	req := providerRequest{
-		Schema:              "antinat.provider-request/v1",
-		ControllerInstance:  m.instanceID(),
-		ControllerKeyID:     m.keyring.KeyID(),
-		NodePublicKey:       hex.EncodeToString(nodePub),
-		NodePublicKeyHash:   hex.EncodeToString(hash256(nodePub)),
-		ProbeID:             op.ID,
-		ProviderID:          hex.EncodeToString(id16Slice(providerWireID(op.ProviderID))),
-		Activation:          hex.EncodeToString(arm.Activation[:]),
-		Endpoint:            op.Endpoint,
-		ExpectedSourceIP:    hex.EncodeToString(arm.ExpectedSourceIP[:]),
-		ExpiryOpaque:        op.ExpiryOpaque,
-		TTLMS:               op.TTLMS,
-		ArmDigest:           hex.EncodeToString(digestSlice(arm.Digest())),
-		TimestampUnix:       m.clock().Unix(),
+		Schema:             "antinat.provider-request/v1",
+		ControllerInstance: m.instanceID(),
+		ControllerKeyID:    m.keyring.KeyID(),
+		NodePublicKey:      hex.EncodeToString(nodePub),
+		NodePublicKeyHash:  hex.EncodeToString(hash256(nodePub)),
+		ProbeID:            op.ID,
+		ProviderID:         hex.EncodeToString(id16Slice(providerWireID(op.ProviderID))),
+		Activation:         hex.EncodeToString(arm.Activation[:]),
+		Endpoint:           op.Endpoint,
+		ExpectedSourceIP:   hex.EncodeToString(arm.ExpectedSourceIP[:]),
+		ExpiryOpaque:       op.ExpiryOpaque,
+		TTLMS:              op.TTLMS,
+		ArmDigest:          hex.EncodeToString(digestSlice(arm.Digest())),
+		TimestampUnix:      m.clock().Unix(),
 	}
 	canonical, err := req.canonical()
 	if err != nil {

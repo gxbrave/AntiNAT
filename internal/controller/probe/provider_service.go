@@ -101,11 +101,11 @@ func (p *Provider) Handler() http.Handler {
 
 // Stats is a bounded audit summary.
 type Stats struct {
-	StartedUnix  int64
-	Requests     int64
-	ReplayCache  int
-	Concurrency  int
-	LastResult   string
+	StartedUnix int64
+	Requests    int64
+	ReplayCache int
+	Concurrency int
+	LastResult  string
 }
 
 // Stats returns the audit summary.
