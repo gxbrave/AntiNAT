@@ -3,12 +3,18 @@ package agent
 import (
 	"context"
 	"crypto/ed25519"
+	"net"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/gxbrave/AntiNAT/internal/agent/localstate"
+	"github.com/gxbrave/AntiNAT/internal/agent/reconcile"
 	"github.com/gxbrave/AntiNAT/internal/controller"
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
+	"github.com/gxbrave/AntiNAT/internal/forward"
+	"github.com/gxbrave/AntiNAT/internal/protocol"
+	"github.com/gxbrave/AntiNAT/internal/traversal"
 )
 
 // startTestController composes a controller app on an ephemeral port and
@@ -69,6 +75,61 @@ func TestAgentNewEnrollsAndConnects(t *testing.T) {
 	// A second Shutdown is idempotent.
 	if err := app.Shutdown(context.Background()); err != nil {
 		t.Fatalf("second Shutdown: %v", err)
+	}
+}
+
+func TestDataPlaneApplyDoesNotDeadlockActivationCallback(t *testing.T) {
+	target, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = target.Close() })
+
+	st, err := localstate.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	registry := traversal.NewPortRegistry()
+	lease, err := registry.Acquire(context.Background(), "deadlock-test", traversal.TupleKey{
+		Address: "127.0.0.1", Family: "ipv4", Protocol: "tcp",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lease.Release() })
+	backend, err := forward.NewBackend(target.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	d := newDataPlane(dataPlaneConfig{Store: st, Clock: time.Now})
+	d.forwards["forward-deadlock-test"] = &forwardActor{lease: lease, backend: backend}
+	a := &App{dp: d, activations: make(map[string]*reconcile.Activation)}
+	d.cfg.OnApplied = a.onForwardApplied
+
+	spec := protocol.ForwardSpec{
+		ForwardID:       "forward-deadlock-test",
+		Name:            "deadlock-test",
+		Protocol:        protocol.ProtocolTCP,
+		Target:          target.Addr().String(),
+		Strategy:        protocol.StrategyDirectV4,
+		DesiredRevision: 1,
+		Presence:        protocol.PresencePresent,
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := d.apply(context.Background(), spec)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("apply: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("data-plane apply deadlocked while updating activation state")
 	}
 }
 

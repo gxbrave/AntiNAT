@@ -105,17 +105,19 @@ func (s *Server) handleForwards(w http.ResponseWriter, r *http.Request) {
 		spec.ForwardID = id
 		f := store.Forward{ID: id, NodeID: body.NodeID, Name: body.Name, Protocol: body.Protocol, Revision: 1}
 		specRow := store.ForwardSpec{ID: "spec-" + id, ForwardID: id, Revision: 1, SpecJSON: specJSON(spec)}
-		desired, err := s.buildDesiredState(body.NodeID, id, spec)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "desired state build failed")
-			return
-		}
 		if _, err := s.store.CreateForward(f); err != nil {
 			writeError(w, http.StatusConflict, "CONFLICT", "forward name already exists on node")
 			return
 		}
 		if err := s.store.CreateForwardSpec(specRow); err != nil {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "spec persist failed")
+			return
+		}
+		// Build the desired snapshot AFTER the row exists so ListForwards sees
+		// the new forward (the M1 walking skeleton caught the null-snapshot bug).
+		desired, err := s.buildDesiredState(body.NodeID, id, spec)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "desired state build failed")
 			return
 		}
 		if err := s.enqueueDesired(body.NodeID, desired); err != nil {

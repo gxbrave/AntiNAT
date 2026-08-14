@@ -1,0 +1,256 @@
+// M1 walking skeleton (P10 Story 6, v0.8 §11.3 M1-12).
+//
+// From empty state: init admin -> create node -> enroll (hidden token) ->
+// create a Linux direct-v4 TCP Forward -> independent provider round trip
+// (hidden challenge, same-path ACK, control receipt, join) -> external
+// client gets the target echo -> target hot update (old conn keeps old
+// target, new conn gets new target) -> Agent restart restores the listener
+// but UNVERIFIED -> reprobe republishes -> online DELETE disconnects and
+// ACKs -> restart does not resurrect.
+//
+// The orchestrator host has no global IPv4, so the harness aliases a
+// global-class literal on loopback and injects a deterministic route table
+// into the agent (documented in the P10 handoff; real-WAN evidence is a
+// later milestone).
+package e2e
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/gxbrave/AntiNAT/internal/protocol"
+	"github.com/gxbrave/AntiNAT/test/e2e/harness"
+)
+
+// cliState is a placeholder to keep the file focused on the walking
+// skeleton; CLI invocation goes through harness.RunCLI.
+
+func TestLinuxDirectV4WalkingSkeleton(t *testing.T) {
+	cleanupAlias := harness.AliasGlobal(t)
+	defer cleanupAlias()
+
+	h := harness.NewEnv(t)
+	stateDir := t.TempDir()
+
+	// 1. Init admin (CLI) and capture the one-time password.
+	out, err := h.RunCLI(stateDir, "admin", "init")
+	if err != nil {
+		t.Fatalf("admin init: %v (%s)", err, out)
+	}
+	var password string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if len(line) >= 8 && !strings.Contains(line, "admin") &&
+			!strings.Contains(line, "password") && !strings.Contains(line, "created") &&
+			!strings.Contains(line, "One-time") {
+			password = line
+			break
+		}
+	}
+	if password == "" {
+		t.Fatalf("could not extract generated password from %s", out)
+	}
+	pwFile := filepath.Join(t.TempDir(), "pw")
+	if err := os.WriteFile(pwFile, []byte(password), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Login.
+	out, err = h.RunCLI(stateDir, "login", "--username", "admin", "--password-file", pwFile)
+	if err != nil || !strings.Contains(out, "logged in") {
+		t.Fatalf("login: %v (%s)", err, out)
+	}
+
+	// 3. Create a node and issue its one-time enrollment token.
+	out, err = h.RunCLI(stateDir, "node", "create", "--name", "node-a")
+	if err != nil {
+		t.Fatalf("node create: %v (%s)", err, out)
+	}
+	var node struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(out), &node); err != nil || node.ID == "" {
+		t.Fatalf("node create output: %s", out)
+	}
+	nodeID := node.ID
+
+	out, err = h.RunCLI(stateDir, "node", "token", nodeID)
+	if err != nil || !strings.Contains(out, "One-time enrollment token") {
+		t.Fatalf("node token: %v (%s)", err, out)
+	}
+	var token string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if len(line) >= 16 && !strings.Contains(line, "token") &&
+			!strings.Contains(line, "One-time") {
+			token = line
+			break
+		}
+	}
+	if token == "" {
+		t.Fatalf("could not extract token from %s", out)
+	}
+
+	// 4. Agent enrolls with the hidden token and connects the control
+	// channel.
+	agentDir := t.TempDir()
+	app := h.StartAgent(agentDir, nodeID, token)
+	defer h.StopAgent()
+
+	// 5. Target echo server, then create the direct-v4 forward.
+	echoA, stopA := harness.EchoServer(t, "A:")
+	defer stopA()
+	echoB, stopB := harness.EchoServer(t, "B:")
+	defer stopB()
+
+	out, err = h.RunCLI(stateDir, "forward", "create",
+		"--node", nodeID, "--name", "web", "--protocol", "tcp",
+		"--target", echoA, "--strategy", "direct-v4")
+	if err != nil {
+		t.Fatalf("forward create: %v (%s)", err, out)
+	}
+	var fwd struct {
+		ID   string `json:"id"`
+		ETag string `json:"etag"`
+	}
+	if err := json.Unmarshal([]byte(out), &fwd); err != nil || fwd.ID == "" || fwd.ETag == "" {
+		t.Fatalf("forward create output: %s", out)
+	}
+	fwdID := fwd.ID
+
+	// 6. Wait until the agent applied the forward (listener bound on the
+	// global literal).
+	harness.WaitFor(t, 20*time.Second, "agent applied forward", func() bool {
+		st, ok, err := app.Store().GetAppliedState(fwdID)
+		return err == nil && ok && st.ActualBindHost == harness.GlobalLiteral
+	})
+	st, _, _ := app.Store().GetAppliedState(fwdID)
+	endpoint := net.JoinHostPort(st.ActualBindHost, fmt.Sprintf("%d", st.ActualBindPort))
+
+	// 7. Controller operation: arm the hidden-challenge probe at the exact
+	// endpoint. The provider then does the WAN1/ACK1 round trip and the
+	// agent's RCT1 receipt joins to OPEN_FROM_VANTAGE.
+	op, err := h.Ctrl.ArmProbe(context.Background(), nodeID, fwdID, endpoint)
+	if err != nil {
+		t.Fatalf("arm probe: %v", err)
+	}
+	harness.WaitFor(t, 30*time.Second, "probe OPEN_FROM_VANTAGE", func() bool {
+		got, err := h.Store.GetProbeOperation(op.ID)
+		return err == nil && got.Status == string(protocol.OutcomeOpenFromVantage)
+	})
+
+	// 8. External client reaches the published endpoint and gets the target
+	// echo characteristics.
+	harness.DialEcho(t, endpoint, "ping-1", "A:")
+
+	// 9. Target hot update: old connection stays on the old target, new
+	// connections go to the new target.
+	oldConn, err := net.DialTimeout("tcp4", endpoint, 5*time.Second)
+	if err != nil {
+		t.Fatalf("dial before update: %v", err)
+	}
+	defer oldConn.Close()
+	if _, err := oldConn.Write([]byte("ping-old")); err != nil {
+		t.Fatal(err)
+	}
+	_ = oldConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	oldBuf := make([]byte, 16)
+	n, _ := oldConn.Read(oldBuf)
+	if got := string(oldBuf[:n]); got != "A:ping-old" {
+		t.Fatalf("old connection echo = %q, want A:ping-old", got)
+	}
+
+	out, err = h.RunCLI(stateDir, "forward", "update", fwdID, "--target", echoB)
+	if err != nil {
+		t.Fatalf("forward update: %v (%s)", err, out)
+	}
+	harness.WaitFor(t, 20*time.Second, "agent hot update", func() bool {
+		st2, ok, err2 := app.Store().GetAppliedState(fwdID)
+		return err2 == nil && ok && st2.SpecRevision >= 2
+	})
+	// Old connection still on target A.
+	if _, err := oldConn.Write([]byte("ping-old-2")); err != nil {
+		t.Fatal(err)
+	}
+	_ = oldConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	n, _ = oldConn.Read(oldBuf)
+	if got := string(oldBuf[:n]); got != "A:ping-old-2" {
+		t.Fatalf("old connection after update = %q, want A:ping-old-2", got)
+	}
+	// New connection goes to target B.
+	harness.DialEcho(t, endpoint, "ping-new", "B:")
+
+	// 10. Agent restart: the listener is restored from the durable applied
+	// state, but the activation is UNVERIFIED.
+	h.StopAgent()
+	app2 := h.StartAgent(agentDir, nodeID, "")
+	harness.WaitFor(t, 20*time.Second, "listener restored after restart", func() bool {
+		st2, ok, err2 := app2.Store().GetAppliedState(fwdID)
+		return err2 == nil && ok && st2.ActualBindPort == st.ActualBindPort
+	})
+	snap := app2.ActivationSnapshot(fwdID)
+	if snap == nil {
+		t.Fatal("no activation snapshot after restart")
+	}
+	if snap.WanReachabilityState != "NOT_TESTED" {
+		t.Fatalf("after restart WanReachabilityState = %q, want NOT_TESTED (UNVERIFIED)", snap.WanReachabilityState)
+	}
+
+	// 11. Reprobe republishes (controller operation again).
+	op2, err := h.Ctrl.ArmProbe(context.Background(), nodeID, fwdID, endpoint)
+	if err != nil {
+		t.Fatalf("reprobe arm: %v", err)
+	}
+	harness.WaitFor(t, 30*time.Second, "reprobe OPEN_FROM_VANTAGE", func() bool {
+		got, err := h.Store.GetProbeOperation(op2.ID)
+		return err == nil && got.Status == string(protocol.OutcomeOpenFromVantage)
+	})
+	harness.DialEcho(t, endpoint, "ping-after-restart", "B:")
+
+	// 12. Online delete: the CLI DELETE is accepted with an operation id,
+	// the agent stops the listener, and the deletion operation completes.
+	out, err = h.RunCLI(stateDir, "forward", "delete", fwdID)
+	if err != nil || !strings.Contains(out, "delete accepted") {
+		t.Fatalf("forward delete: %v (%s)", err, out)
+	}
+	var delOp string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "delete accepted: ") {
+			delOp = strings.TrimPrefix(line, "delete accepted: ")
+			break
+		}
+	}
+	if delOp == "" {
+		t.Fatalf("no deletion operation id in %s", out)
+	}
+	harness.WaitFor(t, 20*time.Second, "deletion COMPLETED", func() bool {
+		op, err := h.Store.GetForwardDeletionOperation(delOp)
+		return err == nil && op.Status == "COMPLETED"
+	})
+	// Listener is gone: the published endpoint refuses connections.
+	if conn, err := net.DialTimeout("tcp4", endpoint, 500*time.Millisecond); err == nil {
+		conn.Close()
+		t.Fatal("published endpoint still accepting after online delete")
+	}
+
+	// 13. Restart after delete: no resurrection (tombstone-before-stop).
+	h.StopAgent()
+	app3 := h.StartAgent(agentDir, nodeID, "")
+	defer h.StopAgent()
+	time.Sleep(500 * time.Millisecond)
+	if _, ok, _ := app3.Store().GetAppliedState(fwdID); ok {
+		t.Fatal("forward resurrected after delete + restart")
+	}
+	if conn, err := net.DialTimeout("tcp4", endpoint, 500*time.Millisecond); err == nil {
+		conn.Close()
+		t.Fatal("published endpoint resurrected after delete + restart")
+	}
+}

@@ -71,7 +71,7 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(existing.ResponseBody))
 			return
 		}
-		id, err := randomHexID()
+		id, err := randomNodeID()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "id generation failed")
 			return

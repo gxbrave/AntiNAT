@@ -262,6 +262,18 @@ func randomHexID() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+// randomNodeID returns a node id that fits the frozen control wire format
+// (node_id is raw 1..16 bytes, protocol.md §3): 8 random bytes hex-encoded
+// is exactly 16 ASCII bytes. The previous 32-hex-char id was rejected by
+// enrollment (found by the M1 walking skeleton).
+func randomNodeID() (string, error) {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
 // requestHashOf hashes the canonical JSON of the decoded request body.
 func requestHashOf(v any) string {
 	raw, err := json.Marshal(v)

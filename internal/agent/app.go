@@ -170,7 +170,8 @@ func New(cfg Config) (*App, error) {
 
 // Start connects the control channel and marks the app ready once the
 // session handshake completes. It blocks until the first connect succeeds
-// or ctx is done; later session drops are handled by the client's loops.
+// or ctx is done; the session and all loops run on ctx, so the caller must
+// keep ctx alive for the app's lifetime (Shutdown cancels the client).
 func (a *App) Start(ctx context.Context) error {
 	if err := a.client.Connect(ctx); err != nil {
 		a.client.Close()
@@ -350,25 +351,29 @@ func newDataPlane(cfg dataPlaneConfig) *dataPlane {
 // direct-v4 forward and returns the durable applied state.
 func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (protocol.AppliedForwardState, error) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	if actor, ok := d.forwards[spec.ForwardID]; ok {
 		// Hot update: the listener stays, the backend target swaps
 		// atomically; new sessions resolve the new snapshot at accept time.
 		if err := actor.backend.Update(spec.Target); err != nil {
+			d.mu.Unlock()
 			return protocol.AppliedForwardState{}, err
 		}
 		st := appliedState(spec, actor.lease, d.cfg.Clock)
-		if d.cfg.OnApplied != nil {
-			d.cfg.OnApplied(spec, st)
+		onApplied := d.cfg.OnApplied
+		d.mu.Unlock()
+		if onApplied != nil {
+			onApplied(spec, st)
 		}
 		return st, nil
 	}
 
 	if spec.Strategy != protocol.StrategyDirectV4 {
+		d.mu.Unlock()
 		return protocol.AppliedForwardState{}, fmt.Errorf("agent: strategy %q not supported by the M1 data plane", spec.Strategy)
 	}
 	sel, capability, err := traversal.Assess(d.cfg.RouteTable)
 	if err != nil || capability != traversal.CapabilityDirectV4Ready {
+		d.mu.Unlock()
 		return protocol.AppliedForwardState{}, traversal.ErrNoGlobalV4Source
 	}
 	registry := traversal.NewPortRegistry()
@@ -379,6 +384,7 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 		Protocol: "tcp",
 	})
 	if err != nil {
+		d.mu.Unlock()
 		return protocol.AppliedForwardState{}, err
 	}
 	gate := reconcile.NewProbeGate(lease.Listener, d.cfg.ProbeMgr, reconcile.ProbeGateOptions{
@@ -387,20 +393,24 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 	})
 	backend, err := forward.NewBackend(spec.Target)
 	if err != nil {
-		lease.Release()
+		_ = lease.Release()
+		d.mu.Unlock()
 		return protocol.AppliedForwardState{}, err
 	}
 	fwd, err := tcp.New(gate, tcp.Options{Backend: backend, DialTimeout: 5 * time.Second})
 	if err != nil {
-		lease.Release()
+		_ = lease.Release()
+		d.mu.Unlock()
 		return protocol.AppliedForwardState{}, err
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
 	go fwd.Run(runCtx)
 	d.forwards[spec.ForwardID] = &forwardActor{lease: lease, fwd: fwd, backend: backend, stop: cancel}
 	st := appliedState(spec, lease, d.cfg.Clock)
-	if d.cfg.OnApplied != nil {
-		d.cfg.OnApplied(spec, st)
+	onApplied := d.cfg.OnApplied
+	d.mu.Unlock()
+	if onApplied != nil {
+		onApplied(spec, st)
 	}
 	return st, nil
 }
