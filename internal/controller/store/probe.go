@@ -6,8 +6,12 @@ package store
 
 import (
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/gxbrave/AntiNAT/internal/protocol"
 )
 
 // ProbeProvider is a registered operator-owned probe vantage service. The
@@ -185,6 +189,85 @@ func (s *Store) SetProbeOperationChallenge(id, challengeHash string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// ProbeOperationByArmDigest finds the operation whose canonical ARM1 frame
+// has the given digest. The digest uniquely identifies the arm; the scan is
+// bounded by the operation TTL (probe state is bounded and expirable).
+func (s *Store) ProbeOperationByArmDigest(digest [32]byte) (ProbeOperation, error) {
+	rows, err := s.db.Query(`SELECT id, node_id, forward_id, activation_id, provider_id, status,
+		endpoint, arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
+		FROM probe_operations`)
+	if err != nil {
+		return ProbeOperation{}, fmt.Errorf("store: scan probe operations: %w", err)
+	}
+	defer rows.Close()
+	want := hex.EncodeToString(digest[:])
+	for rows.Next() {
+		var op ProbeOperation
+		if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ProviderID, &op.Status,
+			&op.Endpoint, &op.ArmHex, &op.ChallengeHash, &op.TTLMS, &op.ExpiryOpaque,
+			&op.ExpiresAt, &op.CreatedAt, &op.UpdatedAt); err != nil {
+			return ProbeOperation{}, fmt.Errorf("store: scan probe operation: %w", err)
+		}
+		armBytes, err := hex.DecodeString(op.ArmHex)
+		if err != nil {
+			continue
+		}
+		arm, err := ParseProbeArmLite(armBytes)
+		if err != nil {
+			continue
+		}
+		if hex.EncodeToString(arm[:]) == want {
+			return op, nil
+		}
+	}
+	return ProbeOperation{}, ErrNotFound
+}
+
+// ParseProbeArmLite computes the canonical-arm digest without full validation
+// (only for digest lookup; the manager validates the full frame elsewhere).
+func ParseProbeArmLite(raw []byte) ([32]byte, error) {
+	arm, err := protocol.ParseProbeArm(raw)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	return arm.Digest(), nil
+}
+
+// ListProbeOperationsByStatus returns operations in the given statuses
+// (bounded by TTL; used by the manager sweep).
+func (s *Store) ListProbeOperationsByStatus(statuses ...string) ([]ProbeOperation, error) {
+	if len(statuses) == 0 {
+		return nil, nil
+	}
+	placeholders := strings.Repeat("?,", len(statuses))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, 0, len(statuses))
+	for _, st := range statuses {
+		args = append(args, st)
+	}
+	rows, err := s.db.Query(
+		`SELECT id, node_id, forward_id, activation_id, provider_id, status, endpoint,
+		        arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
+		   FROM probe_operations WHERE status IN (`+placeholders+`) ORDER BY created_at`,
+		args...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: list probe operations: %w", err)
+	}
+	defer rows.Close()
+	var out []ProbeOperation
+	for rows.Next() {
+		var op ProbeOperation
+		if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ProviderID, &op.Status,
+			&op.Endpoint, &op.ArmHex, &op.ChallengeHash, &op.TTLMS, &op.ExpiryOpaque,
+			&op.ExpiresAt, &op.CreatedAt, &op.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("store: scan probe operation: %w", err)
+		}
+		out = append(out, op)
+	}
+	return out, rows.Err()
 }
 
 // ProbeResult is one joined artifact of a probe operation.

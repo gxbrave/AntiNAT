@@ -535,6 +535,21 @@ func (h *Hub) ControllerPublicKey() ed25519.PublicKey {
 	return h.keyring.PublicKey()
 }
 
+// AgentPublicKey returns the verified agent public key of the ACTIVE session
+// for a node, if one is connected. The store persists only the key HASH
+// (frozen enrollment contract); the full key exists only on the live session,
+// which is exactly when probe-plane frames (RDY1/RCT1) need verification.
+// P10's probe manager consumes the channel through this accessor.
+func (h *Hub) AgentPublicKey(nodeID string) (ed25519.PublicKey, bool) {
+	h.sessionsMu.Lock()
+	defer h.sessionsMu.Unlock()
+	s, ok := h.sessions[nodeID]
+	if !ok || s == nil {
+		return nil, false
+	}
+	return append(ed25519.PublicKey(nil), s.agentPub...), true
+}
+
 // ControllerKeyID returns the controller signing key id.
 func (h *Hub) ControllerKeyID() string { return h.keyring.KeyID() }
 

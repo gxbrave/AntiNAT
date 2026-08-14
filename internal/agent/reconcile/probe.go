@@ -16,8 +16,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
-	"crypto/sha256"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -95,24 +93,6 @@ func NewProbeManager(opts ProbeManagerOptions) *ProbeManager {
 	return m
 }
 
-// activationID deterministically derives the 16-byte activation identifier
-// for a forward at a spec revision. Both the controller and the agent can
-// compute it from data they already hold, so the ARM1 activation field is
-// verifiable without extra wire state.
-func activationID(forwardID string, specRevision uint64) [16]byte {
-	var buf bytes.Buffer
-	buf.WriteString("antinat-activation-v1\x00")
-	buf.WriteString(forwardID)
-	buf.WriteByte(0)
-	var rev [8]byte
-	binary.BigEndian.PutUint64(rev[:], specRevision)
-	buf.Write(rev[:])
-	sum := sha256.Sum256(buf.Bytes())
-	var out [16]byte
-	copy(out[:], sum[:16])
-	return out
-}
-
 // HandleProbeArm validates a canonical ARM1 frame against the applied state,
 // persists the armed operation durably (protocol.md §7.2: probe_armed only
 // after durable persistence), and returns the signed RDY1 frame bytes.
@@ -135,7 +115,7 @@ func (m *ProbeManager) HandleProbeArm(ctx context.Context, raw []byte, forwardID
 	}
 	// Activation must match the current applied activation, and the endpoint
 	// must equal the actual bind tuple.
-	if arm.Activation != activationID(forwardID, applied.SpecRevision) {
+	if arm.Activation != protocol.ActivationID(forwardID, applied.SpecRevision) {
 		return nil, ErrProbeArmRejected
 	}
 	wantEndpoint := net.JoinHostPort(applied.ActualBindHost, fmt.Sprintf("%d", applied.ActualBindPort))

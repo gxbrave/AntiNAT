@@ -120,10 +120,9 @@ func (e *probeTestEnv) mustArm(t *testing.T) protocol.ProbeArm {
 	return arm
 }
 
-// activationFor derives the deterministic activation id (matches
-// activationFor in probe.go).
+// activationFor derives the deterministic activation id (shared helper).
 func activationFor(forwardID string, specRevision uint64) [16]byte {
-	return activationID(forwardID, specRevision)
+	return protocol.ActivationID(forwardID, specRevision)
 }
 
 // TestHandleProbeArmRejectsUnmatchedActivation covers Story 2 RED: an arm
