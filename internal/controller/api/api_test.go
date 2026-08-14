@@ -13,6 +13,7 @@ import (
 	"github.com/gxbrave/AntiNAT/internal/controller/api"
 	"github.com/gxbrave/AntiNAT/internal/controller/auth"
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
+	"github.com/gxbrave/AntiNAT/internal/controller/web"
 )
 
 // newTestServer builds a controller store + minimal API server.
@@ -24,7 +25,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *store.Store) {
 	}
 	t.Cleanup(func() { st.Close() })
 	svc := auth.NewService(st)
-	handler, err := api.NewRouter(api.RouterConfig{Store: st, Auth: svc})
+	handler, err := web.NewRouter(api.RouterConfig{Store: st, Auth: svc})
 	if err != nil {
 		t.Fatalf("router: %v", err)
 	}

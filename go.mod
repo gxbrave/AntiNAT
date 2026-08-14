@@ -12,6 +12,8 @@ require (
 
 require github.com/coder/websocket v1.8.12
 
+require golang.org/x/term v0.31.0
+
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect

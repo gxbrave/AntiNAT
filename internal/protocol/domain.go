@@ -8,9 +8,6 @@
 package protocol
 
 import (
-	"bytes"
-	"crypto/sha256"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -516,24 +513,6 @@ func ValidateFSMTransition(fsm, from, to string) error {
 // ---------------------------------------------------------------------------
 // Operation kinds, probe outcomes, capability results
 // ---------------------------------------------------------------------------
-
-// ActivationID deterministically derives the 16-byte activation identifier
-// for a forward at a spec revision. Both the controller and the agent can
-// compute it from data they already hold, so the ARM1 activation field is
-// verifiable without extra wire state (P10).
-func ActivationID(forwardID string, specRevision uint64) [16]byte {
-	var buf bytes.Buffer
-	buf.WriteString("antinat-activation-v1\x00")
-	buf.WriteString(forwardID)
-	buf.WriteByte(0)
-	var rev [8]byte
-	binary.BigEndian.PutUint64(rev[:], specRevision)
-	buf.Write(rev[:])
-	sum := sha256.Sum256(buf.Bytes())
-	var out [16]byte
-	copy(out[:], sum[:16])
-	return out
-}
 
 // OperationKind is a durable operation category (docs/error-codes.md §3).
 type OperationKind string
