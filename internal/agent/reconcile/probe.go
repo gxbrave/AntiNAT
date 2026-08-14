@@ -58,10 +58,10 @@ type armedOp struct {
 
 // ProbeManager implements the agent-side probe plane.
 type ProbeManager struct {
-	store      *localstate.Store
-	key        *security.NodeKey
-	clock      func() time.Time
-	send       SendControlFunc
+	store *localstate.Store
+	key   *security.NodeKey
+	clock func() time.Time
+	send  SendControlFunc
 
 	mu     sync.Mutex
 	ops    map[[16]byte]*armedOp

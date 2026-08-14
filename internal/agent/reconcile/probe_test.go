@@ -45,9 +45,9 @@ func newProbeTestEnv(t *testing.T) *probeTestEnv {
 	}
 	sent := make(chan probeSend, 16)
 	mgr := NewProbeManager(ProbeManagerOptions{
-		Store:  st,
+		Store:   st,
 		NodeKey: key,
-		Clock:  time.Now,
+		Clock:   time.Now,
 		SendControl: func(ctx context.Context, messageType string, payload []byte) error {
 			sent <- probeSend{messageType: messageType, payload: payload}
 			return nil
@@ -55,14 +55,14 @@ func newProbeTestEnv(t *testing.T) *probeTestEnv {
 	})
 	// An applied forward the arm must match.
 	applied := protocol.AppliedForwardState{
-		ForwardID:      "fwd-1",
-		SpecRevision:   1,
+		ForwardID:       "fwd-1",
+		SpecRevision:    1,
 		DesiredRevision: 1,
-		ActualBindHost: "198.51.100.7",
-		ActualBindPort: 8080,
-		Strategy:       "direct-v4",
-		LayerVersion:   1,
-		AppliedAtUnix:  time.Now().Unix(),
+		ActualBindHost:  "198.51.100.7",
+		ActualBindPort:  8080,
+		Strategy:        "direct-v4",
+		LayerVersion:    1,
+		AppliedAtUnix:   time.Now().Unix(),
 	}
 	if _, err := st.CommitDesired(protocol.DesiredState{
 		NodeID: "node-1",
@@ -169,7 +169,7 @@ func TestProbeGateAcceptsAndAcks(t *testing.T) {
 	}
 	defer inner.Close()
 	gate := NewProbeGate(inner, e.mgr, probeGateOptions{
-		ForwardID: "fwd-1",
+		ForwardID:   "fwd-1",
 		ReadTimeout: 2 * time.Second,
 	})
 
@@ -362,5 +362,3 @@ func sampleProbeArm() protocol.ProbeArm {
 	rand.Read(arm.ExpiryOpaque[:])
 	return arm
 }
-
-
