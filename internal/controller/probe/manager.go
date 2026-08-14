@@ -410,7 +410,24 @@ func (m *Manager) tryJoin(op store.ProbeOperation) error {
 	if !protocol.VerifyProbeJoin(arm, frame, ack, receipt, nodePub) {
 		return m.store.SetProbeOperationStatus(op.ID, string(protocol.OutcomeRejected))
 	}
-	return m.store.SetProbeOperationStatus(op.ID, string(protocol.OutcomeOpenFromVantage))
+	if err := m.store.SetProbeOperationStatus(op.ID, string(protocol.OutcomeOpenFromVantage)); err != nil {
+		return err
+	}
+	// Mirror the verified orthogonal snapshot so the admin API forward view
+	// shows OPEN_FROM_VANTAGE / PUBLISHED_VERIFIED (Story 3 publication).
+	snapshot := protocol.ActivationStates{
+		ControlState:         "ONLINE",
+		ListenerState:        "ACTIVE",
+		MappingState:         "NOT_REQUIRED",
+		KeepaliveState:       "NOT_REQUIRED",
+		WanReachabilityState: string(protocol.OutcomeOpenFromVantage),
+		ReturnPathState:      "VERIFIED",
+		TargetHealthState:    "UNKNOWN",
+		PublicationState:     "PUBLISHED_VERIFIED",
+		DataPlaneState:       "ACTIVE",
+	}
+	raw, _ := json.Marshal(snapshot)
+	return m.store.SetForwardRuntimeStatus(op.ForwardID, op.ActivationID, string(raw))
 }
 
 // findOperationByDigest scans pending/armed operations for the arm digest.

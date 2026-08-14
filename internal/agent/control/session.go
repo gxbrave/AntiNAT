@@ -140,6 +140,23 @@ func (c *Client) Close() {
 	})
 }
 
+// SendMessage pushes an agent-initiated A2C message (P10 probe plane: the
+// RCT1 probe_ingress_receipt). P08 declares that P10 consumes the control
+// channel via interfaces; this is that outbound interface, the mirror of the
+// controller-side ProbeSink. The message id is fresh per call and the frame
+// is signed like any A2C envelope; callers must not use it for command
+// results (those go through the durable outbox journal).
+func (c *Client) SendMessage(ctx context.Context, messageType string, payload []byte) error {
+	if c.opts.Store == nil {
+		return errors.New("control: send message requires a store")
+	}
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		return err
+	}
+	return c.writeEnvelope(ctx, id, messageType, payload)
+}
+
 // Connect establishes ONE session: dial, mutual-challenge handshake, epoch
 // persistence BEFORE socket activation, then starts the inbound frame loop,
 // the outbox pump, and heartbeats. It returns once the handshake completes.

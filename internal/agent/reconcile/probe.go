@@ -261,8 +261,8 @@ func (m *ProbeManager) handleIngress(conn net.Conn, op *armedOp, readTimeout tim
 	_ = m.store.DeleteArmedProbe(op.arm.ProbeID)
 }
 
-// probeGateOptions configures the listener gate.
-type probeGateOptions struct {
+// ProbeGateOptions configures the listener gate.
+type ProbeGateOptions struct {
 	// ForwardID names the forward this listener belongs to.
 	ForwardID string
 	// ReadTimeout bounds the WAN1 parse (v0.8 §5.2 bounded deadline).
@@ -275,11 +275,11 @@ type probeGateOptions struct {
 type ProbeGate struct {
 	inner net.Listener
 	mgr   *ProbeManager
-	opts  probeGateOptions
+	opts  ProbeGateOptions
 }
 
 // NewProbeGate wraps inner with the probe ingress gate.
-func NewProbeGate(inner net.Listener, mgr *ProbeManager, opts probeGateOptions) *ProbeGate {
+func NewProbeGate(inner net.Listener, mgr *ProbeManager, opts ProbeGateOptions) *ProbeGate {
 	if opts.ReadTimeout <= 0 {
 		opts.ReadTimeout = 2 * time.Second
 	}

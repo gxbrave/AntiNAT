@@ -167,7 +167,7 @@ func TestProbeGateAcceptsAndAcks(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer inner.Close()
-	gate := NewProbeGate(inner, e.mgr, probeGateOptions{
+	gate := NewProbeGate(inner, e.mgr, ProbeGateOptions{
 		ForwardID:   "fwd-1",
 		ReadTimeout: 2 * time.Second,
 	})
@@ -255,7 +255,7 @@ func TestProbeGateWrongSourcePassesToBusiness(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer inner.Close()
-	gate := NewProbeGate(inner, e.mgr, probeGateOptions{ForwardID: "fwd-1", ReadTimeout: 2 * time.Second})
+	gate := NewProbeGate(inner, e.mgr, ProbeGateOptions{ForwardID: "fwd-1", ReadTimeout: 2 * time.Second})
 
 	done := make(chan net.Conn, 1)
 	go func() {
@@ -300,7 +300,7 @@ func TestProbeGateRejectsReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer inner.Close()
-	gate := NewProbeGate(inner, e.mgr, probeGateOptions{ForwardID: "fwd-1", ReadTimeout: 2 * time.Second})
+	gate := NewProbeGate(inner, e.mgr, ProbeGateOptions{ForwardID: "fwd-1", ReadTimeout: 2 * time.Second})
 
 	go gate.Accept() // drain
 
