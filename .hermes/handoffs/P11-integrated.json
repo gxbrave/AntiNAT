@@ -1,0 +1,262 @@
+{
+ "plan": "P11",
+ "branch": "integration/v1-beta",
+ "candidate_branch": "ai/P11-stun-shared-port",
+ "integration_base_sha": "bb8a309b415662f16c431799ac0529716f0181d9",
+ "candidate_head_sha": "7a890c6539d36014326b640929758e53312435a4",
+ "candidate_tree_sha": "eb92296aea5d252c7e44ea63064ea413d04cdd96",
+ "integrated_sha": "15db812553014a40cb530b6f449f80b938fdb2a8",
+ "integrated_tree_sha": "6b0223c2947719759d093385d153ac405382af61",
+ "candidate_handoff": {
+  "path": "commit f40061564cce3460da27feda102f53e4e43d6203:.hermes/handoffs/P11.json (handoff commit on candidate branch, not part of integration)",
+  "sha256": "48aa0e486b045b32fe84ae5da74671688d5458b5767f6bc5b58f03126c20e792"
+ },
+ "candidate_commits": [
+  "0b212a232e98d620ef0a256299e10e78381f554e",
+  "35319f5822ab0237df04ac166576d2b04c6548f1",
+  "76fdaae86990f1f21d7d16ae541b9d7a8b23b2b2",
+  "d3d049ebd1cf0f1a515de20a81e690aad8af7ba3",
+  "d929f2daf6524448e99fe306991402075c2a32f0",
+  "7ab671952ef2beba8b2612c14804de44b5733f63",
+  "7a890c6539d36014326b640929758e53312435a4"
+ ],
+ "integrated_commits": [
+  "3ded340d1ac28c3dc4aa0e0bbff9a5d5963d48d6",
+  "8ba03f783a5fcba0f6e0ff7de6be26eb15441c40",
+  "f2571c3a5e33e71d4d9b5df9194c2651fda1d2dd",
+  "3692663a5bbbc6a9632b9b26b6a0b32dbf1671f4",
+  "7bca365a647d3c5101e16902eaa9c391bc561be9",
+  "966c6986c9ee9e17633b01371b8a32df3c0100eb",
+  "6c16487e73ef8d7a5f30a36420256bea4b1e2c0c",
+  "15db812553014a40cb530b6f449f80b938fdb2a8"
+ ],
+ "files_changed_count": 17,
+ "files_changed": [
+  "internal/traversal/socket_stun_linux.go",
+  "internal/traversal/socket_stun_other.go",
+  "internal/traversal/socket_windows.go",
+  "internal/traversal/stun/evidence.go",
+  "internal/traversal/stun/evidence_test.go",
+  "internal/traversal/stun/fuzz_test.go",
+  "internal/traversal/stun/health.go",
+  "internal/traversal/stun/health_test.go",
+  "internal/traversal/stun/message.go",
+  "internal/traversal/stun/message_test.go",
+  "internal/traversal/stun/sharedport.go",
+  "internal/traversal/stun/sharedport_test.go",
+  "internal/traversal/stun/tcp.go",
+  "internal/traversal/stun/tcp_test.go",
+  "internal/traversal/stun/tdd-red.md",
+  "internal/traversal/stun/udp.go",
+  "internal/traversal/stun/udp_test.go"
+ ],
+ "reviews": [
+  {
+   "task_id": "t_1eeacb3b",
+   "type": "specification",
+   "cycle": 0,
+   "head_sha": "7ab671952ef2beba8b2612c14804de44b5733f63",
+   "verdict": "PASS",
+   "summary": "P11-SPEC PASS on 7ab6719 (base bb8a309): all 6 Stories covered, 17 files plan-owned, zero undeclared edits, 5/5 contract hashes unchanged, required verification re-run green."
+  },
+  {
+   "task_id": "t_523bd0e6",
+   "type": "quality-security",
+   "cycle": 0,
+   "head_sha": "7ab671952ef2beba8b2612c14804de44b5733f63",
+   "verdict": "PASS",
+   "summary": "P11-QUALITY PASS on 7ab6719: zero security/logic/race/resource findings; 5 non-blocking suggestions (S1 ReuseControl default, S2 IPv4-mapped unmap, S3 method check, S4 tcp4-only, S5 Dial-vs-Release leak window)."
+  },
+  {
+   "task_id": "t_856ce570",
+   "type": "network",
+   "cycle": 0,
+   "head_sha": "7ab671952ef2beba8b2612c14804de44b5733f63",
+   "verdict": "FAIL",
+   "summary": "P11-NETWORK FAIL on 7ab6719: N1 blocking (ALTERNATE-SERVER without global-unicast validation), N2 (SharedPortLease Dial-vs-Release unowned-socket leak), N3 (readerLoop IPv4-mapped Unmap). Repair cycle 1 routed (P11-FIX1 t_8834f259)."
+  },
+  {
+   "task_id": "t_dd81ea8f",
+   "type": "specification-r1",
+   "cycle": 1,
+   "head_sha": "7a890c6539d36014326b640929758e53312435a4",
+   "verdict": "PASS",
+   "summary": "P11-SPEC-R1 PASS on repaired head 7a890c6 (handoff f400615): N1/N2/N3 fixes verified with 8 focused RED tests, all 6 Stories intact, ownership exact (17 files), contracts unchanged, full suite re-verified green."
+  },
+  {
+   "task_id": "t_e06e800e",
+   "type": "quality-security-r1",
+   "cycle": 1,
+   "head_sha": "7a890c6539d36014326b640929758e53312435a4",
+   "verdict": "PASS",
+   "summary": "P11-QUALITY-R1 PASS on repaired head 7a890c6 (handoff f400615): FIX1 delta +723/-15 (8 files) reviewed; N1/N2/N3 + QUALITY #1 resolved with genuine RED tests; full verification re-run green incl. fuzz 6.17M execs, race 10x, cumulative + race, vet/gofmt/diff-check, contract gate, Windows cross-build, make build."
+  },
+  {
+   "task_id": "t_d5b68235",
+   "type": "network-r1",
+   "cycle": 1,
+   "head_sha": "7a890c6539d36014326b640929758e53312435a4",
+   "verdict": "PASS",
+   "summary": "P11-NETWORK-R1 PASS on repaired head 7a890c6 (handoff f400615): N1/N2/N3 all RESOLVED in code+tests; full network mandate re-validated; all handoff test claims independently re-run (race 10x, fuzz 6.21M, Windows cross-build, cumulative + race, vet, gofmt, contract gate); 4 non-blocking suggestions carried forward."
+  }
+ ],
+ "contracts_verified": [
+  {
+   "path": "docs/protocol.md",
+   "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"
+  },
+  {
+   "path": "docs/state-model.md",
+   "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
+  },
+  {
+   "path": "docs/v1-scope-contract.md",
+   "sha256": "e016cfd0bb0e1395eb23dccf60bc283217139a81db56bf9c1f87ef5f3afe9eaf"
+  },
+  {
+   "path": "docs/support-matrix.md",
+   "sha256": "7288336e0a7b28bb13cfe2db742a65bba852f31326724a2150705ca4ec1cf0b8"
+  },
+  {
+   "path": "api/openapi.yaml",
+   "sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32"
+  }
+ ],
+ "tests": [
+  {
+   "phase": "candidate-pre-integration",
+   "command": "GOWORK=off go test ./internal/traversal/stun -race -count=10",
+   "exit_code": 0,
+   "summary": "Focused race-enabled 10x runs PASS on orchestrator host at exact candidate head 7a890c6 in scratch worktree /tmp/p11-candidate (5.746s)."
+  },
+  {
+   "phase": "candidate-pre-integration",
+   "command": "GOWORK=off go test ./internal/traversal/stun -fuzz=FuzzMessage -fuzztime=30s",
+   "exit_code": 0,
+   "summary": "Fuzz PASS at candidate head: 6,247,784 execs, zero panics, 20 corpus entries retained."
+  },
+  {
+   "phase": "candidate-pre-integration",
+   "command": "GOOS=windows GOARCH=amd64 GOWORK=off go test -c ./internal/traversal/stun -o /tmp/stun.test.exe",
+   "exit_code": 0,
+   "summary": "Windows amd64 cross-build of stun test binary PASS (PE32+ x86-64)."
+  },
+  {
+   "phase": "candidate-pre-integration",
+   "command": "GOWORK=off go test ./test/contracts -run TestContractManifest -count=1",
+   "exit_code": 0,
+   "summary": "Frozen contract manifest gate PASS at candidate head."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off go test ./internal/traversal/stun -race -count=10",
+   "exit_code": 0,
+   "summary": "Focused race-enabled 10x runs PASS on integrated HEAD 15db812 (5.753s)."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./... -count=1",
+   "exit_code": 0,
+   "summary": "Cumulative repo suite PASS on integration/v1-beta @ 15db812: all packages ok incl. all P01-P09 lanes, spike/*, test/contracts."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -race ./... -count=1",
+   "exit_code": 0,
+   "summary": "Repo-wide race detector clean on integrated HEAD 15db812; no data races."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off go vet ./...",
+   "exit_code": 0
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "gofmt -l internal/ (empty) && git diff --check bb8a309..HEAD",
+   "exit_code": 0,
+   "summary": "gofmt clean; no whitespace errors."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off go test ./test/contracts -run TestContractManifest -count=1",
+   "exit_code": 0,
+   "summary": "Frozen contract gate GREEN on integrated HEAD."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off make build && make clean",
+   "exit_code": 0,
+   "summary": "antinat-controller and antinat-agent build with trimpath+ldflags on integrated HEAD; bin/ cleaned afterwards."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOOS=windows GOARCH=amd64 go build ./internal/traversal/... && GOOS=linux GOARCH=arm64 go build ./internal/traversal/... && GOOS=darwin GOARCH=amd64 go build ./internal/traversal/...",
+   "exit_code": 0,
+   "summary": "Windows/amd64, Linux/arm64, darwin/amd64 cross-builds of owned packages PASS on integrated HEAD (compile checks only)."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "git diff --stat 7a890c6 HEAD -- . ':(exclude).hermes/handoffs/P11.json' (empty)",
+   "exit_code": 0,
+   "summary": "Integrated tree byte-identical to candidate head tree for all 17 owned files; only .hermes/handoffs/P11.json (handoff artifact) excluded per P07/P09 precedent."
+  }
+ ],
+ "skipped_tests": [
+  {
+   "command": "go test -tags=netns ./test/integration/... and ./test/e2e",
+   "reason": "Later milestone suites not owned or created at this integration point; P11 owns STUN codec/clients/sockets only (P12/P13 own traversal detection and UDP dataplane)."
+  },
+  {
+   "command": "govulncheck ./...",
+   "reason": "govulncheck is not installed on the orchestrator host; it remains a cumulative release lane (unchanged from prior integrations)."
+  },
+  {
+   "command": "native Windows runtime gates",
+   "reason": "No native Windows host; P11 evidence is native Linux (loopback fake STUN servers, dual-stack socket probe) plus Windows cross-build only; Windows gate returns false and records PORT_REUSE_OBSERVED/MAPPED_UNVERIFIED."
+  },
+  {
+   "command": "real-WAN EIM observation",
+   "reason": "No public NAT vantage in this environment; concurrent EIM verdict exercised over loopback fake servers + platform gate only (documented in handoff known_limits)."
+  }
+ ],
+ "evidence": [
+  "internal/traversal/stun/tdd-red.md"
+ ],
+ "capability_result": "SUPPORTED_WITH_LIMITS",
+ "known_limits": [
+  "Windows STUN TCP shared-port disabled (P02 evidence cross-build only; native baseline gates pending). Windows gate returns false and ObserveMapping records sequential PORT_REUSE_OBSERVED/MAPPED_UNVERIFIED only.",
+  "Half-open SYN behavior for the Linux shared-port tuple remains unmeasured (P02 limitation, unchanged).",
+  "MESSAGE-INTEGRITY supports the short-term credential boundary only; long-term credential (MD5) mechanism is an explicit v1 non-goal.",
+  "No real-WAN EIM observation possible in this environment; the concurrent EIM verdict is exercised over loopback fake servers and the platform gate, not against a public NAT.",
+  "UDP single-ingress mux and UDP business data demux are P13 scope; P11 delivers the transaction-safe exchange and demux hooks only.",
+  "govulncheck ./... not executed (infrastructure skip, unchanged from dependencies).",
+  "DialTCP hardcodes tcp4 and endpoint health resolution is IPv4-only (P11-QUALITY #4 carry-over): IPv6 STUN servers are not dialable over TCP in this plan.",
+  "Alternate-server redirection is disabled by default (frozen design reference section 6) and restricted to global unicast when enabled; Go netip.Addr.IsGlobalUnicast reports true for RFC 1918 private space, so the policy additionally excludes IsPrivate and RFC 6598 CGNAT.",
+  "Unexported test seams added (UDPClientOptions.alternateAllowed, SharedPortLease.beforeAppend): package-internal only, nil in production."
+ ],
+ "cleanup_done": true,
+ "cleanup": [
+  "make clean removed bin/ artifacts after post-integration verification.",
+  "Scratch candidate worktree /tmp/p11-candidate removed after verification.",
+  "The handoff commits ed73906 (.hermes/handoffs/P11.json + tdd-red.md) and f400615 (.hermes/handoffs/P11.json) on the candidate branch are NOT part of integration (P07/P09 precedent); the tdd-red.md evidence file was integrated as its own commit (6c16487) because FIX1 7a890c6 modifies it and the handoff declares it among the 17 owned files.",
+  "The integrated record lives in .hermes/handoffs/P11-integrated.json.",
+  "No remote push; no release; no commits to any branch other than integration/v1-beta (cherry-pick + handoff record commit only)."
+ ],
+ "contracts_changed": [],
+ "conflicts": "none",
+ "remote_push": false,
+ "release_performed": false,
+ "integration_status": "PASS",
+ "worktree_preexisting_changes": [
+  ".hermes/orchestration/antinat_supervisor.py",
+  ".hermes/orchestration/kanban-tasks.json",
+  ".hermes/orchestration/policy.json",
+  ".hermes/orchestration/supervisor-prompt.md",
+  ".hermes/plans/v1-beta/00-master-orchestration.md",
+  "AGENTS.md",
+  ".hermes/handoffs/P04-integrated.json",
+  ".hermes/orchestration/kanban.db",
+  ".hermes/reviews/"
+ ],
+ "deviation_notes": "Gate condition: P11-SPEC (t_1eeacb3b) PASS and P11-QUALITY (t_523bd0e6) PASS and P11-NETWORK (t_856ce570) FAIL (N1 blocking alternate-server validation, N2 Dial-vs-Release leak, N3 IPv4-mapped unmap) at 7ab6719 -> repair cycle 1 (P11-FIX1 t_8834f259: 7a890c6), fresh SPEC-R1 (t_dd81ea8f) PASS @7a890c6, QUALITY-R1 (t_e06e800e) PASS @7a890c6, NETWORK-R1 (t_d5b68235) PASS @7a890c6 (all three with handoff f400615; provider HTTP 402 billing outage on first R1 attempts required one fresh retry, verdicts recorded). Mechanical verification at dispatch: branch/head exist and match handoff; merge-base(candidate, integration/v1-beta) == bb8a309 == live HEAD == handoff base_sha; 7 code commits match handoff; 17 files == diff set, all plan-owned (stun/** + 3 socket adapters + tdd-red.md); contracts_changed empty; 5/5 contract hashes byte-exact at committed base; capability SUPPORTED_WITH_LIMITS; cleanup true. Child focused tests re-run on orchestrator host at candidate head (exit 0), then candidate commits cherry-picked onto integration/v1-beta with zero conflicts; no manual semantic conflict resolution performed. Deviation: tdd-red.md lives in the candidate handoff commit ed73906 (excluded per precedent), so the evidence file was integrated as its own commit 6c16487 before FIX1 (which modifies it) — this matches the P09 integrated pattern of a dedicated 'TDD RED evidence' commit and keeps the integrated tree byte-identical to the candidate for all 17 declared files. Integrated tree 6b0223c == candidate tree eb92296 minus .hermes/handoffs/P11.json. Cumulative go test ./..., race ./..., vet, gofmt, diff --check, frozen contract gate, make build, and win/linux-arm64/darwin cross-builds all PASS on the integrated head 15db812. No remote push; no release performed."
+}
