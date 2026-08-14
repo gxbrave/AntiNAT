@@ -40,6 +40,26 @@ type Config struct {
 
 	// MaxEnrollBodyBytes bounds enrollment request bodies (resource bound).
 	MaxEnrollBodyBytes int64
+
+	// ProbeSink is the P10-declared consumption interface: the controller
+	// probe manager registers here to receive durable probe-plane A2C
+	// messages (probe_armed, probe_ingress_receipt, probe_result). The hub
+	// stays transport-only; it records the message durably and hands the
+	// payload to the sink. A nil sink is valid (probe messages are still
+	// durably recorded).
+	ProbeSink ProbeSink
+}
+
+// ProbeSink consumes durably recorded probe-plane A2C messages. P08 declares
+// that P10 consumes the control channel via interfaces; this is that
+// interface. Implementations must be safe for concurrent calls.
+type ProbeSink interface {
+	// HandleProbeMessage is invoked after the hub durably recorded an A2C
+	// probe-plane message. messageType is one of probe_armed,
+	// probe_ingress_receipt, or probe_result; payload is the raw envelope
+	// payload (RDY1 frame bytes for probe_armed, RCT1 frame bytes for
+	// probe_ingress_receipt, JSON for probe_result).
+	HandleProbeMessage(nodeID, messageType string, payload []byte) error
 }
 
 // Hub is the Controller-side Agent hub.
@@ -49,6 +69,7 @@ type Hub struct {
 	challenges *security.ChallengeManager
 	clock      func() time.Time
 	cfg        Config
+	sink       ProbeSink
 
 	sessionsMu sync.Mutex
 	sessions   map[string]*ControlSession
@@ -74,7 +95,7 @@ func NewHub(cfg Config) (*Hub, error) {
 	if cfg.MaxEnrollBodyBytes <= 0 {
 		cfg.MaxEnrollBodyBytes = 4096
 	}
-	return &Hub{store: cfg.Store, keyring: cfg.Keyring, challenges: cfg.Challenges, clock: cfg.Clock, cfg: cfg, sessions: make(map[string]*ControlSession)}, nil
+	return &Hub{store: cfg.Store, keyring: cfg.Keyring, challenges: cfg.Challenges, clock: cfg.Clock, cfg: cfg, sink: cfg.ProbeSink, sessions: make(map[string]*ControlSession)}, nil
 }
 
 // Handler returns the hub's HTTP surface:

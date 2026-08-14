@@ -108,7 +108,7 @@ func TestFailedMigrationFailsClosedAndPreservesOldState(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	bad := migration{version: 2, apply: func(tx *bolt.Tx) error {
+	bad := migration{version: SchemaVersion + 1, apply: func(tx *bolt.Tx) error {
 		return errors.New("boom: synthetic migration failure")
 	}}
 	next, err := migrate(db, SchemaVersion, []migration{bad})

@@ -19,14 +19,14 @@ func TestMigrationFailureRollsBackLeavingOldDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if v0 != 3 {
-		t.Fatalf("precondition: schema version = %d, want 3", v0)
+	if v0 != 4 {
+		t.Fatalf("precondition: schema version = %d, want 4", v0)
 	}
 
 	// Second CREATE of the same table forces a failure mid-migration.
 	badSQL := `CREATE TABLE broken_table (id INTEGER PRIMARY KEY);
 	           CREATE TABLE broken_table (id INTEGER PRIMARY KEY);`
-	err = s.applyMigration(4, "9999_broken.sql", badSQL)
+	err = s.applyMigration(5, "9999_broken.sql", badSQL)
 	if err == nil {
 		t.Fatal("applyMigration of broken SQL succeeded")
 	}
@@ -53,7 +53,7 @@ func TestMigrationFailureRollsBackLeavingOldDB(t *testing.T) {
 	}
 	var applied int
 	if err := s.db.QueryRow(
-		"SELECT COUNT(*) FROM schema_migrations WHERE version = 4",
+		"SELECT COUNT(*) FROM schema_migrations WHERE version = 5",
 	).Scan(&applied); err != nil {
 		t.Fatalf("schema_migrations query: %v", err)
 	}

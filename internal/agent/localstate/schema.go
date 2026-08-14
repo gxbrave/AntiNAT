@@ -17,7 +17,7 @@ import (
 // SchemaVersion is the current Agent bbolt schema version. A database
 // carrying a higher version is from a newer AntiNAT build and Open fails
 // closed with ErrSchemaTooNew rather than risk silent data damage.
-const SchemaVersion uint64 = 1
+const SchemaVersion uint64 = 2
 
 // ErrSchemaTooNew reports a database written by a newer schema than this
 // build understands. Opening must fail closed.
@@ -40,6 +40,11 @@ const (
 	bucketHookQueue      = "hook_queue"
 	bucketKeyring        = "keyring"
 	bucketOperations     = "operation_results"
+	// bucketProbeOps (schema v2, P10): durable armed probe operations. The
+	// agent persists each outstanding probe operation before answering
+	// probe_armed (docs/protocol.md §7.2: durable persistence precedes the
+	// RDY1 response), so a crash never loses an armed operation.
+	bucketProbeOps = "probe_operations"
 )
 
 // allBuckets is the complete frozen bucket set. Schema v1 creates every
@@ -69,6 +74,14 @@ var schemaMigrations = []migration{
 			if _, err := tx.CreateBucketIfNotExists([]byte(name)); err != nil {
 				return fmt.Errorf("localstate: create bucket %q: %w", name, err)
 			}
+		}
+		return nil
+	}},
+	// v2 (P10): durable armed probe operations (docs/protocol.md §7.2).
+	// The v1 bucket set is untouched; only the new probe bucket is added.
+	{version: 2, apply: func(tx *bolt.Tx) error {
+		if _, err := tx.CreateBucketIfNotExists([]byte(bucketProbeOps)); err != nil {
+			return fmt.Errorf("localstate: create bucket %q: %w", bucketProbeOps, err)
 		}
 		return nil
 	}},

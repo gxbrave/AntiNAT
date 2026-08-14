@@ -287,8 +287,10 @@ func (h *Hub) handleInboundFrame(s *ControlSession, frame []byte) error {
 
 	switch hdr.MessageType {
 	case "desired_result", "operation_complete", "forward_delete_ack",
-		"node_decommission_ack", "probe_armed", "probe_ingress_receipt", "probe_result":
+		"node_decommission_ack":
 		return h.handleAgentResult(s, env)
+	case "probe_armed", "probe_ingress_receipt", "probe_result":
+		return h.handleProbePlaneMessage(s, env)
 	case "message_receipt":
 		return h.handleAgentReceipt(s, env)
 	case "heartbeat", "status":
@@ -296,6 +298,53 @@ func (h *Hub) handleInboundFrame(s *ControlSession, frame []byte) error {
 	default:
 		return fmt.Errorf("unexpected message type %q", hdr.MessageType)
 	}
+}
+
+// handleProbePlaneMessage records a durable probe-plane A2C message and
+// forwards it to the configured ProbeSink (the P10 consumption interface).
+// probe_armed is normally a correlated result of a controller probe_arm
+// command and advances that outbox row; probe_ingress_receipt and
+// probe_result are agent-initiated and have no outbox row. A sink failure is
+// audited but never kills the session — the durable record is the source of
+// truth and the probe manager can re-read it.
+func (h *Hub) handleProbePlaneMessage(s *ControlSession, env protocol.Envelope) error {
+	hdr := env.Header
+	item := store.ControlInboxItem{
+		MessageID:       hex.EncodeToString(hdr.MessageID[:]),
+		NodeID:          s.nodeID,
+		MessageType:     hdr.MessageType,
+		SemanticPayload: string(env.Payload),
+		State:           "RECEIVED",
+	}
+	duplicate, err := h.store.RecordControlInbox(item)
+	if err != nil {
+		return err
+	}
+	if duplicate {
+		// Cached duplicate of an already-recorded probe message: the sink
+		// was already notified for the first delivery; do not double-forward
+		// and do not re-advance the outbox row.
+		return nil
+	}
+	if hdr.MessageType == "probe_armed" {
+		// Correlate to the probe_arm outbox row (if still in flight) and
+		// advance it to SEMANTIC_ACKED with a durable receipt, exactly like
+		// a command result. A missing row (already GC'd, or a revalidation
+		// arm without an outbox row) is tolerated: the sink still receives
+		// the frame.
+		row, agentOp, err := h.matchOutboxRow(s, hdr.MessageID, hdr.MessageType)
+		if err == nil {
+			if err := h.advanceResultRow(s, row, agentOp); err != nil {
+				return err
+			}
+		}
+	}
+	if h.sink != nil {
+		if err := h.sink.HandleProbeMessage(s.nodeID, hdr.MessageType, env.Payload); err != nil {
+			h.audit("PROBE_SINK_ERROR", fmt.Sprintf(`{"node_id":%q,"type":%q,"err":%q}`, s.nodeID, hdr.MessageType, err.Error()))
+		}
+	}
+	return nil
 }
 
 // handleAgentResult durably records an A2C semantic result, correlates it to
@@ -322,6 +371,24 @@ func (h *Hub) handleAgentResult(s *ControlSession, env protocol.Envelope) error 
 		}
 		return err
 	}
+	if err := h.advanceResultRow(s, row, agentOp); err != nil {
+		return err
+	}
+	// A result correlated to a probe_arm row IS the durable probe_armed
+	// answer (the agent's OnCommand returned the RDY1 frame through the
+	// journal). Notify the probe sink with the raw payload.
+	if row.MessageType == "probe_arm" && h.sink != nil {
+		if err := h.sink.HandleProbeMessage(s.nodeID, "probe_armed", env.Payload); err != nil {
+			h.audit("PROBE_SINK_ERROR", fmt.Sprintf(`{"node_id":%q,"type":%q,"err":%q}`, s.nodeID, "probe_armed", err.Error()))
+		}
+	}
+	return nil
+}
+
+// advanceResultRow advances a correlated outbox row to SEMANTIC_ACKED with
+// legal single steps and writes the C2A durable receipt so the agent can GC
+// its outbox row. Shared by handleAgentResult and the probe_armed path.
+func (h *Hub) advanceResultRow(s *ControlSession, row store.ControlOutboxItem, agentOp string) error {
 	// Advance the row to SEMANTIC_ACKED with legal single steps. On reconnect
 	// the row may still be PENDING (requeued, pump not yet re-claimed): the
 	// result arriving first proves the agent already processed the command,
