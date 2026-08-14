@@ -1,0 +1,298 @@
+{
+ "plan": "P08",
+ "branch": "integration/v1-beta",
+ "candidate_branch": "ai/P08-enrollment-control-channel",
+ "integration_base_sha": "4b99d8aadb164a289602b79fa384e987e4c0cd66",
+ "candidate_head_sha": "ee31ac5c6ab5f7c962a62ad23a957a13b926e478",
+ "candidate_tree_sha": "561d316408478b3129da8a6204300dfb635a4233",
+ "integrated_sha": "6ac32fdd2aeb4a2c679b3b157136a6ea714b113f",
+ "integrated_tree_sha": "a039838100625206099e49ec559c261fce0a45df",
+ "candidate_handoff": {
+  "path": "commit 9560d14f431983ed49d5f157575fdc491e016187:.hermes/handoffs/P08.json (FIX2 handoff commit on candidate branch, not part of integration)",
+  "sha256": "32da78713d501f88ae73f535f6e949a577538a10f0ef10c278b19a15decf14c6"
+ },
+ "candidate_commits": [
+  "2c6f96ecba276f18468c03e541e730efb017c03b",
+  "ebdfe29cc6a0480a02c65addb78789b228d0e62a",
+  "415cd7b762d075e06e76040c3c7c57520b4b43e0",
+  "b7a9e1dcc850371c6dcd799633aaa06b5833dfd5",
+  "a2c7ac743bdae2e918619837eac9759973f6fe6a",
+  "710ab368a51f2f2203b91e2ee5eeafc752c4a519",
+  "fb310bd6b86d57c10a9fd33213d2ee3e4c68de47",
+  "d86b76262dee5caa86d7da6977ce9cc9b5a62356",
+  "4d94af27814eca3b22eabe727346988af69fba18",
+  "ee31ac5c6ab5f7c962a62ad23a957a13b926e478"
+ ],
+ "integrated_commits": [
+  "0686f4cc4b70aaa18d813b43e2bee6800f6f803b",
+  "e3affdf334836e35bcd545e4f02282be642afe96",
+  "0a19407f107218277b399177fb75c247b077ad8c",
+  "d7cb59fecff747dcd460311324ecad85a4e7e658",
+  "1d8bbb0ca3dc39430e583203a191caeb6a452aa6",
+  "aebc430eb9eb148d28a3233095f90dd3e701f0b7",
+  "5847ab3462765b922c9f370437fd46e391b8fe7e",
+  "2ada1d0e272b77325f7b5b4b119314e1b7cac03a",
+  "729703a83fa70cb99b3d17e2fd244694823a20b0",
+  "6ac32fdd2aeb4a2c679b3b157136a6ea714b113f"
+ ],
+ "files_changed_count": 39,
+ "files_changed": [
+  "go.mod",
+  "go.sum",
+  "migrations/0003_enrollment.sql",
+  "migrations/migrations.go",
+  "internal/security/challenge.go",
+  "internal/security/challenge_test.go",
+  "internal/security/keyfile_unix.go",
+  "internal/security/keyfile_windows.go",
+  "internal/security/keyfile_windows_test.go",
+  "internal/security/keyring.go",
+  "internal/security/keyring_test.go",
+  "internal/security/nodekey.go",
+  "internal/security/nodekey_test.go",
+  "internal/security/session_test.go",
+  "internal/security/tdd-red.md",
+  "internal/controller/agenthub/enroll.go",
+  "internal/controller/agenthub/enroll_test.go",
+  "internal/controller/agenthub/epoch_test.go",
+  "internal/controller/agenthub/hub.go",
+  "internal/controller/agenthub/limits_test.go",
+  "internal/controller/agenthub/receipt_resend_test.go",
+  "internal/controller/agenthub/session.go",
+  "internal/agent/control/dial.go",
+  "internal/agent/control/dial_test.go",
+  "internal/agent/control/enroll.go",
+  "internal/agent/control/enroll_test.go",
+  "internal/agent/control/reconnect_test.go",
+  "internal/agent/control/session.go",
+  "internal/agent/control/session_test.go",
+  "internal/agent/localstate/outbox.go",
+  "internal/agent/localstate/pins.go",
+  "internal/agent/localstate/pins_test.go",
+  "internal/controller/store/control.go",
+  "internal/controller/store/control_test.go",
+  "internal/controller/store/enrollment.go",
+  "internal/controller/store/enrollment_test.go",
+  "internal/controller/store/backup_test.go",
+  "internal/controller/store/corrupt_internal_test.go",
+  "internal/controller/store/migrate_test.go"
+ ],
+ "reviews": [
+  {
+   "task_id": "t_b6b5890b",
+   "type": "specification",
+   "cycle": 0,
+   "head_sha": "a2c7ac743bdae2e918619837eac9759973f6fe6a",
+   "verdict": "PASS",
+   "summary": "P08-SPEC PASS on a2c7ac7 (base 4f316dc): all 6 stories' RED cases map to real tests; 37/37 changed files match handoff; 6/6 contract hashes byte-exact; zero undeclared edits; tdd-red.md genuine."
+  },
+  {
+   "task_id": "t_b1ee0981",
+   "type": "quality-security",
+   "cycle": 0,
+   "head_sha": "a2c7ac743bdae2e918619837eac9759973f6fe6a",
+   "verdict": "FAIL",
+   "summary": "P08-QUALITY FAIL on a2c7ac7: F1 (medium, reproduced) SEMANTIC_ACKED outbox rows requeued on reconnect re-delivering an already-durably-receipted command -> ErrAlreadyReceipted session kill + SENT row leak; F2 (low-medium) Windows DPAPI key file returned slice into memory freed by deferred LocalFree (use-after-free, cross-build-only). Repair cycle 1 routed."
+  },
+  {
+   "task_id": "t_89a12446",
+   "type": "specification-r1",
+   "cycle": 1,
+   "head_sha": "d86b76262dee5caa86d7da6977ce9cc9b5a62356",
+   "verdict": "PASS",
+   "summary": "P08-SPEC-R1 PASS on d86b762 (handoff 9a8749d): F1/F2 fixes verified with focused RED tests (4/4 F1 claims reproduced verbatim, F2 by inspection + GOOS=windows vet/test -c PE32+); 8/8 FIX1 files declared; contracts 6/6 byte-exact; focused -race -count=3, reconnect 50x, store+agenthub 30x all green."
+  },
+  {
+   "task_id": "t_bcd11742",
+   "type": "quality-security-r1",
+   "cycle": 1,
+   "head_sha": "d86b76262dee5caa86d7da6977ce9cc9b5a62356",
+   "verdict": "FAIL",
+   "summary": "P08-QUALITY-R1 FAIL on d86b762: F1/F2 resolved, but F3 (medium, HIGH confidence, empirically reproduced, pre-existing): handleAgentReceipt ignores RecordControlInbox duplicate flag; reconnect resend of consumed A2C receipt kills session, control channel dead, agent row leaked. Repair cycle 2 routed."
+  },
+  {
+   "task_id": "t_045bfb4a",
+   "type": "specification-r2",
+   "cycle": 2,
+   "head_sha": "ee31ac5c6ab5f7c962a62ad23a957a13b926e478",
+   "verdict": "PASS",
+   "summary": "P08-SPEC-R2 PASS on ee31ac5 (FIX2 delta 9a8749d..ee31ac5, handoff 9560d14): F3 independently verified RED-on-pre-fix / GREEN-on-fixed (-race -count=10 + affected -race -count=3); requirement coverage intact; contracts unchanged (all SHAs match); ownership respected; no scope broadening; handoff updated with exact repaired head SHA."
+  },
+  {
+   "task_id": "t_b3596270",
+   "type": "quality-security-r2",
+   "cycle": 2,
+   "head_sha": "ee31ac5c6ab5f7c962a62ad23a957a13b926e478",
+   "verdict": "PASS",
+   "summary": "P08-QUALITY-R2 PASS on ee31ac5 (FIX2 delta 9a8749d..ee31ac5): F3 resolved (RED reproduced verbatim on pre-fix; 30/30 race stress; unmatched receipts still fail closed); all gates green: focused -race -count=10, affected -race -count=3, cumulative + cumulative race (19 pkgs at review time, dedicated UID/GID), vet/gofmt/diff-check, linux build, windows/amd64 cross-build, frozen-contract manifest gate. 3 non-blocking observations, none FIX2-related."
+  }
+ ],
+ "contracts_verified": [
+  {
+   "path": "docs/protocol.md",
+   "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"
+  },
+  {
+   "path": "docs/state-model.md",
+   "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
+  },
+  {
+   "path": "api/openapi.yaml",
+   "sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32"
+  },
+  {
+   "path": ".hermes/plans/v1-beta/00-master-orchestration.md",
+   "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4"
+  },
+  {
+   "path": ".hermes/plans/v1-beta/08-enrollment-control-channel.md",
+   "sha256": "1fae6f5070df0d4e674868cadb64837fcf2e19eaad31855315cf29146e007672"
+  },
+  {
+   "path": ".hermes/plans/2026-08-09_055007-antinat-v1-reviewed-execution-plan.md",
+   "sha256": "5fb4216ae41c4fb77a757596274b9f8e1df6f32a81c399971b82e60c07527226"
+  }
+ ],
+ "tests": [
+  {
+   "phase": "candidate-pre-integration",
+   "command": "GOWORK=off go test ./internal/security ./internal/controller/agenthub ./internal/agent/control -race -count=10",
+   "exit_code": 0,
+   "summary": "Plan-required focused verification PASS at exact candidate head ee31ac5 in scratch worktree /tmp/p08-candidate (security 1.315s, agenthub 31.741s, agent/control 24.404s)."
+  },
+  {
+   "phase": "candidate-pre-integration",
+   "command": "GOWORK=off go test ./internal/security ./internal/controller/agenthub ./internal/controller/store ./internal/agent/control ./internal/agent/localstate -race -count=10",
+   "exit_code": 0,
+   "summary": "Handoff focused command (5 packages) PASS at candidate head (1m7.9s total)."
+  },
+  {
+   "phase": "candidate-pre-integration",
+   "command": "GOWORK=off go test ./internal/controller/agenthub ./internal/controller/store ./internal/security ./internal/protocol -race -count=3",
+   "exit_code": 0,
+   "summary": "Affected packages PASS at candidate head (21.8s)."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off go test ./internal/security ./internal/controller/agenthub ./internal/controller/store ./internal/agent/control ./internal/agent/localstate -race -count=10",
+   "exit_code": 0,
+   "summary": "Focused race-enabled 10x runs PASS on integrated HEAD 6ac32fd (5/5 packages ok)."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off go test ./internal/controller/agenthub ./internal/controller/store ./internal/security ./internal/protocol -race -count=3",
+   "exit_code": 0,
+   "summary": "Affected packages PASS on integrated HEAD (4/4 ok)."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off go test ./internal/controller/agenthub/ -run TestReconnectResendOfConsumedReceiptKeepsSessionAlive -count=30 -race",
+   "exit_code": 0,
+   "summary": "FIX2 F3 regression stress 30x under race PASS on integrated HEAD (49.9s)."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./... -count=1",
+   "exit_code": 0,
+   "summary": "Cumulative repo suite PASS on integration/v1-beta @ 6ac32fd: 23/23 packages ok, zero FAIL/panic, incl. all P01-P07/P09/P11 lanes, spike/*, test/contracts."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -race ./... -count=1",
+   "exit_code": 0,
+   "summary": "Repo-wide race detector clean on integrated HEAD: 23/23 packages ok, no data races."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off go vet ./...",
+   "exit_code": 0,
+   "summary": "vet clean on integrated HEAD."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "gofmt -l internal migrations cmd scripts (empty) && git diff --check 4b99d8a..HEAD",
+   "exit_code": 0,
+   "summary": "gofmt clean; no whitespace errors in the integrated range."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "python3 test/contracts/generate_manifest.py . && git diff --exit-code -- test/contracts && GOWORK=off go test ./test/contracts/ -count=1",
+   "exit_code": 0,
+   "summary": "Frozen-contract gate GREEN on integrated HEAD: manifest regenerated byte-identical (136 artifacts, empty diff), contracts test ok."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off make build && make clean",
+   "exit_code": 0,
+   "summary": "antinat-controller and antinat-agent build with trimpath+ldflags on integrated HEAD; bin/ cleaned afterwards."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "GOWORK=off make cross-build && GOOS=windows GOARCH=amd64 go build ./internal/security/... ./internal/agent/... ./internal/controller/... && GOOS=darwin GOARCH=amd64 go build ./internal/security/... ./internal/agent/... ./internal/controller/... && GOOS=linux GOARCH=arm64 go build ./internal/security/... ./internal/agent/control/... ./internal/controller/agenthub/...",
+   "exit_code": 0,
+   "summary": "Windows/amd64 cmd build + P08-owned packages cross-builds (windows/amd64, darwin/amd64, linux/arm64) PASS on integrated HEAD (compile checks only; full-tree arm64 still blocked by pre-existing P03 spike/sandbox SYS_FORK issue)."
+  },
+  {
+   "phase": "integrated-post-cherry-pick",
+   "command": "git diff ee31ac5c6ab5f7c962a62ad23a957a13b926e478 HEAD -- <39 P08 files> (empty)",
+   "exit_code": 0,
+   "summary": "Integrated tree byte-identical to candidate head tree for all 39 owned files; only .hermes/handoffs/P08.json (handoff artifact) excluded per P07/P09/P11 precedent."
+  }
+ ],
+ "skipped_tests": [
+  {
+   "command": "go test -tags=netns ./test/integration/... and ./test/e2e",
+   "reason": "Later milestone suites not owned or created at this integration point; test/ contains only contracts, evidence, fixtures (P10/P19 own e2e/integration)."
+  },
+  {
+   "command": "govulncheck ./...",
+   "reason": "govulncheck is not installed on the orchestrator host; it remains a cumulative release lane (unchanged from prior integrations)."
+  },
+  {
+   "command": "native Windows runtime gates",
+   "reason": "No native Windows host; P08 evidence is native Linux plus Windows cross-build only (F2 DPAPI runtime requires a Windows host; windows-tagged round-trip test compiles under GOOS=windows)."
+  }
+ ],
+ "evidence": [
+  "internal/security/tdd-red.md"
+ ],
+ "capability_result": "PASS",
+ "known_limits": [
+  "The session handshake transcript (SessionHello/Welcome/Final, domain AntiNAT-Session-v1) is a P08-owned additive wire element: the frozen contracts do not define session establishment (v0.8 §6.3 mandates a handshake whose final the Agent persists before socket activation). No frozen file was edited.",
+  "Result envelopes use message_type operation_complete (the frozen generic completion type) with deterministic message ids derived from the operation id, so reconnect re-envelopes the same operation/message id (v0.8 §6.1) and receivers dedup redelivery.",
+  "The controller sends C2A message_receipt as the durable receipt for agent results. The frozen protocol.md §3.6 direction column lists message_receipt as A2C; v0.8 §6.4 requires the receiving side to acknowledge and the sending side to GC only after a durable receipt, so the receipt must flow C2A for A2C results. Interpreted as the primary-direction column; documented for the spec reviewer.",
+  "controller_public_key bootstrap: the agent enroll client requires the pinned controller public key as an option (deployment profile). P05's config has no such field (config is P05-owned); P10/P18 must source it. The hub exposes ControllerPublicKey()/ControllerKeyID() for that wiring.",
+  "OnCommand is the P10 reconcile extension point: P08's default handler NACKs commands with no handler. desired persistence (SaveReceivedDesired) is wired by P10 via the same hook.",
+  "Windows DPAPI key files: FIX1 F2 removed the use-after-free; the Windows path remains cross-build evidence only (no native Windows runtime host in this milestone; the creator lock is a no-op there). The windows-tagged round-trip test compiles under GOOS=windows and runs on a Windows host.",
+  "FIX1 residual (pre-existing at base, out of F1 scope): if a command is journaled (ReceiveCommand) but not yet applied when the connection dies, the reconnect resend is swallowed by the agent's cached-duplicate path and no result is ever produced, leaking the controller row in SENT. Narrow race (us window between journal and apply); the shipped reconnect test now enqueues the second command only after the first apply so the disconnect cannot land inside that window. Recommend a lifecycle-cycle fix (distinguish journaled-not-applied from completed on resend).",
+  "FIX2 scope boundary: only a CACHED DUPLICATE receipt (same deterministic message id + type + payload already recorded in control_inbox) tolerates a failed row match. A genuinely unmatched receipt (fresh message id) still fails closed and kills the session, unchanged.",
+  "arm64 full-tree build still fails in P03's spike/sandbox (SYS_FORK/SYS_VFORK), pre-existing at the base SHA and unrelated to P08; all P08-owned packages cross-build for arm64.",
+  "Node IDs are store-form strings (<=16 bytes); the wire/transcript fields are the same bytes zero-padded to 16 (frozen transcript width). Node ids longer than 16 bytes are rejected.",
+  "P14 lifecycle owns the receipt-TTL sweeper for rows that stay SEMANTIC_ACKED after the requeue fix (the A2C-receipt-lost corner now retains the row by design instead of killing the session)."
+ ],
+ "cleanup_done": true,
+ "cleanup": [
+  "make clean removed bin/ artifacts after post-integration verification.",
+  "Scratch candidate worktree /tmp/p08-candidate removed after verification (other /tmp/p08-* worktrees belong to review sessions and were left untouched).",
+  "Handoff artifact commits on the candidate branch are NOT part of integration: 6aaa861 (P08 initial handoff), 9a8749d (FIX1 handoff), 9560d14 (FIX2 handoff) — all touch only .hermes/handoffs/P08.json (P07/P09/P11 precedent). Note: 9a8749d appears in the candidate handoff commits array but contains only the handoff artifact; the tdd-red.md evidence file was integrated as its own commits (d7cb59f, 2ada1d0, 6ac32fd) because FIX1/FIX2 modify it.",
+  "The integrated record lives in .hermes/handoffs/P08-integrated.json.",
+  "No remote push; no release; no commits to any branch other than integration/v1-beta (cherry-pick + handoff record commit only)."
+ ],
+ "contracts_changed": [],
+ "conflicts": "none",
+ "remote_push": false,
+ "release_performed": false,
+ "integration_status": "PASS",
+ "worktree_preexisting_changes": [
+  ".hermes/orchestration/antinat_supervisor.py",
+  ".hermes/orchestration/kanban-tasks.json",
+  ".hermes/orchestration/policy.json",
+  ".hermes/orchestration/supervisor-prompt.md",
+  ".hermes/plans/v1-beta/00-master-orchestration.md",
+  "AGENTS.md",
+  ".hermes/handoffs/P04-integrated.json",
+  ".hermes/orchestration/kanban.db",
+  ".hermes/reviews/"
+ ],
+ "deviation_notes": "Gate condition: P08-SPEC (t_b6b5890b) PASS and P08-QUALITY (t_b1ee0981) FAIL (F1 SEMANTIC_ACKED requeue liveness + F2 Windows DPAPI use-after-free) at a2c7ac7 -> repair cycle 1 (FIX1: 710ab36 fb310bd d86b762 + handoff 9a8749d), fresh SPEC-R1 (t_89a12446) PASS @d86b762, QUALITY-R1 (t_bcd11742) FAIL (F3 pre-existing A2C-receipt idempotency gap) @d86b762 -> repair cycle 2 (FIX2: 4d94af2 ee31ac5 + handoff 9560d14), fresh SPEC-R2 (t_045bfb4a) PASS @ee31ac5 and QUALITY-R2 (t_b3596270) PASS @ee31ac5; supervisor unblocked INTEGRATE 2026-08-14 01:51. Mechanical verification at dispatch: candidate branch exists, branch tip 9560d14 == FIX2 handoff commit, merge-base(candidate, integration/v1-beta) == 4f316dc == handoff base_sha, and base 4f316dc is an ancestor of live integration/v1-beta HEAD 4b99d8a; diffset 4f316dc..ee31ac5 = 40 files = 39 declared + .hermes/handoffs/P08.json artifact; 6/6 contract sha256 byte-exact at committed base; contracts_changed empty; capability PASS; cleanup true. Child focused tests re-run on orchestrator host at candidate head (plan-required 3-pkg and handoff 5-pkg -race -count=10 + affected, all exit 0). Candidate commits cherry-picked onto integration/v1-beta with zero conflicts; no manual semantic conflict resolution performed. Excluded handoff artifact commits 6aaa861/9a8749d/9560d14 per P07/P09/P11 precedent; integrated tree byte-identical to candidate head for all 39 owned files (scoped diff empty). Post-integration on HEAD 6ac32fd: focused -race -count=10 (5 pkgs), affected -race -count=3, F3 regression 30x -race, cumulative ./... and -race ./... (23 pkgs each, dedicated UID/GID, zero FAIL/race), vet, gofmt, git diff --check, frozen-contract manifest gate (136 artifacts, empty diff), contracts test, make build (controller+agent), make cross-build (windows/amd64 cmd), P08-owned packages cross-builds (windows/amd64, darwin/amd64, linux/arm64) — all PASS. No remote push; no release performed; milestone tag not applicable (M1 gate is after P10)."
+}
