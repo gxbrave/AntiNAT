@@ -12,6 +12,7 @@ package agent
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -63,6 +64,10 @@ type App struct {
 	reconciler *reconcile.Reconciler
 	probeMgr   *reconcile.ProbeManager
 	dp         *dataPlane
+
+	// activations tracks the orthogonal activation state machine per applied
+	// forward (Story 3). The map is guarded by dp.mu.
+	activations map[string]*reconcile.Activation
 
 	ready atomic.Bool
 
@@ -139,7 +144,11 @@ func New(cfg Config) (*App, error) {
 		ProbeMgr:   a.probeMgr,
 		RouteTable: cfg.RouteTable,
 		Clock:      cfg.Clock,
+		OnApplied: func(spec protocol.ForwardSpec, applied protocol.AppliedForwardState) {
+			a.onForwardApplied(spec, applied)
+		},
 	})
+	a.activations = make(map[string]*reconcile.Activation)
 
 	a.reconciler = reconcile.New(st, localstate.NewLatch(), localstate.MarkerActive,
 		a.dp.apply, a.dp.stop)
@@ -166,6 +175,12 @@ func (a *App) Start(ctx context.Context) error {
 	if err := a.client.Connect(ctx); err != nil {
 		a.client.Close()
 		return fmt.Errorf("agent: control connect: %w", err)
+	}
+	// Restart recovery: reopen listeners for durably applied forwards
+	// (Story 6: restart restores the listener, initially UNVERIFIED).
+	if err := a.dp.recover(ctx); err != nil {
+		a.client.Close()
+		return fmt.Errorf("agent: data plane recovery: %w", err)
 	}
 	a.ready.Store(true)
 	return nil
@@ -222,10 +237,52 @@ func (a *App) armProbe(ctx context.Context, op control.Operation) ([]byte, error
 	}
 	for _, s := range states {
 		if arm.Activation == protocol.ActivationID(s.ForwardID, s.SpecRevision) {
-			return a.probeMgr.HandleProbeArm(ctx, op.Payload, s.ForwardID)
+			rdy, err := a.probeMgr.HandleProbeArm(ctx, op.Payload, s.ForwardID)
+			if err != nil {
+				return nil, err
+			}
+			// Story 3: entering a probe cycle unpublishes and marks the WAN
+			// axis PROBING before the provider is ever contacted.
+			if act := a.activation(s.ForwardID); act != nil {
+				_ = act.StartProbe(act.Generation())
+			}
+			return rdy, nil
 		}
 	}
 	return nil, reconcile.ErrProbeArmRejected
+}
+
+// onForwardApplied maintains the orthogonal activation state machine when a
+// forward is applied or hot-updated (Story 3).
+func (a *App) onForwardApplied(spec protocol.ForwardSpec, applied protocol.AppliedForwardState) {
+	a.dp.mu.Lock()
+	defer a.dp.mu.Unlock()
+	act, ok := a.activations[applied.ForwardID]
+	if !ok {
+		aid := protocol.ActivationID(applied.ForwardID, applied.SpecRevision)
+		act = reconcile.NewActivation(applied.ForwardID, hex.EncodeToString(aid[:]), applied.SpecRevision)
+		a.activations[applied.ForwardID] = act
+		return
+	}
+	act.AdvanceGeneration(applied.SpecRevision)
+}
+
+// activation returns the tracked activation for a forward, if any.
+func (a *App) activation(forwardID string) *reconcile.Activation {
+	a.dp.mu.Lock()
+	defer a.dp.mu.Unlock()
+	return a.activations[forwardID]
+}
+
+// ActivationSnapshot returns the current orthogonal snapshot for a forward
+// (nil when the forward is not applied).
+func (a *App) ActivationSnapshot(forwardID string) *protocol.ActivationStates {
+	act := a.activation(forwardID)
+	if act == nil {
+		return nil
+	}
+	snap := act.Snapshot()
+	return &snap
 }
 
 // Shutdown closes the control client, then the data plane, then the store.
@@ -267,6 +324,9 @@ type dataPlaneConfig struct {
 	ProbeMgr   *reconcile.ProbeManager
 	RouteTable traversal.RouteTable
 	Clock      func() time.Time
+	// OnApplied is invoked after a forward is applied or recovered, with
+	// the durable applied state (the app wires the activation machine).
+	OnApplied func(spec protocol.ForwardSpec, st protocol.AppliedForwardState)
 }
 
 type forwardActor struct {
@@ -297,7 +357,11 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 		if err := actor.backend.Update(spec.Target); err != nil {
 			return protocol.AppliedForwardState{}, err
 		}
-		return appliedState(spec, actor.lease, d.cfg.Clock), nil
+		st := appliedState(spec, actor.lease, d.cfg.Clock)
+		if d.cfg.OnApplied != nil {
+			d.cfg.OnApplied(spec, st)
+		}
+		return st, nil
 	}
 
 	if spec.Strategy != protocol.StrategyDirectV4 {
@@ -334,7 +398,11 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 	runCtx, cancel := context.WithCancel(context.Background())
 	go fwd.Run(runCtx)
 	d.forwards[spec.ForwardID] = &forwardActor{lease: lease, fwd: fwd, backend: backend, stop: cancel}
-	return appliedState(spec, lease, d.cfg.Clock), nil
+	st := appliedState(spec, lease, d.cfg.Clock)
+	if d.cfg.OnApplied != nil {
+		d.cfg.OnApplied(spec, st)
+	}
+	return st, nil
 }
 
 // stop implements reconcile.StopHook: it stops one forward's actor.
@@ -351,6 +419,77 @@ func (d *dataPlane) stop(ctx context.Context, forwardID string) error {
 	actor.stop()
 	_ = actor.fwd.Close()
 	return actor.lease.Release()
+}
+
+// recover reopens a listener for every durably applied PRESENT forward
+// (restart path, Story 6). The received desired snapshot carries the spec
+// (target etc.); the durable applied record carries the actual bind tuple.
+func (d *dataPlane) recover(ctx context.Context) error {
+	desired, ok, err := d.cfg.Store.LoadReceivedDesired()
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	states, err := d.cfg.Store.ListAppliedStates()
+	if err != nil {
+		return err
+	}
+	specs := make(map[string]protocol.ForwardSpec, len(desired.Forwards))
+	for _, spec := range desired.Forwards {
+		if spec.Presence == protocol.PresencePresent {
+			specs[spec.ForwardID] = spec
+		}
+	}
+	for _, st := range states {
+		spec, ok := specs[st.ForwardID]
+		if !ok {
+			continue
+		}
+		if _, exists := d.forwards[st.ForwardID]; exists {
+			continue
+		}
+		if err := d.reopen(ctx, spec, st); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// reopen restores one forward's actor on the durable bind tuple.
+func (d *dataPlane) reopen(ctx context.Context, spec protocol.ForwardSpec, st protocol.AppliedForwardState) error {
+	registry := traversal.NewPortRegistry()
+	lease, err := registry.Acquire(ctx, spec.ForwardID, traversal.TupleKey{
+		Address:  st.ActualBindHost,
+		Port:     st.ActualBindPort,
+		Family:   "ipv4",
+		Protocol: "tcp",
+	})
+	if err != nil {
+		return err
+	}
+	gate := reconcile.NewProbeGate(lease.Listener, d.cfg.ProbeMgr, reconcile.ProbeGateOptions{
+		ForwardID:   spec.ForwardID,
+		ReadTimeout: 2 * time.Second,
+	})
+	backend, err := forward.NewBackend(spec.Target)
+	if err != nil {
+		lease.Release()
+		return err
+	}
+	fwd, err := tcp.New(gate, tcp.Options{Backend: backend, DialTimeout: 5 * time.Second})
+	if err != nil {
+		lease.Release()
+		return err
+	}
+	runCtx, cancel := context.WithCancel(context.Background())
+	go fwd.Run(runCtx)
+	d.forwards[spec.ForwardID] = &forwardActor{lease: lease, fwd: fwd, backend: backend, stop: cancel}
+	if d.cfg.OnApplied != nil {
+		d.cfg.OnApplied(spec, appliedState(spec, lease, d.cfg.Clock))
+	}
+	return nil
 }
 
 func (d *dataPlane) closeAll() {

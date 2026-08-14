@@ -11,6 +11,8 @@ package controller
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -25,6 +27,7 @@ import (
 	"github.com/gxbrave/AntiNAT/internal/controller/probe"
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
 	"github.com/gxbrave/AntiNAT/internal/controller/web"
+	"github.com/gxbrave/AntiNAT/internal/protocol"
 	"github.com/gxbrave/AntiNAT/internal/security"
 )
 
@@ -63,10 +66,14 @@ type App struct {
 	srv  *http.Server
 	addr string
 
-	ready      atomic.Bool
+	ready atomic.Bool
+
 	closeMu    sync.Mutex
 	closed     bool
 	closeOrder []string
+
+	watchCancel context.CancelFunc
+	watchWG     sync.WaitGroup
 }
 
 // New opens every controller resource. Any failure closes what was already
@@ -179,8 +186,56 @@ func (a *App) Start() error {
 	go func() {
 		_ = a.srv.Serve(ln)
 	}()
+	// Start the deletion watcher: it completes online-delete operations
+	// when the agent's delete result arrives (Story 6 online delete).
+	watchCtx, watchCancel := context.WithCancel(context.Background())
+	a.watchCancel = watchCancel
+	a.watchWG.Add(1)
+	go func() {
+		defer a.watchWG.Done()
+		a.watchDeletions(watchCtx)
+	}()
 	a.ready.Store(true)
 	return nil
+}
+
+// watchDeletions polls the control inbox for agent delete results and
+// completes the matching forward-deletion operations.
+func (a *App) watchDeletions(ctx context.Context) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.completeFinishedDeletions()
+		}
+	}
+}
+
+// completeFinishedDeletions scans recent operation_complete / delete-ack
+// inbox rows for delete-result payloads and completes the operations.
+func (a *App) completeFinishedDeletions() {
+	rows, err := a.store.ListControlInboxByType("",
+		"operation_complete", "desired_result", "forward_delete_ack")
+	if err != nil {
+		return
+	}
+	for _, row := range rows {
+		var res struct {
+			ForwardID           string `json:"forward_id"`
+			DeletionOperationID string `json:"deletion_operation_id"`
+			Deleted             bool   `json:"deleted"`
+		}
+		if err := json.Unmarshal([]byte(row.SemanticPayload), &res); err != nil {
+			continue
+		}
+		if !res.Deleted || res.DeletionOperationID == "" {
+			continue
+		}
+		_ = a.store.CompleteForwardDeletionOperation(res.DeletionOperationID)
+	}
 }
 
 // Addr returns the bound listener address (valid after Start).
@@ -199,6 +254,22 @@ func (a *App) ProbeManager() *probe.Manager { return a.probe }
 // Hub exposes the agent hub (the walking skeleton pins the controller key).
 func (a *App) Hub() *agenthub.Hub { return a.hub }
 
+// ArmProbe creates a probe operation for one forward at its current spec
+// revision and enqueues the probe_arm command (Story 1 controller
+// operation). The endpoint must equal the agent's actual bind tuple.
+func (a *App) ArmProbe(ctx context.Context, nodeID, forwardID, endpoint string) (store.ProbeOperation, error) {
+	row, err := a.store.LatestForwardSpec(forwardID)
+	if err != nil {
+		return store.ProbeOperation{}, fmt.Errorf("controller: arm probe: %w", err)
+	}
+	var spec protocol.ForwardSpec
+	if err := json.Unmarshal([]byte(row.SpecJSON), &spec); err != nil {
+		return store.ProbeOperation{}, fmt.Errorf("controller: arm probe spec: %w", err)
+	}
+	aid := protocol.ActivationID(forwardID, spec.DesiredRevision)
+	return a.probe.Arm(ctx, nodeID, forwardID, hex.EncodeToString(aid[:]), endpoint)
+}
+
 // Shutdown stops the HTTP server first, then closes the remaining resources
 // in reverse dependency order (store last). It is idempotent.
 func (a *App) Shutdown(ctx context.Context) error {
@@ -209,6 +280,10 @@ func (a *App) Shutdown(ctx context.Context) error {
 	}
 	a.closed = true
 	a.ready.Store(false)
+	if a.watchCancel != nil {
+		a.watchCancel()
+		a.watchWG.Wait()
+	}
 	return a.closeResources()
 }
 
