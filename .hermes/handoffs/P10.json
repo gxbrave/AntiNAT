@@ -529,7 +529,7 @@
     "integration after all fresh reviews pass on unchanged head"
   ],
   "deviation_notes": "Bounded cumulative P10 repair for F1-F3, Q1-Q10, and network findings. No frozen contract was changed. P10 migration numbers remain immutable; P12/P14 routing was corrected to 0006/0007. This handoff is review-required only; integration and release are blocked until fresh exact-head reviews pass.",
-  "verification_status": "final exact-head handoff: 4c2eaaf23ce9a638a721d8019a1722fe78dbddfc tree e732539c418dd371cf40cb8ebd23e84d9d881c25; worktree must be clean after this handoff commit",
+  "verification_status": "candidate head 4c2eaaf23ce9a638a721d8019a1722fe78dbddfc tree e732539c418dd371cf40cb8ebd23e84d9d881c25 verified; final verification commands passed; handoff JSON is a separate excluded artifact commit",
   "integrated_base_sha": "adf74fa860812054bd71082006a8c78ea4189888",
   "repair_start_sha": "c4edb088f7ff48cea81e18c56cdd713ce9c6fe33",
   "repair_commits": [
@@ -721,6 +721,43 @@
       "red": "Existing P10 E2E RED/GREEN evidence retained in the prior handoff",
       "green": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./test/e2e -run ^TestLinuxDirectV4WalkingSkeleton$ -count=1 -> 0",
       "test": "test/e2e/walking_skeleton_test.go"
+    }
+  ],
+  "final_verification": [
+    {
+      "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make test",
+      "exit_code": 0,
+      "evidence": "full repository test output returned by terminal on final candidate"
+    },
+    {
+      "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make check",
+      "exit_code": 0,
+      "evidence": "full repository test and go vet output returned by terminal on final candidate"
+    },
+    {
+      "command": "GOWORK=off GOMAXPROCS=2 make build",
+      "exit_code": 0,
+      "evidence": "controller and agent binaries built; make clean removed bin"
+    },
+    {
+      "command": "GOWORK=off GOMAXPROCS=2 go test -race -p=1 ./internal/controller/agenthub ./internal/agent/control ./internal/agent ./internal/controller/probe ./internal/controller/store ./internal/agent/localstate ./internal/agent/reconcile ./internal/traversal -count=1",
+      "exit_code": 0,
+      "evidence": "race output returned by terminal on final candidate"
+    },
+    {
+      "command": "GOWORK=off GOMAXPROCS=2 go vet ./internal/controller/... ./internal/agent/...",
+      "exit_code": 0,
+      "evidence": "vet output returned by terminal on final candidate"
+    },
+    {
+      "command": "GOWORK=off go build ./cmd/antinat-probe ./cmd/antinatctl",
+      "exit_code": 0,
+      "evidence": "probe/CLI build output returned by terminal on final candidate"
+    },
+    {
+      "command": "git diff --check && git status --porcelain=v1",
+      "exit_code": 0,
+      "evidence": "clean tree and whitespace check after final handoff artifact"
     }
   ]
 }
