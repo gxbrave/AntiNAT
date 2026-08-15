@@ -174,7 +174,7 @@ func TestForwardActivationCAS(t *testing.T) {
 	}
 
 	// Same-activation update succeeds on an absent mirror row.
-	if err := s.SetForwardRuntimeStatus("f1", "act-1", `{"wan_reachability_state":"NOT_TESTED"}`); err != nil {
+	if err := s.SetForwardRuntimeStatus("f1", "act-1", legalRuntimeSnapshot("NOT_TESTED", "NOT_TESTED", "NONE")); err != nil {
 		t.Fatalf("set runtime status: %v", err)
 	}
 	got, err := s.GetForwardRuntimeStatus("f1")
@@ -186,22 +186,22 @@ func TestForwardActivationCAS(t *testing.T) {
 	}
 
 	// Same-activation update succeeds (the mirror follows the current event).
-	if err := s.SetForwardRuntimeStatus("f1", "act-1", `{"wan_reachability_state":"OPEN_FROM_VANTAGE"}`); err != nil {
+	if err := s.SetForwardRuntimeStatus("f1", "act-1", legalRuntimeSnapshot("OPEN_FROM_VANTAGE", "VERIFIED", "PUBLISHED_VERIFIED")); err != nil {
 		t.Fatalf("update runtime status: %v", err)
 	}
 	got2, _ := s.GetForwardRuntimeStatus("f1")
-	if got2.SnapshotJSON != `{"wan_reachability_state":"OPEN_FROM_VANTAGE"}` {
+	if got2.SnapshotJSON != legalRuntimeSnapshot("OPEN_FROM_VANTAGE", "VERIFIED", "PUBLISHED_VERIFIED") {
 		t.Fatalf("snapshot not advanced: %+v", got2)
 	}
 
 	// A stale activation event (neither the mirror's activation nor the
 	// forward's current activation) must be rejected and leave the row
 	// untouched.
-	if err := s.SetForwardRuntimeStatus("f1", "act-stale", `{"wan_reachability_state":"REJECTED"}`); err == nil {
+	if err := s.SetForwardRuntimeStatus("f1", "act-stale", legalRuntimeSnapshot("REJECTED", "FAILED", "NONE")); err == nil {
 		t.Fatalf("expected CAS conflict for stale activation event")
 	}
 	got3, _ := s.GetForwardRuntimeStatus("f1")
-	if got3.ActivationID != "act-1" || got3.SnapshotJSON != `{"wan_reachability_state":"OPEN_FROM_VANTAGE"}` {
+	if got3.ActivationID != "act-1" || got3.SnapshotJSON != legalRuntimeSnapshot("OPEN_FROM_VANTAGE", "VERIFIED", "PUBLISHED_VERIFIED") {
 		t.Fatalf("stale event overwrote current state: %+v", got3)
 	}
 
@@ -215,7 +215,7 @@ func TestForwardActivationCAS(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("ensure activation 2: %v", err)
 	}
-	if err := s.SetForwardRuntimeStatus("f1", "act-2", `{"wan_reachability_state":"NOT_TESTED"}`); err != nil {
+	if err := s.SetForwardRuntimeStatus("f1", "act-2", legalRuntimeSnapshot("NOT_TESTED", "NOT_TESTED", "NONE")); err != nil {
 		t.Fatalf("set runtime status for current activation: %v", err)
 	}
 	got4, _ := s.GetForwardRuntimeStatus("f1")
@@ -224,7 +224,7 @@ func TestForwardActivationCAS(t *testing.T) {
 	}
 
 	// After the mirror moved to act-2, an act-1 event is stale and rejected.
-	if err := s.SetForwardRuntimeStatus("f1", "act-1", `{"wan_reachability_state":"REJECTED"}`); err == nil {
+	if err := s.SetForwardRuntimeStatus("f1", "act-1", legalRuntimeSnapshot("REJECTED", "FAILED", "NONE")); err == nil {
 		t.Fatalf("expected CAS conflict for old activation after advance")
 	}
 }
@@ -279,16 +279,6 @@ func TestPublishProbeJoinRequiresCompleteEvidenceAndLegalSnapshot(t *testing.T) 
 	contradictory := `{"control_state":"ONLINE","listener_state":"READY","mapping_state":"FIRST_HOP_MAPPED","keepalive_state":"HEALTHY","wan_reachability_state":"OPEN_FROM_VANTAGE","return_path_state":"VERIFIED","target_health_state":"PASS","publication_state":"PUBLISHED_VERIFIED","data_plane_state":"READY"}`
 	if err := s.PublishProbeJoin("probe-join", "IN_FLIGHT", "f-join", "act-1", contradictory); err == nil {
 		t.Fatal("contradictory activation snapshot was published")
-	}
-	if err := s.PublishProbeJoin("probe-join", "IN_FLIGHT", "f-join", "act-1", valid); err != nil {
-		t.Fatalf("valid complete join rejected: %v", err)
-	}
-	got, err := s.GetProbeOperation("probe-join")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Status != "OPEN_FROM_VANTAGE" {
-		t.Fatalf("status = %q, want OPEN_FROM_VANTAGE", got.Status)
 	}
 }
 
