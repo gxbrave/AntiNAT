@@ -17,7 +17,7 @@ func TestArmRequiresNonEmptyCurrentActivation(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := env.manager.Arm(context.Background(), "n1", "f-current", "act-any", "198.51.100.7:8080"); err == nil {
-		t.Fatal("arm accepted a forward without a current activation")
+	if _, err := env.manager.Arm(context.Background(), "n1", "f-current", "act-any", "198.51.100.7:8080"); err == nil || err.Error() != "probe: forward has no current activation" {
+		t.Fatalf("arm error = %v, want missing-current-activation admission error", err)
 	}
 }
