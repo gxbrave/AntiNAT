@@ -316,10 +316,19 @@ func (h *Hub) handleInboundFrame(s *ControlSession, frame []byte) error {
 // truth and the probe manager can re-read it.
 func (h *Hub) handleProbePlaneMessage(s *ControlSession, env protocol.Envelope) error {
 	hdr := env.Header
+	operationID := ""
+	if hdr.MessageType == "probe_ingress_receipt" {
+		// Receipt payloads are opaque to the transport, so derive the
+		// deterministic operation binding from the exact durable payload. This
+		// is also the retry key used for the semantic Controller acknowledgement.
+		digest := sha256.Sum256(env.Payload)
+		operationID = hex.EncodeToString(digest[:])
+	}
 	item := store.ControlInboxItem{
 		MessageID:       hex.EncodeToString(hdr.MessageID[:]),
 		NodeID:          s.nodeID,
 		MessageType:     hdr.MessageType,
+		OperationID:     operationID,
 		SemanticPayload: string(env.Payload),
 		State:           "RECEIVED",
 	}
@@ -327,7 +336,7 @@ func (h *Hub) handleProbePlaneMessage(s *ControlSession, env protocol.Envelope) 
 	if err != nil {
 		return err
 	}
-	if duplicate {
+	if duplicate && hdr.MessageType != "probe_ingress_receipt" {
 		// Cached duplicate of an already-recorded probe message: the sink
 		// was already notified for the first delivery; do not double-forward
 		// and do not re-advance the outbox row.
@@ -345,6 +354,28 @@ func (h *Hub) handleProbePlaneMessage(s *ControlSession, env protocol.Envelope) 
 				return err
 			}
 		}
+	}
+	if hdr.MessageType == "probe_ingress_receipt" {
+		messageID := hex.EncodeToString(hdr.MessageID[:])
+		state, err := h.store.ControlInboxState(messageID)
+		if err != nil {
+			return err
+		}
+		if state != "PROCESSED" {
+			if h.sink == nil {
+				return nil
+			}
+			if err := h.sink.HandleProbeMessage(s.nodeID, hdr.MessageType, env.Payload); err != nil {
+				h.audit("PROBE_SINK_ERROR", fmt.Sprintf(`{"node_id":%q,"type":%q,"err":%q}`, s.nodeID, hdr.MessageType, err.Error()))
+				return nil
+			}
+			if err := h.store.SetControlInboxState(messageID, "PROCESSED"); err != nil {
+				return err
+			}
+		}
+		receiptID := security.MessageID(operationID, "message_receipt")
+		payload := fmt.Sprintf(`{"operation_id":%q}`, operationID)
+		return s.writeEnvelope(context.Background(), receiptID, "message_receipt", []byte(payload))
 	}
 	if h.sink != nil {
 		if err := h.sink.HandleProbeMessage(s.nodeID, hdr.MessageType, env.Payload); err != nil {

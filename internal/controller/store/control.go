@@ -334,6 +334,44 @@ func (s *Store) RecordControlInbox(item ControlInboxItem) (bool, error) {
 	return true, nil
 }
 
+// SetControlInboxState records completion of a durable inbound message's
+// downstream handling. RECEIVED rows are intentionally retained for replay
+// correlation; a sink failure leaves the row RECEIVED so a deterministic
+// redelivery can retry the sink, while PROCESSED rows suppress duplicate
+// forwarding.
+func (s *Store) SetControlInboxState(messageID, state string) error {
+	if messageID == "" || state == "" {
+		return errors.New("store: control inbox state requires message id and state")
+	}
+	res, err := s.db.Exec(
+		`UPDATE control_inbox SET state = ?, updated_at = ? WHERE message_id = ?`,
+		state, s.currentUnix(), messageID,
+	)
+	if err != nil {
+		return fmt.Errorf("store: set control inbox state: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return fmt.Errorf("store: set control inbox state rows: %w", err)
+	} else if n != 1 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ControlInboxState returns the durable downstream-processing state for one
+// inbound message.
+func (s *Store) ControlInboxState(messageID string) (string, error) {
+	var state string
+	err := s.db.QueryRow(`SELECT state FROM control_inbox WHERE message_id = ?`, messageID).Scan(&state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("store: get control inbox state: %w", err)
+	}
+	return state, nil
+}
+
 // DeleteControlInboxBeforeLimit trims durable message-id replay records after
 // their replay window. The operation is deliberately bounded; in-flight
 // outbox rows are never touched, so an unacknowledged semantic receipt still

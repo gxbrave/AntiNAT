@@ -213,6 +213,16 @@ func (m *Manager) Arm(ctx context.Context, nodeID, forwardID, activationID, endp
 		return store.ProbeOperation{}, ctx.Err()
 	default:
 	}
+	forward, err := m.store.GetForward(forwardID)
+	if err != nil {
+		return store.ProbeOperation{}, err
+	}
+	if forward.NodeID != nodeID {
+		return store.ProbeOperation{}, errors.New("probe: forward is bound to a different node")
+	}
+	if forward.CurrentActivationID != "" && forward.CurrentActivationID != activationID {
+		return store.ProbeOperation{}, errors.New("probe: activation is stale for forward")
+	}
 	m.armMu.Lock()
 	defer m.armMu.Unlock()
 	live, err := m.store.CountLiveProbeOperationsAt(m.clock().Unix())
@@ -713,7 +723,7 @@ func (m *Manager) tryJoin(op store.ProbeOperation) error {
 		return err
 	}
 	raw, _ := json.Marshal(snapshot)
-	if err := m.store.PublishProbeJoin(op.ID, "IN_FLIGHT", current.ForwardID, current.ActivationID, string(raw)); err != nil {
+	if err := m.store.PublishProbeJoin(op.ID, "IN_FLIGHT", current.ForwardID, current.ActivationID, string(raw), nodePub); err != nil {
 		if errors.Is(err, store.ErrProbeExpired) {
 			m.failOperation(op.ID, string(protocol.OutcomeTimeout))
 		} else {

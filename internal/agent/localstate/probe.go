@@ -9,6 +9,8 @@ package localstate
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +19,7 @@ import (
 	bolt "go.etcd.io/bbolt"
 
 	"github.com/gxbrave/AntiNAT/internal/protocol"
+	"github.com/gxbrave/AntiNAT/internal/security"
 )
 
 // ArmedProbe is one durable armed probe operation. Deadline is the
@@ -29,8 +32,8 @@ type ArmedProbe struct {
 	Consumed    bool
 	Receipt     []byte
 	ReceiptSent bool
-	// ReceiptMessageID is the deterministic control-envelope operation id
-	// expected from the controller's semantic receipt.
+	// ReceiptMessageID retains the historical field name but stores the
+	// semantic operation id expected from the controller's receipt payload.
 	ReceiptMessageID string
 	// ReceiptDeadline bounds a consumed tombstone even if the controller is
 	// permanently unavailable.
@@ -155,10 +158,10 @@ func (s *Store) MarkArmedProbeReceiptSent(probeID [16]byte) error {
 
 // AcknowledgeArmedProbeReceipt deletes the consumed tombstone identified by
 // the controller's deterministic receipt operation id. Missing rows are
-// idempotent: a redelivered receipt after GC is harmless.
-// the controller's deterministic receipt operation id. Missing rows are
-// idempotent: a redelivered receipt after GC is harmless.
-func (s *Store) AcknowledgeArmedProbeReceipt(receiptMessageID string) error {
+// idempotent: a redelivered receipt after GC is harmless. Rows written by the
+// previous envelope-id implementation are accepted once, but only when their
+// stored receipt bytes derive the same semantic operation id.
+func (s *Store) AcknowledgeArmedProbeReceipt(operationID string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(bucketProbeOps))
 		var found []byte
@@ -167,7 +170,14 @@ func (s *Store) AcknowledgeArmedProbeReceipt(receiptMessageID string) error {
 			if err := json.Unmarshal(raw, &rec); err != nil {
 				return err
 			}
-			if rec.Consumed && rec.ReceiptMessageID == receiptMessageID {
+			matches := rec.Consumed && rec.ReceiptMessageID == operationID
+			if !matches && rec.Consumed && len(rec.Receipt) != 0 {
+				sum := sha256.Sum256(rec.Receipt)
+				semanticID := hex.EncodeToString(sum[:])
+				legacyID := security.MessageID(semanticID, "probe_ingress_receipt")
+				matches = operationID == semanticID && rec.ReceiptMessageID == hex.EncodeToString(legacyID[:])
+			}
+			if matches {
 				found = append([]byte(nil), k...)
 			}
 			return nil

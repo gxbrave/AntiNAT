@@ -169,6 +169,23 @@ func (s *Store) CreateProbeOperationBundle(op ProbeOperation, outbox ControlOutb
 	}
 	defer tx.Rollback()
 	ts := s.currentUnix()
+	// Bind the durable arm to the forward's current activation at the same
+	// transaction boundary as the operation/outbox insert. The Manager checks
+	// this before provider selection as a fast path, but this CAS is the actual
+	// race fence when an activation changes between those two steps.
+	var forwardNodeID, currentActivationID sql.NullString
+	if err := tx.QueryRow(`SELECT node_id, current_activation_id FROM forwards WHERE id = ?`, op.ForwardID).
+		Scan(&forwardNodeID, &currentActivationID); errors.Is(err, sql.ErrNoRows) {
+		return ProbeOperation{}, ErrForwardNotFound
+	} else if err != nil {
+		return ProbeOperation{}, fmt.Errorf("store: read probe bundle forward: %w", err)
+	}
+	if !forwardNodeID.Valid || forwardNodeID.String != op.NodeID {
+		return ProbeOperation{}, fmt.Errorf("%w: operation/forward node mismatch", ErrCASConflict)
+	}
+	if currentActivationID.Valid && currentActivationID.String != "" && currentActivationID.String != op.ActivationID {
+		return ProbeOperation{}, ErrCASConflict
+	}
 	if _, err := tx.Exec(`INSERT INTO probe_operations
 		(id, node_id, forward_id, activation_id, provider_id, status, endpoint,
 		 arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at)
@@ -331,6 +348,18 @@ func (s *Store) SetProbeOperationChallenge(id, challengeHash string) error {
 	if existing != "" && !strings.EqualFold(existing, challengeHash) {
 		return ErrProbeChallengeConflict
 	}
+	if challengeHash == "" {
+		return fmt.Errorf("%w: challenge hash must be non-empty hexadecimal text", ErrProbeJoinIncomplete)
+	}
+	for _, r := range challengeHash {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", r) {
+			return fmt.Errorf("%w: challenge hash must be non-empty hexadecimal text", ErrProbeJoinIncomplete)
+		}
+	}
+	// Store one canonical representation so later comparisons cannot be
+	// bypassed by casing. The final join boundary additionally requires the
+	// provider challenge hash to decode to the protocol's 32-byte digest.
+	challengeHash = strings.ToLower(challengeHash)
 	res, err := tx.Exec(`UPDATE probe_operations SET challenge_hash = ?, updated_at = ?
 		WHERE id = ? AND status IN ('PENDING','ARMED','IN_FLIGHT') AND expires_at > ?`,
 		challengeHash, ts, id, ts)
@@ -435,50 +464,26 @@ func (r storedProviderResult) verify(publicKeyHex string) bool {
 	return ed25519.Verify(ed25519.PublicKey(publicKey), r.canonical(), signature)
 }
 
-func parseStoredACK(raw []byte) (protocol.ProbeACK, error) {
-	var ack protocol.ProbeACK
-	const fixed = 4 + protocol.ProbeDigestLen + protocol.ProbeDigestLen
-	if len(raw) != fixed+ed25519.SignatureSize || !bytes.Equal(raw[:4], []byte(protocol.ProbeMagicACK)) {
-		return ack, errors.New("store: malformed ACK1")
-	}
-	copy(ack.ArmDigest[:], raw[4:4+protocol.ProbeDigestLen])
-	copy(ack.ChallengeHash[:], raw[4+protocol.ProbeDigestLen:fixed])
-	ack.Signature = append([]byte(nil), raw[fixed:]...)
-	return ack, nil
-}
-
-func parseStoredReceipt(raw []byte) (protocol.ProbeReceipt, error) {
-	var receipt protocol.ProbeReceipt
-	const fixed = 4 + protocol.ProbeDigestLen + protocol.ProbeDigestLen + protocol.ProbeProviderIDLen
-	if len(raw) != fixed+ed25519.SignatureSize || !bytes.Equal(raw[:4], []byte(protocol.ProbeMagicReceipt)) {
-		return receipt, errors.New("store: malformed RCT1")
-	}
-	copy(receipt.ArmDigest[:], raw[4:4+protocol.ProbeDigestLen])
-	copy(receipt.ChallengeHash[:], raw[4+protocol.ProbeDigestLen:4+2*protocol.ProbeDigestLen])
-	copy(receipt.ProviderID[:], raw[4+2*protocol.ProbeDigestLen:fixed])
-	receipt.Signature = append([]byte(nil), raw[fixed:]...)
-	return receipt, nil
-}
-
-func hasNonZeroBytes(raw []byte) bool {
-	for _, b := range raw {
-		if b != 0 {
-			return true
-		}
-	}
-	return false
-}
-
 // PublishProbeJoin atomically transitions the operation to OPEN_FROM_VANTAGE
 // and persists its legal activation mirror. Observers can never see an OPEN
 // operation without its corresponding frozen snapshot.
-func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activationID, snapshotJSON string) error {
+func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activationID, snapshotJSON string, nodePublicKeys ...ed25519.PublicKey) error {
 	if _, err := decodeActivationSnapshot(snapshotJSON); err != nil {
 		return fmt.Errorf("%w: illegal activation snapshot: %v", ErrProbeJoinIncomplete, err)
 	}
 	if expectedStatus != "IN_FLIGHT" {
 		return fmt.Errorf("%w: expected status must be IN_FLIGHT", ErrProbeIllegalTransition)
 	}
+	// ACK1 and RCT1 are both node-authenticated frames. The store must not
+	// treat a non-zero signature as evidence: callers must provide the
+	// authenticated session public key so the final durable CAS can verify both
+	// frames again, independently of the in-memory Manager checks. The
+	// variadic form preserves source compatibility for older internal callers;
+	// omission deliberately fails closed.
+	if len(nodePublicKeys) != 1 || len(nodePublicKeys[0]) != ed25519.PublicKeySize {
+		return fmt.Errorf("%w: node public key is required to verify ACK1 and RCT1", ErrProbeJoinIncomplete)
+	}
+	nodePublicKey := nodePublicKeys[0]
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("store: begin probe join: %w", err)
@@ -612,16 +617,16 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 	if err != nil {
 		return fmt.Errorf("%w: invalid ACK1 evidence", ErrProbeJoinIncomplete)
 	}
-	ack, err := parseStoredACK(ackBytes)
-	if err != nil || !hasNonZeroBytes(ack.Signature) || ack.ArmDigest != frame.ArmDigest || ack.ChallengeHash != frameChallenge {
+	ack, err := protocol.ParseProbeACK(ackBytes, nodePublicKey)
+	if err != nil || ack.ArmDigest != frame.ArmDigest || ack.ChallengeHash != frameChallenge {
 		return fmt.Errorf("%w: ACK1 binding mismatch", ErrProbeJoinIncomplete)
 	}
 	receiptBytes, err := hex.DecodeString(rct1Payload)
 	if err != nil {
 		return fmt.Errorf("%w: invalid RCT1 evidence", ErrProbeJoinIncomplete)
 	}
-	receipt, err := parseStoredReceipt(receiptBytes)
-	if err != nil || !hasNonZeroBytes(receipt.Signature) || receipt.ArmDigest != frame.ArmDigest ||
+	receipt, err := protocol.ParseProbeReceipt(receiptBytes, nodePublicKey)
+	if err != nil || receipt.ArmDigest != frame.ArmDigest ||
 		receipt.ChallengeHash != frameChallenge || receipt.ProviderID != arm.ProviderID {
 		return fmt.Errorf("%w: RCT1 binding mismatch", ErrProbeJoinIncomplete)
 	}
@@ -1034,14 +1039,20 @@ func (s *Store) RecordProbeResult(probeID, kind, payloadHex string) error {
 	if expiresAt <= s.currentUnix() {
 		return ErrProbeExpired
 	}
-	var existing int
+	var existingPayload string
 	if err := conn.QueryRowContext(context.Background(),
-		`SELECT COUNT(*) FROM probe_results WHERE probe_id = ? AND kind = ?`, probeID, kind,
-	).Scan(&existing); err != nil {
-		return fmt.Errorf("store: check duplicate probe result: %w", err)
-	}
-	if existing != 0 {
+		`SELECT payload_hex FROM probe_results WHERE probe_id = ? AND kind = ?`, probeID, kind,
+	).Scan(&existingPayload); err == nil {
+		if existingPayload == payloadHex {
+			if _, err := conn.ExecContext(context.Background(), "COMMIT"); err != nil {
+				return fmt.Errorf("store: commit duplicate probe result: %w", err)
+			}
+			committed = true
+			return nil
+		}
 		return fmt.Errorf("%w: %s", ErrProbeDuplicateEvidence, kind)
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("store: check duplicate probe result: %w", err)
 	}
 	if _, err := conn.ExecContext(context.Background(),
 		`INSERT INTO probe_results (probe_id, kind, payload_hex, created_at) VALUES (?, ?, ?, ?)`,

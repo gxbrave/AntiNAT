@@ -219,7 +219,9 @@ func (m *ProbeManager) HandleProbeArm(ctx context.Context, raw []byte, forwardID
 }
 
 // RetryPendingReceipts resends consumed receipts that were durably recorded
-// but not acknowledged by the control sender before a disconnect/crash.
+// but not semantically acknowledged by the Controller. ReceiptSent records
+// only a prior transport write; the Controller may have disconnected before
+// processing it, so it must not suppress a reconnect retry.
 func (m *ProbeManager) RetryPendingReceipts(ctx context.Context) error {
 	if m.store == nil || m.send == nil {
 		return nil
@@ -230,12 +232,12 @@ func (m *ProbeManager) RetryPendingReceipts(ctx context.Context) error {
 	}
 	var firstErr error
 	for _, probe := range probes {
-		if !probe.Consumed || probe.ReceiptSent || len(probe.Receipt) == 0 {
+		if !probe.Consumed || len(probe.Receipt) == 0 {
 			continue
 		}
 		messageID := probe.ReceiptMessageID
 		if messageID == "" {
-			messageID = probeReceiptMessageID(probe.Receipt)
+			messageID = probeReceiptOperationID(probe.Receipt)
 			_ = m.store.SetArmedProbeReceiptMessageID(probe.Arm.ProbeID, messageID, probe.Deadline.Add(protocol.ProbeReplayWindow))
 		}
 		if err := m.send(ctx, "probe_ingress_receipt", probe.Receipt); err != nil {
@@ -395,7 +397,7 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 		return
 	}
 	rct.Write(rsig)
-	receiptMessageID := probeReceiptMessageID(rct.Bytes())
+	receiptOperationID := probeReceiptOperationID(rct.Bytes())
 	if m.store == nil {
 		m.mu.Lock()
 		op.used = false
@@ -403,7 +405,7 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 		m.mu.Unlock()
 		return
 	}
-	if err := m.store.MarkArmedProbeConsumedWithReceipt(op.arm.ProbeID, rct.Bytes(), receiptMessageID, op.deadline.Add(protocol.ProbeReplayWindow)); err != nil {
+	if err := m.store.MarkArmedProbeConsumedWithReceipt(op.arm.ProbeID, rct.Bytes(), receiptOperationID, op.deadline.Add(protocol.ProbeReplayWindow)); err != nil {
 		m.mu.Lock()
 		op.used = false
 		delete(m.replay, frame.ProbeID)
@@ -425,13 +427,13 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 	}
 }
 
-// probeReceiptMessageID mirrors control.Client.SendMessage's deterministic id
-// derivation so the controller can acknowledge an A2C ingress receipt after
-// the sink has durably consumed it.
-func probeReceiptMessageID(payload []byte) string {
+// probeReceiptOperationID derives the semantic id carried in the controller's
+// message_receipt payload. control.Client.SendMessage domain-separates the
+// transport envelope id from this digest, so the durable tombstone must store
+// the digest rather than the envelope id.
+func probeReceiptOperationID(payload []byte) string {
 	sum := sha256.Sum256(payload)
-	id := security.MessageID(hex.EncodeToString(sum[:]), "probe_ingress_receipt")
-	return hex.EncodeToString(id[:])
+	return hex.EncodeToString(sum[:])
 }
 
 // ProbeGateOptions configures the listener gate.

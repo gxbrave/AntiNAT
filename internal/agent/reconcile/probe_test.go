@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net"
 	"path/filepath"
@@ -385,6 +387,63 @@ func TestRetryPendingReceiptsMarksDurableReceiptSent(t *testing.T) {
 	rec, ok, err := e.store.LoadArmedProbe(arm.ProbeID)
 	if err != nil || !ok || !rec.Consumed || !rec.ReceiptSent {
 		t.Fatalf("receipt state after retry: ok=%v err=%v rec=%+v", ok, err, rec)
+	}
+}
+
+// A successful socket write is not the Controller's semantic acknowledgement.
+// A consumed tombstone must therefore be retried after reconnect even when the
+// previous process marked the transport send as completed.
+func TestRetryPendingReceiptsResendsAfterTransportWriteUntilSemanticAck(t *testing.T) {
+	e := newProbeTestEnv(t)
+	arm := e.mustArm(t)
+	receipt := []byte("receipt-awaiting-controller-ack")
+	operationID := probeReceiptOperationID(receipt)
+	deadline := time.Now().Add(time.Hour)
+	if err := e.store.MarkArmedProbeConsumedWithReceipt(arm.ProbeID, receipt, operationID, deadline); err != nil {
+		t.Fatalf("mark consumed: %v", err)
+	}
+	if err := e.store.MarkArmedProbeReceiptSent(arm.ProbeID); err != nil {
+		t.Fatalf("mark transport send complete: %v", err)
+	}
+	calls := 0
+	e.mgr.send = func(ctx context.Context, messageType string, payload []byte) error {
+		calls++
+		if messageType != "probe_ingress_receipt" || string(payload) != string(receipt) {
+			t.Fatalf("unexpected retry payload: %q %q", messageType, payload)
+		}
+		return nil
+	}
+	if err := e.mgr.RetryPendingReceipts(context.Background()); err != nil {
+		t.Fatalf("retry pending receipt: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("retry calls = %d, want 1", calls)
+	}
+}
+
+// The Controller's semantic receipt operation id is the digest of the exact
+// RCT1 payload. The transport envelope message id is domain-separated from
+// that digest; accepting only the latter would leave the durable tombstone
+// until the fallback deadline.
+func TestControllerReceiptAckRemovesProbeTombstone(t *testing.T) {
+	e := newProbeTestEnv(t)
+	arm := e.mustArm(t)
+	receipt := []byte("durable-rct1-payload")
+	operationID := probeReceiptOperationID(receipt)
+	operationDigest := sha256.Sum256(receipt)
+	envelopeMessage := security.MessageID(operationID, "probe_ingress_receipt")
+	envelopeMessageID := hex.EncodeToString(envelopeMessage[:])
+	if operationID == envelopeMessageID || operationID != hex.EncodeToString(operationDigest[:]) {
+		t.Fatal("test fixture must distinguish semantic operation id from envelope message id")
+	}
+	if err := e.store.MarkArmedProbeConsumedWithReceipt(arm.ProbeID, receipt, envelopeMessageID, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("mark consumed: %v", err)
+	}
+	if err := e.mgr.AcknowledgeReceipt(operationID); err != nil {
+		t.Fatalf("acknowledge controller receipt: %v", err)
+	}
+	if _, ok, err := e.store.LoadArmedProbe(arm.ProbeID); err != nil || ok {
+		t.Fatalf("probe tombstone remains after semantic ack: ok=%v err=%v", ok, err)
 	}
 }
 
