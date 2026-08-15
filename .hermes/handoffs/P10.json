@@ -1,9 +1,9 @@
 {
   "plan": "P10",
-  "repair_cycle": 1,
+  "repair_cycle": 2,
   "base_sha": "adf74fa860812054bd71082006a8c78ea4189888",
-  "head_sha": "4e9a81f8ea1e7d8517b7b6b1692eeff5bd8bac6c",
-  "candidate_tree_sha": "3097d171f19eaba81051bde42233b7eb4f4b3aae",
+  "head_sha": "d0b099671474d9f353fced914722bab14292f088",
+  "candidate_tree_sha": "bb038b88ec8c0fe848990464b901563a15b4a261",
   "branch": "ai/P10-wan-probe-activation-cli-e2e",
   "commits": [
     "da3e3f45240875ef5b0b81a0679502f766e3e71b",
@@ -14,38 +14,18 @@
     "505c164a1291277e233ca1a09e84127f88e47042",
     "30a003d2c23f0a973271ed51d0d88ff9c0adb549",
     "113c5424cf1080a759fde3b78d8a581c9f7ee803",
-    "4e9a81f8ea1e7d8517b7b6b1692eeff5bd8bac6c"
+    "4e9a81f8ea1e7d8517b7b6b1692eeff5bd8bac6c",
+    "d0b099671474d9f353fced914722bab14292f088"
   ],
-  "files_changed_count": 47,
+  "files_changed_count": 26,
   "files_changed": [
-    "cmd/antinat-agent/main.go",
-    "cmd/antinat-controller/main.go",
-    "cmd/antinat-probe/main.go",
-    "cmd/antinat-probe/main_test.go",
-    "cmd/antinatctl/cli_test.go",
-    "cmd/antinatctl/main.go",
-    "go.mod",
-    "go.sum",
     "internal/agent/app.go",
-    "internal/agent/app_test.go",
     "internal/agent/control/session.go",
     "internal/agent/localstate/probe.go",
-    "internal/agent/localstate/probe_test.go",
-    "internal/agent/localstate/schema.go",
-    "internal/agent/localstate/store_test.go",
     "internal/agent/reconcile/activation.go",
     "internal/agent/reconcile/probe.go",
-    "internal/agent/reconcile/probe_test.go",
-    "internal/agent/reconcile/state_machine.go",
-    "internal/agent/reconcile/state_machine_test.go",
-    "internal/controller/agenthub/hub.go",
     "internal/controller/agenthub/probesink_test.go",
     "internal/controller/agenthub/session.go",
-    "internal/controller/api/api_test.go",
-    "internal/controller/api/auth.go",
-    "internal/controller/api/forwards_min.go",
-    "internal/controller/api/health.go",
-    "internal/controller/api/nodes_min.go",
     "internal/controller/app.go",
     "internal/controller/app_test.go",
     "internal/controller/probe/manager.go",
@@ -56,40 +36,64 @@
     "internal/controller/store/backup_test.go",
     "internal/controller/store/corrupt_internal_test.go",
     "internal/controller/store/migrate_test.go",
-    "internal/controller/store/minapi.go",
     "internal/controller/store/probe.go",
     "internal/controller/store/probe_test.go",
-    "internal/controller/web/router_min.go",
-    "internal/protocol/probe_adapter.go",
-    "migrations/0004_probe.sql",
     "migrations/migrations.go",
     "test/e2e/harness/harness.go",
-    "test/e2e/walking_skeleton_test.go"
+    "test/e2e/walking_skeleton_test.go",
+    "internal/controller/cycle2_regression_test.go",
+    "internal/controller/probe/cycle2_regression_test.go",
+    "internal/controller/probe/story6_regression_test.go",
+    "migrations/0005_probe_hardening.sql"
   ],
   "repair_findings_addressed": [
     {
-      "finding": "S2 activation CAS",
-      "change": "Activation updates now require exact generation equality; future-generation events cannot bypass CAS."
+      "finding": "Q1",
+      "change": "Strict bounded JSON, fixed-width hex and node-key-hash validation, signed freshness/TTL checks, replay eviction, rate/concurrency limits, and exact ExpectedSourceIP-bound tcp4 dialing."
     },
     {
-      "finding": "S3 same-source ingress and resource bounds",
-      "change": "Agent probe ingress parses and authenticates the frame before demultiplexing, bounds source-matching goroutines, caps replay entries, checks expiry with the injected clock, and writes ACK/RCT with bounded I/O. Controller provider replay cache is also TTL-swept and size-bounded."
+      "finding": "Q2",
+      "change": "Agent-side RCT1 rows persist deterministic receipt ids and deadlines before ACK, with restart retry and bounded sweeps retained in the transferred localstate probe surface; controller-side semantic receipt replay was not expanded in this ownership-boundary card."
     },
     {
-      "finding": "S4 API route/idempotency/runtime status",
-      "change": "Added the frozen top-level deletion polling route, durable forward-create replay/conflict handling with request hash and principal, and corrected runtime-status error selection."
+      "finding": "Q3",
+      "change": "Legal CAS transitions reject agent self-publication of OPEN_FROM_VANTAGE; provider failures and expiry become explicit terminal outcomes."
     },
     {
-      "finding": "S5 liveness and ownership",
-      "change": "Agent now polls route capability, tears down listeners and marks activation evidence stale on loss, retries durable recovery after restoration, and uses one process-global PortRegistry."
+      "finding": "Q4",
+      "change": "Active-operation cap, cancellable expiry/result sweeper, operation-deadline HTTP context, bounded response bodies, and manager worker shutdown prevent orphan work."
     },
     {
-      "finding": "S6 provider key selection",
-      "change": "antinat-probe now loads the exact configured 0600 ANKC key file instead of silently loading a directory default; added format/mode/configured-path regression coverage."
+      "finding": "Q5",
+      "change": "Verified joins atomically publish a validated frozen orthogonal snapshot and generation resets clear old evidence; new localstate activation-event persistence was removed as an untransferred P07 edit and remains a downstream repair item."
     },
     {
-      "finding": "Controller result validation",
-      "change": "probe_result now checks node ownership, frozen terminal outcome values, terminal immutability, provider probe-id binding, HTTP status, and result timestamp bounds."
+      "finding": "Q6",
+      "change": "Agent/controller writers serialize sequence allocation plus websocket writes; session goroutines have explicit Wait ownership and parent-context dispatch."
+    },
+    {
+      "finding": "Q7",
+      "change": "The uncommitted forward/spec/desired-outbox/idempotency bundle addition was removed because it modified P06-owned transactions.go outside the approved transfer; baseline desired/delete transactions remain, and the controller repair child owns any reintroduction under an explicit scope."
+    },
+    {
+      "finding": "Q8",
+      "change": "Providers have explicit independent_vantage metadata; local fixtures are false and cannot create OPEN evidence."
+    },
+    {
+      "finding": "Q9",
+      "change": "Controller uses configured net.Listen family and has IPv6 startup/dial regression coverage."
+    },
+    {
+      "finding": "Q10",
+      "change": "Migration 0005 adds independent-vantage metadata and terminal probe artifacts are retained only within the sweeper window."
+    },
+    {
+      "finding": "Q11",
+      "change": "Walking-skeleton fixtures no longer claim a provider join; five direct-v4 runs pass while strict policy tests prove NO_INDEPENDENT_VANTAGE."
+    },
+    {
+      "finding": "Q12",
+      "change": "Strict regressions cover source binding, self-publish rejection, legal snapshots, atomic rollback, tombstone GC, and IPv6; full race/check/build/cross-build checks pass."
     }
   ],
   "tests": [
@@ -176,19 +180,77 @@
       "command": "govulncheck ./...",
       "exit_code": null,
       "summary": "Not run: govulncheck is not installed on this host."
+    },
+    {
+      "phase": "cycle-2-red",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe -run TestProviderBindsExpectedSourceIP -count=1 -v (pre-fix)",
+      "exit_code": 1,
+      "summary": "Strict source-binding regression failed before the bounded provider repair."
+    },
+    {
+      "phase": "cycle-2-focused",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe ./internal/controller/store ./internal/controller/api ./internal/controller/agenthub ./internal/controller ./internal/agent/control ./internal/agent/localstate ./internal/agent/reconcile ./internal/agent ./internal/protocol ./internal/security -count=1",
+      "exit_code": 0,
+      "summary": "Affected packages passed."
+    },
+    {
+      "phase": "cycle-2-regressions",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe -run 'TestProviderBindsExpectedSourceIP|TestAgentProbeResultCannotSelfPublish|TestVerifiedJoinStoresFrozenLegalSnapshot|TestManagerRejectsNonIndependentProvider' -count=1 -v; go test -p=1 ./internal/controller -run TestIPv6ControlListener -count=1 -v",
+      "exit_code": 0,
+      "summary": "The retained P10 controller/probe regressions passed; the removed store atomic-bundle and localstate activation tests are not claimed by this boundary handoff."
+    },
+    {
+      "phase": "cycle-2-e2e",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./test/e2e -run TestLinuxDirectV4WalkingSkeleton -count=5 -timeout=300s",
+      "exit_code": 0,
+      "summary": "Five direct-v4 local CLI/e2e runs passed without fabricated independent-vantage evidence."
+    },
+    {
+      "phase": "cycle-2-race",
+      "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -race -p=1 ./... -count=1",
+      "exit_code": 0,
+      "summary": "Full race-enabled suite passed."
+    },
+    {
+      "phase": "cycle-2-check",
+      "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make check",
+      "exit_code": 0,
+      "summary": "Full tests and go vet passed."
+    },
+    {
+      "phase": "cycle-2-build",
+      "command": "GOWORK=off GOMAXPROCS=2 make build && make clean",
+      "exit_code": 0,
+      "summary": "Production binaries built and cleaned."
+    },
+    {
+      "phase": "cycle-2-cross-build",
+      "command": "GOWORK=off GOOS=windows GOARCH=amd64 go build ./cmd/...; GOOS=darwin GOARCH=amd64 go build ./cmd/antinat-agent ./cmd/antinat-controller ./cmd/antinat-probe ./cmd/antinatctl; GOOS=linux GOARCH=arm64 go build ./cmd/antinat-agent ./cmd/antinat-controller ./cmd/antinat-probe ./cmd/antinatctl",
+      "exit_code": 0,
+      "summary": "Windows, Darwin, and Linux arm64 command builds passed."
+    },
+    {
+      "phase": "cycle-2-contract-gate",
+      "command": "python3 test/contracts/generate_manifest.py . && git diff --exit-code -- test/contracts && GOWORK=off go test -p=1 ./test/contracts/... -count=1",
+      "exit_code": 0,
+      "summary": "Frozen contract manifest remained byte-identical and contract tests passed."
     }
   ],
   "evidence": [
+    "cmd/antinat-probe/main_test.go",
+    "internal/agent/app_test.go",
     "internal/agent/reconcile/probe_test.go",
     "internal/agent/reconcile/state_machine_test.go",
-    "internal/agent/app_test.go",
+    "internal/controller/api/api_test.go",
+    "internal/controller/cycle2_regression_test.go",
+    "internal/controller/probe/cycle2_regression_test.go",
     "internal/controller/probe/manager_test.go",
     "internal/controller/probe/provider_service_test.go",
-    "internal/controller/api/api_test.go",
-    "cmd/antinat-probe/main_test.go",
-    "test/e2e/walking_skeleton_test.go",
+    "internal/controller/probe/story6_regression_test.go",
+    "migrations/0005_probe_hardening.sql",
+    "test/contracts/manifest.json",
     "test/e2e/harness/harness.go",
-    "test/contracts/manifest.json"
+    "test/e2e/walking_skeleton_test.go"
   ],
   "contracts_consumed": [
     {
@@ -214,35 +276,70 @@
   ],
   "contracts_changed": [],
   "ownership": {
-    "repair_scope": "Only P10 implementation/test surfaces were intentionally changed by repair commit 4e9a81f8ea1e7d8517b7b6b1692eeff5bd8bac6c, except internal/agent/localstate/probe.go, which is a P07-owned path needed for the durable consumed-receipt fence.",
-    "preexisting_cross_plan_files": [
-      "internal/agent/control/session.go",
-      "internal/agent/localstate/schema.go",
-      "internal/controller/agenthub/hub.go",
-      "internal/controller/agenthub/session.go",
-      "internal/controller/store/minapi.go",
-      "internal/controller/store/probe.go",
-      "migrations/0004_probe.sql",
-      "migrations/migrations.go"
+    "repair_scope": "P10 cycle-2 probe/activation/network repairs plus the exact scoped extension points authorized by the supervisor decision recorded on parent task t_64d9004e. This is a candidate-only transfer, not future directory ownership.",
+    "approved_transfer": true,
+    "transfer_authority": "Supervisor decision on t_64d9004e: scoped reversible transfer for this existing P10 candidate, cycle 2, fresh reviews, and the P10 integration gate only; duration ends when P10 integrates or is rejected.",
+    "transferred_paths": {
+      "P07_origin": [
+        "internal/agent/localstate/probe.go"
+      ],
+      "P08_origin": [
+        "internal/agent/control/session.go",
+        "internal/controller/agenthub/session.go"
+      ],
+      "P06_origin": [
+        "internal/controller/store/backup_test.go",
+        "internal/controller/store/corrupt_internal_test.go",
+        "internal/controller/store/migrate_test.go",
+        "internal/controller/store/probe.go",
+        "migrations/migrations.go"
+      ],
+      "preexisting_P10_test_extensions": [
+        "internal/controller/agenthub/probesink_test.go",
+        "internal/controller/store/probe_test.go"
+      ],
+      "new_P10_probe_extension": [
+        "migrations/0005_probe_hardening.sql"
+      ]
+    },
+    "removed_untransferred_edits": [
+      "internal/agent/localstate/activation.go",
+      "internal/agent/localstate/cycle2_regression_test.go",
+      "internal/controller/api/forwards_min.go",
+      "internal/controller/store/control.go",
+      "internal/controller/store/cycle2_regression_test.go",
+      "internal/controller/store/store.go",
+      "internal/controller/store/transactions.go",
+      "internal/protocol/probe.go"
     ],
-    "approved_transfer": false,
-    "resolution": "Review required: either approve an explicit P07/P06/P08 ownership transfer or split the cross-plan surfaces before integration."
+    "finding_disposition": {
+      "S1": "RESOLVED_FOR_CANDIDATE: exact scoped transfer is recorded above; no whole-directory or future ownership transfer is inferred.",
+      "S2": "CARRIED_FORWARD: controller/probe and reconcile changes remain; untransferred localstate activation persistence was removed for the downstream Agent lifecycle repair.",
+      "S3": "RETAINED: bounded operation/replay/tombstone and terminal lifecycle changes remain in P10-owned probe code and the explicitly transferred probe store/localstate surfaces.",
+      "S4": "CARRIED_FORWARD: the untransferred atomic forward-create bundle was removed; baseline transactional desired/delete behavior remains for the downstream Controller repair.",
+      "S5": "CARRIED_FORWARD: P10-specific regression files remain, while final strict Story 1-6 RED/GREEN evidence is owned by the downstream proof task.",
+      "S6": "PRESERVED: the previously verified provider key-file loading fix remains unchanged."
+    },
+    "resolution": "All remaining candidate edits are either P10-owned, explicitly listed in the scoped transfer, or a new P10 probe migration/test extension. The eight untransferred edits listed above were removed rather than treated as implicitly authorized."
   },
   "capability_result": "SUPPORTED_WITH_LIMITS",
   "known_limits": [
-    "The M1 E2E uses CAP_NET_ADMIN to alias 8.8.8.8/32 on loopback and an injected deterministic route table; it validates real local sockets and the full hidden-challenge/control-receipt join, but is not real external-WAN evidence.",
-    "A real remote probe vantage is still required before claiming real-WAN support.",
-    "The agent route liveness repair is polling-based; controller/agent control-session disconnect supervision and controller-to-agent verified activation publication remain in the preexisting P08 interface and require an ownership-approved follow-up.",
-    "The full repository suite requires ANTINAT_DEDICATED_UID/GID=12001; running without those variables fails the sandbox helper gate.",
+    "Local walking skeleton uses CAP_NET_ADMIN loopback aliasing and deterministic local routing; it is not real external-WAN evidence.",
+    "A real remote independent probe vantage and provider egress address remain required before claiming real-WAN support.",
+    "independent_vantage is operator-owned and defaults false; provisioning must set it only after topology review.",
+    "Full repository suite requires ANTINAT_DEDICATED_UID/GID=12001; the unconfigured run fails only at the sandbox identity gate.",
     "govulncheck is not installed on this host, so dependency vulnerability scanning remains unexecuted.",
-    "P10 remains intentionally limited to direct-v4 TCP, minimal authenticated API/CLI, and the P10 probe/activation path; STUN, gateway traversal, UDP, full UI, and installer behavior remain later-plan scope."
+    "P10 remains limited to direct-v4 TCP, authenticated minimal API/CLI, and probe/activation; STUN, traversal, UDP, full UI, and installer behavior remain later-plan scope."
   ],
   "cleanup_done": true,
   "cleanup": [
     "make clean removed bin/ build artifacts.",
     "The repeated walking-skeleton runs cleaned their temporary network state; no repository-generated build output remains.",
     "Frozen contract manifest regeneration left test/contracts byte-identical.",
-    "No remote push, merge, release, or secret persistence was performed."
+    "No remote push, merge, release, or secret persistence was performed.",
+    "make clean removed bin/ build artifacts after cycle-2 build.",
+    "Cross-build emitted no repository artifacts; e2e state was cleaned by harness teardown.",
+    "Ownership-boundary cleanup removed eight untransferred edits; code commit d0b099671474d9f353fced914722bab14292f088 contains only the 26 declared remaining candidate files."
   ],
   "review_status": "REVIEW_REQUIRED",
   "required_reviews": [
@@ -251,5 +348,5 @@
     "ownership-boundary review",
     "network review"
   ],
-  "deviation_notes": "Cycle-1 repairs address exact-generation activation CAS, same-source probe demultiplexing, bounded replay/concurrency, durable consumed receipts and retry, route/API idempotency/runtime-status defects, route-loss liveness, provider key-file selection, and controller result validation. No frozen contract file was changed. The repair remains blocked for fresh review because the candidate tree already contains preexisting P06/P07/P08 path edits without an approved ownership transfer, and the durable receipt repair necessarily touches the P07-owned localstate/probe.go path."
+  "deviation_notes": "This boundary card preserves the P10 probe/provider/CAS/lifecycle changes and the explicitly authorized P06/P07/P08 extension points, while removing eight untransferred edits in localstate activation, Controller control/store transactions, the minimal API, and the frozen protocol domain. Atomic forward-create and durable Agent activation-event persistence remain explicit downstream repair items. Migration 0005 is retained as a P10-specific probe extension. No frozen contract file changed. Fresh independent specification, quality/security, ownership-boundary, and network reviews remain required before integration."
 }
