@@ -5,15 +5,20 @@
 package probe
 
 import (
+	"bytes"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/gxbrave/AntiNAT/internal/protocol"
 )
 
 const (
@@ -62,15 +67,78 @@ func (r *providerRequest) canonical() ([]byte, error) {
 // decodeProviderRequest verifies the controller signature against the pinned
 // controller public key and decodes the request.
 func decodeProviderRequest(body io.Reader, controllerPub ed25519.PublicKey) (*providerRequest, error) {
+	return decodeProviderRequestAt(body, controllerPub, time.Now())
+}
+
+func decodeProviderRequestAt(body io.Reader, controllerPub ed25519.PublicKey, nowTime time.Time) (*providerRequest, error) {
 	var req providerRequest
-	if err := json.NewDecoder(body).Decode(&req); err != nil {
+	dec := json.NewDecoder(body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		return nil, err
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return nil, errors.New("provider: trailing JSON")
+		}
 		return nil, err
 	}
 	if req.Schema != providerRequestSchema {
 		return nil, errors.New("provider: wrong request schema")
 	}
-	if req.Signature == "" || req.ProbeID == "" || req.Endpoint == "" {
+	if req.Signature == "" || req.Endpoint == "" || req.ControllerInstance == "" || req.ControllerKeyID == "" {
 		return nil, errors.New("provider: incomplete request")
+	}
+	for label, value := range map[string]string{
+		"node_public_key": req.NodePublicKey, "node_public_key_hash": req.NodePublicKeyHash,
+		"probe_id": req.ProbeID, "provider_id": req.ProviderID, "activation": req.Activation,
+		"expected_source_ip": req.ExpectedSourceIP, "expiry_opaque": req.ExpiryOpaque,
+		"arm_digest": req.ArmDigest,
+	} {
+		if value == "" {
+			return nil, fmt.Errorf("provider: missing %s", label)
+		}
+	}
+	for label, size := range map[string]int{
+		"node_public_key": ed25519.PublicKeySize, "node_public_key_hash": 32,
+		"probe_id": protocol.ProbeIDLen, "provider_id": protocol.ProbeProviderIDLen,
+		"activation": protocol.ProbeActivationLen, "expected_source_ip": 4,
+		"expiry_opaque": protocol.ProbeOpaqueLen, "arm_digest": protocol.ProbeDigestLen,
+	} {
+		value := map[string]string{
+			"node_public_key": req.NodePublicKey, "node_public_key_hash": req.NodePublicKeyHash,
+			"probe_id": req.ProbeID, "provider_id": req.ProviderID, "activation": req.Activation,
+			"expected_source_ip": req.ExpectedSourceIP, "expiry_opaque": req.ExpiryOpaque,
+			"arm_digest": req.ArmDigest,
+		}[label]
+		decoded, err := hex.DecodeString(value)
+		if err != nil || len(decoded) != size {
+			return nil, fmt.Errorf("provider: invalid %s", label)
+		}
+	}
+	pub, _ := hex.DecodeString(req.NodePublicKey)
+	pubHash, _ := hex.DecodeString(req.NodePublicKeyHash)
+	wantHash := sha256.Sum256(pub)
+	if !bytes.Equal(pubHash, wantHash[:]) {
+		return nil, errors.New("provider: node public key hash mismatch")
+	}
+	opaque, _ := hex.DecodeString(req.ExpiryOpaque)
+	if bytes.Equal(opaque, make([]byte, protocol.ProbeOpaqueLen)) {
+		return nil, errors.New("provider: expiry opaque is empty")
+	}
+	source, err := hex.DecodeString(req.ExpectedSourceIP)
+	if err != nil || len(source) != 4 || net.IP(source).IsUnspecified() {
+		return nil, errors.New("provider: invalid expected source")
+	}
+	if req.TTLMS == 0 || req.TTLMS > uint64(protocol.ProbeTTLMax/time.Millisecond) {
+		return nil, errors.New("provider: invalid ttl")
+	}
+	now := nowTime.Unix()
+	// The request timestamp is signed and must be recent enough that a
+	// captured request cannot be replayed after its arm TTL has elapsed.
+	if req.TimestampUnix < now-120 || req.TimestampUnix > now+30 {
+		return nil, errors.New("provider: stale request")
 	}
 	canonical, err := req.canonical()
 	if err != nil {

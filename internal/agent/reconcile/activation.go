@@ -121,6 +121,24 @@ func (a *Activation) AdvanceGeneration(next uint64) {
 	}
 }
 
+// ResetForGeneration advances an activation and clears evidence axes. A
+// specification revision is a new activation: an old WAN proof and
+// publication decision cannot be carried into the new revision.
+func (a *Activation) ResetForGeneration(next uint64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if next <= a.generation {
+		return
+	}
+	a.generation = next
+	a.states.MappingState = "NOT_REQUIRED"
+	a.states.KeepaliveState = "NOT_REQUIRED"
+	a.states.WanReachabilityState = "NOT_TESTED"
+	a.states.ReturnPathState = "NOT_TESTED"
+	a.states.TargetHealthState = "UNKNOWN"
+	a.states.PublicationState = "NONE"
+}
+
 // Generation returns the current activation generation.
 func (a *Activation) Generation() uint64 {
 	a.mu.Lock()

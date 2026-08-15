@@ -151,7 +151,7 @@ func newTestEnv(t *testing.T, providerRejected bool) *testEnv {
 	}
 	if _, err := st.CreateProbeProvider(store.ProbeProvider{
 		ID: "prov-1", Name: "edge", PublicKey: hex.EncodeToString(provPub),
-		EgressIP: "198.51.100.9", Endpoint: srv.URL, Enabled: true,
+		EgressIP: "198.51.100.9", Endpoint: srv.URL, Enabled: true, IndependentVantage: true,
 	}); err != nil {
 		t.Fatalf("register provider: %v", err)
 	}

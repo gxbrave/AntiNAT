@@ -44,8 +44,9 @@ type ControlSession struct {
 	session  string
 	agentPub ed25519.PublicKey
 
-	conn *websocket.Conn
-	mu   sync.Mutex
+	conn    *websocket.Conn
+	mu      sync.Mutex
+	writeMu sync.Mutex
 
 	// outSeq is the controller's outbound sequence (C2A).
 	outSeq uint64
@@ -75,9 +76,12 @@ func (s *ControlSession) close() {
 
 // writeEnvelope signs and writes one C2A envelope with the next sequence.
 func (s *ControlSession) writeEnvelope(ctx context.Context, messageID [16]byte, messageType string, payload []byte) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	s.mu.Lock()
 	s.outSeq++
 	seq := s.outSeq
+	conn := s.conn
 	s.mu.Unlock()
 
 	header := protocol.ProtectedHeader{
@@ -98,7 +102,10 @@ func (s *ControlSession) writeEnvelope(ctx context.Context, messageID [16]byte, 
 	if err != nil {
 		return fmt.Errorf("agenthub: build envelope: %w", err)
 	}
-	return s.conn.Write(ctx, websocket.MessageBinary, frame)
+	if conn == nil {
+		return errors.New("agenthub: session is not connected")
+	}
+	return conn.Write(ctx, websocket.MessageBinary, frame)
 }
 
 // handleControl upgrades the WebSocket and runs the mutual-challenge

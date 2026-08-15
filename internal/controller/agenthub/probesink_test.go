@@ -177,13 +177,19 @@ func TestProbeSinkReceivesProbePlaneMessages(t *testing.T) {
 	// The hub pump sends the arm C2A; the raw agent must answer with a
 	// dedicated probe_armed A2C message (frozen type) carrying the RDY1
 	// frame bytes and a deterministic message id for resend dedup.
-	_, rawCmd, err := conn.conn.Read(ctx)
-	if err != nil {
-		t.Fatalf("read probe_arm command: %v", err)
-	}
-	cmdEnv, _, err := protocol.ParseEnvelope(rawCmd, conn.hub.ControllerPublicKey())
-	if err != nil {
-		t.Fatalf("parse arm command: %v", err)
+	var cmdEnv protocol.Envelope
+	for {
+		_, rawCmd, err := conn.conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("read controller command: %v", err)
+		}
+		cmdEnv, _, err = protocol.ParseEnvelope(rawCmd, conn.hub.ControllerPublicKey())
+		if err != nil {
+			t.Fatalf("parse controller command: %v", err)
+		}
+		if cmdEnv.Header.MessageType == "probe_arm" {
+			break
+		}
 	}
 	if cmdEnv.Header.MessageType != "probe_arm" {
 		t.Fatalf("command type = %q, want probe_arm", cmdEnv.Header.MessageType)

@@ -18,23 +18,25 @@ import (
 // public key verifies signed provider results; the egress IP is the exact
 // source the ARM1 frame pins as expected_source_ip.
 type ProbeProvider struct {
-	ID        string
-	Name      string
-	PublicKey string
-	EgressIP  string
-	Endpoint  string
-	Enabled   bool
-	CreatedAt int64
-	UpdatedAt int64
+	ID                 string
+	Name               string
+	PublicKey          string
+	EgressIP           string
+	Endpoint           string
+	Enabled            bool
+	IndependentVantage bool
+	CreatedAt          int64
+	UpdatedAt          int64
 }
 
 // CreateProbeProvider registers a provider. The id is unique.
 func (s *Store) CreateProbeProvider(p ProbeProvider) (ProbeProvider, error) {
 	ts := now()
 	_, err := s.db.Exec(
-		`INSERT INTO probe_providers (id, name, public_key, egress_ip, endpoint, enabled, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Name, p.PublicKey, p.EgressIP, p.Endpoint, boolInt(p.Enabled), ts, ts,
+		`INSERT INTO probe_providers
+		    (id, name, public_key, egress_ip, endpoint, enabled, independent_vantage, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.PublicKey, p.EgressIP, p.Endpoint, boolInt(p.Enabled), boolInt(p.IndependentVantage), ts, ts,
 	)
 	if err != nil {
 		return ProbeProvider{}, fmt.Errorf("store: create probe provider: %w", err)
@@ -47,9 +49,9 @@ func (s *Store) GetProbeProvider(id string) (ProbeProvider, error) {
 	var p ProbeProvider
 	var enabled int
 	err := s.db.QueryRow(
-		`SELECT id, name, public_key, egress_ip, endpoint, enabled, created_at, updated_at
+		`SELECT id, name, public_key, egress_ip, endpoint, enabled, independent_vantage, created_at, updated_at
 		   FROM probe_providers WHERE id = ?`, id,
-	).Scan(&p.ID, &p.Name, &p.PublicKey, &p.EgressIP, &p.Endpoint, &enabled, &p.CreatedAt, &p.UpdatedAt)
+	).Scan(&p.ID, &p.Name, &p.PublicKey, &p.EgressIP, &p.Endpoint, &enabled, &p.IndependentVantage, &p.CreatedAt, &p.UpdatedAt)
 	p.Enabled = enabled != 0
 	if errors.Is(err, sql.ErrNoRows) {
 		return ProbeProvider{}, ErrNotFound
@@ -78,10 +80,25 @@ func (s *Store) SetProbeProviderEnabled(id string, enabled bool) error {
 	return nil
 }
 
+// SetProbeProviderIndependentVantage changes the operator-owned topology
+// declaration. Changing it never changes existing operation evidence.
+func (s *Store) SetProbeProviderIndependentVantage(id string, independent bool) error {
+	res, err := s.db.Exec(`UPDATE probe_providers SET independent_vantage = ?, updated_at = ? WHERE id = ?`, boolInt(independent), now(), id)
+	if err != nil {
+		return fmt.Errorf("store: set probe provider independence: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return fmt.Errorf("store: set probe provider independence rows: %w", err)
+	} else if n != 1 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // ListProbeProviders returns every registered provider.
 func (s *Store) ListProbeProviders() ([]ProbeProvider, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, public_key, egress_ip, endpoint, enabled, created_at, updated_at
+		`SELECT id, name, public_key, egress_ip, endpoint, enabled, independent_vantage, created_at, updated_at
 		   FROM probe_providers ORDER BY id`,
 	)
 	if err != nil {
@@ -92,7 +109,7 @@ func (s *Store) ListProbeProviders() ([]ProbeProvider, error) {
 	for rows.Next() {
 		var p ProbeProvider
 		var enabled int
-		if err := rows.Scan(&p.ID, &p.Name, &p.PublicKey, &p.EgressIP, &p.Endpoint, &enabled, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.PublicKey, &p.EgressIP, &p.Endpoint, &enabled, &p.IndependentVantage, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("store: scan probe provider: %w", err)
 		}
 		p.Enabled = enabled != 0
@@ -138,6 +155,33 @@ func (s *Store) CreateProbeOperation(op ProbeOperation) (ProbeOperation, error) 
 	return s.GetProbeOperation(op.ID)
 }
 
+// CreateProbeOperationBundle atomically records the operation and its probe_arm
+// command. A store failure cannot leave an arm without its durable intent or
+// leave an intent that the outbox cannot retry.
+func (s *Store) CreateProbeOperationBundle(op ProbeOperation, outbox ControlOutboxItem) (ProbeOperation, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return ProbeOperation{}, fmt.Errorf("store: begin probe bundle: %w", err)
+	}
+	defer tx.Rollback()
+	ts := now()
+	if _, err := tx.Exec(`INSERT INTO probe_operations
+		(id, node_id, forward_id, activation_id, provider_id, status, endpoint,
+		 arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		op.ID, op.NodeID, op.ForwardID, op.ActivationID, op.ProviderID, orDefault(op.Status, "PENDING"),
+		op.Endpoint, op.ArmHex, op.ChallengeHash, op.TTLMS, op.ExpiryOpaque, op.ExpiresAt, ts, ts); err != nil {
+		return ProbeOperation{}, fmt.Errorf("store: probe bundle operation: %w", err)
+	}
+	if err := insertOutboxTx(tx, outbox); err != nil {
+		return ProbeOperation{}, fmt.Errorf("store: probe bundle outbox: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return ProbeOperation{}, fmt.Errorf("store: commit probe bundle: %w", err)
+	}
+	return s.GetProbeOperation(op.ID)
+}
+
 // GetProbeOperation returns an operation row by probe id.
 func (s *Store) GetProbeOperation(id string) (ProbeOperation, error) {
 	var op ProbeOperation
@@ -157,19 +201,83 @@ func (s *Store) GetProbeOperation(id string) (ProbeOperation, error) {
 	return op, nil
 }
 
-// SetProbeOperationStatus advances an operation's status.
+var (
+	ErrProbeIllegalTransition = errors.New("store: illegal probe operation transition")
+	ErrProbeTerminal          = errors.New("store: probe operation is terminal")
+)
+
+func probeTerminal(status string) bool {
+	switch status {
+	case string(protocol.OutcomeOpenFromVantage), string(protocol.OutcomeRejected),
+		string(protocol.OutcomeDropped), string(protocol.OutcomeTimeout),
+		string(protocol.OutcomeNoIndependentVantage), string(protocol.OutcomeProbeInfraUnavailable):
+		return true
+	default:
+		return false
+	}
+}
+
+func probeTransitionAllowed(from, to string) bool {
+	if from == to {
+		return true
+	}
+	if probeTerminal(from) {
+		return false
+	}
+	switch from {
+	case "PENDING":
+		return to == "ARMED" || probeTerminal(to)
+	case "ARMED":
+		return to == "IN_FLIGHT" || probeTerminal(to)
+	case "IN_FLIGHT":
+		return probeTerminal(to)
+	default:
+		return false
+	}
+}
+
+// SetProbeOperationStatus advances an operation through the frozen probe
+// lifecycle. Terminal rows cannot be reopened or rewritten.
 func (s *Store) SetProbeOperationStatus(id, status string) error {
-	res, err := s.db.Exec(
-		`UPDATE probe_operations SET status = ?, updated_at = ? WHERE id = ?`,
-		status, now(), id,
-	)
+	return s.setProbeOperationStatusCAS(id, "", status)
+}
+
+// SetProbeOperationStatusCAS advances an operation only when its current
+// status equals expected. It is the join fence: late artifacts cannot reopen
+// a timed-out/rejected operation.
+func (s *Store) SetProbeOperationStatusCAS(id, expected, status string) error {
+	return s.setProbeOperationStatusCAS(id, expected, status)
+}
+
+func (s *Store) setProbeOperationStatusCAS(id, expected, status string) error {
+	tx, err := s.db.Begin()
 	if err != nil {
+		return fmt.Errorf("store: begin probe status: %w", err)
+	}
+	defer tx.Rollback()
+	var current string
+	if err := tx.QueryRow(`SELECT status FROM probe_operations WHERE id = ?`, id).Scan(&current); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return fmt.Errorf("store: read probe status: %w", err)
+	}
+	if expected != "" && current != expected {
+		return ErrProbeTerminal
+	}
+	if !probeTransitionAllowed(current, status) {
+		if current == status {
+			return nil
+		}
+		return fmt.Errorf("%w: %s -> %s", ErrProbeIllegalTransition, current, status)
+	}
+	if current == status {
+		return nil
+	}
+	if _, err := tx.Exec(`UPDATE probe_operations SET status = ?, updated_at = ? WHERE id = ?`, status, now(), id); err != nil {
 		return fmt.Errorf("store: set probe operation status: %w", err)
 	}
-	if n, err := res.RowsAffected(); err != nil {
-		return fmt.Errorf("store: set probe operation rows: %w", err)
-	} else if n != 1 {
-		return ErrNotFound
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: commit probe status: %w", err)
 	}
 	return nil
 }
@@ -187,6 +295,44 @@ func (s *Store) SetProbeOperationChallenge(id, challengeHash string) error {
 		return fmt.Errorf("store: set probe operation challenge rows: %w", err)
 	} else if n != 1 {
 		return ErrNotFound
+	}
+	return nil
+}
+
+// PublishProbeJoin atomically transitions the operation to OPEN_FROM_VANTAGE
+// and persists its legal activation mirror. Observers can never see an OPEN
+// operation without its corresponding frozen snapshot.
+func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activationID, snapshotJSON string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("store: begin probe join: %w", err)
+	}
+	defer tx.Rollback()
+	var current string
+	if err := tx.QueryRow(`SELECT status FROM probe_operations WHERE id = ?`, operationID).Scan(&current); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return fmt.Errorf("store: read probe join status: %w", err)
+	}
+	if current != expectedStatus {
+		return ErrProbeTerminal
+	}
+	if !probeTransitionAllowed(current, string(protocol.OutcomeOpenFromVantage)) {
+		return ErrProbeIllegalTransition
+	}
+	if _, err := tx.Exec(`UPDATE probe_operations SET status = ?, updated_at = ? WHERE id = ? AND status = ?`, string(protocol.OutcomeOpenFromVantage), now(), operationID, expectedStatus); err != nil {
+		return fmt.Errorf("store: publish probe operation: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT INTO forward_runtime_status (forward_id, activation_id, snapshot_json, updated_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(forward_id) DO UPDATE SET activation_id = excluded.activation_id,
+		 snapshot_json = excluded.snapshot_json, updated_at = excluded.updated_at
+		 WHERE forward_runtime_status.activation_id = excluded.activation_id
+		 OR excluded.activation_id = (SELECT current_activation_id FROM forwards WHERE id = excluded.forward_id)`, forwardID, activationID, snapshotJSON, now()); err != nil {
+		return fmt.Errorf("store: publish probe snapshot: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: commit probe join: %w", err)
 	}
 	return nil
 }
@@ -219,6 +365,38 @@ func (s *Store) ProbeOperationByArmDigest(digest [32]byte) (ProbeOperation, erro
 			continue
 		}
 		if hex.EncodeToString(arm[:]) == want {
+			return op, nil
+		}
+	}
+	return ProbeOperation{}, ErrNotFound
+}
+
+// ProbeOperationByArmDigestForNode resolves only live operations belonging to
+// nodeID. The node/status/deadline fence is part of the lookup rather than a
+// caller convention, so a late frame cannot operate on another node's row.
+func (s *Store) ProbeOperationByArmDigestForNode(digest [32]byte, nodeID string, nowUnix int64) (ProbeOperation, error) {
+	rows, err := s.db.Query(`SELECT id, node_id, forward_id, activation_id, provider_id, status,
+		endpoint, arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
+		FROM probe_operations
+		WHERE node_id = ? AND status IN ('PENDING','ARMED','IN_FLIGHT')`, nodeID)
+	if err != nil {
+		return ProbeOperation{}, fmt.Errorf("store: scan live probe operations: %w", err)
+	}
+	defer rows.Close()
+	want := hex.EncodeToString(digest[:])
+	for rows.Next() {
+		var op ProbeOperation
+		if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ProviderID, &op.Status,
+			&op.Endpoint, &op.ArmHex, &op.ChallengeHash, &op.TTLMS, &op.ExpiryOpaque,
+			&op.ExpiresAt, &op.CreatedAt, &op.UpdatedAt); err != nil {
+			return ProbeOperation{}, fmt.Errorf("store: scan live probe operation: %w", err)
+		}
+		armBytes, err := hex.DecodeString(op.ArmHex)
+		if err != nil {
+			continue
+		}
+		arm, err := ParseProbeArmLite(armBytes)
+		if err == nil && hex.EncodeToString(arm[:]) == want {
 			return op, nil
 		}
 	}
@@ -268,6 +446,51 @@ func (s *Store) ListProbeOperationsByStatus(statuses ...string) ([]ProbeOperatio
 		out = append(out, op)
 	}
 	return out, rows.Err()
+}
+
+// CountLiveProbeOperations returns the number of non-terminal probe rows.
+func (s *Store) CountLiveProbeOperations() (int, error) {
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM probe_operations WHERE status IN ('PENDING','ARMED','IN_FLIGHT')`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("store: count live probe operations: %w", err)
+	}
+	return n, nil
+}
+
+// ExpireProbeOperations advances every live operation past its deadline to a
+// terminal TIMEOUT outcome. It is intentionally idempotent and returns the
+// rows that were observed expired for audit/sweeper metrics.
+func (s *Store) ExpireProbeOperations(nowUnix int64) ([]ProbeOperation, error) {
+	ops, err := s.ListProbeOperationsByStatus("PENDING", "ARMED", "IN_FLIGHT")
+	if err != nil {
+		return nil, err
+	}
+	var expired []ProbeOperation
+	for _, op := range ops {
+		if op.ExpiresAt > nowUnix {
+			continue
+		}
+		if err := s.SetProbeOperationStatusCAS(op.ID, op.Status, string(protocol.OutcomeTimeout)); err != nil {
+			if errors.Is(err, ErrProbeTerminal) || errors.Is(err, ErrNotFound) {
+				continue
+			}
+			return expired, err
+		}
+		op.Status = string(protocol.OutcomeTimeout)
+		expired = append(expired, op)
+	}
+	return expired, nil
+}
+
+// DeleteProbeResultsBefore bounds the durable artifact journal after the
+// operation retention window. It never removes a live operation's artifacts.
+func (s *Store) DeleteProbeResultsBefore(cutoff int64) error {
+	_, err := s.db.Exec(`DELETE FROM probe_results WHERE created_at < ? AND probe_id IN
+		(SELECT id FROM probe_operations WHERE status IN ('OPEN_FROM_VANTAGE','REJECTED','DROPPED','TIMEOUT','NO_INDEPENDENT_VANTAGE','PROBE_INFRA_UNAVAILABLE'))`, cutoff)
+	if err != nil {
+		return fmt.Errorf("store: delete old probe results: %w", err)
+	}
+	return nil
 }
 
 // ProbeResult is one joined artifact of a probe operation.

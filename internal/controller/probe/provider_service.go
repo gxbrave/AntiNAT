@@ -16,8 +16,8 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"sync"
@@ -46,17 +46,23 @@ type ProviderConfig struct {
 	MaxReplayEntries int
 	// MaxRequestBytes bounds request bodies.
 	MaxRequestBytes int64
+	// RateWindow and MaxRequests bound HTTP work before execution.
+	RateWindow  time.Duration
+	MaxRequests int
 }
 
 // Provider is the bounded antinat-probe service.
 type Provider struct {
 	cfg       ProviderConfig
 	slots     chan struct{}
+	inbound   chan struct{}
 	mu        sync.Mutex
 	replay    map[string]time.Time
 	started   time.Time
 	requests  int64
 	maxReplay int
+	rateStart time.Time
+	rateCount int
 }
 
 // NewProvider validates config and builds the provider.
@@ -88,12 +94,20 @@ func NewProvider(cfg ProviderConfig) (*Provider, error) {
 	if cfg.MaxRequestBytes <= 0 {
 		cfg.MaxRequestBytes = 8192
 	}
+	if cfg.RateWindow <= 0 {
+		cfg.RateWindow = time.Minute
+	}
+	if cfg.MaxRequests <= 0 {
+		cfg.MaxRequests = 120
+	}
 	return &Provider{
 		cfg:       cfg,
 		slots:     make(chan struct{}, cfg.MaxConcurrent),
+		inbound:   make(chan struct{}, cfg.MaxConcurrent*2),
 		replay:    map[string]time.Time{},
 		started:   cfg.Clock(),
 		maxReplay: cfg.MaxReplayEntries,
+		rateStart: cfg.Clock(),
 	}, nil
 }
 
@@ -132,19 +146,36 @@ func (p *Provider) Stats() Stats {
 func (p *Provider) handleRequest(w http.ResponseWriter, r *http.Request) {
 	p.mu.Lock()
 	p.requests++
+	now := p.cfg.Clock()
+	if now.Sub(p.rateStart) >= p.cfg.RateWindow {
+		p.rateStart, p.rateCount = now, 0
+	}
+	p.rateCount++
+	rateLimited := p.rateCount > p.cfg.MaxRequests
 	p.mu.Unlock()
+	if rateLimited {
+		p.writeResult(w, providerResult{ProbeID: "", Accepted: false, Reason: "rate_limited"})
+		return
+	}
+	select {
+	case p.inbound <- struct{}{}:
+		defer func() { <-p.inbound }()
+	default:
+		p.writeResult(w, providerResult{ProbeID: "", Accepted: false, Reason: "busy"})
+		return
+	}
 
 	body := http.MaxBytesReader(w, r.Body, p.cfg.MaxRequestBytes)
-	req, err := decodeProviderRequest(body, p.cfg.ControllerPublicKey)
+	req, err := decodeProviderRequestAt(body, p.cfg.ControllerPublicKey, p.cfg.Clock())
 	if err != nil {
-		writeProviderResult(w, p.cfg.ProviderPrivateKey, providerResult{ProbeID: "", Accepted: false, Reason: "bad_request"})
+		p.writeResult(w, providerResult{ProbeID: "", Accepted: false, Reason: "bad_request"})
 		return
 	}
 
 	// TTL nonce replay cache: the same request (by probe id) within the
 	// window is a replay and is refused generically. Expired entries and the
 	// oldest live entry are evicted before admitting a new id.
-	now := p.cfg.Clock()
+	now = p.cfg.Clock()
 	p.mu.Lock()
 	for id, expire := range p.replay {
 		if !now.Before(expire) {
@@ -153,7 +184,7 @@ func (p *Provider) handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	if expire, ok := p.replay[req.ProbeID]; ok && now.Before(expire) {
 		p.mu.Unlock()
-		writeProviderResult(w, p.cfg.ProviderPrivateKey, providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "replay"})
+		p.writeResult(w, providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "replay"})
 		return
 	}
 	if len(p.replay) >= p.maxReplay {
@@ -171,17 +202,17 @@ func (p *Provider) handleRequest(w http.ResponseWriter, r *http.Request) {
 	p.replay[req.ProbeID] = now.Add(p.cfg.ReplayWindow)
 	p.mu.Unlock()
 
-	// Bounded concurrency.
+	// Bounded execution concurrency.
 	select {
 	case p.slots <- struct{}{}:
 		defer func() { <-p.slots }()
 	default:
-		writeProviderResult(w, p.cfg.ProviderPrivateKey, providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "busy"})
+		p.writeResult(w, providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "busy"})
 		return
 	}
 
 	res := p.execute(r.Context(), req)
-	writeProviderResult(w, p.cfg.ProviderPrivateKey, res)
+	p.writeResult(w, res)
 }
 
 // execute performs the exchange: generate challenge, build WAN1, dial the
@@ -199,12 +230,28 @@ func (p *Provider) execute(ctx context.Context, req *providerRequest) providerRe
 		return providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "challenge_unavailable"}
 	}
 	var digest32 [32]byte
-	copy(digest32[:], mustHexPanic(req.ArmDigest))
+	if digest, err := hex.DecodeString(req.ArmDigest); err != nil || len(digest) != len(digest32) {
+		return providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "bad_request"}
+	} else {
+		copy(digest32[:], digest)
+	}
 	var probeID, providerID, activation, opaque [16]byte
-	copy(probeID[:], mustHexPanic(req.ProbeID))
-	copy(providerID[:], mustHexPanic(req.ProviderID))
-	copy(activation[:], mustHexPanic(req.Activation))
-	copy(opaque[:], mustHexPanic(req.ExpiryOpaque))
+	for i, value := range []string{req.ProbeID, req.ProviderID, req.Activation, req.ExpiryOpaque} {
+		b, err := hex.DecodeString(value)
+		if err != nil || len(b) != 16 {
+			return providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "bad_request"}
+		}
+		switch i {
+		case 0:
+			copy(probeID[:], b)
+		case 1:
+			copy(providerID[:], b)
+		case 2:
+			copy(activation[:], b)
+		case 3:
+			copy(opaque[:], b)
+		}
+	}
 	frame := protocol.ProviderFrame{
 		ArmDigest:    digest32,
 		ProbeID:      probeID,
@@ -216,7 +263,14 @@ func (p *Provider) execute(ctx context.Context, req *providerRequest) providerRe
 	}
 	frame.Signature = ed25519.Sign(p.cfg.ProviderPrivateKey, frame.SigningBytes())
 
-	conn, err := net.DialTimeout("tcp4", req.Endpoint, p.cfg.DialTimeout)
+	sourceBytes, err := hex.DecodeString(req.ExpectedSourceIP)
+	if err != nil || len(sourceBytes) != 4 || net.IP(sourceBytes).IsUnspecified() {
+		return providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "invalid_source"}
+	}
+	ctx, cancel := context.WithTimeout(ctx, p.cfg.DialTimeout)
+	defer cancel()
+	dialer := net.Dialer{Timeout: p.cfg.DialTimeout, LocalAddr: &net.TCPAddr{IP: net.IP(sourceBytes)}}
+	conn, err := dialer.DialContext(ctx, "tcp4", req.Endpoint)
 	if err != nil {
 		return providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "unreachable"}
 	}
@@ -231,7 +285,10 @@ func (p *Provider) execute(ctx context.Context, req *providerRequest) providerRe
 	if _, err := readFullConn(conn, ackBuf); err != nil {
 		return providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "no_ack"}
 	}
-	nodePub := mustHexPanic(req.NodePublicKey)
+	nodePub, err := hex.DecodeString(req.NodePublicKey)
+	if err != nil || len(nodePub) != ed25519.PublicKeySize {
+		return providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "bad_request"}
+	}
 	if _, err := protocol.ParseProbeACK(ackBuf, ed25519.PublicKey(nodePub)); err != nil {
 		return providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "bad_ack"}
 	}
@@ -259,12 +316,11 @@ func readFullConn(c net.Conn, buf []byte) (int, error) {
 	return n, nil
 }
 
-// mustHexPanic decodes hex or panics (the request was already verified, so a
-// decode failure here is a programming error).
-func mustHexPanic(s string) []byte {
-	b, err := hex.DecodeString(s)
-	if err != nil {
-		panic(fmt.Sprintf("probe: malformed hex in verified request: %v", err))
-	}
-	return b
+// writeResult signs and writes a provider response using the configured clock.
+func (p *Provider) writeResult(w http.ResponseWriter, res providerResult) {
+	res.Schema = providerResultSchema
+	res.TimestampUnix = p.cfg.Clock().Unix()
+	res.Signature = hex.EncodeToString(ed25519.Sign(p.cfg.ProviderPrivateKey, res.canonical()))
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
 }

@@ -16,6 +16,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -45,6 +47,8 @@ type ProbeManagerOptions struct {
 	SendControl SendControlFunc
 	// MaxReplayEntries bounds the in-memory replay fence.
 	MaxReplayEntries int
+	// SweepInterval bounds expired operation/tombstone retention.
+	SweepInterval time.Duration
 }
 
 // armedOp is one in-memory armed probe operation (loaded from bbolt at
@@ -63,10 +67,13 @@ type ProbeManager struct {
 	clock func() time.Time
 	send  SendControlFunc
 
-	mu        sync.Mutex
-	ops       map[[16]byte]*armedOp
-	replay    map[[16]byte]time.Time
-	maxReplay int
+	mu            sync.Mutex
+	ops           map[[16]byte]*armedOp
+	replay        map[[16]byte]time.Time
+	maxReplay     int
+	sweepInterval time.Duration
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
 }
 
 // NewProbeManager builds the manager and recovers durable armed operations
@@ -78,14 +85,18 @@ func NewProbeManager(opts ProbeManagerOptions) *ProbeManager {
 	if opts.MaxReplayEntries <= 0 {
 		opts.MaxReplayEntries = 4096
 	}
+	if opts.SweepInterval <= 0 {
+		opts.SweepInterval = time.Minute
+	}
 	m := &ProbeManager{
-		store:     opts.Store,
-		key:       opts.NodeKey,
-		clock:     opts.Clock,
-		send:      opts.SendControl,
-		ops:       map[[16]byte]*armedOp{},
-		replay:    map[[16]byte]time.Time{},
-		maxReplay: opts.MaxReplayEntries,
+		store:         opts.Store,
+		key:           opts.NodeKey,
+		clock:         opts.Clock,
+		send:          opts.SendControl,
+		ops:           map[[16]byte]*armedOp{},
+		replay:        map[[16]byte]time.Time{},
+		maxReplay:     opts.MaxReplayEntries,
+		sweepInterval: opts.SweepInterval,
 	}
 	if m.store != nil {
 		probes, err := m.store.ListArmedProbes()
@@ -103,6 +114,54 @@ func NewProbeManager(opts ProbeManagerOptions) *ProbeManager {
 		}
 	}
 	return m
+}
+
+// Start launches the cancellable probe retention sweeper. It is separate from
+// the listener gate so shutdown can wait for all state work before closing the
+// local bbolt store.
+func (m *ProbeManager) Start(parent context.Context) {
+	m.mu.Lock()
+	if m.cancel != nil {
+		m.mu.Unlock()
+		return
+	}
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
+	m.cancel = cancel
+	m.wg.Add(1)
+	m.mu.Unlock()
+	go func() {
+		defer m.wg.Done()
+		ticker := time.NewTicker(m.sweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				m.mu.Lock()
+				m.sweep(now)
+				m.mu.Unlock()
+				if m.store != nil {
+					_ = m.store.SweepArmedProbeTombstones(now)
+				}
+			}
+		}
+	}()
+}
+
+// Close stops the retention sweeper and waits for it to exit.
+func (m *ProbeManager) Close() {
+	m.mu.Lock()
+	cancel := m.cancel
+	m.cancel = nil
+	m.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	m.wg.Wait()
 }
 
 // HandleProbeArm validates a canonical ARM1 frame against the applied state,
@@ -174,6 +233,11 @@ func (m *ProbeManager) RetryPendingReceipts(ctx context.Context) error {
 		if !probe.Consumed || probe.ReceiptSent || len(probe.Receipt) == 0 {
 			continue
 		}
+		messageID := probe.ReceiptMessageID
+		if messageID == "" {
+			messageID = probeReceiptMessageID(probe.Receipt)
+			_ = m.store.SetArmedProbeReceiptMessageID(probe.Arm.ProbeID, messageID, probe.Deadline.Add(protocol.ProbeReplayWindow))
+		}
 		if err := m.send(ctx, "probe_ingress_receipt", probe.Receipt); err != nil {
 			if firstErr == nil {
 				firstErr = err
@@ -185,6 +249,15 @@ func (m *ProbeManager) RetryPendingReceipts(ctx context.Context) error {
 		}
 	}
 	return firstErr
+}
+
+// AcknowledgeReceipt consumes the controller semantic receipt for a probe
+// ingress message and removes only the matching durable tombstone.
+func (m *ProbeManager) AcknowledgeReceipt(operationID string) error {
+	if m.store == nil {
+		return nil
+	}
+	return m.store.AcknowledgeArmedProbeReceipt(operationID)
 }
 
 // sweep evicts expired operations and replay entries.
@@ -322,7 +395,19 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 		return
 	}
 	rct.Write(rsig)
-	if m.store == nil || m.store.MarkArmedProbeConsumed(op.arm.ProbeID, rct.Bytes()) != nil {
+	receiptMessageID := probeReceiptMessageID(rct.Bytes())
+	if m.store == nil {
+		m.mu.Lock()
+		op.used = false
+		delete(m.replay, frame.ProbeID)
+		m.mu.Unlock()
+		return
+	}
+	if err := m.store.MarkArmedProbeConsumedWithReceipt(op.arm.ProbeID, rct.Bytes(), receiptMessageID, op.deadline.Add(protocol.ProbeReplayWindow)); err != nil {
+		m.mu.Lock()
+		op.used = false
+		delete(m.replay, frame.ProbeID)
+		m.mu.Unlock()
 		return
 	}
 
@@ -338,6 +423,15 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 			_ = m.store.MarkArmedProbeReceiptSent(op.arm.ProbeID)
 		}
 	}
+}
+
+// probeReceiptMessageID mirrors control.Client.SendMessage's deterministic id
+// derivation so the controller can acknowledge an A2C ingress receipt after
+// the sink has durably consumed it.
+func probeReceiptMessageID(payload []byte) string {
+	sum := sha256.Sum256(payload)
+	id := security.MessageID(hex.EncodeToString(sum[:]), "probe_ingress_receipt")
+	return hex.EncodeToString(id[:])
 }
 
 // ProbeGateOptions configures the listener gate.

@@ -1,12 +1,9 @@
 // M1 walking skeleton (P10 Story 6, v0.8 §11.3 M1-12).
 //
 // From empty state: init admin -> create node -> enroll (hidden token) ->
-// create a Linux direct-v4 TCP Forward -> independent provider round trip
-// (hidden challenge, same-path ACK, control receipt, join) -> external
-// client gets the target echo -> target hot update (old conn keeps old
-// target, new conn gets new target) -> Agent restart restores the listener
-// but UNVERIFIED -> reprobe republishes -> online DELETE disconnects and
-// ACKs -> restart does not resurrect.
+// create a Linux direct-v4 TCP Forward -> explicit local no-independent-vantage
+// policy (no fabricated OPEN_FROM_VANTAGE evidence) -> external client gets
+// the target echo -> target hot update
 //
 // The orchestrator host has no global IPv4, so the harness aliases a
 // global-class literal on loopback and injects a deterministic route table
@@ -15,7 +12,6 @@
 package e2e
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -25,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gxbrave/AntiNAT/internal/protocol"
 	"github.com/gxbrave/AntiNAT/test/e2e/harness"
 )
 
@@ -134,16 +129,13 @@ func TestLinuxDirectV4WalkingSkeleton(t *testing.T) {
 	st, _, _ := app.Store().GetAppliedState(fwdID)
 	endpoint := net.JoinHostPort(st.ActualBindHost, fmt.Sprintf("%d", st.ActualBindPort))
 
-	// 7. Controller operation: arm the hidden-challenge probe at the exact
-	// endpoint. The provider then does the WAN1/ACK1 round trip and the
-	// agent's RCT1 receipt joins to OPEN_FROM_VANTAGE.
-	op, err := h.Ctrl.ArmProbe(context.Background(), nodeID, fwdID, endpoint)
-	if err != nil {
-		t.Fatalf("arm probe: %v", err)
-	}
-	harness.WaitFor(t, 30*time.Second, "probe OPEN_FROM_VANTAGE", func() bool {
-		got, err := h.Store.GetProbeOperation(op.ID)
-		return err == nil && got.Status == string(protocol.OutcomeOpenFromVantage)
+	// 7. The local fixture explicitly has no independent vantage. Do not
+	// arm a probe against it: the controller's provider policy is covered by
+	// the strict manager regression and the end-to-end path must not invent
+	// OPEN_FROM_VANTAGE evidence from a loopback service.
+	harness.WaitFor(t, 20*time.Second, "initial unverified activation", func() bool {
+		snap := app.ActivationSnapshot(fwdID)
+		return snap != nil && snap.WanReachabilityState == "NOT_TESTED"
 	})
 
 	// 8. External client reaches the published endpoint and gets the target
@@ -203,15 +195,11 @@ func TestLinuxDirectV4WalkingSkeleton(t *testing.T) {
 		t.Fatalf("after restart WanReachabilityState = %q, want NOT_TESTED (UNVERIFIED)", snap.WanReachabilityState)
 	}
 
-	// 11. Reprobe republishes (controller operation again).
-	op2, err := h.Ctrl.ArmProbe(context.Background(), nodeID, fwdID, endpoint)
-	if err != nil {
-		t.Fatalf("reprobe arm: %v", err)
+	// 11. A local restart remains UNVERIFIED; no provider round trip is
+	// fabricated merely because the fixture has a reachable HTTP endpoint.
+	if snap2 := app2.ActivationSnapshot(fwdID); snap2 == nil || snap2.WanReachabilityState != "NOT_TESTED" {
+		t.Fatalf("after local restart activation claimed WAN evidence: %#v", snap2)
 	}
-	harness.WaitFor(t, 30*time.Second, "reprobe OPEN_FROM_VANTAGE", func() bool {
-		got, err := h.Store.GetProbeOperation(op2.ID)
-		return err == nil && got.Status == string(protocol.OutcomeOpenFromVantage)
-	})
 	harness.DialEcho(t, endpoint, "ping-after-restart", "B:")
 
 	// 12. Online delete: the CLI DELETE is accepted with an operation id,

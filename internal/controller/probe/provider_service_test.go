@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,8 +70,11 @@ func TestProviderRefusesPrivateEndpoint(t *testing.T) {
 	defer srv.Close()
 
 	req := providerRequest{
-		Schema: providerRequestSchema, ProbeID: "bb", Endpoint: "10.0.0.1:80",
-		TimestampUnix: time.Now().Unix(),
+		Schema: providerRequestSchema, ControllerInstance: "inst", ControllerKeyID: "k1",
+		NodePublicKey: strings.Repeat("11", ed25519.PublicKeySize), NodePublicKeyHash: hex.EncodeToString(hash256(bytes.Repeat([]byte{0x11}, ed25519.PublicKeySize))),
+		ProbeID: strings.Repeat("33", 16), ProviderID: strings.Repeat("44", 16), Activation: strings.Repeat("55", 16),
+		Endpoint: "10.0.0.1:80", ExpectedSourceIP: "7f000001", ExpiryOpaque: strings.Repeat("66", 16),
+		TTLMS: 30000, ArmDigest: strings.Repeat("77", 32), TimestampUnix: time.Now().Unix(),
 	}
 	canonical, _ := req.canonical()
 	req.Signature = hex.EncodeToString(ed25519.Sign(ctrlPriv, canonical))
@@ -107,10 +111,13 @@ func TestProviderReplayCacheIsBounded(t *testing.T) {
 	}
 	srv := httptest.NewServer(p.Handler())
 	defer srv.Close()
-	for _, id := range []string{"cache-a", "cache-b"} {
+	for _, id := range []string{strings.Repeat("88", 16), strings.Repeat("99", 16)} {
 		req := providerRequest{
-			Schema: providerRequestSchema, ProbeID: id, Endpoint: "10.0.0.1:80",
-			TimestampUnix: time.Now().Unix(),
+			Schema: providerRequestSchema, ControllerInstance: "inst", ControllerKeyID: "k1",
+			NodePublicKey: strings.Repeat("11", ed25519.PublicKeySize), NodePublicKeyHash: hex.EncodeToString(hash256(bytes.Repeat([]byte{0x11}, ed25519.PublicKeySize))),
+			ProbeID: id, ProviderID: strings.Repeat("44", 16), Activation: strings.Repeat("55", 16),
+			Endpoint: "10.0.0.1:80", ExpectedSourceIP: "7f000001", ExpiryOpaque: strings.Repeat("66", 16),
+			TTLMS: 30000, ArmDigest: strings.Repeat("77", 32), TimestampUnix: time.Now().Unix(),
 		}
 		canonical, _ := req.canonical()
 		req.Signature = hex.EncodeToString(ed25519.Sign(ctrlPriv, canonical))
@@ -185,7 +192,7 @@ func TestProviderFullExchange(t *testing.T) {
 		NodePublicKeyHash: hex.EncodeToString(hash256(nodePub)),
 		ProbeID:           hex.EncodeToString(probeID[:]), ProviderID: hex.EncodeToString(providerID[:]),
 		Activation: hex.EncodeToString(activation[:]), Endpoint: endpoint,
-		ExpectedSourceIP: "00000000", ExpiryOpaque: hex.EncodeToString(opaque[:]),
+		ExpectedSourceIP: "7f000001", ExpiryOpaque: hex.EncodeToString(opaque[:]),
 		TTLMS: 30000, ArmDigest: hex.EncodeToString(digest[:]),
 		TimestampUnix: time.Now().Unix(),
 	}

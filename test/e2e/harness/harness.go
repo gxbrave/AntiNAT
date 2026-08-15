@@ -116,12 +116,13 @@ func NewEnv(t *testing.T) *Env {
 	srv := httptest.NewServer(p.Handler())
 	t.Cleanup(srv.Close)
 	if _, err := ctrl.Store().CreateProbeProvider(store.ProbeProvider{
-		ID:        "p1",
-		Name:      "walking-skeleton-provider",
-		PublicKey: hex.EncodeToString(provPriv.Public().(ed25519.PublicKey)),
-		EgressIP:  GlobalLiteral,
-		Endpoint:  srv.URL,
-		Enabled:   true,
+		ID:                 "p1",
+		Name:               "walking-skeleton-provider",
+		PublicKey:          hex.EncodeToString(provPriv.Public().(ed25519.PublicKey)),
+		EgressIP:           GlobalLiteral,
+		Endpoint:           srv.URL,
+		Enabled:            true,
+		IndependentVantage: false, // local fixture: never claim WAN evidence
 	}); err != nil {
 		t.Fatalf("register provider: %v", err)
 	}

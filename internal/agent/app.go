@@ -169,6 +169,9 @@ func New(cfg Config) (*App, error) {
 		Key:       key,
 		Heartbeat: cfg.Heartbeat,
 		OnCommand: a.handleCommand,
+		OnReceipt: func(ctx context.Context, operationID string) error {
+			return a.probeMgr.AcknowledgeReceipt(operationID)
+		},
 	})
 	if err != nil {
 		return rollback(fmt.Errorf("agent: control client: %w", err))
@@ -184,10 +187,12 @@ func New(cfg Config) (*App, error) {
 func (a *App) Start(ctx context.Context) error {
 	if err := a.client.Connect(ctx); err != nil {
 		a.client.Close()
+		a.client.Wait()
 		a.dp.closeAll()
 		_ = a.store.Close()
 		return fmt.Errorf("agent: control connect: %w", err)
 	}
+	a.probeMgr.Start(ctx)
 	// A receipt may have been durably recorded immediately before a crash or
 	// control disconnect. Retry it after the new session is established; a
 	// transient send failure remains durable for the next reconnect.
@@ -317,15 +322,15 @@ func (a *App) armProbe(ctx context.Context, op control.Operation) ([]byte, error
 // forward is applied or hot-updated (Story 3).
 func (a *App) onForwardApplied(spec protocol.ForwardSpec, applied protocol.AppliedForwardState) {
 	a.dp.mu.Lock()
-	defer a.dp.mu.Unlock()
 	act, ok := a.activations[applied.ForwardID]
 	if !ok {
 		aid := protocol.ActivationID(applied.ForwardID, applied.SpecRevision)
 		act = reconcile.NewActivation(applied.ForwardID, hex.EncodeToString(aid[:]), applied.SpecRevision)
 		a.activations[applied.ForwardID] = act
-		return
+	} else {
+		act.ResetForGeneration(applied.SpecRevision)
 	}
-	act.AdvanceGeneration(applied.SpecRevision)
+	a.dp.mu.Unlock()
 }
 
 // activation returns the tracked activation for a forward, if any.
@@ -358,6 +363,10 @@ func (a *App) Shutdown(ctx context.Context) error {
 	a.ready.Store(false)
 	if a.client != nil {
 		a.client.Close()
+		a.client.Wait()
+	}
+	if a.probeMgr != nil {
+		a.probeMgr.Close()
 	}
 	if a.dp != nil {
 		a.dp.closeAll()

@@ -161,7 +161,7 @@ func New(cfg Config) (*App, error) {
 // Start binds the listener and serves the composed HTTP surface. On failure
 // every opened resource is rolled back and readiness stays false.
 func (a *App) Start() error {
-	ln, err := net.Listen("tcp4", a.cfg.ListenAddress)
+	ln, err := net.Listen("tcp", a.cfg.ListenAddress)
 	if err != nil {
 		_ = a.closeResources()
 		return fmt.Errorf("controller: listen %s: %w", a.cfg.ListenAddress, err)
@@ -186,6 +186,10 @@ func (a *App) Start() error {
 	go func() {
 		_ = a.srv.Serve(ln)
 	}()
+	if err := a.probe.Start(context.Background()); err != nil {
+		_ = a.closeResources()
+		return fmt.Errorf("controller: start probe manager: %w", err)
+	}
 	// Start the deletion watcher: it completes online-delete operations
 	// when the agent's delete result arrives (Story 6 online delete).
 	watchCtx, watchCancel := context.WithCancel(context.Background())
@@ -299,6 +303,10 @@ func (a *App) closeResources() error {
 	}
 	if a.ln != nil {
 		_ = a.ln.Close()
+	}
+	if a.probe != nil {
+		a.closeOrder = append(a.closeOrder, "probe")
+		_ = a.probe.Close()
 	}
 	if a.store != nil {
 		a.closeOrder = append(a.closeOrder, "store")

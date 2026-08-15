@@ -48,6 +48,9 @@ type ClientOptions struct {
 	// between the journal's APPLYING and APPLIED/NACKED phases. It returns
 	// the durable semantic result or an error that NACKs the operation.
 	OnCommand func(ctx context.Context, op Operation) ([]byte, error)
+	// OnReceipt is called for controller semantic receipts that do not
+	// correspond to an agent outbox row (for example the probe receipt ack).
+	OnReceipt func(ctx context.Context, operationID string) error
 	// Dialer overrides the WebSocket dialer (tests, family fallback).
 	Dialer DialFunc
 }
@@ -67,8 +70,10 @@ type Operation struct {
 type Client struct {
 	opts ClientOptions
 
-	conn *websocket.Conn
-	mu   sync.Mutex
+	conn    *websocket.Conn
+	mu      sync.Mutex
+	writeMu sync.Mutex
+	wg      sync.WaitGroup
 	// outSeq is the agent's outbound sequence (A2C).
 	outSeq uint64
 	// inSeq is the last accepted inbound sequence (C2A).
@@ -130,15 +135,22 @@ func defaultDialer(ctx context.Context, endpoint string) (*websocket.Conn, error
 	return conn, nil
 }
 
-// Close terminates the session.
+// Close terminates the session. Wait must be called by the owner when it
+// needs the reader/pump goroutines to have exited.
 func (c *Client) Close() {
 	c.once.Do(func() {
 		close(c.closed)
-		if c.conn != nil {
-			c.conn.CloseNow()
+		c.mu.Lock()
+		conn := c.conn
+		c.mu.Unlock()
+		if conn != nil {
+			conn.CloseNow()
 		}
 	})
 }
+
+// Wait waits for all session goroutines started by Connect.
+func (c *Client) Wait() { c.wg.Wait() }
 
 // SendMessage pushes an agent-initiated A2C message (P10 probe plane: the
 // RCT1 probe_ingress_receipt). P08 declares that P10 consumes the control
@@ -150,11 +162,9 @@ func (c *Client) SendMessage(ctx context.Context, messageType string, payload []
 	if c.opts.Store == nil {
 		return errors.New("control: send message requires a store")
 	}
-	var id [16]byte
-	if _, err := rand.Read(id[:]); err != nil {
-		return err
-	}
-	return c.writeEnvelope(ctx, id, messageType, payload)
+	sum := sha256.Sum256(payload)
+	messageID := security.MessageID(hex.EncodeToString(sum[:]), messageType)
+	return c.writeEnvelope(ctx, messageID, messageType, payload)
 }
 
 // Connect establishes ONE session: dial, mutual-challenge handshake, epoch
@@ -189,10 +199,21 @@ func (c *Client) Connect(ctx context.Context) error {
 		conn.CloseNow()
 		return fmt.Errorf("control: requeue outbox: %w", err)
 	}
-	go c.frameLoop(ctx)
-	go c.outboxPump(ctx)
+	c.wg.Add(2)
+	go func() {
+		defer c.wg.Done()
+		c.frameLoop(ctx)
+	}()
+	go func() {
+		defer c.wg.Done()
+		c.outboxPump(ctx)
+	}()
 	if c.opts.Heartbeat > 0 {
-		go c.heartbeatLoop(ctx)
+		c.wg.Add(1)
+		go func() {
+			defer c.wg.Done()
+			c.heartbeatLoop(ctx)
+		}()
 	}
 	return nil
 }
@@ -288,7 +309,7 @@ func (c *Client) frameLoop(ctx context.Context) {
 			c.Close()
 			return
 		}
-		if err := c.handleInboundFrame(readCtx, frame); err != nil {
+		if err := c.handleInboundFrame(ctx, frame); err != nil {
 			c.Close()
 			return
 		}
@@ -398,7 +419,10 @@ func (c *Client) handleReceipt(ctx context.Context, env protocol.Envelope) error
 		return err
 	}
 	if !present {
-		return nil // already GC'd (idempotent redelivery)
+		if c.opts.OnReceipt == nil {
+			return nil // already GC'd (idempotent redelivery)
+		}
+		return c.opts.OnReceipt(ctx, op)
 	}
 	switch state {
 	case "PENDING":
@@ -437,9 +461,12 @@ func (c *Client) handleReceipt(ctx context.Context, env protocol.Envelope) error
 
 // writeEnvelope signs and writes one A2C envelope with the next sequence.
 func (c *Client) writeEnvelope(ctx context.Context, messageID [16]byte, messageType string, payload []byte) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 	c.mu.Lock()
 	c.outSeq++
 	seq := c.outSeq
+	conn := c.conn
 	c.mu.Unlock()
 
 	pins, _ := c.opts.Store.ListControllerPins()
@@ -471,7 +498,10 @@ func (c *Client) writeEnvelope(ctx context.Context, messageID [16]byte, messageT
 	if err != nil {
 		return fmt.Errorf("control: build envelope: %w", err)
 	}
-	return c.conn.Write(ctx, websocket.MessageBinary, frame)
+	if conn == nil {
+		return errors.New("control: session is not connected")
+	}
+	return conn.Write(ctx, websocket.MessageBinary, frame)
 }
 
 // outboxPump claims queued results and sends them as A2C operation_complete

@@ -29,6 +29,12 @@ type ArmedProbe struct {
 	Consumed    bool
 	Receipt     []byte
 	ReceiptSent bool
+	// ReceiptMessageID is the deterministic control-envelope operation id
+	// expected from the controller's semantic receipt.
+	ReceiptMessageID string
+	// ReceiptDeadline bounds a consumed tombstone even if the controller is
+	// permanently unavailable.
+	ReceiptDeadline time.Time
 }
 
 var (
@@ -93,6 +99,13 @@ func (s *Store) DeleteArmedProbe(probeID [16]byte) error {
 // or control-channel send. A consumed probe id can therefore never be rearmed
 // after a process crash, and a failed receipt send can be retried later.
 func (s *Store) MarkArmedProbeConsumed(probeID [16]byte, receipt []byte) error {
+	return s.MarkArmedProbeConsumedWithReceipt(probeID, receipt, "", time.Now().Add(protocol.ProbeReplayWindow))
+}
+
+// MarkArmedProbeConsumedWithReceipt records the deterministic controller
+// receipt id and a bounded tombstone deadline in the same bbolt transaction as
+// the consumed fence.
+func (s *Store) MarkArmedProbeConsumedWithReceipt(probeID [16]byte, receipt []byte, receiptMessageID string, receiptDeadline time.Time) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(bucketProbeOps))
 		raw := bucket.Get(probeID[:])
@@ -107,6 +120,8 @@ func (s *Store) MarkArmedProbeConsumed(probeID [16]byte, receipt []byte) error {
 			rec.Consumed = true
 			rec.Receipt = append([]byte(nil), receipt...)
 			rec.ReceiptSent = false
+			rec.ReceiptMessageID = receiptMessageID
+			rec.ReceiptDeadline = receiptDeadline
 		}
 		updated, err := json.Marshal(rec)
 		if err != nil {
@@ -133,6 +148,96 @@ func (s *Store) MarkArmedProbeReceiptSent(probeID [16]byte) error {
 		updated, err := json.Marshal(rec)
 		if err != nil {
 			return fmt.Errorf("localstate: encode receipted probe: %w", err)
+		}
+		return bucket.Put(probeID[:], updated)
+	})
+}
+
+// AcknowledgeArmedProbeReceipt deletes the consumed tombstone identified by
+// the controller's deterministic receipt operation id. Missing rows are
+// idempotent: a redelivered receipt after GC is harmless.
+// the controller's deterministic receipt operation id. Missing rows are
+// idempotent: a redelivered receipt after GC is harmless.
+func (s *Store) AcknowledgeArmedProbeReceipt(receiptMessageID string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte(bucketProbeOps))
+		var found []byte
+		if err := bucket.ForEach(func(k, raw []byte) error {
+			var rec ArmedProbe
+			if err := json.Unmarshal(raw, &rec); err != nil {
+				return err
+			}
+			if rec.Consumed && rec.ReceiptMessageID == receiptMessageID {
+				found = append([]byte(nil), k...)
+			}
+			return nil
+		}); err != nil {
+			return fmt.Errorf("localstate: scan probe receipts: %w", err)
+		}
+		if found == nil {
+			return nil
+		}
+		return bucket.Delete(found)
+	})
+}
+
+// SweepArmedProbeTombstones bounds consumed replay fences. Unconsumed rows
+// are retained until their arm deadline; consumed rows are retained until the
+// controller receipt or the explicit receipt deadline, whichever comes first.
+func (s *Store) SweepArmedProbeTombstones(now time.Time) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte(bucketProbeOps))
+		var remove [][]byte
+		if err := bucket.ForEach(func(k, raw []byte) error {
+			var rec ArmedProbe
+			if err := json.Unmarshal(raw, &rec); err != nil {
+				return err
+			}
+			if !rec.Consumed && !now.Before(rec.Deadline) {
+				remove = append(remove, append([]byte(nil), k...))
+				return nil
+			}
+			if rec.Consumed && !rec.ReceiptDeadline.IsZero() && !now.Before(rec.ReceiptDeadline) {
+				remove = append(remove, append([]byte(nil), k...))
+			}
+			return nil
+		}); err != nil {
+			return fmt.Errorf("localstate: scan probe tombstones: %w", err)
+		}
+		for _, k := range remove {
+			if err := bucket.Delete(k); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// SetArmedProbeReceiptMessageID fills the deterministic receipt id after an
+// older process has already consumed the row. It is idempotent and preserves
+// the original receipt bytes/deadline.
+func (s *Store) SetArmedProbeReceiptMessageID(probeID [16]byte, messageID string, deadline time.Time) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte(bucketProbeOps))
+		raw := bucket.Get(probeID[:])
+		if raw == nil {
+			return ErrProbeNotFound
+		}
+		var rec ArmedProbe
+		if err := json.Unmarshal(raw, &rec); err != nil {
+			return err
+		}
+		if rec.Consumed {
+			if rec.ReceiptMessageID == "" {
+				rec.ReceiptMessageID = messageID
+			}
+			if rec.ReceiptDeadline.IsZero() {
+				rec.ReceiptDeadline = deadline
+			}
+		}
+		updated, err := json.Marshal(rec)
+		if err != nil {
+			return err
 		}
 		return bucket.Put(probeID[:], updated)
 	})

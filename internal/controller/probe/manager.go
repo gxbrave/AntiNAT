@@ -21,9 +21,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
@@ -47,16 +49,31 @@ type ManagerConfig struct {
 	NodePublicKey func(nodeID string) (ed25519.PublicKey, bool)
 	// MaxProviderRounds bounds concurrent provider requests.
 	MaxProviderRounds int
+	// MaxActiveOperations bounds live durable probe operations.
+	MaxActiveOperations int
+	// SweepInterval controls expiry and result-retention sweeps.
+	SweepInterval time.Duration
+	// ResultRetention bounds terminal probe artifacts.
+	ResultRetention time.Duration
 }
 
 // Manager orchestrates probe operations.
 type Manager struct {
-	store   *store.Store
-	keyring *security.Keyring
-	clock   func() time.Time
-	client  *http.Client
-	nodeKey func(string) (ed25519.PublicKey, bool)
-	rounds  chan struct{}
+	store           *store.Store
+	keyring         *security.Keyring
+	clock           func() time.Time
+	client          *http.Client
+	nodeKey         func(string) (ed25519.PublicKey, bool)
+	rounds          chan struct{}
+	maxActive       int
+	sweepInterval   time.Duration
+	resultRetention time.Duration
+	mu              sync.Mutex
+	armMu           sync.Mutex
+	ctx             context.Context
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup
+	workWG          sync.WaitGroup
 }
 
 // NewManager validates config and builds the manager.
@@ -79,14 +96,82 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 	if cfg.MaxProviderRounds <= 0 {
 		cfg.MaxProviderRounds = 16
 	}
+	if cfg.MaxActiveOperations <= 0 {
+		cfg.MaxActiveOperations = 1024
+	}
+	if cfg.SweepInterval <= 0 {
+		cfg.SweepInterval = 500 * time.Millisecond
+	}
+	if cfg.ResultRetention <= 0 {
+		cfg.ResultRetention = 24 * time.Hour
+	}
 	return &Manager{
-		store:   cfg.Store,
-		keyring: cfg.Keyring,
-		clock:   cfg.Clock,
-		client:  cfg.HTTPClient,
-		nodeKey: cfg.NodePublicKey,
-		rounds:  make(chan struct{}, cfg.MaxProviderRounds),
+		store:           cfg.Store,
+		keyring:         cfg.Keyring,
+		clock:           cfg.Clock,
+		client:          cfg.HTTPClient,
+		nodeKey:         cfg.NodePublicKey,
+		rounds:          make(chan struct{}, cfg.MaxProviderRounds),
+		maxActive:       cfg.MaxActiveOperations,
+		sweepInterval:   cfg.SweepInterval,
+		resultRetention: cfg.ResultRetention,
 	}, nil
+}
+
+// Start launches the cancellable expiry/result sweeper. It is safe to omit
+// Start in focused unit tests; request paths then use a per-operation context.
+func (m *Manager) Start(parent context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cancel != nil {
+		return errors.New("probe: manager already started")
+	}
+	if parent == nil {
+		parent = context.Background()
+	}
+	m.ctx, m.cancel = context.WithCancel(parent)
+	m.wg.Add(1)
+	go m.sweepLoop(m.ctx)
+	return nil
+}
+
+// Close cancels the sweeper and waits for all manager-owned work to finish.
+func (m *Manager) Close() error {
+	m.mu.Lock()
+	cancel := m.cancel
+	m.cancel = nil
+	m.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	m.wg.Wait()
+	m.workWG.Wait()
+	return nil
+}
+
+func (m *Manager) operationContext() context.Context {
+	m.mu.Lock()
+	ctx := m.ctx
+	m.mu.Unlock()
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
+
+func (m *Manager) sweepLoop(ctx context.Context) {
+	defer m.wg.Done()
+	ticker := time.NewTicker(m.sweepInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			_, _ = m.store.ExpireProbeOperations(now.Unix())
+			_ = m.store.DeleteProbeResultsBefore(now.Add(-m.resultRetention).Unix())
+		}
+	}
 }
 
 // Arm creates a durable probe operation and enqueues the probe_arm C2A
@@ -94,13 +179,36 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 // carries the provider public key and expected source but NEVER the
 // challenge.
 func (m *Manager) Arm(ctx context.Context, nodeID, forwardID, activationID, endpoint string) (store.ProbeOperation, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-ctx.Done():
+		return store.ProbeOperation{}, ctx.Err()
+	default:
+	}
+	m.armMu.Lock()
+	defer m.armMu.Unlock()
+	live, err := m.store.CountLiveProbeOperations()
+	if err != nil {
+		return store.ProbeOperation{}, err
+	}
+	if live >= m.maxActive {
+		return store.ProbeOperation{}, errors.New("probe: active operation limit reached")
+	}
 	providers, err := m.store.ListProbeProviders()
 	if err != nil {
 		return store.ProbeOperation{}, err
 	}
 	var provider *store.ProbeProvider
 	for i := range providers {
-		if providers[i].Enabled {
+		if !providers[i].Enabled {
+			continue
+		}
+		if provider == nil {
+			provider = &providers[i]
+		}
+		if providers[i].IndependentVantage {
 			provider = &providers[i]
 			break
 		}
@@ -148,7 +256,7 @@ func (m *Manager) Arm(ctx context.Context, nodeID, forwardID, activationID, endp
 		return store.ProbeOperation{}, fmt.Errorf("probe: arm: %w", err)
 	}
 
-	op, err := m.store.CreateProbeOperation(store.ProbeOperation{
+	op, err := m.store.CreateProbeOperationBundle(store.ProbeOperation{
 		ID:           hex.EncodeToString(probeID[:]),
 		NodeID:       nodeID,
 		ForwardID:    forwardID,
@@ -160,17 +268,14 @@ func (m *Manager) Arm(ctx context.Context, nodeID, forwardID, activationID, endp
 		TTLMS:        arm.TTLMS,
 		ExpiryOpaque: hex.EncodeToString(opaque[:]),
 		ExpiresAt:    m.clock().Add(DefaultTTL).Unix(),
-	})
-	if err != nil {
-		return store.ProbeOperation{}, err
-	}
-	if err := m.store.EnqueueControlOutbox(store.ControlOutboxItem{
-		OperationID:     op.ID,
+	}, store.ControlOutboxItem{
+		OperationID:     hex.EncodeToString(probeID[:]),
 		MessageType:     "probe_arm",
 		NodeID:          nodeID,
 		SemanticPayload: string(arm.Canonical()),
 		State:           "PENDING",
-	}); err != nil {
+	})
+	if err != nil {
 		return store.ProbeOperation{}, err
 	}
 	return op, nil
@@ -198,34 +303,53 @@ func (m *Manager) handleArmed(nodeID string, payload []byte) error {
 	if !ok {
 		return errors.New("probe: node not online (no session key)")
 	}
-	// The RDY1 frame carries the arm digest; find the operation by digest.
-	if _, err := protocol.ParseProbeArmed(payload, nodePub, [32]byte{}); err != nil && !errors.Is(err, protocol.ErrProbeMalformed) {
-		return err
+	if len(payload) != 4+32+ed25519.SignatureSize {
+		return errors.New("probe: malformed probe_armed frame")
 	}
-	// Extract the digest from the frame (RDY1 = magic + digest + sig).
 	var digest [32]byte
-	if len(payload) >= 4+32 {
-		copy(digest[:], payload[4:4+32])
-	}
+	copy(digest[:], payload[4:4+32])
 	if _, err := protocol.ParseProbeArmed(payload, nodePub, digest); err != nil {
 		return fmt.Errorf("probe: probe_armed rejected: %w", err)
 	}
-	op, err := m.findOperationByDigest(digest)
+	op, err := m.store.ProbeOperationByArmDigestForNode(digest, nodeID, m.clock().Unix())
 	if err != nil {
 		return err
 	}
-	if err := m.store.SetProbeOperationStatus(op.ID, "ARMED"); err != nil {
+	if m.clock().Unix() >= op.ExpiresAt {
+		return m.store.SetProbeOperationStatusCAS(op.ID, op.Status, string(protocol.OutcomeTimeout))
+	}
+	if err := m.store.SetProbeOperationStatusCAS(op.ID, "PENDING", "ARMED"); err != nil {
+		if errors.Is(err, store.ErrProbeTerminal) {
+			return nil
+		}
 		return err
+	}
+	provider, err := m.store.GetProbeProvider(op.ProviderID)
+	if err != nil {
+		return err
+	}
+	if !provider.IndependentVantage {
+		return m.store.SetProbeOperationStatusCAS(op.ID, "ARMED", string(protocol.OutcomeNoIndependentVantage))
 	}
 	// Request the provider asynchronously (bounded concurrency).
 	select {
 	case m.rounds <- struct{}{}:
+		m.mu.Lock()
+		ctx := m.ctx
+		if ctx != nil && ctx.Err() != nil {
+			m.mu.Unlock()
+			<-m.rounds
+			return m.store.SetProbeOperationStatusCAS(op.ID, "ARMED", string(protocol.OutcomeProbeInfraUnavailable))
+		}
+		m.workWG.Add(1)
+		m.mu.Unlock()
 		go func() {
+			defer m.workWG.Done()
 			defer func() { <-m.rounds }()
 			m.requestProvider(op, nodeID, nodePub)
 		}()
 	default:
-		return m.store.SetProbeOperationStatus(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
+		return m.store.SetProbeOperationStatusCAS(op.ID, "ARMED", string(protocol.OutcomeProbeInfraUnavailable))
 	}
 	return nil
 }
@@ -240,9 +364,12 @@ func (m *Manager) handleReceipt(nodeID string, payload []byte) error {
 	if err != nil {
 		return fmt.Errorf("probe: probe_ingress_receipt rejected: %w", err)
 	}
-	op, err := m.findOperationByDigest(receipt.ArmDigest)
+	op, err := m.store.ProbeOperationByArmDigestForNode(receipt.ArmDigest, nodeID, m.clock().Unix())
 	if err != nil {
 		return err
+	}
+	if op.Status != "ARMED" && op.Status != "IN_FLIGHT" {
+		return nil // late receipts cannot resurrect a terminal operation
 	}
 	if err := m.store.RecordProbeResult(op.ID, "rct1", hex.EncodeToString(payload)); err != nil {
 		return err
@@ -260,23 +387,24 @@ func (m *Manager) handleProbeResult(nodeID string, payload []byte) error {
 	if err := json.Unmarshal(payload, &v); err != nil || v.ProbeID == "" {
 		return errors.New("probe: malformed probe_result payload")
 	}
+	outcome, err := protocol.ParseProbeOutcome(v.Outcome)
+	if err != nil || outcome == protocol.OutcomeArmed || outcome == protocol.OutcomeAccepted ||
+		outcome == protocol.OutcomeOpenFromVantage || outcome == protocol.OutcomeUnknown {
+		return errors.New("probe: invalid probe_result outcome")
+	}
 	op, err := m.store.GetProbeOperation(v.ProbeID)
 	if err != nil {
 		return err
 	}
-	if op.NodeID != nodeID {
-		return errors.New("probe: probe_result node mismatch")
-	}
-	outcome, err := protocol.ParseProbeOutcome(v.Outcome)
-	if err != nil || outcome == protocol.OutcomeArmed || outcome == protocol.OutcomeAccepted || outcome == protocol.OutcomeUnknown {
-		return errors.New("probe: invalid probe_result outcome")
-	}
-	if op.Status == string(protocol.OutcomeOpenFromVantage) || op.Status == string(protocol.OutcomeRejected) ||
+	if op.NodeID != nodeID || op.Status == string(protocol.OutcomeOpenFromVantage) || op.Status == string(protocol.OutcomeRejected) ||
 		op.Status == string(protocol.OutcomeDropped) || op.Status == string(protocol.OutcomeTimeout) ||
 		op.Status == string(protocol.OutcomeNoIndependentVantage) || op.Status == string(protocol.OutcomeProbeInfraUnavailable) {
 		return nil // terminal already
 	}
-	return m.store.SetProbeOperationStatus(op.ID, string(outcome))
+	if op.Status != "ARMED" && op.Status != "IN_FLIGHT" && op.Status != "PENDING" {
+		return errors.New("probe: probe_result is not bound to a live operation")
+	}
+	return m.store.SetProbeOperationStatusCAS(op.ID, op.Status, string(outcome))
 }
 
 // requestProvider sends the controller-signed provider request and records
@@ -284,14 +412,31 @@ func (m *Manager) handleProbeResult(nodeID string, payload []byte) error {
 func (m *Manager) requestProvider(op store.ProbeOperation, nodeID string, nodePub ed25519.PublicKey) {
 	provider, err := m.store.GetProbeProvider(op.ProviderID)
 	if err != nil {
+		m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
+		return
+	}
+	if !provider.IndependentVantage {
+		m.failOperation(op.ID, string(protocol.OutcomeNoIndependentVantage))
+		return
+	}
+	deadline := time.Unix(op.ExpiresAt, 0)
+	if !m.clock().Before(deadline) {
+		m.failOperation(op.ID, string(protocol.OutcomeTimeout))
+		return
+	}
+	ctx, cancel := context.WithDeadline(m.operationContext(), deadline)
+	defer cancel()
+	if err := m.store.SetProbeOperationStatusCAS(op.ID, "ARMED", "IN_FLIGHT"); err != nil {
 		return
 	}
 	armBytes, err := hex.DecodeString(op.ArmHex)
 	if err != nil {
+		m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
 		return
 	}
 	arm, err := protocol.ParseProbeArm(armBytes)
 	if err != nil {
+		m.failOperation(op.ID, string(protocol.OutcomeRejected))
 		return
 	}
 	req := providerRequest{
@@ -312,33 +457,58 @@ func (m *Manager) requestProvider(op store.ProbeOperation, nodeID string, nodePu
 	}
 	canonical, err := req.canonical()
 	if err != nil {
+		m.failOperation(op.ID, string(protocol.OutcomeRejected))
 		return
 	}
 	sig, err := m.keyring.Sign(canonical)
 	if err != nil {
+		m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
 		return
 	}
 	req.Signature = hex.EncodeToString(sig)
 
 	body, _ := json.Marshal(req)
-	httpReq, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		strings.TrimRight(provider.Endpoint, "/")+"/probe/v1/request", bytes.NewReader(body))
 	if err != nil {
+		m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
 		return
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	resp, err := m.client.Do(httpReq)
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) || !m.clock().Before(deadline) {
+			m.failOperation(op.ID, string(protocol.OutcomeTimeout))
+		} else {
+			m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
+		}
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		_ = m.store.SetProbeOperationStatus(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
+		m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
 		return
 	}
+	const maxProviderResponseBytes = 128 << 10
+	if resp.ContentLength > maxProviderResponseBytes {
+		m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
+		return
+	}
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxProviderResponseBytes+1))
+	if err != nil || int64(len(bodyBytes)) > maxProviderResponseBytes {
+		m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
+		return
+	}
+	dec := json.NewDecoder(bytes.NewReader(bodyBytes))
+	dec.DisallowUnknownFields()
 	var res providerResult
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		_ = m.store.SetProbeOperationStatus(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
+	if err := dec.Decode(&res); err != nil {
+		m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
+		return
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
 		return
 	}
 	if res.ProbeID != op.ID {
@@ -347,26 +517,40 @@ func (m *Manager) requestProvider(op store.ProbeOperation, nodeID string, nodePu
 	}
 	const resultClockSkewSeconds int64 = 5 * 60
 	if res.TimestampUnix < op.CreatedAt-resultClockSkewSeconds || res.TimestampUnix > op.ExpiresAt+resultClockSkewSeconds {
-		_ = m.store.SetProbeOperationStatus(op.ID, string(protocol.OutcomeTimeout))
+		m.failOperation(op.ID, string(protocol.OutcomeTimeout))
 		return
 	}
 	providerPub, err := hex.DecodeString(provider.PublicKey)
-	if err != nil {
+	if err != nil || len(providerPub) != ed25519.PublicKeySize {
+		m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
 		return
 	}
 	if !res.verify(providerPub) {
+		m.failOperation(op.ID, string(protocol.OutcomeRejected))
 		return
 	}
-	_ = m.store.RecordProbeResult(op.ID, "provider", mustJSON(res))
+	if err := m.store.RecordProbeResult(op.ID, "provider", mustJSON(res)); err != nil {
+		m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
+		return
+	}
 	if res.WAN1Frame != "" {
-		_ = m.store.RecordProbeResult(op.ID, "wan1", res.WAN1Frame)
+		if err := m.store.RecordProbeResult(op.ID, "wan1", res.WAN1Frame); err != nil {
+			m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
+			return
+		}
 	}
 	if res.ACK1Frame != "" {
-		_ = m.store.RecordProbeResult(op.ID, "ack1", res.ACK1Frame)
+		if err := m.store.RecordProbeResult(op.ID, "ack1", res.ACK1Frame); err != nil {
+			m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
+			return
+		}
 	}
-	_ = m.store.SetProbeOperationChallenge(op.ID, res.ChallengeHash)
+	if err := m.store.SetProbeOperationChallenge(op.ID, res.ChallengeHash); err != nil {
+		m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
+		return
+	}
 	if !res.Accepted {
-		_ = m.store.SetProbeOperationStatus(op.ID, string(protocol.OutcomeRejected))
+		m.failOperation(op.ID, string(protocol.OutcomeRejected))
 		return
 	}
 	_ = m.tryJoin(op)
@@ -376,6 +560,17 @@ func (m *Manager) requestProvider(op store.ProbeOperation, nodeID string, nodePu
 // agent receipt (RCT1) must all bind to the same operation. OPEN_FROM_VANTAGE
 // is recorded only when VerifyProbeJoin passes.
 func (m *Manager) tryJoin(op store.ProbeOperation) error {
+	current, err := m.store.GetProbeOperation(op.ID)
+	if err != nil {
+		return err
+	}
+	if current.Status != "ARMED" && current.Status != "IN_FLIGHT" {
+		return nil
+	}
+	if m.clock().Unix() >= current.ExpiresAt {
+		m.failOperation(op.ID, string(protocol.OutcomeTimeout))
+		return nil
+	}
 	results, err := m.store.ListProbeResults(op.ID)
 	if err != nil {
 		return err
@@ -431,26 +626,41 @@ func (m *Manager) tryJoin(op store.ProbeOperation) error {
 		return err
 	}
 	if !protocol.VerifyProbeJoin(arm, frame, ack, receipt, nodePub) {
-		return m.store.SetProbeOperationStatus(op.ID, string(protocol.OutcomeRejected))
+		return m.store.SetProbeOperationStatusCAS(op.ID, current.Status, string(protocol.OutcomeRejected))
 	}
-	if err := m.store.SetProbeOperationStatus(op.ID, string(protocol.OutcomeOpenFromVantage)); err != nil {
-		return err
-	}
-	// Mirror the verified orthogonal snapshot so the admin API forward view
-	// shows OPEN_FROM_VANTAGE / PUBLISHED_VERIFIED (Story 3 publication).
+	// Mirror a complete legal orthogonal snapshot. ACTIVE/READY are listener
+	// state values; OPEN_FROM_VANTAGE is evidence, not a listener state.
 	snapshot := protocol.ActivationStates{
 		ControlState:         "ONLINE",
-		ListenerState:        "ACTIVE",
-		MappingState:         "NOT_REQUIRED",
-		KeepaliveState:       "NOT_REQUIRED",
+		ListenerState:        "READY",
+		MappingState:         "PUBLIC_CANDIDATE",
+		KeepaliveState:       "HEALTHY",
 		WanReachabilityState: string(protocol.OutcomeOpenFromVantage),
 		ReturnPathState:      "VERIFIED",
-		TargetHealthState:    "UNKNOWN",
+		TargetHealthState:    "PASS",
 		PublicationState:     "PUBLISHED_VERIFIED",
-		DataPlaneState:       "ACTIVE",
+		DataPlaneState:       "READY",
+	}
+	if err := snapshot.Validate(); err != nil {
+		return err
 	}
 	raw, _ := json.Marshal(snapshot)
-	return m.store.SetForwardRuntimeStatus(op.ForwardID, op.ActivationID, string(raw))
+	return m.store.PublishProbeJoin(op.ID, current.Status, op.ForwardID, op.ActivationID, string(raw))
+}
+
+// failOperation moves a live operation to a terminal status without allowing
+// a late provider goroutine to overwrite a sweeper decision.
+func (m *Manager) failOperation(id, status string) {
+	op, err := m.store.GetProbeOperation(id)
+	if err != nil || op.Status == status {
+		return
+	}
+	if op.Status == string(protocol.OutcomeOpenFromVantage) || op.Status == string(protocol.OutcomeRejected) ||
+		op.Status == string(protocol.OutcomeDropped) || op.Status == string(protocol.OutcomeTimeout) ||
+		op.Status == string(protocol.OutcomeNoIndependentVantage) || op.Status == string(protocol.OutcomeProbeInfraUnavailable) {
+		return
+	}
+	_ = m.store.SetProbeOperationStatusCAS(id, op.Status, status)
 }
 
 // findOperationByDigest scans pending/armed operations for the arm digest.
