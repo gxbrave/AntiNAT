@@ -303,7 +303,7 @@ func (s *Store) RecordControlInbox(item ControlInboxItem) (bool, error) {
 		     operation_id, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, 'RECEIVED', ?, ?, ?)`,
 		item.MessageID, item.NodeID, item.MessageType, item.SemanticPayload,
-		item.OperationID, now(), now(),
+		item.OperationID, s.currentUnix(), s.currentUnix(),
 	)
 	if err != nil {
 		return false, fmt.Errorf("store: record control inbox: %w", err)
@@ -332,6 +332,26 @@ func (s *Store) RecordControlInbox(item ControlInboxItem) (bool, error) {
 		return false, fmt.Errorf("%w: message %q binding/material differs from persisted row", ErrMessageConflict, item.MessageID)
 	}
 	return true, nil
+}
+
+// DeleteControlInboxBeforeLimit trims durable message-id replay records after
+// their replay window. The operation is deliberately bounded; in-flight
+// outbox rows are never touched, so an unacknowledged semantic receipt still
+// retains its durable intent until the normal receipt transition completes.
+func (s *Store) DeleteControlInboxBeforeLimit(cutoff int64, limit int) (int, error) {
+	limit = probeCleanupLimit(limit)
+	query := `DELETE FROM control_inbox WHERE id IN
+		(SELECT id FROM control_inbox WHERE created_at < ? ORDER BY created_at, id LIMIT ?)`
+	args := []any{cutoff, limit}
+	res, err := s.db.Exec(query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: delete old control inbox rows: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("store: delete old control inbox row count: %w", err)
+	}
+	return int(n), nil
 }
 
 // ClaimControlOutboxOperation claims ONE pending row for a session (used when

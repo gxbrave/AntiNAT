@@ -55,6 +55,8 @@ type ManagerConfig struct {
 	SweepInterval time.Duration
 	// ResultRetention bounds terminal probe artifacts.
 	ResultRetention time.Duration
+	// CleanupBatchSize bounds rows transitioned/deleted by one sweeper pass.
+	CleanupBatchSize int
 }
 
 // Manager orchestrates probe operations.
@@ -68,6 +70,7 @@ type Manager struct {
 	maxActive       int
 	sweepInterval   time.Duration
 	resultRetention time.Duration
+	cleanupBatch    int
 	mu              sync.Mutex
 	armMu           sync.Mutex
 	ctx             context.Context
@@ -105,6 +108,10 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 	if cfg.ResultRetention <= 0 {
 		cfg.ResultRetention = 24 * time.Hour
 	}
+	if cfg.CleanupBatchSize <= 0 {
+		cfg.CleanupBatchSize = 256
+	}
+	cfg.Store.SetClock(cfg.Clock)
 	return &Manager{
 		store:           cfg.Store,
 		keyring:         cfg.Keyring,
@@ -115,6 +122,7 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 		maxActive:       cfg.MaxActiveOperations,
 		sweepInterval:   cfg.SweepInterval,
 		resultRetention: cfg.ResultRetention,
+		cleanupBatch:    cfg.CleanupBatchSize,
 	}, nil
 }
 
@@ -146,19 +154,15 @@ func (m *Manager) Close() error {
 	}
 	m.wg.Wait()
 	m.workWG.Wait()
+	m.mu.Lock()
+	if m.cancel == nil {
+		m.ctx = nil
+	}
+	m.mu.Unlock()
 	return nil
 }
 
-func (m *Manager) operationContext() context.Context {
-	m.mu.Lock()
-	ctx := m.ctx
-	m.mu.Unlock()
-	if ctx == nil {
-		return context.Background()
-	}
-	return ctx
-}
-
+// sweepLoop runs expiry and retention GC until Close cancels the manager.
 func (m *Manager) sweepLoop(ctx context.Context) {
 	defer m.wg.Done()
 	ticker := time.NewTicker(m.sweepInterval)
@@ -167,13 +171,33 @@ func (m *Manager) sweepLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case now := <-ticker.C:
-			_, _ = m.store.ExpireProbeOperations(now.Unix())
-			cutoff := now.Add(-m.resultRetention).Unix()
-			_ = m.store.DeleteProbeResultsBefore(cutoff)
-			_ = m.store.DeleteTerminalProbeOperationsBefore(cutoff)
+		case <-ticker.C:
+			_ = m.sweepOnce(m.clock())
 		}
 	}
+}
+
+// sweepOnce performs one bounded lifecycle pass. The cadence is real-time,
+// but all expiry/retention decisions use the injected Manager clock so tests
+// and operators can reason about exact boundaries without sleeps.
+func (m *Manager) sweepOnce(at time.Time) error {
+	nowUnix := at.Unix()
+	if _, err := m.store.ExpireProbeOperationsLimit(nowUnix, m.cleanupBatch); err != nil {
+		return err
+	}
+	cutoff := at.Add(-m.resultRetention).Unix()
+	if _, err := m.store.DeleteProbeResultsBeforeLimit(cutoff, m.cleanupBatch); err != nil {
+		return err
+	}
+	if _, err := m.store.DeleteTerminalProbeOperationsBeforeLimit(cutoff, m.cleanupBatch); err != nil {
+		return err
+	}
+	// Control inbox rows are message-id replay state. They expire on the
+	// protocol replay window, independently of the longer probe audit window.
+	if _, err := m.store.DeleteControlInboxBeforeLimit(at.Add(-protocol.ProbeReplayWindow).Unix(), m.cleanupBatch); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Arm creates a durable probe operation and enqueues the probe_arm C2A
@@ -191,7 +215,7 @@ func (m *Manager) Arm(ctx context.Context, nodeID, forwardID, activationID, endp
 	}
 	m.armMu.Lock()
 	defer m.armMu.Unlock()
-	live, err := m.store.CountLiveProbeOperations()
+	live, err := m.store.CountLiveProbeOperationsAt(m.clock().Unix())
 	if err != nil {
 		return store.ProbeOperation{}, err
 	}
@@ -347,13 +371,16 @@ func (m *Manager) handleArmed(nodeID string, payload []byte) error {
 			<-m.rounds
 			return m.store.SetProbeOperationStatusCAS(op.ID, "ARMED", string(protocol.OutcomeProbeInfraUnavailable))
 		}
+		if ctx == nil {
+			ctx = context.Background()
+		}
 		m.workWG.Add(1)
 		m.mu.Unlock()
-		go func() {
+		go func(requestCtx context.Context) {
 			defer m.workWG.Done()
 			defer func() { <-m.rounds }()
-			m.requestProvider(op, nodeID, nodePub)
-		}()
+			m.requestProvider(requestCtx, op, nodeID, nodePub)
+		}(ctx)
 	default:
 		return m.store.SetProbeOperationStatusCAS(op.ID, "ARMED", string(protocol.OutcomeProbeInfraUnavailable))
 	}
@@ -427,7 +454,7 @@ func (m *Manager) handleProbeResult(nodeID string, payload []byte) error {
 
 // requestProvider sends the controller-signed provider request and records
 // the result artifacts; then tries the join.
-func (m *Manager) requestProvider(op store.ProbeOperation, nodeID string, nodePub ed25519.PublicKey) {
+func (m *Manager) requestProvider(requestCtx context.Context, op store.ProbeOperation, nodeID string, nodePub ed25519.PublicKey) {
 	provider, err := m.store.GetProbeProvider(op.ProviderID)
 	if err != nil {
 		m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
@@ -442,7 +469,7 @@ func (m *Manager) requestProvider(op store.ProbeOperation, nodeID string, nodePu
 		m.failOperation(op.ID, string(protocol.OutcomeTimeout))
 		return
 	}
-	ctx, cancel := context.WithDeadline(m.operationContext(), deadline)
+	ctx, cancel := context.WithDeadline(requestCtx, deadline)
 	defer cancel()
 	if err := m.store.SetProbeOperationStatusCAS(op.ID, "ARMED", "IN_FLIGHT"); err != nil {
 		return

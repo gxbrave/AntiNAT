@@ -17,6 +17,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"encoding/binary"
 	"encoding/hex"
@@ -98,15 +99,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if err := provider.Start(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "antinat-probe: start replay sweeper: %v\n", err)
+		os.Exit(1)
+	}
+	defer provider.Close()
+
 	srv := &http.Server{Addr: cfg.ListenAddress, Handler: provider.Handler()}
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
 	fmt.Printf("antinat-probe: listening on %s\n", cfg.ListenAddress)
 
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	select {
-	case <-sig:
+	case <-ctx.Done():
 		fmt.Println("antinat-probe: shutting down")
 		_ = srv.Close()
 	case err := <-errCh:

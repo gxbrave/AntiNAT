@@ -144,7 +144,7 @@ type ProbeOperation struct {
 
 // CreateProbeOperation inserts a PENDING operation row.
 func (s *Store) CreateProbeOperation(op ProbeOperation) (ProbeOperation, error) {
-	ts := now()
+	ts := s.currentUnix()
 	_, err := s.db.Exec(
 		`INSERT INTO probe_operations
 		    (id, node_id, forward_id, activation_id, provider_id, status, endpoint,
@@ -168,7 +168,7 @@ func (s *Store) CreateProbeOperationBundle(op ProbeOperation, outbox ControlOutb
 		return ProbeOperation{}, fmt.Errorf("store: begin probe bundle: %w", err)
 	}
 	defer tx.Rollback()
-	ts := now()
+	ts := s.currentUnix()
 	if _, err := tx.Exec(`INSERT INTO probe_operations
 		(id, node_id, forward_id, activation_id, provider_id, status, endpoint,
 		 arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at)
@@ -277,6 +277,9 @@ func (s *Store) setProbeOperationStatusCAS(id, expected, status string) error {
 		}
 		return ErrCASConflict
 	}
+	if probeTerminal(current) && current != status {
+		return ErrProbeTerminal
+	}
 	if status == string(protocol.OutcomeOpenFromVantage) {
 		return ErrProbeJoinRequired
 	}
@@ -289,10 +292,10 @@ func (s *Store) setProbeOperationStatusCAS(id, expected, status string) error {
 	if current == status {
 		return nil
 	}
-	if expiresAt <= now() && status != string(protocol.OutcomeTimeout) {
+	if expiresAt <= s.currentUnix() && status != string(protocol.OutcomeTimeout) {
 		return ErrProbeExpired
 	}
-	if _, err := tx.Exec(`UPDATE probe_operations SET status = ?, updated_at = ? WHERE id = ?`, status, now(), id); err != nil {
+	if _, err := tx.Exec(`UPDATE probe_operations SET status = ?, updated_at = ? WHERE id = ?`, status, s.currentUnix(), id); err != nil {
 		return fmt.Errorf("store: set probe operation status: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -310,7 +313,7 @@ func (s *Store) SetProbeOperationChallenge(id, challengeHash string) error {
 		return fmt.Errorf("store: begin probe challenge: %w", err)
 	}
 	defer tx.Rollback()
-	ts := now()
+	ts := s.currentUnix()
 	var status, existing string
 	var expiresAt int64
 	if err := tx.QueryRow(`SELECT status, challenge_hash, expires_at FROM probe_operations WHERE id = ?`, id).
@@ -506,7 +509,7 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 	} else if err != nil {
 		return fmt.Errorf("store: read probe join provider key: %w", err)
 	}
-	nowUnix := now()
+	nowUnix := s.currentUnix()
 	if expiresAt <= nowUnix {
 		return ErrProbeExpired
 	}
@@ -803,50 +806,128 @@ func (s *Store) ListProbeOperationsByStatus(statuses ...string) ([]ProbeOperatio
 	return out, rows.Err()
 }
 
-// CountLiveProbeOperations returns the number of non-terminal probe rows.
+const (
+	probeTerminalSQL         = `status IN ('OPEN_FROM_VANTAGE','REJECTED','DROPPED','TIMEOUT','NO_INDEPENDENT_VANTAGE','PROBE_INFRA_UNAVAILABLE')`
+	defaultProbeCleanupBatch = 256
+)
+
+func probeCleanupLimit(limit int) int {
+	if limit <= 0 {
+		return defaultProbeCleanupBatch
+	}
+	return limit
+}
+
+// CountLiveProbeOperations returns the number of non-terminal probe rows at
+// the store's clock. The explicit At form is used by admission paths that
+// already have a controlled timestamp and avoids a second wall-clock read.
 func (s *Store) CountLiveProbeOperations() (int, error) {
+	return s.CountLiveProbeOperationsAt(s.currentUnix())
+}
+
+func (s *Store) CountLiveProbeOperationsAt(nowUnix int64) (int, error) {
 	var n int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM probe_operations
-		WHERE status IN ('PENDING','ARMED','IN_FLIGHT') AND expires_at > ?`, now()).Scan(&n); err != nil {
+		WHERE status IN ('PENDING','ARMED','IN_FLIGHT') AND expires_at > ?`, nowUnix).Scan(&n); err != nil {
 		return 0, fmt.Errorf("store: count live probe operations: %w", err)
 	}
 	return n, nil
 }
 
 // ExpireProbeOperations advances every live operation past its deadline to a
-// terminal TIMEOUT outcome. It is intentionally idempotent and returns the
-// rows that were observed expired for audit/sweeper metrics.
+// terminal TIMEOUT outcome. The compatibility form processes the complete
+// backlog; the Limit form is used by the cancellable manager sweeper.
 func (s *Store) ExpireProbeOperations(nowUnix int64) ([]ProbeOperation, error) {
-	ops, err := s.ListProbeOperationsByStatus("PENDING", "ARMED", "IN_FLIGHT")
+	return s.ExpireProbeOperationsLimit(nowUnix, 0)
+}
+
+// ExpireProbeOperationsLimit expires at most limit rows ordered by deadline.
+// A non-positive limit selects the safe default cleanup batch.
+func (s *Store) ExpireProbeOperationsLimit(nowUnix int64, limit int) ([]ProbeOperation, error) {
+	limit = probeCleanupLimit(limit)
+	query := `SELECT id, node_id, forward_id, activation_id, provider_id, status, endpoint,
+			arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
+		FROM probe_operations
+		WHERE status IN ('PENDING','ARMED','IN_FLIGHT') AND expires_at <= ?
+		ORDER BY expires_at, id LIMIT ?`
+	args := []any{nowUnix, limit}
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("store: query expired probe operations: %w", err)
 	}
-	var expired []ProbeOperation
-	for _, op := range ops {
-		if op.ExpiresAt > nowUnix {
-			continue
+	var candidates []ProbeOperation
+	for rows.Next() {
+		var op ProbeOperation
+		if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ProviderID, &op.Status,
+			&op.Endpoint, &op.ArmHex, &op.ChallengeHash, &op.TTLMS, &op.ExpiryOpaque,
+			&op.ExpiresAt, &op.CreatedAt, &op.UpdatedAt); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("store: scan expired probe operation: %w", err)
 		}
-		if err := s.SetProbeOperationStatusCAS(op.ID, op.Status, string(protocol.OutcomeTimeout)); err != nil {
-			if errors.Is(err, ErrProbeTerminal) || errors.Is(err, ErrNotFound) {
-				continue
-			}
-			return expired, err
+		candidates = append(candidates, op)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("store: expired probe operation rows: %w", err)
+	}
+	rows.Close()
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("store: begin probe expiry: %w", err)
+	}
+	defer tx.Rollback()
+	expired := make([]ProbeOperation, 0, len(candidates))
+	for _, op := range candidates {
+		res, err := tx.Exec(`UPDATE probe_operations SET status = 'TIMEOUT', updated_at = ?
+			WHERE id = ? AND status = ? AND expires_at <= ?`, nowUnix, op.ID, op.Status, nowUnix)
+		if err != nil {
+			return expired, fmt.Errorf("store: expire probe operation %s: %w", op.ID, err)
 		}
-		op.Status = string(protocol.OutcomeTimeout)
-		expired = append(expired, op)
+		n, err := res.RowsAffected()
+		if err != nil {
+			return expired, fmt.Errorf("store: expire probe operation rows %s: %w", op.ID, err)
+		}
+		if n == 1 {
+			op.Status = string(protocol.OutcomeTimeout)
+			op.UpdatedAt = nowUnix
+			expired = append(expired, op)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return expired, fmt.Errorf("store: commit probe expiry: %w", err)
 	}
 	return expired, nil
 }
 
-// DeleteProbeResultsBefore bounds the durable artifact journal after the
-// operation retention window. It never removes a live operation's artifacts.
+// DeleteProbeResultsBefore removes artifacts only when their owning terminal
+// tombstone is itself outside the retention window. This preserves a late or
+// unacknowledged receipt attached to a recent terminal operation.
 func (s *Store) DeleteProbeResultsBefore(cutoff int64) error {
-	_, err := s.db.Exec(`DELETE FROM probe_results WHERE created_at < ? AND probe_id IN
-		(SELECT id FROM probe_operations WHERE status IN ('OPEN_FROM_VANTAGE','REJECTED','DROPPED','TIMEOUT','NO_INDEPENDENT_VANTAGE','PROBE_INFRA_UNAVAILABLE'))`, cutoff)
+	_, err := s.DeleteProbeResultsBeforeLimit(cutoff, 0)
+	return err
+}
+
+// DeleteProbeResultsBeforeLimit removes at most limit result rows. A
+// non-positive limit selects the safe default cleanup batch.
+func (s *Store) DeleteProbeResultsBeforeLimit(cutoff int64, limit int) (int, error) {
+	limit = probeCleanupLimit(limit)
+	query := `DELETE FROM probe_results WHERE id IN
+		(SELECT r.id FROM probe_results r JOIN probe_operations o ON o.id = r.probe_id
+		 WHERE ` + probeTerminalSQL + ` AND o.updated_at < ? ORDER BY r.id LIMIT ?)`
+	args := []any{cutoff, limit}
+	res, err := s.db.Exec(query, args...)
 	if err != nil {
-		return fmt.Errorf("store: delete old probe results: %w", err)
+		return 0, fmt.Errorf("store: delete old probe results: %w", err)
 	}
-	return nil
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("store: delete old probe result rows: %w", err)
+	}
+	return int(n), nil
 }
 
 // DeleteTerminalProbeOperationsBefore removes terminal probe tombstones after
@@ -854,23 +935,52 @@ func (s *Store) DeleteProbeResultsBefore(cutoff int64) error {
 // a removed operation cannot be revived because every late write then fails
 // with ErrNotFound.
 func (s *Store) DeleteTerminalProbeOperationsBefore(cutoff int64) error {
+	_, err := s.DeleteTerminalProbeOperationsBeforeLimit(cutoff, 0)
+	return err
+}
+
+// DeleteTerminalProbeOperationsBeforeLimit removes at most limit tombstones
+// in one transaction. Selecting IDs first makes the result deterministic and
+// keeps the write lock bounded even when the historical backlog is large.
+func (s *Store) DeleteTerminalProbeOperationsBeforeLimit(cutoff int64, limit int) (int, error) {
+	limit = probeCleanupLimit(limit)
 	tx, err := s.db.Begin()
 	if err != nil {
-		return fmt.Errorf("store: begin probe tombstone gc: %w", err)
+		return 0, fmt.Errorf("store: begin probe tombstone gc: %w", err)
 	}
 	defer tx.Rollback()
-	const terminal = `status IN ('OPEN_FROM_VANTAGE','REJECTED','DROPPED','TIMEOUT','NO_INDEPENDENT_VANTAGE','PROBE_INFRA_UNAVAILABLE')`
-	if _, err := tx.Exec(`DELETE FROM probe_results WHERE probe_id IN
-		(SELECT id FROM probe_operations WHERE `+terminal+` AND updated_at < ?)`, cutoff); err != nil {
-		return fmt.Errorf("store: delete probe tombstone evidence: %w", err)
+	query := `SELECT id FROM probe_operations WHERE ` + probeTerminalSQL + ` AND updated_at < ? ORDER BY updated_at, id LIMIT ?`
+	args := []any{cutoff, limit}
+	rows, err := tx.Query(query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: query probe tombstones: %w", err)
 	}
-	if _, err := tx.Exec(`DELETE FROM probe_operations WHERE `+terminal+` AND updated_at < ?`, cutoff); err != nil {
-		return fmt.Errorf("store: delete probe tombstones: %w", err)
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("store: scan probe tombstone: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, fmt.Errorf("store: probe tombstone rows: %w", err)
+	}
+	rows.Close()
+	for _, id := range ids {
+		if _, err := tx.Exec(`DELETE FROM probe_results WHERE probe_id = ?`, id); err != nil {
+			return 0, fmt.Errorf("store: delete probe tombstone evidence: %w", err)
+		}
+		if _, err := tx.Exec(`DELETE FROM probe_operations WHERE id = ? AND `+probeTerminalSQL+` AND updated_at < ?`, id, cutoff); err != nil {
+			return 0, fmt.Errorf("store: delete probe tombstone %s: %w", id, err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("store: commit probe tombstone gc: %w", err)
+		return 0, fmt.Errorf("store: commit probe tombstone gc: %w", err)
 	}
-	return nil
+	return len(ids), nil
 }
 
 // ProbeResult is one joined artifact of a probe operation.
@@ -921,7 +1031,7 @@ func (s *Store) RecordProbeResult(probeID, kind, payloadHex string) error {
 	if probeTerminal(status) {
 		return ErrProbeTerminal
 	}
-	if expiresAt <= now() {
+	if expiresAt <= s.currentUnix() {
 		return ErrProbeExpired
 	}
 	var existing int
@@ -935,7 +1045,7 @@ func (s *Store) RecordProbeResult(probeID, kind, payloadHex string) error {
 	}
 	if _, err := conn.ExecContext(context.Background(),
 		`INSERT INTO probe_results (probe_id, kind, payload_hex, created_at) VALUES (?, ?, ?, ?)`,
-		probeID, kind, payloadHex, now()); err != nil {
+		probeID, kind, payloadHex, s.currentUnix()); err != nil {
 		return fmt.Errorf("store: record probe result: %w", err)
 	}
 	if _, err := conn.ExecContext(context.Background(), "COMMIT"); err != nil {

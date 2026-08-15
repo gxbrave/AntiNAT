@@ -2,6 +2,7 @@ package probe
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
@@ -149,6 +150,74 @@ func TestProviderReplayCacheIsBounded(t *testing.T) {
 	}
 	if got := p.Stats().ReplayCache; got != 1 {
 		t.Fatalf("replay cache size = %d, want 1", got)
+	}
+}
+
+// replay entries are retained through the replay window boundary and
+// become reusable only after the boundary has passed. The sweep is driven by
+// an explicit timestamp so this test does not sleep on wall-clock time.
+func TestProviderReplaySweepHonorsWindowBoundary(t *testing.T) {
+	ctrlPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	_, provPriv, _ := ed25519.GenerateKey(rand.Reader)
+	clock := time.Unix(10_000, 0)
+	p, err := NewProvider(ProviderConfig{
+		ControllerPublicKey: ctrlPub,
+		ProviderPrivateKey:  provPriv,
+		Clock:               func() time.Time { return clock },
+		ReplayWindow:        time.Minute,
+		MaxReplayEntries:    4,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := &providerRequest{
+		Schema: providerRequestSchema, ControllerInstance: "inst", ControllerKeyID: "key",
+		NodePublicKey: strings.Repeat("11", ed25519.PublicKeySize), NodePublicKeyHash: strings.Repeat("22", 32),
+		ProbeID: strings.Repeat("33", 16), ProviderID: strings.Repeat("44", 16), Activation: strings.Repeat("55", 16),
+		Endpoint: "198.51.100.7:80", ExpectedSourceIP: "c6336409", ExpiryOpaque: strings.Repeat("66", 16),
+		TTLMS: 30_000, ArmDigest: strings.Repeat("77", 32), TimestampUnix: clock.Unix(),
+	}
+	if reason := p.admitReplay(req, clock); reason != "" {
+		t.Fatalf("initial replay admission = %q", reason)
+	}
+	if removed := p.SweepReplay(clock.Add(time.Minute - time.Nanosecond)); removed != 0 {
+		t.Fatalf("pre-boundary replay sweep removed %d entries, want 0", removed)
+	}
+	if removed := p.SweepReplay(clock.Add(time.Minute)); removed != 1 {
+		t.Fatalf("boundary replay sweep removed %d entries, want 1", removed)
+	}
+	if reason := p.admitReplay(req, clock.Add(time.Minute)); reason != "" {
+		t.Fatalf("reused expired replay id = %q, want accepted", reason)
+	}
+}
+
+// the replay sweeper must be owned by a context and Close must return
+// promptly after cancellation, even when its cadence is long.
+func TestProviderReplaySweeperCancellation(t *testing.T) {
+	ctrlPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	_, provPriv, _ := ed25519.GenerateKey(rand.Reader)
+	p, err := NewProvider(ProviderConfig{
+		ControllerPublicKey: ctrlPub,
+		ProviderPrivateKey:  provPriv,
+		ReplaySweepInterval: time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := p.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	done := make(chan struct{})
+	go func() {
+		_ = p.Close()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("provider Close did not join the cancelled replay sweeper")
 	}
 }
 

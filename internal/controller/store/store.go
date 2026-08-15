@@ -37,6 +37,7 @@ type Store struct {
 	path         string
 	minFreeBytes uint64
 	diskFree     func(string) (uint64, error)
+	clock        func() int64
 }
 
 // Open opens (or creates) the database at path, configures the frozen
@@ -92,6 +93,25 @@ func (s *Store) Close() error {
 
 // Path returns the database file path.
 func (s *Store) Path() string { return s.path }
+
+// SetClock replaces the store clock used by probe lifecycle writes and
+// cleanup decisions. Production callers normally leave the default wall clock
+// in place; injecting it keeps controller expiry/retention tests deterministic
+// and lets a Manager and its store share one time source.
+func (s *Store) SetClock(clock func() time.Time) {
+	if clock == nil {
+		s.clock = nil
+		return
+	}
+	s.clock = func() int64 { return clock().Unix() }
+}
+
+func (s *Store) currentUnix() int64 {
+	if s != nil && s.clock != nil {
+		return s.clock()
+	}
+	return now()
+}
 
 // checkIntegrity fails closed on a missing or corrupt database.
 func (s *Store) checkIntegrity() error {

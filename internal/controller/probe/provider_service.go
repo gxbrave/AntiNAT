@@ -45,6 +45,8 @@ type ProviderConfig struct {
 	ReplayWindow time.Duration
 	// MaxReplayEntries bounds the TTL replay cache.
 	MaxReplayEntries int
+	// ReplaySweepInterval controls the cancellable replay-cache sweeper.
+	ReplaySweepInterval time.Duration
 	// MaxRequestBytes bounds request bodies.
 	MaxRequestBytes int64
 	// RateWindow and MaxRequests bound HTTP work before execution.
@@ -54,16 +56,18 @@ type ProviderConfig struct {
 
 // Provider is the bounded antinat-probe service.
 type Provider struct {
-	cfg       ProviderConfig
-	slots     chan struct{}
-	inbound   chan struct{}
-	mu        sync.Mutex
-	replay    map[string]replayEntry
-	started   time.Time
-	requests  int64
-	maxReplay int
-	rateStart time.Time
-	rateCount int
+	cfg         ProviderConfig
+	slots       chan struct{}
+	inbound     chan struct{}
+	mu          sync.Mutex
+	replay      map[string]replayEntry
+	started     time.Time
+	requests    int64
+	maxReplay   int
+	rateStart   time.Time
+	rateCount   int
+	sweepCancel context.CancelFunc
+	sweepWG     sync.WaitGroup
 }
 
 type replayEntry struct {
@@ -97,6 +101,12 @@ func NewProvider(cfg ProviderConfig) (*Provider, error) {
 	if cfg.MaxReplayEntries <= 0 {
 		cfg.MaxReplayEntries = 4096
 	}
+	if cfg.ReplaySweepInterval <= 0 {
+		cfg.ReplaySweepInterval = cfg.ReplayWindow / 2
+		if cfg.ReplaySweepInterval <= 0 {
+			cfg.ReplaySweepInterval = time.Minute
+		}
+	}
 	if cfg.MaxRequestBytes <= 0 {
 		cfg.MaxRequestBytes = 8192
 	}
@@ -115,6 +125,52 @@ func NewProvider(cfg ProviderConfig) (*Provider, error) {
 		maxReplay: cfg.MaxReplayEntries,
 		rateStart: cfg.Clock(),
 	}, nil
+}
+
+// Start launches the context-owned replay-cache sweeper. HTTP handling remains
+// usable without Start for focused tests, while production callers can tie the
+// cache lifecycle to the provider service context.
+func (p *Provider) Start(parent context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.sweepCancel != nil {
+		return errors.New("probe: provider already started")
+	}
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
+	p.sweepCancel = cancel
+	p.sweepWG.Add(1)
+	go p.replaySweepLoop(ctx)
+	return nil
+}
+
+// Close cancels the replay-cache sweeper and waits for it to exit.
+func (p *Provider) Close() error {
+	p.mu.Lock()
+	cancel := p.sweepCancel
+	p.sweepCancel = nil
+	p.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	p.sweepWG.Wait()
+	return nil
+}
+
+func (p *Provider) replaySweepLoop(ctx context.Context) {
+	defer p.sweepWG.Done()
+	ticker := time.NewTicker(p.cfg.ReplaySweepInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			p.SweepReplay(p.cfg.Clock())
+		}
+	}
 }
 
 // Handler returns the provider HTTP surface:
@@ -213,11 +269,7 @@ func (p *Provider) admitReplay(req *providerRequest, now time.Time) string {
 	material := sha256.Sum256(canonical)
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	for id, entry := range p.replay {
-		if !now.Before(entry.expires) {
-			delete(p.replay, id)
-		}
-	}
+	p.sweepReplayLocked(now)
 	if entry, ok := p.replay[req.ProbeID]; ok && now.Before(entry.expires) {
 		if entry.material == material {
 			return "replay"
@@ -238,6 +290,26 @@ func (p *Provider) admitReplay(req *providerRequest, now time.Time) string {
 	}
 	p.replay[req.ProbeID] = replayEntry{expires: now.Add(p.cfg.ReplayWindow), material: material}
 	return ""
+}
+
+// SweepReplay removes entries at or beyond their expiry boundary and returns
+// the number removed. The explicit time argument makes replay retention
+// deterministic in tests and is also used by the background sweeper.
+func (p *Provider) SweepReplay(now time.Time) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.sweepReplayLocked(now)
+}
+
+func (p *Provider) sweepReplayLocked(now time.Time) int {
+	removed := 0
+	for id, entry := range p.replay {
+		if !now.Before(entry.expires) {
+			delete(p.replay, id)
+			removed++
+		}
+	}
+	return removed
 }
 
 // execute performs the exchange: generate challenge, build WAN1, dial the
