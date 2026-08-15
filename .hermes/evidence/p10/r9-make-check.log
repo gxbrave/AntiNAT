@@ -1,0 +1,39 @@
+$ GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make check
+go test ./...
+?   	github.com/gxbrave/AntiNAT/cmd/antinat-agent	[no test files]
+?   	github.com/gxbrave/AntiNAT/cmd/antinat-controller	[no test files]
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-probe	(cached)
+ok  	github.com/gxbrave/AntiNAT/cmd/antinatctl	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/agent	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/agent/control	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/agent/localstate	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/buildinfo	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/config	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/controller	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/controller/agenthub	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/controller/api	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/controller/auth	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/controller/store	(cached)
+?   	github.com/gxbrave/AntiNAT/internal/controller/web	[no test files]
+ok  	github.com/gxbrave/AntiNAT/internal/forward	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/forward/tcp	1.140s
+ok  	github.com/gxbrave/AntiNAT/internal/protocol	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/security	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/security/framecrypto	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/traversal	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/stun	(cached)
+?   	github.com/gxbrave/AntiNAT/migrations	[no test files]
+ok  	github.com/gxbrave/AntiNAT/scripts	(cached)
+ok  	github.com/gxbrave/AntiNAT/spike/datapath	(cached)
+ok  	github.com/gxbrave/AntiNAT/spike/network	(cached)
+ok  	github.com/gxbrave/AntiNAT/spike/sandbox	(cached)
+ok  	github.com/gxbrave/AntiNAT/spike/sqlite	(cached)
+ok  	github.com/gxbrave/AntiNAT/spike/state	(cached)
+ok  	github.com/gxbrave/AntiNAT/spike/windows-identity	(cached)
+ok  	github.com/gxbrave/AntiNAT/test/contracts	(cached)
+ok  	github.com/gxbrave/AntiNAT/test/e2e	(cached)
+?   	github.com/gxbrave/AntiNAT/test/e2e/harness	[no test files]
+go vet ./...
+make_check_exit_code=0

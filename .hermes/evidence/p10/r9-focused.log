@@ -1,0 +1,9 @@
+$ GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe ./internal/controller/store ./internal/agent/reconcile ./internal/agent/localstate ./internal/agent/control ./internal/protocol ./internal/traversal -count=1
+ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	3.168s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/store	2.633s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	1.794s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/localstate	0.770s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/control	1.027s
+ok  	github.com/gxbrave/AntiNAT/internal/protocol	1.076s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal	0.009s
+exit_code=0

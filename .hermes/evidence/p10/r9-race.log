@@ -1,0 +1,6 @@
+$ GOWORK=off GOMAXPROCS=2 go test -race -p=1 ./internal/agent/reconcile ./internal/controller/probe ./internal/controller/store ./internal/controller/agenthub -count=1
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	3.289s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	6.908s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/store	16.586s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/agenthub	5.463s
+exit_code=0

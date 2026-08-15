@@ -1,0 +1,5 @@
+$ GOWORK=off GOMAXPROCS=2 make build
+mkdir -p bin
+go build -trimpath -ldflags "-X github.com/gxbrave/AntiNAT/internal/buildinfo.Version=dev -X github.com/gxbrave/AntiNAT/internal/buildinfo.Commit=unknown -X github.com/gxbrave/AntiNAT/internal/buildinfo.Date=unknown" -o bin/antinat-controller ./cmd/antinat-controller
+go build -trimpath -ldflags "-X github.com/gxbrave/AntiNAT/internal/buildinfo.Version=dev -X github.com/gxbrave/AntiNAT/internal/buildinfo.Commit=unknown -X github.com/gxbrave/AntiNAT/internal/buildinfo.Date=unknown" -o bin/antinat-agent ./cmd/antinat-agent
+make_build_exit_code=0

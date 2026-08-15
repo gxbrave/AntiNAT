@@ -1,0 +1,4 @@
+$ python3 test/contracts/generate_manifest.py . && git diff --exit-code -- test/contracts && GOWORK=off GOMAXPROCS=2 go test ./test/contracts/... -count=1
+wrote ./test/contracts/manifest.json: 136 artifacts
+ok  	github.com/gxbrave/AntiNAT/test/contracts	0.942s
+exit_code=0

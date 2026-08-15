@@ -1,0 +1,129 @@
+{
+  "plan": "P10",
+  "task_id": "t_f958eff0",
+  "stage": "p10-r9-cumulative-repair",
+  "repair_cycle": 9,
+  "base_sha": "ca69aa72ef43851f33b290617e098096a87f7013",
+  "base_tree_sha": "09d0539767ae03c181baf8e61f3877f07b9e3de4",
+  "head_sha": "8a3058afdda448d1d761e5f0815f35ed89c96456",
+  "head_tree_sha": "f1bf1ae29e64dd509bd5a1eab67fc87b48a43f26",
+  "branch": "ai/P10-wan-probe-activation-cli-e2e",
+  "commits": [
+    {
+      "sha": "8a3058afdda448d1d761e5f0815f35ed89c96456",
+      "message": "fix(P10): repair probe activation and lifecycle recovery"
+    }
+  ],
+  "contracts_changed": "none",
+  "scope": "Cumulative repair of the six P1 regressions and the actionable controller-store edge: durable terminal probe outcome recovery and timeout enqueueing; existing-actor hot-update rollback after failed desired commit; keyset pagination for activation snapshots and probe arm-digest lookup; retryable controller, AgentHub, and agent shutdown; activation-generation fencing; consumed-probe replay source tombstones; canonical forward activation publication; APPLYING operation recovery; future-schema refusal; provider replay result caching; and special-use IPv4 traversal classification.",
+  "changed_files": [
+    "internal/agent/app.go",
+    "internal/agent/control/session.go",
+    "internal/agent/localstate/activation.go",
+    "internal/agent/localstate/journal.go",
+    "internal/agent/localstate/p10_r9_repair_test.go",
+    "internal/agent/p10_r9_repair_test.go",
+    "internal/agent/reconcile/desired.go",
+    "internal/agent/reconcile/p10_r9_repair_test.go",
+    "internal/agent/reconcile/probe.go",
+    "internal/agent/reconcile/reconciler.go",
+    "internal/controller/agenthub/hub.go",
+    "internal/controller/api/forwards_min.go",
+    "internal/controller/app.go",
+    "internal/controller/app_r9_repair_test.go",
+    "internal/controller/probe/manager.go",
+    "internal/controller/probe/p10_r9_repair_test.go",
+    "internal/controller/probe/provider.go",
+    "internal/controller/probe/provider_service.go",
+    "internal/controller/store/backup_test.go",
+    "internal/controller/store/migrate.go",
+    "internal/controller/store/p10_r9_repair_test.go",
+    "internal/controller/store/probe.go",
+    "internal/controller/store/store.go",
+    "internal/controller/store/transaction_test.go",
+    "internal/controller/store/transactions.go",
+    "internal/protocol/endpoint.go",
+    "internal/protocol/p10_r9_repair_test.go"
+  ],
+  "red_green": {
+    "red": {
+      "focused_regression_commands": [
+        "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe -run 'TestRecoverOperationsRequeuesTerminalOutcome|TestHandleActivationStatusRejectsGenerationOutsideCurrentRevision' -count=1 -v",
+        "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/store -run TestProbeOperationDigestLookupScansBeyondOnePage -count=1 -v",
+        "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent -run TestPrepareActivationRecoveryProcessesAllPersistedSnapshots -count=1 -v",
+        "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent/reconcile -run TestConsumedProbeSourceRemainsGatedDuringReplayWindow -count=1 -v"
+      ],
+      "observed_exit_code": 1,
+      "note": "Focused regressions were run before implementation and failed; compile-only red was used where the wished-for rollback/pagination/recovery seam did not yet exist. The terminal transcript recorded the failures; no fabricated failure output is included here."
+    },
+    "green": {
+      "focused_evidence": ".hermes/evidence/p10/r9-focused.log",
+      "race_evidence": ".hermes/evidence/p10/r9-race.log",
+      "additional_green_tests": [
+        "TestProviderReplayReturnsCachedSignedResult",
+        "TestSweepRequeuesExpiredTimeoutOutcome",
+        "TestRecoverApplyingOperationsQueuesNack",
+        "TestControllerShutdownCanRetryAfterWatcherDeadline",
+        "TestControllerShutdownCanRetryAfterContextDeadline",
+        "TestOpenRejectsFutureSchemaVersion",
+        "TestApplyForwardDeleteRejectsMismatchedOutboxIdentity",
+        "TestSpecialUseIPv4PrefixesAreNotGlobalEndpoints"
+      ]
+    }
+  },
+  "verification": [
+    {
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/... ./internal/agent/... -count=1",
+      "exit_code": 0
+    },
+    {
+      "command": "GOWORK=off GOMAXPROCS=2 go test -race -p=1 ./internal/agent/reconcile ./internal/controller/probe ./internal/controller/store ./internal/controller/agenthub -count=1",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r9-race.log"
+    },
+    {
+      "command": "GOWORK=off GOMAXPROCS=2 go vet ./internal/controller/... ./internal/agent/...",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r9-vet.log"
+    },
+    {
+      "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make test",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r9-make-test.log"
+    },
+    {
+      "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make check",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r9-make-check.log"
+    },
+    {
+      "command": "GOWORK=off GOMAXPROCS=2 make build",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r9-make-build.log"
+    },
+    {
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./test/e2e -run '^TestLinuxDirectV4WalkingSkeleton$' -count=1 -v",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r9-e2e.log"
+    },
+    {
+      "command": "python3 test/contracts/generate_manifest.py . && git diff --exit-code -- test/contracts && GOWORK=off GOMAXPROCS=2 go test ./test/contracts/... -count=1",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r9-contracts.log"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  ],
+  "capability_result": "SUPPORTED_WITH_LIMITS",
+  "remaining_limitations": [
+    "No real independent external-WAN/provider-egress vantage was available; provider traversal and external reachability remain test-fixture evidence.",
+    "No native Windows or arm64 execution evidence.",
+    "No router/UPnP/CGNAT, UDP/traversal, or production deployment evidence.",
+    "No govulncheck result was collected.",
+    "Fresh specification, quality/security, network/protocol, and lifecycle reviews are still required; this worker does not self-approve the implementation."
+  ],
+  "review_status": "REVIEW_REQUIRED",
+  "cleanup": "Implementation commit is complete; no merge, rebase, push, integration, release, or destructive cleanup performed. Evidence logs are retained under .hermes/evidence/p10/ for reviewer inspection."
+}
