@@ -1,16 +1,16 @@
 {
   "plan": "P10",
   "task_id": "t_3af0ca45",
-  "stage": "bounded-controller-activation-retry",
+  "stage": "bounded-p10-r5-cumulative-repair",
   "repair_cycle": 5,
   "base_sha": "58dd0c6a6827cfcf5e7d34d078cee84c4d20cef8",
   "base_ancestor_check": {
     "command": "git merge-base --is-ancestor 58dd0c6a6827cfcf5e7d34d078cee84c4d20cef8 HEAD",
     "exit_code": 0
   },
-  "head_sha": "9ebafd87e9b8633805b2d58dc1832b881f516c31",
-  "head_tree_sha": "13f4aa69005acb1e5fe2e4f5c974296790f0b305",
-  "candidate_tree_sha": "13f4aa69005acb1e5fe2e4f5c974296790f0b305",
+  "head_sha": "4be6b57f3652828ba5c2abb4ca50a9cbf65ea64c",
+  "head_tree_sha": "91ea56879db97effd5ef55fd8a21b76b2e84f35b",
+  "candidate_tree_sha": "91ea56879db97effd5ef55fd8a21b76b2e84f35b",
   "implementation_tree_sha": "fbc82a2879b81655e67f4289c6023d68061bf10f",
   "candidate_tree_definition": "The complete candidate branch tip and tree were verified at head_sha/head_tree_sha before this reconciliation handoff revision. The implementation/regression tree is implementation_tree_sha; the two documentation-only commits after it are included in commits. This reconciliation handoff is committed separately so the worktree can remain clean.",
   "reconciliation": {
@@ -33,25 +33,29 @@
   },
   "branch": "ai/P10-wan-probe-activation-cli-e2e",
   "commits": [
-    "d0b099671474d9f353fced914722bab14292f088",
-    "28a39a6934db75ac1d13db681e205679abb4079e",
-    "98ead948bf4bba9316f0a2cb78187735b5b4c8f6",
-    "830ca67b4e85f5447f70459688eef58b30e93937",
-    "60a4535c379f4b961f79cff16a25a56fe8aeb150",
-    "64f5d04b607a573dc53154fe9e401db618171b25",
-    "e2f303f1a61ebd79213c28180225515281f23545",
-    "08c11ec036d463d1926bb9ec0a9397662eb6d4df",
-    "599ab3dfc23a745ee0a151ded3ee179d8e37dcf7",
-    "8aa0d6d4efbff38b4c408dd4d131db03aee024d7",
-    "326ed64b04a95195a998148ef96ccc9d461d1f5e",
-    "3aed3776de97be3e28532c2c64d71d2f3e20d9f8",
-    "7f59b66cd45c383a042326a35cf01307a97979d6",
-    "9ef9d2ff0ff6fc67faaeb5d6253ade6d2b41388b",
-    "978e186a5ce1b3407a5ad78a836eee199d154b3d",
-    "6a7938aa3973e6d79cecae5a98b167f365976272",
-    "ce62fbfec1ccc7030a5e50a7360dc02030ba9d77",
+    "4be6b57f3652828ba5c2abb4ca50a9cbf65ea64c",
+    "a2eb8f67c1d9a242506dea7870f8475209cf8f03",
+    "f06fdd4c49e624dde76f75e34b08091e4f6db1a0",
+    "c4edb088f7ff48cea81e18c56cdd713ce9c6fe33",
+    "9ebafd87e9b8633805b2d58dc1832b881f516c31",
     "45dc35a1fcdd846b7eff4a47b5f09a31dd9be13f",
-    "9ebafd87e9b8633805b2d58dc1832b881f516c31"
+    "ce62fbfec1ccc7030a5e50a7360dc02030ba9d77",
+    "6a7938aa3973e6d79cecae5a98b167f365976272",
+    "978e186a5ce1b3407a5ad78a836eee199d154b3d",
+    "9ef9d2ff0ff6fc67faaeb5d6253ade6d2b41388b",
+    "7f59b66cd45c383a042326a35cf01307a97979d6",
+    "3aed3776de97be3e28532c2c64d71d2f3e20d9f8",
+    "326ed64b04a95195a998148ef96ccc9d461d1f5e",
+    "8aa0d6d4efbff38b4c408dd4d131db03aee024d7",
+    "599ab3dfc23a745ee0a151ded3ee179d8e37dcf7",
+    "08c11ec036d463d1926bb9ec0a9397662eb6d4df",
+    "e2f303f1a61ebd79213c28180225515281f23545",
+    "64f5d04b607a573dc53154fe9e401db618171b25",
+    "60a4535c379f4b961f79cff16a25a56fe8aeb150",
+    "830ca67b4e85f5447f70459688eef58b30e93937",
+    "98ead948bf4bba9316f0a2cb78187735b5b4c8f6",
+    "28a39a6934db75ac1d13db681e205679abb4079e",
+    "d0b099671474d9f353fced914722bab14292f088"
   ],
   "implementation_commit": {
     "sha": "ce62fbfec1ccc7030a5e50a7360dc02030ba9d77",
@@ -59,16 +63,89 @@
     "changed_files": 10
   },
   "files_changed": [
-    "internal/controller/agenthub/session.go",
-    "internal/controller/probe/manager.go",
-    "internal/controller/store/control.go",
-    "internal/controller/store/probe.go",
-    "internal/controller/agenthub/probe_receipt_ack_regression_test.go",
-    "internal/controller/probe/cycle4_regression_test.go",
-    "internal/controller/store/cycle4_regression_test.go",
+    ".hermes/evidence/p10/f1-activation-green.log",
+    ".hermes/evidence/p10/f1-activation-red.log",
+    ".hermes/evidence/p10/f2-forward-binding-green.log",
+    ".hermes/evidence/p10/f2-forward-binding-red.log",
+    ".hermes/evidence/p10/f3-provider-green.log",
+    ".hermes/evidence/p10/f3-provider-red.log",
+    ".hermes/handoffs/P10-controller-regressions.json",
+    ".hermes/plans/v1-beta/12-gateway-traversal-detection.md",
+    ".hermes/plans/v1-beta/14-lifecycle-rotation-recovery.md",
+    "cmd/antinat-agent/main.go",
+    "cmd/antinat-controller/main.go",
+    "cmd/antinat-probe/main.go",
+    "cmd/antinat-probe/main_test.go",
+    "cmd/antinatctl/cli_test.go",
+    "cmd/antinatctl/main.go",
+    "go.mod",
+    "go.sum",
+    "internal/agent/app.go",
+    "internal/agent/app_test.go",
+    "internal/agent/control/reconnect_test.go",
+    "internal/agent/control/session.go",
+    "internal/agent/localstate/activation.go",
+    "internal/agent/localstate/outbox.go",
+    "internal/agent/localstate/p10_repair_red_test.go",
     "internal/agent/localstate/probe.go",
+    "internal/agent/localstate/probe_test.go",
+    "internal/agent/localstate/schema.go",
+    "internal/agent/localstate/store_test.go",
+    "internal/agent/reconcile/activation.go",
     "internal/agent/reconcile/probe.go",
-    "internal/agent/reconcile/probe_test.go"
+    "internal/agent/reconcile/probe_test.go",
+    "internal/agent/reconcile/state_machine.go",
+    "internal/agent/reconcile/state_machine_test.go",
+    "internal/controller/agenthub/hub.go",
+    "internal/controller/agenthub/probe_receipt_ack_regression_test.go",
+    "internal/controller/agenthub/probesink_test.go",
+    "internal/controller/agenthub/session.go",
+    "internal/controller/api/api_test.go",
+    "internal/controller/api/auth.go",
+    "internal/controller/api/forwards_min.go",
+    "internal/controller/api/health.go",
+    "internal/controller/api/nodes_min.go",
+    "internal/controller/app.go",
+    "internal/controller/app_test.go",
+    "internal/controller/cycle2_regression_test.go",
+    "internal/controller/probe/cycle2_regression_test.go",
+    "internal/controller/probe/cycle3_regression_test.go",
+    "internal/controller/probe/cycle4_regression_test.go",
+    "internal/controller/probe/manager.go",
+    "internal/controller/probe/manager_cleanup_regression_test.go",
+    "internal/controller/probe/manager_test.go",
+    "internal/controller/probe/p10_network_red_test.go",
+    "internal/controller/probe/p10_repair_red_test.go",
+    "internal/controller/probe/provider.go",
+    "internal/controller/probe/provider_service.go",
+    "internal/controller/probe/provider_service_test.go",
+    "internal/controller/probe/story6_regression_test.go",
+    "internal/controller/store/backup_test.go",
+    "internal/controller/store/control.go",
+    "internal/controller/store/control_cleanup_regression_test.go",
+    "internal/controller/store/control_test.go",
+    "internal/controller/store/corrupt_internal_test.go",
+    "internal/controller/store/cycle3_regression_test.go",
+    "internal/controller/store/cycle4_regression_test.go",
+    "internal/controller/store/idempotency.go",
+    "internal/controller/store/idempotency_test.go",
+    "internal/controller/store/migrate_test.go",
+    "internal/controller/store/minapi.go",
+    "internal/controller/store/minapi_atomic_test.go",
+    "internal/controller/store/outbox.go",
+    "internal/controller/store/probe.go",
+    "internal/controller/store/probe_cleanup_regression_test.go",
+    "internal/controller/store/probe_test.go",
+    "internal/controller/store/store.go",
+    "internal/controller/store/transactions.go",
+    "internal/controller/web/router_min.go",
+    "internal/protocol/probe_adapter.go",
+    "internal/traversal/network.go",
+    "migrations/0004_probe.sql",
+    "migrations/0005_probe_hardening.sql",
+    "migrations/migrations.go",
+    "test/e2e/harness/harness.go",
+    "test/e2e/walking_skeleton_test.go"
   ],
   "review_scope": {
     "candidate_diff_reconciled": true,
@@ -79,28 +156,153 @@
   },
   "repair_findings_addressed": [
     {
-      "finding": "stale activation admission",
-      "change": "Manager.Arm rejects node/forward mismatches and non-current forward activations before creating work; CreateProbeOperationBundle repeats the node/current-activation check inside the transaction as the race fence."
+      "id": "F1",
+      "symbols": [
+        "migrations/0004_probe.sql",
+        "migrations/0005_probe_hardening.sql"
+      ],
+      "change": "P12/P14 plan routing now reserves 0006_traversal.sql and 0007_lifecycle.sql; applied P10 migrations remain untouched."
     },
     {
-      "finding": "malformed challenge persistence",
-      "change": "SetProbeOperationChallenge rejects empty and non-hex text and stores a canonical lowercase value; the join boundary still requires a protocol-sized digest."
+      "id": "F2",
+      "symbols": [
+        "ownership.exact_transfers"
+      ],
+      "change": "Complete integrated-base path delta is enumerated and exact P10 extension hunks have explicit source owner, receiving plan, reason, duration, and expiry."
     },
     {
-      "finding": "forged ACK1/RCT1 publication",
-      "change": "PublishProbeJoin requires the authenticated node public key and verifies ACK1 and RCT1 Ed25519 signatures, bindings, evidence completeness, and the legal snapshot before the status CAS."
+      "id": "F3",
+      "symbols": [
+        ".hermes/handoffs/P10.json",
+        "tree_verification",
+        "tests",
+        "evidence"
+      ],
+      "change": "Current handoff records exact branch/base/head/tree, complete declared delta, RED/GREEN logs, command exits, limits, cleanup, and review gates."
     },
     {
-      "finding": "lost probe receipt acknowledgement/retry",
-      "change": "Probe ingress receipts use a durable semantic operation binding; sink failure leaves the inbox RECEIVED so a duplicate can retry, processed rows suppress duplicate forwarding, and the Agent now retries consumed receipts even when the prior transport write set ReceiptSent=true."
+      "id": "Q1",
+      "symbols": [
+        "probe.Manager.Arm",
+        "store.CreateProbeOperationBundle"
+      ],
+      "change": "Empty current activation is rejected before provider admission and rechecked transactionally."
     },
     {
-      "finding": "semantic receipt operation mismatch",
-      "change": "The Agent durable RCT1 tombstone stores the payload digest used by the Controller semantic receipt, while accepting legacy envelope-id rows only when their receipt bytes derive the same digest."
+      "id": "Q2",
+      "symbols": [
+        "localstate.ArmedProbe.ForwardID",
+        "reconcile.ProbeGate.Accept",
+        "ProbeManager.handleIngress"
+      ],
+      "change": "Armed probe identity retains ForwardID and ingress admission filters by the bound forward."
     },
     {
-      "finding": "duplicate probe evidence replay",
-      "change": "Exact duplicate provider/WAN/ACK/RCT evidence is idempotent; conflicting evidence remains rejected, so an RCT1 retry cannot terminalize a live operation."
+      "id": "Q3",
+      "symbols": [
+        "agenthub.handleProbePlaneMessage"
+      ],
+      "change": "probe_armed sink acceptance occurs before inbox PROCESSED/outbox semantic acknowledgement; failed sinks remain retryable."
+    },
+    {
+      "id": "Q4",
+      "symbols": [
+        "store.setProbeOperationStatusCAS",
+        "store.SetForwardRuntimeStatus"
+      ],
+      "change": "Status writes retain expected-state predicates at the update boundary."
+    },
+    {
+      "id": "Q5",
+      "symbols": [
+        "probe.Manager.recoverOperations",
+        "store.ListProbeOperationsByStatusLimit"
+      ],
+      "change": "ARMED/IN_FLIGHT recovery is bounded and provider ownership is reserved before launch."
+    },
+    {
+      "id": "Q6",
+      "symbols": [
+        "control.Client.Connect",
+        "control.Client.Close",
+        "control.Client.Shutdown",
+        "reconcile.RetryPendingReceipts"
+      ],
+      "change": "Transport sessions are reusable, sequence state resets per session, terminal shutdown is explicit, and receipt retries use bounded contexts."
+    },
+    {
+      "id": "Q7",
+      "symbols": [
+        "agent.App.Start",
+        "agent.App.Shutdown"
+      ],
+      "change": "Startup rollback closes probe workers and shutdown cancels/joins lifecycle goroutines before store teardown."
+    },
+    {
+      "id": "Q8",
+      "symbols": [
+        "agenthub receipt writes",
+        "reconcile.RetryPendingReceipts",
+        "agent.App.sendActivationStatus"
+      ],
+      "change": "Controller and agent-generated receipt/status writes have finite timeout contexts."
+    },
+    {
+      "id": "Q9",
+      "symbols": [
+        "reconcile.NewProbeManager",
+        "probe.Manager.Arm",
+        "probe.Manager.startProvider"
+      ],
+      "change": "Agent active operation limits and controller provider-round ownership are enforced during admission/recovery."
+    },
+    {
+      "id": "Q10",
+      "symbols": [
+        "localstate.ListArmedProbesLimit",
+        "localstate.OutboxOperationIDsLimit",
+        "store.ListProbeOperationsByStatusLimit",
+        "store.ListControlOutboxByState"
+      ],
+      "change": "History/recovery scans are finite, ordered, and capped."
+    },
+    {
+      "id": "N1",
+      "symbols": [
+        "cmd/antinat-probe/main.go",
+        "provider_service.go"
+      ],
+      "change": "Standalone provider server has read-header/read/write/idle/header/body bounds."
+    },
+    {
+      "id": "N2",
+      "symbols": [
+        "provider_service.go"
+      ],
+      "change": "Replay identifiers are canonicalized before lookup/insertion."
+    },
+    {
+      "id": "N3",
+      "symbols": [
+        "provider_service.go",
+        "verifyProbeACKBinding"
+      ],
+      "change": "Cryptographic ACK validation remains separate from semantic WAN1/probe/activation/source/endpoint/challenge binding."
+    },
+    {
+      "id": "N4",
+      "symbols": [
+        "traversal.CapabilityError",
+        "agent.App.reopen"
+      ],
+      "change": "Stable capability codes retain underlying assessment causes and selected source is used for remap/reopen."
+    },
+    {
+      "id": "N5",
+      "symbols": [
+        "probe.Manager.handleProviderResult"
+      ],
+      "change": "Rejected provider outcomes remain rejected and cannot be published as successful evidence."
     }
   ],
   "tests": [
@@ -252,21 +454,33 @@
     }
   ],
   "evidence": [
-    "internal/controller/agenthub/probe_receipt_ack_regression_test.go",
-    "internal/controller/probe/cycle4_regression_test.go",
-    "internal/controller/store/cycle4_regression_test.go",
-    "internal/controller/agenthub/session.go",
-    "internal/controller/probe/manager.go",
-    "internal/controller/store/control.go",
-    "internal/controller/store/probe.go",
+    ".hermes/evidence/p10/f1-activation-green.log",
+    ".hermes/evidence/p10/f1-activation-red.log",
+    ".hermes/evidence/p10/f2-forward-binding-green.log",
+    ".hermes/evidence/p10/f2-forward-binding-red.log",
+    ".hermes/evidence/p10/f3-provider-green.log",
+    ".hermes/evidence/p10/f3-provider-red.log",
+    ".hermes/handoffs/P10-controller-regressions.json",
+    ".hermes/plans/v1-beta/12-gateway-traversal-detection.md",
+    ".hermes/plans/v1-beta/14-lifecycle-rotation-recovery.md",
+    "internal/agent/localstate/activation.go",
+    "internal/agent/localstate/p10_repair_red_test.go",
     "internal/agent/localstate/probe.go",
     "internal/agent/reconcile/probe.go",
     "internal/agent/reconcile/probe_test.go",
+    "internal/controller/agenthub/probe_receipt_ack_regression_test.go",
+    "internal/controller/agenthub/session.go",
+    "internal/controller/probe/cycle4_regression_test.go",
+    "internal/controller/probe/manager.go",
     "internal/controller/probe/manager_test.go",
+    "internal/controller/probe/p10_network_red_test.go",
+    "internal/controller/probe/p10_repair_red_test.go",
+    "internal/controller/store/control.go",
+    "internal/controller/store/cycle4_regression_test.go",
+    "internal/controller/store/probe.go",
     "internal/controller/store/probe_test.go",
     "test/contracts/manifest.json",
-    "test/e2e/walking_skeleton_test.go",
-    ".hermes/handoffs/P10-controller-regressions.json"
+    "test/e2e/walking_skeleton_test.go"
   ],
   "contracts_consumed": [
     {
@@ -297,26 +511,214 @@
   "contracts_changed": [],
   "capability_result": "SUPPORTED_WITH_LIMITS",
   "known_limits": [
-    "The local walking skeleton uses CAP_NET_ADMIN loopback aliasing and deterministic local routing; it is not real external-WAN evidence.",
-    "A real remote independent probe vantage and provider egress address are still required before claiming real-WAN support.",
-    "Full make test and make check require ANTINAT_DEDICATED_UID=12001 and ANTINAT_DEDICATED_GID=12001 on this host.",
-    "govulncheck was not run because it is not installed on this host.",
-    "P10 remains limited to direct-v4 TCP, authenticated minimal API/CLI, and probe/activation; STUN, traversal, UDP, full UI, and installer behavior remain later-plan scope.",
-    "Fresh specification, quality/security, ownership-boundary, and network reviews remain required; this handoff is not integration or approval evidence."
+    "No real external-WAN independent-vantage/provider-egress evidence; local E2E is deterministic loopback/CAP_NET_ADMIN only.",
+    "govulncheck was not run because it is unavailable on this host.",
+    "P10 remains direct-v4/TCP and bounded probe/activation scope; traversal/UDP/full UI/installer remain later-plan scope."
   ],
   "cleanup_done": true,
   "cleanup": [
-    "make clean removed generated bin artifacts.",
-    "Contract manifest regeneration left test/contracts byte-identical.",
-    "No remote push, merge, rebase, release, or secret persistence was performed."
+    "make clean removed generated binaries; temporary RED worktrees were removed; no remote push/merge/rebase/release or secret persistence was performed."
   ],
   "review_status": "REVIEW_REQUIRED",
   "required_reviews": [
-    "fresh specification review",
-    "fresh quality-security review",
-    "ownership-boundary review",
-    "network review"
+    "fresh exact-head specification/ownership",
+    "fresh exact-head quality/security",
+    "fresh exact-head network/protocol",
+    "fresh exact-head lifecycle-boundary",
+    "integration after all fresh reviews pass on unchanged head"
   ],
-  "deviation_notes": "The bounded repair adds one narrowly scoped Agent-side reliability correction because a successful socket write is not a Controller semantic acknowledgement. No frozen contract files changed. The three parent-created Controller regression files were preserved and committed with the implementation. A payload-derived envelope-ID enforcement experiment was rejected after existing contract-compatible probe-sink tests demonstrated that arbitrary valid envelope IDs are allowed; deduplication remains keyed by the declared message_id/type/payload binding. The abandoned two-line fixture delta was discarded because it added no exercised behavior. Fresh reconciliation verification, including focused/package/race/vet/E2E/full gates/build/contract/cleanup/hash checks, completed with exit code 0 throughout.",
-  "verification_status": "fresh-reconciled-verification-on-candidate-head-9ebafd87e9b8633805b2d58dc1832b881f516c31-tree-13f4aa69005acb1e5fe2e4f5c974296790f0b305"
+  "deviation_notes": "Bounded cumulative P10 repair for F1-F3, Q1-Q10, and network findings. No frozen contract was changed. P10 migration numbers remain immutable; P12/P14 routing was corrected to 0006/0007. This handoff is review-required only; integration and release are blocked until fresh exact-head reviews pass.",
+  "verification_status": "fresh cumulative repair verification before handoff update; pre-handoff head 4be6b57f3652828ba5c2abb4ca50a9cbf65ea64c, tree 91ea56879db97effd5ef55fd8a21b76b2e84f35b; final handoff commit must update these exact fields.",
+  "integrated_base_sha": "adf74fa860812054bd71082006a8c78ea4189888",
+  "repair_start_sha": "c4edb088f7ff48cea81e18c56cdd713ce9c6fe33",
+  "repair_commits": [
+    "4be6b57f3652828ba5c2abb4ca50a9cbf65ea64c",
+    "a2eb8f67c1d9a242506dea7870f8475209cf8f03",
+    "f06fdd4c49e624dde76f75e34b08091e4f6db1a0"
+  ],
+  "files_changed_excludes": [
+    ".hermes/handoffs/P10.json"
+  ],
+  "files_changed_count": 83,
+  "tree_verification": {
+    "base_ancestor": {
+      "command": "git merge-base --is-ancestor 58dd0c6a6827cfcf5e7d34d078cee84c4d20cef8 HEAD",
+      "exit_code": 0
+    },
+    "integrated_base_ancestor": {
+      "command": "git merge-base --is-ancestor adf74fa860812054bd71082006a8c78ea4189888 HEAD",
+      "exit_code": 0
+    },
+    "head_command": "git rev-parse HEAD",
+    "head_sha": "4be6b57f3652828ba5c2abb4ca50a9cbf65ea64c",
+    "tree_command": "git rev-parse HEAD^{tree}",
+    "tree_sha": "91ea56879db97effd5ef55fd8a21b76b2e84f35b",
+    "status_before_handoff_update": "clean",
+    "diff_command": "git diff --name-only adf74fa860812054bd71082006a8c78ea4189888 HEAD",
+    "complete_delta_paths": 84
+  },
+  "ownership": {
+    "receiving_plan": "P10",
+    "approved_transfer": true,
+    "source_owner": "P07/P08/P09 extension owners as listed per hunk below; P10 owns probe, provider, agent-reconcile, app, CLI, and E2E paths.",
+    "valid_duration": "From repair commit f06fdd4c49e624dde76f75e34b08091e4f6db1a0 through P10 integration or rejection, whichever occurs first.",
+    "expires_on": "P10 rejection or integration; later P12/P14/P15 work requires a fresh supervisor transfer decision.",
+    "exact_transfers": [
+      {
+        "path": "internal/agent/control/session.go",
+        "source_owner": "P08",
+        "symbols": [
+          "Client.Connect",
+          "Client.Close",
+          "Client.Shutdown",
+          "Client.stopSession",
+          "Client.frameLoop",
+          "Client.pump",
+          "Client.heartbeat"
+        ],
+        "reason": "P10 reconnect reuse and durable receipt retry require transport-session ownership without terminal client shutdown.",
+        "scope": "Only session lifecycle, sequence reset, reconnect, and bounded receipt-send hunks."
+      },
+      {
+        "path": "internal/agent/localstate/probe.go",
+        "source_owner": "P07/P08",
+        "symbols": [
+          "ArmedProbe.ForwardID",
+          "SaveArmedProbeForForward",
+          "ListArmedProbesLimit",
+          "AcknowledgeArmedProbeReceipt",
+          "SweepArmedProbeTombstonesLimit"
+        ],
+        "reason": "P10 probe ownership and bounded replay/recovery require explicit forward binding and finite scans.",
+        "scope": "Only probe binding, tombstone, bounded lookup, and receipt ownership hunks."
+      },
+      {
+        "path": "internal/agent/localstate/outbox.go",
+        "source_owner": "P08",
+        "symbols": [
+          "OutboxOperationIDsLimit"
+        ],
+        "reason": "P10 Q10 requires a finite local outbox operation scan during recovery.",
+        "scope": "Only the bounded operation-ID enumeration wrapper and limit."
+      },
+      {
+        "path": "internal/controller/agenthub/hub.go",
+        "source_owner": "P08",
+        "symbols": [
+          "ActivationStatusSink",
+          "Config.ControlWriteTimeout"
+        ],
+        "reason": "P10 evidence-loss propagation and bounded controller receipt writes cross the transport extension interface.",
+        "scope": "Only optional status sink and write-timeout configuration."
+      },
+      {
+        "path": "internal/controller/agenthub/session.go",
+        "source_owner": "P08",
+        "symbols": [
+          "handleProbePlaneMessage",
+          "advanceResultRow"
+        ],
+        "reason": "P10 requires sink-first probe_armed acknowledgement and idempotent semantic receipt replay.",
+        "scope": "Only probe sink ordering, duplicate retry, activation status dispatch, and bounded receipt writes."
+      },
+      {
+        "path": "internal/controller/store/minapi.go",
+        "source_owner": "P06/P07",
+        "symbols": [
+          "ListControlInbox bounded retrieval"
+        ],
+        "reason": "P10 Q10 requires finite control-inbox recovery reads.",
+        "scope": "Only P10-specific LIMIT/order bounds; no API behavior transfer."
+      },
+      {
+        "path": "internal/controller/store/probe.go",
+        "source_owner": "P07/P08",
+        "symbols": [
+          "CreateProbeOperationBundle",
+          "SetProbeOperationStatusCAS",
+          "ListProbeOperationsByStatusLimit",
+          "bounded probe lookup/cleanup queries"
+        ],
+        "reason": "P10 activation CAS, restart recovery, and bounded probe history require atomic persistence fences.",
+        "scope": "Only probe operation activation/status/recovery/lookup hunks."
+      },
+      {
+        "path": "internal/controller/store/control.go",
+        "source_owner": "P08",
+        "symbols": [
+          "ListControlOutboxByState bounded retrieval"
+        ],
+        "reason": "P10 Q10 requires finite controller outbox correlation scans.",
+        "scope": "Only P10-specific LIMIT/order bounds."
+      },
+      {
+        "path": "migrations/migrations.go",
+        "source_owner": "P06/P07",
+        "symbols": [
+          "applied migration registry"
+        ],
+        "reason": "P10 retains immutable 0004_probe.sql/0005_probe_hardening.sql; plan routing records future numbers without changing applied registry.",
+        "scope": "No migration rewrite; ownership record only."
+      }
+    ],
+    "unrelated_edits_policy": "Complete integrated-base delta was enumerated in files_changed. Existing P06/P07/P08 behavior and tests outside the exact P10-owned or listed extension hunks are retained as source-owned historical dependencies, not silently transferred; no unrelated hunk was added by this repair.",
+    "required_fresh_reviews": [
+      "specification/ownership",
+      "quality/security",
+      "network/protocol",
+      "lifecycle-boundary",
+      "integration"
+    ]
+  },
+  "migration_ownership": {
+    "immutable_p10": [
+      "migrations/0004_probe.sql",
+      "migrations/0005_probe_hardening.sql"
+    ],
+    "p12_next": "migrations/0006_traversal.sql",
+    "p14_next": "migrations/0007_lifecycle.sql",
+    "contracts_changed": [],
+    "routing_files": [
+      ".hermes/plans/v1-beta/12-gateway-traversal-detection.md",
+      ".hermes/plans/v1-beta/14-lifecycle-rotation-recovery.md"
+    ]
+  },
+  "story_red_green": [
+    {
+      "story": "S1 probe activation admission",
+      "red": ".hermes/evidence/p10/f1-activation-red.log",
+      "green": ".hermes/evidence/p10/f1-activation-green.log",
+      "test": "internal/controller/probe/p10_repair_red_test.go"
+    },
+    {
+      "story": "S2 forward-bound armed probe",
+      "red": ".hermes/evidence/p10/f2-forward-binding-red.log",
+      "green": ".hermes/evidence/p10/f2-forward-binding-green.log",
+      "test": "internal/agent/localstate/p10_repair_red_test.go"
+    },
+    {
+      "story": "S3 provider replay and ACK semantic binding",
+      "red": ".hermes/evidence/p10/f3-provider-red.log",
+      "green": ".hermes/evidence/p10/f3-provider-green.log",
+      "test": "internal/controller/probe/p10_network_red_test.go"
+    },
+    {
+      "story": "S4 durable receipt/inbox semantic retry",
+      "red": "Prior RED recorded in the existing P10 handoff; current regression source is internal/controller/agenthub/probe_receipt_ack_regression_test.go",
+      "green": "GOWORK=off go test ./internal/controller/agenthub -count=1 -> 0",
+      "test": "internal/controller/agenthub/probe_receipt_ack_regression_test.go"
+    },
+    {
+      "story": "S5 lifecycle/reconnect/recovery",
+      "red": "Prior lifecycle review evidence in the existing P10 handoff; same-client reconnect source is internal/agent/control/reconnect_test.go",
+      "green": "GOWORK=off go test ./internal/agent/control ./internal/agent -count=1 -> 0",
+      "test": "internal/agent/control/reconnect_test.go"
+    },
+    {
+      "story": "S6 direct-v4 walking skeleton",
+      "red": "Existing P10 E2E RED/GREEN evidence retained in the prior handoff",
+      "green": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./test/e2e -run ^TestLinuxDirectV4WalkingSkeleton$ -count=1 -> 0",
+      "test": "test/e2e/walking_skeleton_test.go"
+    }
+  ]
 }
