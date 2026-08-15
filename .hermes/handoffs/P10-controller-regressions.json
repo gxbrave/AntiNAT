@@ -1,0 +1,174 @@
+{
+  "plan": "P10",
+  "task_id": "t_b0a158ae",
+  "type": "controller-regression-tests",
+  "repair_cycle": 3,
+  "base_sha": "830ca67b4e85f5447f70459688eef58b30e93937",
+  "head_sha": "60a4535c379f4b961f79cff16a25a56fe8aeb150",
+  "branch": "ai/P10-wan-probe-activation-cli-e2e",
+  "commits": [
+    "60a4535c379f4b961f79cff16a25a56fe8aeb150"
+  ],
+  "files_changed": [
+    "internal/controller/probe/cycle3_regression_test.go",
+    "internal/controller/store/cycle3_regression_test.go",
+    "internal/controller/store/probe_test.go"
+  ],
+  "findings_mapped": [
+    {
+      "finding": "N1/N2/N3",
+      "coverage": "TestLateReceiptTransitionsToTimeout",
+      "contract": "OPEN_FROM_VANTAGE requires a same-operation provider/WAN1/ACK1/RCT1 join before the operation deadline; late ingress must not remain live."
+    },
+    {
+      "finding": "N10 / strict controller message decoding",
+      "coverage": "TestProbeResultRejectsUnknownJSONFields",
+      "contract": "Authenticated probe JSON is decoded fail-closed; unknown fields cannot change state."
+    },
+    {
+      "finding": "N4",
+      "coverage": "TestProviderRejectsPrivateExpectedSource",
+      "contract": "Provider expected_source_ip is a concrete allowed global IPv4 source, not an advisory private/loopback value."
+    },
+    {
+      "finding": "N3 / replay-conflict boundary",
+      "coverage": "TestProviderReplayDifferentMaterialIsConflict",
+      "contract": "Reuse of a consumed probe ID with different signed material is an ID conflict, distinct from identical replay."
+    },
+    {
+      "finding": "N1/N2",
+      "coverage": "TestSetProbeOperationStatusCannotPublishVerifiedOutcome",
+      "contract": "OPEN_FROM_VANTAGE is produced only by the verified join routine, not a generic status setter."
+    },
+    {
+      "finding": "N1/N5 / frozen activation truth",
+      "coverage": "TestSetForwardRuntimeStatusRejectsContradictoryPublication",
+      "contract": "PUBLISHED_VERIFIED requires OPEN_FROM_VANTAGE and VERIFIED return-path evidence in a complete orthogonal snapshot."
+    },
+    {
+      "finding": "N2/N3/N5",
+      "coverage": "TestPublishProbeJoinRejectsMismatchedWireEvidence",
+      "contract": "Durable publication must decode and bind WAN1 fields to the stored arm; row cardinality and a legal snapshot are insufficient."
+    },
+    {
+      "finding": "N2 / same-path ACK1",
+      "coverage": "TestPublishProbeJoinRejectsWrongPathACK",
+      "contract": "ACK1 arm digest must bind to the same operation as WAN1 and RCT1."
+    }
+  ],
+  "existing_green_coverage_rechecked": [
+    "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe -run '^TestJoinOpensFromVantage$' -count=1 (exit 0)",
+    "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe -run '^(TestJoinRejectsControlOnlyReceipt|TestProviderRejectedNeverOpens|TestProbeResultRejectsWrongNodeAndOutcome)$' -count=1 (exit 0)",
+    "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/store -run '^(TestProbeOperationLifecycle|TestForwardActivationCAS|TestTerminalProbeTombstoneGCPreventsRevival)$' -count=1 (exit 0)"
+  ],
+  "red_tests": [
+    {
+      "test": "TestLateReceiptTransitionsToTimeout",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe -run '^TestLateReceiptTransitionsToTimeout$' -count=1",
+      "exit_code": 1,
+      "failure": "late receipt left status \"IN_FLIGHT\", want TIMEOUT"
+    },
+    {
+      "test": "TestProbeResultRejectsUnknownJSONFields",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe -run '^TestProbeResultRejectsUnknownJSONFields$' -count=1",
+      "exit_code": 1,
+      "failure": "probe_result with an unknown field was accepted"
+    },
+    {
+      "test": "TestProviderRejectsPrivateExpectedSource",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe -run '^TestProviderRejectsPrivateExpectedSource$' -count=1",
+      "exit_code": 1,
+      "failure": "provider accepted a private expected source address"
+    },
+    {
+      "test": "TestProviderReplayDifferentMaterialIsConflict",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe -run '^TestProviderReplayDifferentMaterialIsConflict$' -count=1",
+      "exit_code": 1,
+      "failure": "different-material reuse reason = \"replay\", want conflict"
+    },
+    {
+      "test": "TestSetProbeOperationStatusCannotPublishVerifiedOutcome",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/store -run '^TestSetProbeOperationStatusCannotPublishVerifiedOutcome$' -count=1",
+      "exit_code": 1,
+      "failure": "generic status update published OPEN_FROM_VANTAGE without a join"
+    },
+    {
+      "test": "TestSetForwardRuntimeStatusRejectsContradictoryPublication",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/store -run '^TestSetForwardRuntimeStatusRejectsContradictoryPublication$' -count=1",
+      "exit_code": 1,
+      "failure": "contradictory runtime snapshot was persisted"
+    },
+    {
+      "test": "TestPublishProbeJoinRejectsMismatchedWireEvidence",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/store -run '^TestPublishProbeJoinRejectsMismatchedWireEvidence$' -count=1",
+      "exit_code": 1,
+      "failure": "join accepted malformed/mismatched WAN1 and ACK1 evidence"
+    },
+    {
+      "test": "TestPublishProbeJoinRejectsWrongPathACK",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/store -run '^TestPublishProbeJoinRejectsWrongPathACK$' -count=1",
+      "exit_code": 1,
+      "failure": "join accepted an ACK1 bound to a different operation"
+    }
+  ],
+  "verification": [
+    {
+      "command": "GOWORK=off go vet ./internal/controller/probe ./internal/controller/store",
+      "exit_code": 0
+    },
+    {
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe ./internal/controller/store -run '^$' -count=1",
+      "exit_code": 0,
+      "result": "packages compile; no tests run"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  ],
+  "contracts_consumed": [
+    {
+      "path": "docs/state-model.md",
+      "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
+    },
+    {
+      "path": "docs/protocol.md",
+      "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"
+    },
+    {
+      "path": "api/openapi.yaml",
+      "sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32"
+    },
+    {
+      "path": ".hermes/plans/v1-beta/00-master-orchestration.md",
+      "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4"
+    },
+    {
+      "path": ".hermes/plans/v1-beta/10-wan-probe-activation-cli-e2e.md",
+      "sha256": "91c7b8814d969ec9bfbf757a97c9a7aeb865fad7b49b76be826603d693b80ce0"
+    },
+    {
+      "path": "docs/adr/0003-wan-probe-truth.md",
+      "sha256": "31f4b1a01041a228e01c5fbc2cf0d0d9aeb447844b7dfa1da361f55df5b85fbd"
+    }
+  ],
+  "contracts_changed": [],
+  "capability_result": "SUPPORTED_WITH_LIMITS",
+  "known_limits": [
+    "The new tests are intentionally RED against the current candidate; package-wide test/build gates must be rerun after the bounded implementation card turns them GREEN.",
+    "Existing valid OPEN_FROM_VANTAGE coverage uses the local TEST-NET/loopback harness and is not real external-WAN evidence.",
+    "No production files, frozen contract files, remote systems, credentials, or network releases were changed."
+  ],
+  "cleanup_done": true,
+  "cleanup": [
+    "No generated build artifacts were created; the regression test commit is clean and the handoff is the only pending documentation change before its commit."
+  ],
+  "review_status": "REVIEW_REQUIRED",
+  "required_reviews": [
+    "fresh specification review",
+    "fresh quality-security review",
+    "ownership-boundary review",
+    "network review"
+  ],
+  "deviation_notes": "This card adds only Controller probe/store regression tests and normalizes existing runtime-mirror fixtures to complete frozen snapshots. No production changes or contract changes were made. The current candidate does not yet satisfy the new RED assertions; downstream implementation must make the focused tests GREEN before full verification."
+}
