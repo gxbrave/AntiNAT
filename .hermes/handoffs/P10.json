@@ -19,7 +19,7 @@
     "98ead948bf4bba9316f0a2cb78187735b5b4c8f6",
     "e2f303f1a61ebd79213c28180225515281f23545"
   ],
-  "files_changed_count": 29,
+  "files_changed_count": 31,
   "files_changed": [
     "internal/agent/app.go",
     "internal/agent/control/session.go",
@@ -49,6 +49,8 @@
     "internal/controller/cycle2_regression_test.go",
     "internal/controller/probe/cycle2_regression_test.go",
     "internal/controller/probe/story6_regression_test.go",
+    "internal/controller/probe/cycle3_regression_test.go",
+    "internal/controller/store/cycle3_regression_test.go",
     "migrations/0005_probe_hardening.sql"
   ],
   "repair_findings_addressed": [
@@ -457,7 +459,7 @@
     "No remote push, merge, release, or secret persistence was performed.",
     "make clean removed bin/ build artifacts after cycle-2 build.",
     "Cross-build emitted no repository artifacts; e2e state was cleaned by harness teardown.",
-    "Ownership-boundary cleanup remains in force; code commit 98ead948bf4bba9316f0a2cb78187735b5b4c8f6 contains the bounded Controller repair, and the candidate now has 29 declared code files."
+    "Ownership-boundary cleanup remains in force; code commit 98ead948bf4bba9316f0a2cb78187735b5b4c8f6 contains the bounded Controller repair, and the candidate now has 31 declared code files."
   ],
   "current_repair": {
     "repair_cycle": 4,
