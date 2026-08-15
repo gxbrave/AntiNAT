@@ -1,849 +1,205 @@
 {
   "plan": "P10",
-  "task_id": "t_481989e5",
-  "stage": "p10-r8-handoff-evidence-reconciliation",
-  "repair_cycle": 8,
-  "base_sha": "5a844dcf749014393aa32f967b4f06369b8d1148",
-  "base_ancestor_check": {
-    "command": "git merge-base --is-ancestor 5a844dcf749014393aa32f967b4f06369b8d1148 5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919",
-    "exit_code": 0
-  },
-  "head_sha": "5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919",
-  "head_tree_sha": "da95cffeb1737fdfb7e8d24a6607a7914ac0c80f",
-  "candidate_tree_sha": "da95cffeb1737fdfb7e8d24a6607a7914ac0c80f",
-  "implementation_tree_sha": "da95cffeb1737fdfb7e8d24a6607a7914ac0c80f",
-  "candidate_tree_definition": "The exact R7 implementation candidate is 5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919 with tree da95cffeb1737fdfb7e8d24a6607a7914ac0c80f; it contains the scoped auth, activation, receipt, forwarding, desired-state, and lifecycle repairs plus their tests. A subsequent handoff-only revision of this JSON is excluded from the candidate source tree.",
-  "reconciliation": {
-    "partial_fixture_delta": {
-      "path": "internal/controller/store/cycle4_regression_test.go",
-      "decision": "discarded",
-      "reason": "The two-line delta only added an unused ProbeArm field and constructor assignment; no bounded P10 regression or assertion referenced it, so no behavior was retained.",
-      "red_green_evidence": "not_applicable; no behavior change was kept"
-    },
-    "writer_quiescence": {
-      "command": "ps operational-process scan for go test/build, make test/check/build, git mutation, stale finalizer task, and worktree task identifiers",
-      "exit_code": 0,
-      "summary": "No stale finalizer, test, build, or Git writer process was observed; only the current worker/supervisor control processes were active."
-    },
-    "status_before_handoff_update": "candidate 5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919/tree da95cffeb1737fdfb7e8d24a6607a7914ac0c80f was clean and quiescent; only handoff/evidence reconciliation remained",
-    "candidate_relationship": {
-      "integrated_base": "adf74fa860812054bd71082006a8c78ea4189888",
-      "candidate_head": "5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919",
-      "candidate_tree": "da95cffeb1737fdfb7e8d24a6607a7914ac0c80f",
-      "checkout_tip_before_reconciliation": "b360aea8bfe7e05a68eb2016dfd519f4960db3ef",
-      "candidate_to_checkout_delta": [
-        ".hermes/handoffs/P10.json"
-      ],
-      "candidate_delta_all_paths": 116,
-      "candidate_delta_non_handoff_paths": 115
-    }
-  },
+  "task_id": "t_f958eff0",
+  "handoff_reconciliation_task_id": "t_43b8db67",
+  "stage": "p10-r9-canonical-handoff-reconciliation",
+  "repair_cycle": 9,
+  "base_sha": "ca69aa72ef43851f33b290617e098096a87f7013",
+  "base_tree_sha": "09d0539767ae03c181baf8e61f3877f07b9e3de4",
+  "head_sha": "8a3058afdda448d1d761e5f0815f35ed89c96456",
+  "head_tree_sha": "f1bf1ae29e64dd509bd5a1eab67fc87b48a43f26",
+  "candidate_head_sha": "8a3058afdda448d1d761e5f0815f35ed89c96456",
+  "candidate_tree_sha": "f1bf1ae29e64dd509bd5a1eab67fc87b48a43f26",
   "branch": "ai/P10-wan-probe-activation-cli-e2e",
+  "candidate_definition": "The immutable R9 implementation candidate is 8a3058afdda448d1d761e5f0815f35ed89c96456 with tree f1bf1ae29e64dd509bd5a1eab67fc87b48a43f26, based on ca69aa72ef43851f33b290617e098096a87f7013 with tree 09d0539767ae03c181baf8e61f3877f07b9e3de4. Review and integration must use this candidate commit/tree; later documentation-only evidence and handoff commits are not part of the candidate source tree.",
+  "branch_evidence_tip": {
+    "sha": "494fd38daa25d42386470af4242519bdc531c997",
+    "tree_sha": "3607e97da31ec0a5fc94d4701e7052b69b8ccb68",
+    "relationship": "Clean branch/evidence tip whose first parent is the implementation candidate; it adds evidence and the R9 repair handoff only and is excluded from the immutable candidate source tree.",
+    "documentation_only_delta": [
+      ".hermes/evidence/p10/r9-contracts.log",
+      ".hermes/evidence/p10/r9-e2e.log",
+      ".hermes/evidence/p10/r9-focused.log",
+      ".hermes/evidence/p10/r9-make-build.log",
+      ".hermes/evidence/p10/r9-make-check.log",
+      ".hermes/evidence/p10/r9-make-test.log",
+      ".hermes/evidence/p10/r9-race.log",
+      ".hermes/evidence/p10/r9-vet.log",
+      ".hermes/handoffs/P10-r9-repair.json"
+    ],
+    "documentation_only_delta_count": 9
+  },
   "commits": [
-    "4be6b57f3652828ba5c2abb4ca50a9cbf65ea64c",
-    "a2eb8f67c1d9a242506dea7870f8475209cf8f03",
-    "f06fdd4c49e624dde76f75e34b08091e4f6db1a0",
-    "c4edb088f7ff48cea81e18c56cdd713ce9c6fe33",
-    "9ebafd87e9b8633805b2d58dc1832b881f516c31",
-    "45dc35a1fcdd846b7eff4a47b5f09a31dd9be13f",
-    "ce62fbfec1ccc7030a5e50a7360dc02030ba9d77",
-    "6a7938aa3973e6d79cecae5a98b167f365976272",
-    "978e186a5ce1b3407a5ad78a836eee199d154b3d",
-    "9ef9d2ff0ff6fc67faaeb5d6253ade6d2b41388b",
-    "7f59b66cd45c383a042326a35cf01307a97979d6",
-    "3aed3776de97be3e28532c2c64d71d2f3e20d9f8",
-    "326ed64b04a95195a998148ef96ccc9d461d1f5e",
-    "8aa0d6d4efbff38b4c408dd4d131db03aee024d7",
-    "599ab3dfc23a745ee0a151ded3ee179d8e37dcf7",
-    "08c11ec036d463d1926bb9ec0a9397662eb6d4df",
-    "e2f303f1a61ebd79213c28180225515281f23545",
-    "64f5d04b607a573dc53154fe9e401db618171b25",
-    "60a4535c379f4b961f79cff16a25a56fe8aeb150",
-    "830ca67b4e85f5447f70459688eef58b30e93937",
-    "98ead948bf4bba9316f0a2cb78187735b5b4c8f6",
-    "28a39a6934db75ac1d13db681e205679abb4079e",
-    "d0b099671474d9f353fced914722bab14292f088",
-    "add8f144366ab91566decb8119a9fc32a91f9c7e",
-    "ac48fe551eebc7670ec0743e38123a5dec32e7f3",
-    "5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919"
+    {
+      "sha": "8a3058afdda448d1d761e5f0815f35ed89c96456",
+      "message": "fix(P10): repair probe activation and lifecycle recovery",
+      "role": "implementation candidate"
+    }
   ],
-  "implementation_commit": {
-    "sha": "5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919",
-    "message": "fix(P10): close R7 auth activation and lifecycle gaps",
-    "changed_files": 26
+  "candidate_delta": {
+    "from_sha": "ca69aa72ef43851f33b290617e098096a87f7013",
+    "from_tree_sha": "09d0539767ae03c181baf8e61f3877f07b9e3de4",
+    "to_sha": "8a3058afdda448d1d761e5f0815f35ed89c96456",
+    "to_tree_sha": "f1bf1ae29e64dd509bd5a1eab67fc87b48a43f26",
+    "command": "git diff --name-status ca69aa72ef43851f33b290617e098096a87f7013 8a3058afdda448d1d761e5f0815f35ed89c96456",
+    "exit_code": 0,
+    "path_count": 27,
+    "entries": [
+      {"status": "M", "path": "internal/agent/app.go"},
+      {"status": "M", "path": "internal/agent/control/session.go"},
+      {"status": "M", "path": "internal/agent/localstate/activation.go"},
+      {"status": "M", "path": "internal/agent/localstate/journal.go"},
+      {"status": "A", "path": "internal/agent/localstate/p10_r9_repair_test.go"},
+      {"status": "A", "path": "internal/agent/p10_r9_repair_test.go"},
+      {"status": "M", "path": "internal/agent/reconcile/desired.go"},
+      {"status": "A", "path": "internal/agent/reconcile/p10_r9_repair_test.go"},
+      {"status": "M", "path": "internal/agent/reconcile/probe.go"},
+      {"status": "M", "path": "internal/agent/reconcile/reconciler.go"},
+      {"status": "M", "path": "internal/controller/agenthub/hub.go"},
+      {"status": "M", "path": "internal/controller/api/forwards_min.go"},
+      {"status": "M", "path": "internal/controller/app.go"},
+      {"status": "A", "path": "internal/controller/app_r9_repair_test.go"},
+      {"status": "M", "path": "internal/controller/probe/manager.go"},
+      {"status": "A", "path": "internal/controller/probe/p10_r9_repair_test.go"},
+      {"status": "M", "path": "internal/controller/probe/provider.go"},
+      {"status": "M", "path": "internal/controller/probe/provider_service.go"},
+      {"status": "M", "path": "internal/controller/store/backup_test.go"},
+      {"status": "M", "path": "internal/controller/store/migrate.go"},
+      {"status": "A", "path": "internal/controller/store/p10_r9_repair_test.go"},
+      {"status": "M", "path": "internal/controller/store/probe.go"},
+      {"status": "M", "path": "internal/controller/store/store.go"},
+      {"status": "M", "path": "internal/controller/store/transaction_test.go"},
+      {"status": "M", "path": "internal/controller/store/transactions.go"},
+      {"status": "M", "path": "internal/protocol/endpoint.go"},
+      {"status": "A", "path": "internal/protocol/p10_r9_repair_test.go"}
+    ]
   },
   "files_changed": [
-    ".hermes/evidence/p10/f1-activation-green.log",
-    ".hermes/evidence/p10/f1-activation-red.log",
-    ".hermes/evidence/p10/f2-forward-binding-green.log",
-    ".hermes/evidence/p10/f2-forward-binding-red.log",
-    ".hermes/evidence/p10/f3-provider-green.log",
-    ".hermes/evidence/p10/f3-provider-red.log",
-    ".hermes/evidence/p10/r6-contracts.log",
-    ".hermes/evidence/p10/r6-final-make-build.log",
-    ".hermes/evidence/p10/r6-final-make-check.log",
-    ".hermes/evidence/p10/r6-hub-close-green.log",
-    ".hermes/evidence/p10/r6-hub-close-red.log",
-    ".hermes/evidence/p10/r6-lifecycle-race.log",
-    ".hermes/evidence/p10/r6-make-build.log",
-    ".hermes/evidence/p10/r6-make-check.log",
-    ".hermes/evidence/p10/r6-make-test.log",
-    ".hermes/evidence/p10/r6-probe-gate-green.log",
-    ".hermes/evidence/p10/r6-probe-gate-red.log",
-    ".hermes/evidence/p10/r6-required-race.log",
-    ".hermes/evidence/p10/r6-route-fingerprint-green.log",
-    ".hermes/evidence/p10/r6-route-fingerprint-red.log",
-    ".hermes/evidence/p10/r6-startup-wait-green.log",
-    ".hermes/evidence/p10/r6-startup-wait-red.log",
-    ".hermes/evidence/p10/s4-receipt-green.log",
-    ".hermes/evidence/p10/s4-receipt-red.log",
-    ".hermes/evidence/p10/s5-reconnect-green.log",
-    ".hermes/evidence/p10/s5-reconnect-red.log",
-    ".hermes/evidence/p10/s6-walking-green.log",
-    ".hermes/evidence/p10/s6-walking-red.log",
-    ".hermes/handoffs/P10-controller-regressions.json",
-    ".hermes/plans/v1-beta/12-gateway-traversal-detection.md",
-    ".hermes/plans/v1-beta/14-lifecycle-rotation-recovery.md",
-    "cmd/antinat-agent/main.go",
-    "cmd/antinat-controller/main.go",
-    "cmd/antinat-probe/main.go",
-    "cmd/antinat-probe/main_test.go",
-    "cmd/antinatctl/cli_test.go",
-    "cmd/antinatctl/main.go",
-    "go.mod",
-    "go.sum",
     "internal/agent/app.go",
-    "internal/agent/app_test.go",
-    "internal/agent/control/reconnect_test.go",
     "internal/agent/control/session.go",
     "internal/agent/localstate/activation.go",
-    "internal/agent/localstate/outbox.go",
-    "internal/agent/localstate/p10_repair_red_test.go",
-    "internal/agent/localstate/probe.go",
-    "internal/agent/localstate/probe_test.go",
-    "internal/agent/localstate/schema.go",
-    "internal/agent/localstate/store_test.go",
-    "internal/agent/reconcile/activation.go",
+    "internal/agent/localstate/journal.go",
+    "internal/agent/localstate/p10_r9_repair_test.go",
+    "internal/agent/p10_r9_repair_test.go",
     "internal/agent/reconcile/desired.go",
-    "internal/agent/reconcile/desired_test.go",
+    "internal/agent/reconcile/p10_r9_repair_test.go",
     "internal/agent/reconcile/probe.go",
-    "internal/agent/reconcile/probe_gate_lifecycle_test.go",
-    "internal/agent/reconcile/probe_test.go",
     "internal/agent/reconcile/reconciler.go",
-    "internal/agent/reconcile/state_machine.go",
-    "internal/agent/reconcile/state_machine_test.go",
-    "internal/agent/startup_cleanup_regression_test.go",
     "internal/controller/agenthub/hub.go",
-    "internal/controller/agenthub/hub_close_test.go",
-    "internal/controller/agenthub/probe_receipt_ack_regression_test.go",
-    "internal/controller/agenthub/probesink_test.go",
-    "internal/controller/agenthub/session.go",
-    "internal/controller/api/api_test.go",
-    "internal/controller/api/auth.go",
     "internal/controller/api/forwards_min.go",
-    "internal/controller/api/health.go",
-    "internal/controller/api/nodes_min.go",
     "internal/controller/app.go",
-    "internal/controller/app_test.go",
-    "internal/controller/auth/auth_test.go",
-    "internal/controller/auth/service.go",
-    "internal/controller/cycle2_regression_test.go",
-    "internal/controller/probe/cycle2_regression_test.go",
-    "internal/controller/probe/cycle3_regression_test.go",
-    "internal/controller/probe/cycle4_regression_test.go",
+    "internal/controller/app_r9_repair_test.go",
     "internal/controller/probe/manager.go",
-    "internal/controller/probe/manager_cleanup_regression_test.go",
-    "internal/controller/probe/manager_test.go",
-    "internal/controller/probe/p10_network_red_test.go",
-    "internal/controller/probe/p10_repair_red_test.go",
+    "internal/controller/probe/p10_r9_repair_test.go",
     "internal/controller/probe/provider.go",
     "internal/controller/probe/provider_service.go",
-    "internal/controller/probe/provider_service_test.go",
-    "internal/controller/probe/story6_regression_test.go",
     "internal/controller/store/backup_test.go",
-    "internal/controller/store/control.go",
-    "internal/controller/store/control_cleanup_regression_test.go",
-    "internal/controller/store/control_test.go",
-    "internal/controller/store/corrupt_internal_test.go",
-    "internal/controller/store/cycle3_regression_test.go",
-    "internal/controller/store/cycle4_regression_test.go",
-    "internal/controller/store/idempotency.go",
-    "internal/controller/store/idempotency_test.go",
-    "internal/controller/store/migrate_test.go",
-    "internal/controller/store/minapi.go",
-    "internal/controller/store/minapi_atomic_test.go",
-    "internal/controller/store/outbox.go",
+    "internal/controller/store/migrate.go",
+    "internal/controller/store/p10_r9_repair_test.go",
     "internal/controller/store/probe.go",
-    "internal/controller/store/probe_cleanup_regression_test.go",
-    "internal/controller/store/probe_test.go",
     "internal/controller/store/store.go",
     "internal/controller/store/transaction_test.go",
     "internal/controller/store/transactions.go",
-    "internal/controller/store/users.go",
-    "internal/controller/web/router_min.go",
-    "internal/protocol/probe_adapter.go",
-    "internal/traversal/network.go",
-    "migrations/0004_probe.sql",
-    "migrations/0005_probe_hardening.sql",
-    "migrations/migrations.go",
-    "test/e2e/harness/harness.go",
-    "test/e2e/walking_skeleton_test.go"
+    "internal/protocol/endpoint.go",
+    "internal/protocol/p10_r9_repair_test.go"
   ],
-  "r7_repair": {
-    "task_id": "t_7e4d2857",
-    "contracts_changed": "none",
-    "scope": "Six fresh quality/security blockers were repaired: first-admin atomic bootstrap, activation outcome joining and restart/reconnect unverification, receipt tombstone/index retention and ordered paging, forward parent CAS plus idempotent delete replay, rollback/capability fencing for desired apply, and context-aware controller/agent shutdown with AgentHub handshake draining.",
-    "changed_files": [
-      "internal/agent/app.go",
-      "internal/agent/app_test.go",
-      "internal/agent/control/session.go",
-      "internal/agent/localstate/probe.go",
-      "internal/agent/localstate/probe_test.go",
-      "internal/agent/reconcile/desired.go",
-      "internal/agent/reconcile/desired_test.go",
-      "internal/agent/reconcile/probe.go",
-      "internal/agent/reconcile/probe_test.go",
-      "internal/agent/reconcile/reconciler.go",
-      "internal/agent/reconcile/state_machine.go",
-      "internal/agent/reconcile/state_machine_test.go",
-      "internal/controller/agenthub/hub.go",
-      "internal/controller/agenthub/session.go",
-      "internal/controller/api/api_test.go",
-      "internal/controller/api/auth.go",
-      "internal/controller/api/forwards_min.go",
-      "internal/controller/app.go",
-      "internal/controller/auth/auth_test.go",
-      "internal/controller/auth/service.go",
-      "internal/controller/probe/manager.go",
-      "internal/controller/probe/manager_test.go",
-      "internal/controller/store/minapi.go",
-      "internal/controller/store/transaction_test.go",
-      "internal/controller/store/transactions.go",
-      "internal/controller/store/users.go"
-    ],
-    "red_green": [
-      {"test": "TestBootstrapAdminIsAtomicAndUsesRequestedPassword", "red_exit": 1, "green_exit": 0},
-      {"test": "TestActivationRecoveryCannotRestoreVerifiedPublication", "red_exit": 1, "green_exit": 0},
-      {"test": "TestProbeOutcomeCommandJoinsActivationState", "red_exit": 1, "green_exit": 0},
-      {"test": "TestConsumedProbeSurvivesArmDeadlineUntilReceiptDeadline", "red_exit": 1, "green_exit": 0},
-      {"test": "TestRetryPendingReceiptsScansAllRetainedRows", "red_exit": 1, "green_exit": 0},
-      {"test": "TestApplyForwardDeleteRejectsStaleParentRevision", "red_exit": 1, "green_exit": 0},
-      {"test": "TestApplyForwardDeleteReplayIsIdempotent", "red_exit": 1, "green_exit": 0},
-      {"test": "TestApplyDesiredRollsBackNewActorsWhenCommitLosesCapability", "red_exit": 1, "green_exit": 0},
-      {"test": "TestApplyDesiredRejectsCapabilityLossBeforeCommit", "red_exit": 1, "green_exit": 0, "evidence": {"red": ".hermes/evidence/p10/r7-apply-desired-capability-red.log", "green": ".hermes/evidence/p10/r7-apply-desired-capability-green.log"}},
-      {"test": "TestShutdownHonorsContextWhileWaitingForControlDrain", "red_exit": 124, "green_exit": 0}
-    ],
-    "verification": [
-      {"command": "GOWORK=off GOMAXPROCS=2 go test -race -p=1 ./internal/agent ./internal/agent/reconcile ./internal/agent/control ./internal/controller/agenthub ./internal/controller/probe ./internal/controller/store ./internal/controller/auth ./internal/controller/api -count=1", "exit_code": 0},
-      {"command": "GOWORK=off GOMAXPROCS=2 go test -race -p=1 ./test/e2e -run ^TestLinuxDirectV4WalkingSkeleton$ -count=1 -v -timeout=300s", "exit_code": 0},
-      {"command": "go vet ./...", "exit_code": 0},
-      {"command": "make build", "exit_code": 0},
-      {"command": "go test ./...", "exit_code": 2, "limitation": "spike/sandbox requires ANTINAT_DEDICATED_UID/GID naming a provisioned unique service identity; no such identity is available on this host"},
-      {"command": "make test", "exit_code": 2, "limitation": "same sandbox capability gate"},
-      {"command": "make check", "exit_code": 2, "limitation": "same sandbox capability gate"},
-      {"command": "git diff --check", "exit_code": 0}
-    ],
-    "capability_result": "SUPPORTED_WITH_LIMITS",
-    "residual_limits": [
-      "sandbox dedicated service identity is unavailable on this host, so the full make test/check gates fail closed",
-      "no real independent external-WAN/provider-egress vantage",
-      "no native Windows/arm64 evidence",
-      "no router/UPnP/CGNAT, UDP/traversal, or production deployment evidence",
-      "govulncheck unavailable"
-    ],
-    "review_status": "REVIEW_REQUIRED",
-    "cleanup": "candidate code commit is complete; R8 adds only handoff/evidence artifacts after final candidate SHA/tree reconciliation; temporary RED worktree was removed; no push, merge, integration, or release performed"
-  },
-  "review_scope": {
-    "candidate_diff_reconciled": true,
-    "scope": "R8 reconciles the complete P10 candidate delta against the master/child plans, frozen contracts, exact-head reviews, and the supervisor-approved P06/P07/P08/P09-to-P10 extension transfers. This card changes handoff/evidence metadata only; the candidate source remains the immutable R7 tree.",
-    "proven_remaining_controller_defects": [
-      "terminal probe outcomes have no durable retry after status commit",
-      "hot-updated existing actors are not rolled back after a guard/commit failure",
-      "restart/reconnect activation quarantine scans only 256 snapshots",
-      "shutdown timeout can mark the app closed before cleanup and violate store-last ordering",
-      "activation status generation is parsed but not fenced against the current revision",
-      "consumed provider replay can fall through ProbeGate to the business path"
-    ],
-    "bounded_fix_decision": "Retain the tested R7 candidate unchanged; this R8 card adds only exact-head handoff inventory, temporary P06/P07-to-P10 ownership records, and truthful RED/GREEN evidence. No production or test behavior is changed and no speculative refactor is retained.",
-    "reverted_experiment": "A payload-derived envelope message-ID rejection was tested and reverted because the frozen transport contract specifies same-message-ID dedup/conflict semantics rather than requiring derivation, and existing probe-sink tests intentionally use arbitrary valid envelope IDs."
-  },
-  "repair_findings_addressed": [
-    {
-      "id": "F1",
-      "symbols": [
-        "migrations/0004_probe.sql",
-        "migrations/0005_probe_hardening.sql"
+  "files_changed_count": 27,
+  "scope": "Cumulative R9 repair of durable terminal probe outcome recovery and timeout enqueueing; existing-actor hot-update rollback after failed desired commit; keyset pagination for activation snapshots and probe arm-digest lookup; retryable controller, AgentHub, and agent shutdown; activation-generation fencing; consumed-probe replay source tombstones; canonical forward activation publication; APPLYING operation recovery; future-schema refusal; provider replay result caching; and special-use IPv4 traversal classification.",
+  "red_green": {
+    "red": {
+      "focused_regression_commands": [
+        "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe -run 'TestRecoverOperationsRequeuesTerminalOutcome|TestHandleActivationStatusRejectsGenerationOutsideCurrentRevision' -count=1 -v",
+        "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/store -run TestProbeOperationDigestLookupScansBeyondOnePage -count=1 -v",
+        "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent -run TestPrepareActivationRecoveryProcessesAllPersistedSnapshots -count=1 -v",
+        "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent/reconcile -run TestConsumedProbeSourceRemainsGatedDuringReplayWindow -count=1 -v"
       ],
-      "change": "P12/P14 plan routing now reserves 0006_traversal.sql and 0007_lifecycle.sql; applied P10 migrations remain untouched."
+      "observed_exit_code": 1,
+      "note": "Focused regressions were run before implementation and failed; compile-only red was used where the wished-for rollback/pagination/recovery seam did not yet exist."
     },
-    {
-      "id": "F2",
-      "symbols": [
-        "ownership.exact_transfers"
-      ],
-      "change": "Complete integrated-base path delta is enumerated and exact P10 extension hunks have explicit source owner, receiving plan, reason, duration, and expiry."
-    },
-    {
-      "id": "F3",
-      "symbols": [
-        ".hermes/handoffs/P10.json",
-        "tree_verification",
-        "tests",
-        "evidence"
-      ],
-      "change": "Current handoff records exact branch/base/head/tree, complete declared delta, RED/GREEN logs, command exits, limits, cleanup, and review gates."
-    },
-    {
-      "id": "Q1",
-      "symbols": [
-        "probe.Manager.Arm",
-        "store.CreateProbeOperationBundle"
-      ],
-      "change": "Empty current activation is rejected before provider admission and rechecked transactionally."
-    },
-    {
-      "id": "Q2",
-      "symbols": [
-        "localstate.ArmedProbe.ForwardID",
-        "reconcile.ProbeGate.Accept",
-        "ProbeManager.handleIngress"
-      ],
-      "change": "Armed probe identity retains ForwardID and ingress admission filters by the bound forward."
-    },
-    {
-      "id": "Q3",
-      "symbols": [
-        "agenthub.handleProbePlaneMessage"
-      ],
-      "change": "probe_armed sink acceptance occurs before inbox PROCESSED/outbox semantic acknowledgement; failed sinks remain retryable."
-    },
-    {
-      "id": "Q4",
-      "symbols": [
-        "store.setProbeOperationStatusCAS",
-        "store.SetForwardRuntimeStatus"
-      ],
-      "change": "Status writes retain expected-state predicates at the update boundary."
-    },
-    {
-      "id": "Q5",
-      "symbols": [
-        "probe.Manager.recoverOperations",
-        "store.ListProbeOperationsByStatusLimit"
-      ],
-      "change": "ARMED/IN_FLIGHT recovery is bounded and provider ownership is reserved before launch."
-    },
-    {
-      "id": "Q6",
-      "symbols": [
-        "control.Client.Connect",
-        "control.Client.Close",
-        "control.Client.Shutdown",
-        "reconcile.RetryPendingReceipts"
-      ],
-      "change": "Transport sessions are reusable, sequence state resets per session, terminal shutdown is explicit, and receipt retries use bounded contexts."
-    },
-    {
-      "id": "Q7",
-      "symbols": [
-        "agent.App.Start",
-        "agent.App.Shutdown"
-      ],
-      "change": "Startup rollback closes probe workers and shutdown cancels/joins lifecycle goroutines before store teardown."
-    },
-    {
-      "id": "Q8",
-      "symbols": [
-        "agenthub receipt writes",
-        "reconcile.RetryPendingReceipts",
-        "agent.App.sendActivationStatus"
-      ],
-      "change": "Controller and agent-generated receipt/status writes have finite timeout contexts."
-    },
-    {
-      "id": "Q9",
-      "symbols": [
-        "reconcile.NewProbeManager",
-        "probe.Manager.Arm",
-        "probe.Manager.startProvider"
-      ],
-      "change": "Agent active operation limits and controller provider-round ownership are enforced during admission/recovery."
-    },
-    {
-      "id": "Q10",
-      "symbols": [
-        "localstate.ListArmedProbesLimit",
-        "localstate.OutboxOperationIDsLimit",
-        "store.ListProbeOperationsByStatusLimit",
-        "store.ListControlOutboxByState"
-      ],
-      "change": "History/recovery scans are finite, ordered, and capped."
-    },
-    {
-      "id": "N1",
-      "symbols": [
-        "cmd/antinat-probe/main.go",
-        "provider_service.go"
-      ],
-      "change": "Standalone provider server has read-header/read/write/idle/header/body bounds."
-    },
-    {
-      "id": "N2",
-      "symbols": [
-        "provider_service.go"
-      ],
-      "change": "Replay identifiers are canonicalized before lookup/insertion."
-    },
-    {
-      "id": "N3",
-      "symbols": [
-        "provider_service.go",
-        "verifyProbeACKBinding"
-      ],
-      "change": "Cryptographic ACK validation remains separate from semantic WAN1/probe/activation/source/endpoint/challenge binding."
-    },
-    {
-      "id": "N4",
-      "symbols": [
-        "traversal.CapabilityError",
-        "agent.App.reopen"
-      ],
-      "change": "Stable capability codes retain underlying assessment causes and selected source is used for remap/reopen."
-    },
-    {
-      "id": "N5",
-      "symbols": [
-        "probe.Manager.handleProviderResult"
-      ],
-      "change": "Rejected provider outcomes remain rejected and cannot be published as successful evidence."
-    },
-    {
-      "id": "R6-N4",
-      "symbols": [
-        "agent.monitorLiveness",
-        "dataPlane.capabilityFingerprint",
-        "traversal.Fingerprint"
-      ],
-      "change": "Persist the route/interface fingerprint, revoke capability/evidence on ready-to-ready topology changes, and record the new fingerprint on recovery."
-    },
-    {
-      "id": "R6-Q7-agent-startup",
-      "symbols": [
-        "agent.App.Start recovery rollback"
-      ],
-      "change": "The recovery-failure rollback now calls controlClient.Wait immediately after Shutdown and before data-plane/probe/store teardown."
-    },
-    {
-      "id": "R6-Q7-controller-shutdown",
-      "symbols": [
-        "agenthub.Hub.Close",
-        "agenthub.ControlSession.markDone",
-        "agenthub.ControlSession.wait",
-        "controller.App.closeResources"
-      ],
-      "change": "Graceful controller shutdown closes every registered session, joins its handler, rejects post-close registration, and closes the store last."
-    },
-    {
-      "id": "R6-Q7-probe-gate",
-      "symbols": [
-        "reconcile.ProbeGate.track",
-        "reconcile.ProbeGate.untrack",
-        "reconcile.ProbeGate.Close"
-      ],
-      "change": "Probe ingress workers and active provider connections are tracked, closed, and joined before ProbeGate.Close returns."
+    "green": {
+      "focused_evidence": ".hermes/evidence/p10/r9-focused.log",
+      "race_evidence": ".hermes/evidence/p10/r9-race.log",
+      "additional_green_tests": [
+        "TestProviderReplayReturnsCachedSignedResult",
+        "TestSweepRequeuesExpiredTimeoutOutcome",
+        "TestRecoverApplyingOperationsQueuesNack",
+        "TestControllerShutdownCanRetryAfterWatcherDeadline",
+        "TestControllerShutdownCanRetryAfterContextDeadline",
+        "TestOpenRejectsFutureSchemaVersion",
+        "TestApplyForwardDeleteRejectsMismatchedOutboxIdentity",
+        "TestSpecialUseIPv4PrefixesAreNotGlobalEndpoints"
+      ]
     }
-  ],
-  "tests": [
+  },
+  "verification": [
     {
-      "phase": "red-retry-regression",
-      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent/reconcile -run '^TestRetryPendingReceiptsResendsAfterTransportWriteUntilSemanticAck$' -count=1 -v",
-      "exit_code": 1,
-      "summary": "The focused regression failed before the fix because RetryPendingReceipts skipped a consumed tombstone with ReceiptSent=true."
-    },
-    {
-      "phase": "green-retry-regression",
-      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent/reconcile -run 'TestRetryPendingReceipts(MarksDurableReceiptSent|ResendsAfterTransportWriteUntilSemanticAck)$' -count=1 -v",
-      "exit_code": 0,
-      "summary": "Consumed receipts are retried after a transport write until the Controller semantic acknowledgement removes the tombstone."
-    },
-    {
-      "phase": "focused-controller-regressions",
-      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/agenthub ./internal/controller/probe ./internal/controller/store -count=1",
-      "exit_code": 0,
-      "summary": "Receipt semantic-ack/replay, stale activation, malformed challenge, duplicate receipt, authenticated join, lifecycle, and persistence regressions passed."
-    },
-    {
-      "phase": "affected-packages",
       "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/... ./internal/agent/... -count=1",
-      "exit_code": 0,
-      "summary": "All affected Controller and Agent packages passed without test caching."
+      "exit_code": 0
     },
     {
-      "phase": "affected-race",
-      "command": "GOWORK=off GOMAXPROCS=2 go test -race -p=1 ./internal/agent/localstate ./internal/agent/reconcile ./internal/agent/control ./internal/controller/probe ./internal/controller/store ./internal/controller/agenthub -count=1",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -race -p=1 ./internal/agent/reconcile ./internal/controller/probe ./internal/controller/store ./internal/controller/agenthub -count=1",
       "exit_code": 0,
-      "summary": "Affected probe, store, AgentHub, localstate, reconciliation, and control packages passed under the race detector."
+      "evidence": ".hermes/evidence/p10/r9-race.log"
     },
     {
-      "phase": "static",
       "command": "GOWORK=off GOMAXPROCS=2 go vet ./internal/controller/... ./internal/agent/...",
       "exit_code": 0,
-      "summary": "No vet diagnostics."
+      "evidence": ".hermes/evidence/p10/r9-vet.log"
     },
     {
-      "phase": "walking-skeleton",
-      "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -p=1 ./test/e2e -run '^TestLinuxDirectV4WalkingSkeleton$' -count=1 -v -timeout=300s",
-      "exit_code": 0,
-      "summary": "The direct-v4 walking-skeleton E2E passed."
-    },
-    {
-      "phase": "cumulative",
-      "command": "GOWORK=off GOMAXPROCS=2 make test",
-      "exit_code": 2,
-      "summary": "Expected host capability gate: the sandbox test requires the provisioned dedicated identity variables."
-    },
-    {
-      "phase": "cumulative-provisioned",
       "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make test",
       "exit_code": 0,
-      "summary": "The full repository test suite passed with the provisioned sandbox identity."
+      "evidence": ".hermes/evidence/p10/r9-make-test.log"
     },
     {
-      "phase": "quality-provisioned",
       "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make check",
       "exit_code": 0,
-      "summary": "The full repository test and go vet check passed with the provisioned sandbox identity."
+      "evidence": ".hermes/evidence/p10/r9-make-check.log"
     },
     {
-      "phase": "build",
       "command": "GOWORK=off GOMAXPROCS=2 make build",
       "exit_code": 0,
-      "summary": "Controller and Agent production binaries built successfully."
+      "evidence": ".hermes/evidence/p10/r9-make-build.log"
     },
     {
-      "phase": "contract-manifest",
-      "command": "python3 test/contracts/generate_manifest.py . && git diff --exit-code -- test/contracts && GOWORK=off GOMAXPROCS=2 go test ./test/contracts/... -count=1 && git diff --check",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./test/e2e -run '^TestLinuxDirectV4WalkingSkeleton$' -count=1 -v",
       "exit_code": 0,
-      "summary": "Frozen contract manifest regeneration remained byte-identical; contract tests and whitespace validation passed."
+      "evidence": ".hermes/evidence/p10/r9-e2e.log"
     },
     {
-      "phase": "format-cleanup",
-      "command": "make clean && test -z \"$(gofmt -l internal/agent/localstate/probe.go internal/agent/reconcile/probe.go internal/agent/reconcile/probe_test.go internal/controller/agenthub/session.go internal/controller/agenthub/probe_receipt_ack_regression_test.go internal/controller/probe/manager.go internal/controller/probe/cycle4_regression_test.go internal/controller/store/control.go internal/controller/store/probe.go internal/controller/store/cycle4_regression_test.go)\" && git diff --check",
+      "command": "python3 test/contracts/generate_manifest.py . && git diff --exit-code -- test/contracts && GOWORK=off GOMAXPROCS=2 go test ./test/contracts/... -count=1",
       "exit_code": 0,
-      "summary": "Generated bin artifacts were removed; affected files are formatted and whitespace-clean."
+      "evidence": ".hermes/evidence/p10/r9-contracts.log"
     },
     {
-      "phase": "r6-route-fingerprint-red",
-      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent -run ^TestMonitorLivenessRevokesOnRouteFingerprintChange$ -count=1 -v",
-      "exit_code": 1,
-      "evidence": ".hermes/evidence/p10/r6-route-fingerprint-red.log"
-    },
-    {
-      "phase": "r6-route-fingerprint-green",
-      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent -run ^TestMonitorLivenessRevokesOnRouteFingerprintChange$ -count=1 -v",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r6-route-fingerprint-green.log"
-    },
-    {
-      "phase": "r6-startup-wait-red",
-      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent -run ^TestStartRecoveryFailureWaitsForControlSession$ -count=1 -v",
-      "exit_code": 1,
-      "evidence": ".hermes/evidence/p10/r6-startup-wait-red.log"
-    },
-    {
-      "phase": "r6-startup-wait-green",
-      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent -run ^TestStartRecoveryFailureWaitsForControlSession$ -count=1 -v",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r6-startup-wait-green.log"
-    },
-    {
-      "phase": "r6-hub-close-red",
-      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/agenthub -run ^TestHubCloseDrainsActiveSessions$ -count=1 -v",
-      "exit_code": 1,
-      "evidence": ".hermes/evidence/p10/r6-hub-close-red.log"
-    },
-    {
-      "phase": "r6-hub-close-green",
-      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/agenthub -run ^TestHubCloseDrainsActiveSessions$ -count=1 -v",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r6-hub-close-green.log"
-    },
-    {
-      "phase": "r6-probe-gate-red",
-      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent/reconcile -run ^TestProbeGateCloseJoinsIngressWorkers$ -count=1 -v",
-      "exit_code": 1,
-      "evidence": ".hermes/evidence/p10/r6-probe-gate-red.log"
-    },
-    {
-      "phase": "r6-probe-gate-green",
-      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent/reconcile -run ^TestProbeGateCloseJoinsIngressWorkers$ -count=1 -v",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r6-probe-gate-green.log"
-    },
-    {
-      "phase": "r6-required-race",
-      "command": "go test ./internal/controller/probe ./internal/agent/reconcile ./internal/controller/api ./cmd/antinatctl -race -count=1",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r6-required-race.log"
-    },
-    {
-      "phase": "r6-lifecycle-race",
-      "command": "GOWORK=off GOMAXPROCS=2 go test -race -p=1 ./internal/agent ./internal/controller/agenthub ./internal/controller -count=1",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r6-lifecycle-race.log"
-    },
-    {
-      "phase": "r6-make-test",
-      "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make test",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r6-make-test.log"
-    },
-    {
-      "phase": "r6-make-check",
-      "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make check",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r6-make-check.log"
-    },
-    {
-      "phase": "r6-build",
-      "command": "GOWORK=off GOMAXPROCS=2 make build",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r6-make-build.log"
-    },
-    {
-      "phase": "r6-contracts",
-      "command": "python3 test/contracts/generate_manifest.py . && git diff --exit-code -- test/contracts && GOWORK=off GOMAXPROCS=2 go test ./test/contracts/... -count=1 && git diff --check",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r6-contracts.log"
-    },
-    {
-      "phase": "r6-final-make-check",
-      "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make check",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r6-final-make-check.log"
-    },
-    {
-      "phase": "r6-final-build",
-      "command": "GOWORK=off GOMAXPROCS=2 make build",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r6-final-make-build.log"
+      "command": "git diff --check",
+      "exit_code": 0
     }
   ],
-  "fresh_verification": [
+  "focused_verification": [
     {
-      "phase": "reconciliation-focused-store",
-      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/store -run 'TestPublishProbeJoinRejectsForged(ACK|Receipt)Signature' -count=1 -v",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe ./internal/controller/store ./internal/agent/reconcile ./internal/agent/localstate ./internal/agent/control ./internal/protocol ./internal/traversal -count=1",
       "exit_code": 0,
-      "summary": "The bounded authenticated-join regressions remained green after discarding the unused fixture delta."
+      "evidence": ".hermes/evidence/p10/r9-focused.log"
     },
     {
-      "phase": "reconciliation-affected-packages",
-      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/... ./internal/agent/... -count=1",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -race -p=1 ./internal/agent/reconcile ./internal/controller/probe ./internal/controller/store ./internal/controller/agenthub -count=1",
       "exit_code": 0,
-      "summary": "Fresh affected Controller and Agent package tests passed without test caching."
-    },
-    {
-      "phase": "reconciliation-affected-race",
-      "command": "GOWORK=off GOMAXPROCS=2 go test -race -p=1 ./internal/agent/localstate ./internal/agent/reconcile ./internal/agent/control ./internal/controller/probe ./internal/controller/store ./internal/controller/agenthub -count=1",
-      "exit_code": 0,
-      "summary": "Fresh affected packages passed under the race detector."
-    },
-    {
-      "phase": "reconciliation-vet",
-      "command": "GOWORK=off GOMAXPROCS=2 go vet ./internal/controller/... ./internal/agent/...",
-      "exit_code": 0,
-      "summary": "Fresh affected-package vet completed without diagnostics."
-    },
-    {
-      "phase": "reconciliation-walking-skeleton",
-      "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -p=1 ./test/e2e -run '^TestLinuxDirectV4WalkingSkeleton$' -count=1 -v -timeout=300s",
-      "exit_code": 0,
-      "summary": "Fresh direct-v4 walking-skeleton E2E passed."
-    },
-    {
-      "phase": "reconciliation-make-test",
-      "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make test",
-      "exit_code": 0,
-      "summary": "Fresh full repository test gate passed with the provisioned sandbox identity."
-    },
-    {
-      "phase": "reconciliation-make-check",
-      "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make check",
-      "exit_code": 0,
-      "summary": "Fresh full repository test and vet gate passed with the provisioned sandbox identity."
-    },
-    {
-      "phase": "reconciliation-build",
-      "command": "GOWORK=off GOMAXPROCS=2 make build",
-      "exit_code": 0,
-      "summary": "Fresh Controller and Agent build passed."
-    },
-    {
-      "phase": "reconciliation-contracts",
-      "command": "python3 test/contracts/generate_manifest.py . && git diff --exit-code -- test/contracts && GOWORK=off GOMAXPROCS=2 go test ./test/contracts/... -count=1 && git diff --check",
-      "exit_code": 0,
-      "summary": "Fresh frozen-contract manifest regeneration was byte-identical; contract tests and whitespace validation passed."
-    },
-    {
-      "phase": "reconciliation-format-cleanup",
-      "command": "make clean && test -z \"$(gofmt -l internal/agent/localstate/probe.go internal/agent/reconcile/probe.go internal/agent/reconcile/probe_test.go internal/controller/agenthub/session.go internal/controller/agenthub/probe_receipt_ack_regression_test.go internal/controller/probe/manager.go internal/controller/probe/cycle4_regression_test.go internal/controller/store/control.go internal/controller/store/probe.go internal/controller/store/cycle4_regression_test.go)\" && git diff --check && test ! -e bin",
-      "exit_code": 0,
-      "summary": "Fresh formatting, whitespace, and generated-artifact cleanup checks passed."
-    },
-    {
-      "phase": "reconciliation-contract-hashes",
-      "command": "python3 -c 'import hashlib,json,sys; d=json.load(open(\".hermes/handoffs/P10.json\")); sys.exit(any(hashlib.sha256(open(x[\"path\"],\"rb\").read()).hexdigest()!=x[\"sha256\"] for x in d[\"contracts_consumed\"]))'",
-      "exit_code": 0,
-      "summary": "All six recorded frozen-contract SHA-256 values matched the live files."
-    },
-    {
-      "phase": "r6-focused-red-green",
-      "command": "four focused lifecycle/revocation tests were run RED before fixes and GREEN after fixes",
-      "exit_code": 0,
-      "evidence": [
-        ".hermes/evidence/p10/r6-route-fingerprint-red.log",
-        ".hermes/evidence/p10/r6-route-fingerprint-green.log",
-        ".hermes/evidence/p10/r6-startup-wait-red.log",
-        ".hermes/evidence/p10/r6-startup-wait-green.log",
-        ".hermes/evidence/p10/r6-hub-close-red.log",
-        ".hermes/evidence/p10/r6-hub-close-green.log",
-        ".hermes/evidence/p10/r6-probe-gate-red.log",
-        ".hermes/evidence/p10/r6-probe-gate-green.log"
-      ]
-    },
-    {
-      "phase": "r6-required-race",
-      "command": "go test ./internal/controller/probe ./internal/agent/reconcile ./internal/controller/api ./cmd/antinatctl -race -count=1",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r6-required-race.log"
-    },
-    {
-      "phase": "r6-provisioned-full-gates",
-      "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make test && make check",
-      "exit_code": 0,
-      "evidence": [
-        ".hermes/evidence/p10/r6-make-test.log",
-        ".hermes/evidence/p10/r6-make-check.log"
-      ]
-    },
-    {
-      "phase": "r6-build-contracts",
-      "command": "GOWORK=off GOMAXPROCS=2 make build; python3 test/contracts/generate_manifest.py . && git diff --exit-code -- test/contracts && GOWORK=off GOMAXPROCS=2 go test ./test/contracts/... -count=1 && git diff --check",
-      "exit_code": 0,
-      "evidence": [
-        ".hermes/evidence/p10/r6-make-build.log",
-        ".hermes/evidence/p10/r6-contracts.log"
-      ]
-    },
-    {
-      "phase": "r6-final-make-check",
-      "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make check",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r6-final-make-check.log"
-    },
-    {
-      "phase": "r6-final-build",
-      "command": "GOWORK=off GOMAXPROCS=2 make build",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r6-final-make-build.log"
-    },
-    {
-      "phase": "r8-review-checks",
-      "commands": [
-        {
-          "command": "GOWORK=off GOMAXPROCS=2 make test",
-          "exit_code": 2,
-          "limitation": "spike/sandbox TestBoundedActionRealCPULimitTermination fails closed because ANTINAT_DEDICATED_UID/GID do not name a provisioned unique service identity on this host"
-        },
-        {
-          "command": "GOWORK=off GOMAXPROCS=2 make check",
-          "exit_code": 2,
-          "limitation": "make check stops at the same sandbox capability gate before vet"
-        },
-        {
-          "command": "GOWORK=off GOMAXPROCS=2 make build",
-          "exit_code": 0
-        },
-        {
-          "command": "GOWORK=off GOMAXPROCS=2 go vet ./...",
-          "exit_code": 0
-        },
-        {
-          "command": "GOWORK=off go run ./scripts/verify-evidence.go ./test/evidence/fixtures/pass.json",
-          "exit_code": 0
-        },
-        {
-          "command": "python3 scripts/verify-evidence-parity.py",
-          "exit_code": 0
-        },
-        {
-          "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent/reconcile -run '^TestApplyDesiredRejectsCapabilityLossBeforeCommit$' -count=1 -v",
-          "exit_code": 0,
-          "evidence": ".hermes/evidence/p10/r7-apply-desired-capability-green.log"
-        },
-        {
-          "command": "git diff --check",
-          "exit_code": 0
-        }
-      ]
+      "evidence": ".hermes/evidence/p10/r9-race.log"
     }
   ],
   "evidence": [
-    ".hermes/evidence/p10/f1-activation-green.log",
-    ".hermes/evidence/p10/f1-activation-red.log",
-    ".hermes/evidence/p10/f2-forward-binding-green.log",
-    ".hermes/evidence/p10/f2-forward-binding-red.log",
-    ".hermes/evidence/p10/f3-provider-green.log",
-    ".hermes/evidence/p10/f3-provider-red.log",
-    ".hermes/handoffs/P10-controller-regressions.json",
-    ".hermes/plans/v1-beta/12-gateway-traversal-detection.md",
-    ".hermes/plans/v1-beta/14-lifecycle-rotation-recovery.md",
-    "internal/agent/localstate/activation.go",
-    "internal/agent/localstate/p10_repair_red_test.go",
-    "internal/agent/localstate/probe.go",
-    "internal/agent/reconcile/probe.go",
-    "internal/agent/reconcile/probe_test.go",
-    "internal/controller/agenthub/probe_receipt_ack_regression_test.go",
-    "internal/controller/agenthub/session.go",
-    "internal/controller/probe/cycle4_regression_test.go",
-    "internal/controller/probe/manager.go",
-    "internal/controller/probe/manager_test.go",
-    "internal/controller/probe/p10_network_red_test.go",
-    "internal/controller/probe/p10_repair_red_test.go",
-    "internal/controller/store/control.go",
-    "internal/controller/store/cycle4_regression_test.go",
-    "internal/controller/store/probe.go",
-    "internal/controller/store/probe_test.go",
-    "test/contracts/manifest.json",
-    "test/e2e/walking_skeleton_test.go",
-    ".hermes/evidence/p10/r6-route-fingerprint-red.log",
-    ".hermes/evidence/p10/r6-route-fingerprint-green.log",
-    ".hermes/evidence/p10/r6-startup-wait-red.log",
-    ".hermes/evidence/p10/r6-startup-wait-green.log",
-    ".hermes/evidence/p10/r6-hub-close-red.log",
-    ".hermes/evidence/p10/r6-hub-close-green.log",
-    ".hermes/evidence/p10/r6-probe-gate-red.log",
-    ".hermes/evidence/p10/r6-probe-gate-green.log",
-    ".hermes/evidence/p10/r6-required-race.log",
-    ".hermes/evidence/p10/r6-lifecycle-race.log",
-    ".hermes/evidence/p10/r6-make-test.log",
-    ".hermes/evidence/p10/r6-make-check.log",
-    ".hermes/evidence/p10/r6-make-build.log",
-    ".hermes/evidence/p10/r6-contracts.log",
-    ".hermes/evidence/p10/s4-receipt-red.log",
-    ".hermes/evidence/p10/s4-receipt-green.log",
-    ".hermes/evidence/p10/s5-reconnect-red.log",
-    ".hermes/evidence/p10/s5-reconnect-green.log",
-    ".hermes/evidence/p10/s6-walking-red.log",
-    ".hermes/evidence/p10/s6-walking-green.log",
-    ".hermes/evidence/p10/r7-apply-desired-capability-red.log",
-    ".hermes/evidence/p10/r7-apply-desired-capability-green.log",
-    "internal/agent/reconcile/probe_gate_lifecycle_test.go",
-    "internal/agent/startup_cleanup_regression_test.go",
-    "internal/controller/agenthub/hub_close_test.go",
-    ".hermes/evidence/p10/r6-final-make-check.log",
-    ".hermes/evidence/p10/r6-final-make-build.log"
+    ".hermes/evidence/p10/r9-focused.log",
+    ".hermes/evidence/p10/r9-race.log",
+    ".hermes/evidence/p10/r9-vet.log",
+    ".hermes/evidence/p10/r9-make-test.log",
+    ".hermes/evidence/p10/r9-make-check.log",
+    ".hermes/evidence/p10/r9-make-build.log",
+    ".hermes/evidence/p10/r9-e2e.log",
+    ".hermes/evidence/p10/r9-contracts.log"
+  ],
+  "handoff_artifacts": [
+    ".hermes/handoffs/P10-r9-repair.json"
   ],
   "contracts_consumed": [
     {
@@ -871,509 +227,59 @@
       "sha256": "31f4b1a01041a228e01c5fbc2cf0d0d9aeb447844b7dfa1da361f55df5b85fbd"
     }
   ],
-  "contracts_changed": [],
+  "contracts_changed": "none",
   "capability_result": "SUPPORTED_WITH_LIMITS",
   "known_limits": [
-    "No real external-WAN independent-vantage/provider-egress evidence; local E2E is deterministic loopback/CAP_NET_ADMIN only.",
-    "govulncheck was not run because it is unavailable on this host.",
-    "P10 remains direct-v4/TCP and bounded probe/activation scope; traversal/UDP/full UI/installer remain later-plan scope."
+    "No real independent external-WAN/provider-egress vantage was available; provider traversal and external reachability remain test-fixture evidence.",
+    "No native Windows or arm64 execution evidence.",
+    "No router/UPnP/CGNAT, UDP/traversal, or production deployment evidence.",
+    "No govulncheck result was collected.",
+    "Fresh exact-head specification, quality/security, network/protocol, and lifecycle reviews are still required; this handoff does not self-approve the implementation."
   ],
   "cleanup_done": true,
   "cleanup": [
-    "make clean removed generated binaries; temporary historical and R8 RED worktrees were removed; the R8 RED/GREEN logs contain no secrets; no remote push/merge/rebase/release or secret persistence was performed."
+    "Generated bin/ artifacts from the recorded build evidence were removed with make clean; no generated artifacts remain.",
+    "No production or test source, frozen contract, merge, rebase, cherry-pick, push, tag, integration, release, or remote system was changed by this reconciliation.",
+    "R9 evidence logs and the source repair handoff are retained under .hermes/evidence/p10/ and .hermes/handoffs/ for reviewer inspection."
   ],
   "review_status": "REVIEW_REQUIRED",
   "required_reviews": [
-    "fresh exact-head specification/ownership",
-    "fresh exact-head quality/security",
-    "fresh exact-head network/protocol",
-    "fresh exact-head lifecycle-boundary",
-    "integration after all fresh reviews pass on unchanged head"
+    "fresh exact-head P10 R9 specification/ownership",
+    "fresh exact-head P10 R9 quality/security",
+    "fresh exact-head P10 R9 network/protocol",
+    "fresh exact-head P10 R9 lifecycle-boundary",
+    "integration only after all fresh reviews pass on unchanged candidate head"
   ],
-  "deviation_notes": "R8 is a handoff/evidence-only reconciliation of the R7 candidate: seven omitted candidate-delta paths were restored to the inventory, eight exact P06/P07-to-P10 transfer records were added, and truthful strict RED/GREEN evidence was captured for TestApplyDesiredRejectsCapabilityLossBeforeCommit. No production code, tests, or frozen contracts changed; migration numbers and external-WAN capability limits remain unchanged. Integration and release remain review-gated.",
-  "verification_status": "candidate head 5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919 tree da95cffeb1737fdfb7e8d24a6607a7914ac0c80f verified; candidate delta is 116 paths including the excluded handoff JSON and 115 non-handoff paths; R7 focused, race, full-test, vet, build, contract, and E2E evidence are preserved; this R8 JSON/evidence revision is handoff-only and excluded from the candidate tree",
-  "integrated_base_sha": "adf74fa860812054bd71082006a8c78ea4189888",
-  "repair_start_sha": "c4edb088f7ff48cea81e18c56cdd713ce9c6fe33",
-  "repair_commits": [
-    "4be6b57f3652828ba5c2abb4ca50a9cbf65ea64c",
-    "a2eb8f67c1d9a242506dea7870f8475209cf8f03",
-    "f06fdd4c49e624dde76f75e34b08091e4f6db1a0",
-    "add8f144366ab91566decb8119a9fc32a91f9c7e",
-    "ac48fe551eebc7670ec0743e38123a5dec32e7f3"
-  ],
-  "files_changed_excludes": [
-    ".hermes/handoffs/P10.json"
-  ],
-  "files_changed_count": 115,
+  "deviation_notes": "This task reconciles the canonical handoff only. The 27-path R9 implementation candidate remains immutable at 8a3058afdda448d1d761e5f0815f35ed89c96456/f1bf1ae29e64dd509bd5a1eab67fc87b48a43f26; the branch/evidence tip 494fd38daa25d42386470af4242519bdc531c997/3607e97da31ec0a5fc94d4701e7052b69b8ccb68 differs from it only by the nine documented evidence/handoff paths. Stale R8 task, head, tree, and review metadata were removed. No review or integration approval is implied.",
   "tree_verification": {
     "base_ancestor": {
-      "command": "git merge-base --is-ancestor 5a844dcf749014393aa32f967b4f06369b8d1148 5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919",
+      "command": "git merge-base --is-ancestor ca69aa72ef43851f33b290617e098096a87f7013 8a3058afdda448d1d761e5f0815f35ed89c96456",
       "exit_code": 0
     },
-    "integrated_base_ancestor": {
-      "command": "git merge-base --is-ancestor adf74fa860812054bd71082006a8c78ea4189888 HEAD",
-      "exit_code": 0
+    "candidate_commit": {
+      "command": "git show -s --format='%H%n%T%n%P%n%s' 8a3058afdda448d1d761e5f0815f35ed89c96456",
+      "exit_code": 0,
+      "sha": "8a3058afdda448d1d761e5f0815f35ed89c96456",
+      "tree_sha": "f1bf1ae29e64dd509bd5a1eab67fc87b48a43f26"
     },
-    "head_command": "git rev-parse HEAD",
-    "head_sha": "5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919",
-    "tree_command": "git rev-parse HEAD^{tree}",
-    "tree_sha": "da95cffeb1737fdfb7e8d24a6607a7914ac0c80f",
-    "status_before_handoff_update": "candidate checkout was clean/quiescent; current tip b360aea8bfe7e05a68eb2016dfd519f4960db3ef differed from candidate only by .hermes/handoffs/P10.json; R8 adds handoff/evidence artifacts only",
-    "diff_command": "git diff --name-only adf74fa860812054bd71082006a8c78ea4189888 5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919",
-    "complete_delta_paths": 116
-  },
-  "ownership": {
-    "receiving_plan": "P10",
-    "approved_transfer": true,
-    "source_owner": "P07/P08/P09 extension owners as listed per hunk below; P10 owns probe, provider, agent-reconcile, app, CLI, and E2E paths.",
-    "valid_duration": "From repair commit add8f144366ab91566decb8119a9fc32a91f9c7e through P10 integration or rejection, whichever occurs first.",
-    "expires_on": "P10 rejection or integration; later P12/P14/P15 work requires a fresh supervisor transfer decision.",
-    "exact_transfers": [
-      {
-        "path": "internal/agent/control/session.go",
-        "source_owner": "P08",
-        "symbols": [
-          "Client.Connect",
-          "Client.Close",
-          "Client.Shutdown",
-          "Client.stopSession",
-          "Client.frameLoop",
-          "Client.pump",
-          "Client.heartbeat"
-        ],
-        "reason": "P10 reconnect reuse and durable receipt retry require transport-session ownership without terminal client shutdown.",
-        "scope": "Only session lifecycle, sequence reset, reconnect, and bounded receipt-send hunks."
-      },
-      {
-        "path": "internal/agent/localstate/probe.go",
-        "source_owner": "P07/P08",
-        "symbols": [
-          "ArmedProbe.ForwardID",
-          "SaveArmedProbeForForward",
-          "ListArmedProbesLimit",
-          "AcknowledgeArmedProbeReceipt",
-          "SweepArmedProbeTombstonesLimit"
-        ],
-        "reason": "P10 probe ownership and bounded replay/recovery require explicit forward binding and finite scans.",
-        "scope": "Only probe binding, tombstone, bounded lookup, and receipt ownership hunks."
-      },
-      {
-        "path": "internal/agent/localstate/outbox.go",
-        "source_owner": "P08",
-        "symbols": [
-          "OutboxOperationIDsLimit"
-        ],
-        "reason": "P10 Q10 requires a finite local outbox operation scan during recovery.",
-        "scope": "Only the bounded operation-ID enumeration wrapper and limit.",
-        "hunks": [
-          "func (*Store) OutboxOperationIDsLimit"
-        ]
-      },
-      {
-        "path": "internal/controller/agenthub/hub.go",
-        "source_owner": "P08",
-        "symbols": [
-          "ActivationStatusSink",
-          "Config.ControlWriteTimeout",
-          "Hub.Close",
-          "Hub.closed"
-        ],
-        "reason": "P10 evidence-loss propagation and bounded controller receipt writes cross the transport extension interface.",
-        "scope": "Only optional status sink and write-timeout configuration.",
-        "hunks": [
-          "func (*Hub) Close",
-          "Hub.closed"
-        ]
-      },
-      {
-        "path": "internal/controller/agenthub/session.go",
-        "source_owner": "P08",
-        "symbols": [
-          "handleProbePlaneMessage",
-          "advanceResultRow",
-          "ControlSession.done",
-          "ControlSession.markDone",
-          "ControlSession.wait",
-          "Hub.register closed guard"
-        ],
-        "reason": "P10 requires sink-first probe_armed acknowledgement and idempotent semantic receipt replay.",
-        "scope": "Only probe sink ordering, duplicate retry, activation status dispatch, and bounded receipt writes.",
-        "hunks": [
-          "handleControl defer session.markDone",
-          "func (*ControlSession) markDone",
-          "func (*ControlSession) wait",
-          "func (*Hub) register"
-        ]
-      },
-      {
-        "path": "internal/controller/store/minapi.go",
-        "source_owner": "P06/P07",
-        "symbols": [
-          "ListControlInbox bounded retrieval"
-        ],
-        "reason": "P10 Q10 requires finite control-inbox recovery reads.",
-        "scope": "Only P10-specific LIMIT/order bounds; no API behavior transfer."
-      },
-      {
-        "path": "internal/controller/store/probe.go",
-        "source_owner": "P07/P08",
-        "symbols": [
-          "CreateProbeOperationBundle",
-          "SetProbeOperationStatusCAS",
-          "ListProbeOperationsByStatusLimit",
-          "bounded probe lookup/cleanup queries"
-        ],
-        "reason": "P10 activation CAS, restart recovery, and bounded probe history require atomic persistence fences.",
-        "scope": "Only probe operation activation/status/recovery/lookup hunks."
-      },
-      {
-        "path": "internal/controller/store/control.go",
-        "source_owner": "P08",
-        "symbols": [
-          "ListControlOutboxByState bounded retrieval",
-          "ClaimControlOutbox",
-          "outboxTransition",
-          "RecordControlInbox",
-          "SetControlInboxState",
-          "ControlInboxState",
-          "DeleteControlInboxBeforeLimit",
-          "ListControlOutboxByStateLimit"
-        ],
-        "reason": "P10 Q10 requires finite controller outbox correlation scans.",
-        "scope": "Only P10-specific LIMIT/order bounds.",
-        "hunks": [
-          "func (*Store) ClaimControlOutbox",
-          "func (*Store) outboxTransition",
-          "func (*Store) RecordControlInbox",
-          "func (*Store) SetControlInboxState",
-          "func (*Store) ControlInboxState",
-          "func (*Store) DeleteControlInboxBeforeLimit",
-          "func (*Store) ListControlOutboxByStateLimit"
-        ]
-      },
-      {
-        "path": "migrations/migrations.go",
-        "source_owner": "P06/P07",
-        "symbols": [
-          "applied migration registry"
-        ],
-        "reason": "P10 retains immutable 0004_probe.sql/0005_probe_hardening.sql; plan routing records future numbers without changing applied registry.",
-        "scope": "No migration rewrite; ownership record only."
-      },
-      {
-        "path": "internal/agent/localstate/activation.go",
-        "source_owner": "P07/P08/P09",
-        "symbols": [
-          "ActivationSnapshot",
-          "Store.SaveActivationSnapshot",
-          "Store.LoadActivationSnapshot",
-          "Store.ListActivationSnapshots"
-        ],
-        "reason": "P10 activation evidence persistence is consumed by reconnect/recovery and must remain an explicit narrow transfer.",
-        "scope": "Only activation snapshot type and save/load/list persistence hunks.",
-        "hunks": [
-          "type ActivationSnapshot",
-          "func (*Store) SaveActivationSnapshot",
-          "func (*Store) LoadActivationSnapshot",
-          "func (*Store) ListActivationSnapshots"
-        ]
-      },
-      {
-        "path": "internal/traversal/network.go",
-        "source_owner": "P09",
-        "symbols": [
-          "CapabilityError",
-          "NewCapabilityError",
-          "CapabilityError.Error",
-          "CapabilityError.Unwrap"
-        ],
-        "reason": "P10 data-plane capability failures retain stable codes while wrapping the selected route-table cause.",
-        "scope": "Only stable capability error construction and wrapping hunks.",
-        "hunks": [
-          "type CapabilityError",
-          "func NewCapabilityError"
-        ]
-      },
-      {
-        "path": "internal/agent/reconcile/desired.go",
-        "source_owner": "P07",
-        "receiving_plan": "P10",
-        "symbols": [
-          "CapabilityCheck",
-          "ErrCapabilityLost",
-          "ApplyDesired",
-          "ApplyDesiredWithGuard",
-          "rollbackNewActors"
-        ],
-        "hunks": [
-          "type CapabilityCheck and var ErrCapabilityLost",
-          "func ApplyDesired wrapper",
-          "func ApplyDesiredWithGuard",
-          "pre-forward and pre-commit guard checks",
-          "new-actor tracking and commit-failure rollback"
-        ],
-        "reason": "P10 desired reconciliation needs a P07-owned capability fence so a route loss between actor side effect and durable commit rejects the batch and removes only newly created actors.",
-        "scope": "Only the R7 capability guard, validation, new-actor rollback, and desired-commit error hunks; no unrelated reconciler redesign.",
-        "expiry": "P10 integration or rejection, whichever occurs first."
-      },
-      {
-        "path": "internal/agent/reconcile/desired_test.go",
-        "source_owner": "P07",
-        "receiving_plan": "P10",
-        "symbols": [
-          "TestApplyDesiredRollsBackNewActorsWhenCommitLosesCapability",
-          "TestApplyDesiredRejectsCapabilityLossBeforeCommit"
-        ],
-        "hunks": [
-          "func TestApplyDesiredRollsBackNewActorsWhenCommitLosesCapability",
-          "func TestApplyDesiredRejectsCapabilityLossBeforeCommit"
-        ],
-        "reason": "The P10 capability-fence regression tests exercise the P07 desired-apply extension and prove rollback plus pre-commit rejection.",
-        "scope": "Only the two R7 regression tests and their required existing helpers/imports.",
-        "expiry": "P10 integration or rejection, whichever occurs first."
-      },
-      {
-        "path": "internal/agent/reconcile/reconciler.go",
-        "source_owner": "P07",
-        "receiving_plan": "P10",
-        "symbols": [
-          "Reconciler.guard",
-          "New guards ...CapabilityCheck",
-          "Reconciler.ReconcileOnce"
-        ],
-        "hunks": [
-          "Reconciler.guard field",
-          "func New variadic capability-guard wiring",
-          "ReconcileOnce calls ApplyDesiredWithGuard"
-        ],
-        "reason": "P10 must pass the live capability fence through the P07 reconcile control loop without changing the existing caller-compatible constructor shape.",
-        "scope": "Only capability-guard storage and forwarding into desired apply.",
-        "expiry": "P10 integration or rejection, whichever occurs first."
-      },
-      {
-        "path": "internal/controller/auth/auth_test.go",
-        "source_owner": "P06",
-        "receiving_plan": "P10",
-        "symbols": [
-          "TestBootstrapAdminIsAtomicAndUsesRequestedPassword"
-        ],
-        "hunks": [
-          "func TestBootstrapAdminIsAtomicAndUsesRequestedPassword"
-        ],
-        "reason": "P10 minimal authenticated API/CLI bootstrap requires a P06-owned auth service regression for requested-password hashing and exactly-one-admin concurrent initialization.",
-        "scope": "Only the R7 bootstrap race/authorization regression test.",
-        "expiry": "P10 integration or rejection, whichever occurs first."
-      },
-      {
-        "path": "internal/controller/auth/service.go",
-        "source_owner": "P06",
-        "receiving_plan": "P10",
-        "symbols": [
-          "ErrAdminAlreadyInitialized",
-          "AuthService.EnsureAdmin",
-          "AuthService.BootstrapAdmin"
-        ],
-        "hunks": [
-          "service error declarations",
-          "EnsureAdmin uses Store.CreateFirstUser",
-          "func (*AuthService) BootstrapAdmin"
-        ],
-        "reason": "P10's minimal admin initialization path crosses the P06 auth boundary and must atomically hash the operator password while reporting a losing bootstrap race.",
-        "scope": "Only first-admin bootstrap/error handling; existing login/session behavior remains P06-owned.",
-        "expiry": "P10 integration or rejection, whichever occurs first."
-      },
-      {
-        "path": "internal/controller/store/transaction_test.go",
-        "source_owner": "P06",
-        "receiving_plan": "P10",
-        "symbols": [
-          "TestApplyForwardDeleteRejectsStaleParentRevision",
-          "TestApplyForwardDeleteReplayIsIdempotent"
-        ],
-        "hunks": [
-          "func TestApplyForwardDeleteRejectsStaleParentRevision",
-          "func TestApplyForwardDeleteReplayIsIdempotent"
-        ],
-        "reason": "P10's minimal Forward-delete API/CLI path needs P06 store transaction coverage for parent-revision CAS and same-material replay idempotency.",
-        "scope": "Only the two R7 forward-delete transaction regressions and the errors import they require.",
-        "expiry": "P10 integration or rejection, whichever occurs first."
-      },
-      {
-        "path": "internal/controller/store/transactions.go",
-        "source_owner": "P06",
-        "receiving_plan": "P10",
-        "symbols": [
-          "Store.ApplyForwardDelete"
-        ],
-        "hunks": [
-          "existing deletion-operation replay binding",
-          "parent revision read and expectedParentRevision selection",
-          "CAS parent revision bump and affected-row check"
-        ],
-        "reason": "P10 online Forward deletion requires the P06 store transaction extension to fence stale callers and make retries atomic/idempotent before the command outbox commit.",
-        "scope": "Only ApplyForwardDelete replay binding, parent-revision CAS, and related transaction hunks.",
-        "expiry": "P10 integration or rejection, whichever occurs first."
-      },
-      {
-        "path": "internal/controller/store/users.go",
-        "source_owner": "P06",
-        "receiving_plan": "P10",
-        "symbols": [
-          "ErrAdminExists",
-          "Store.CountUsers",
-          "Store.CreateFirstUser"
-        ],
-        "hunks": [
-          "user error declarations",
-          "func (*Store) CountUsers",
-          "func (*Store) CreateFirstUser"
-        ],
-        "reason": "P10 admin bootstrap consumes a P06-owned atomic first-user transaction and count helper to keep initialization race-safe and auditable.",
-        "scope": "Only first-user bootstrap/count additions; ordinary user lookup/create remains P06-owned.",
-        "expiry": "P10 integration or rejection, whichever occurs first."
-      }
-    ],
-    "unrelated_edits_policy": "Complete integrated-base delta is enumerated in files_changed. Every P06/P07/P08/P09 extension hunk is listed with its source owner, exact symbols/hunks, P10 rationale, and expiry; no unlisted cross-plan hunk is transferred.",
-    "required_fresh_reviews": [
-      "specification/ownership",
-      "quality/security",
-      "network/protocol",
-      "lifecycle-boundary",
-      "integration"
-    ]
-  },
-  "migration_ownership": {
-    "immutable_p10": [
-      "migrations/0004_probe.sql",
-      "migrations/0005_probe_hardening.sql"
-    ],
-    "p12_next": "migrations/0006_traversal.sql",
-    "p14_next": "migrations/0007_lifecycle.sql",
-    "contracts_changed": [],
-    "routing_files": [
-      ".hermes/plans/v1-beta/12-gateway-traversal-detection.md",
-      ".hermes/plans/v1-beta/14-lifecycle-rotation-recovery.md"
-    ]
-  },
-  "story_red_green": [
-    {
-      "story": "S1 probe activation admission",
-      "red": ".hermes/evidence/p10/f1-activation-red.log",
-      "green": ".hermes/evidence/p10/f1-activation-green.log",
-      "test": "internal/controller/probe/p10_repair_red_test.go"
+    "candidate_to_branch_evidence_tip": {
+      "command": "git diff --name-status 8a3058afdda448d1d761e5f0815f35ed89c96456 494fd38daa25d42386470af4242519bdc531c997",
+      "exit_code": 0,
+      "path_count": 9
     },
-    {
-      "story": "S2 forward-bound armed probe",
-      "red": ".hermes/evidence/p10/f2-forward-binding-red.log",
-      "green": ".hermes/evidence/p10/f2-forward-binding-green.log",
-      "test": "internal/agent/localstate/p10_repair_red_test.go"
-    },
-    {
-      "story": "S3 provider replay and ACK semantic binding",
-      "red": ".hermes/evidence/p10/f3-provider-red.log",
-      "green": ".hermes/evidence/p10/f3-provider-green.log",
-      "test": "internal/controller/probe/p10_network_red_test.go"
-    },
-    {
-      "story": "S4 durable receipt/inbox semantic retry",
-      "red": ".hermes/evidence/p10/s4-receipt-red.log",
-      "green": ".hermes/evidence/p10/s4-receipt-green.log",
-      "test": "internal/controller/agenthub/probe_receipt_ack_regression_test.go"
-    },
-    {
-      "story": "S5 lifecycle/reconnect/recovery",
-      "red": ".hermes/evidence/p10/s5-reconnect-red.log",
-      "green": ".hermes/evidence/p10/s5-reconnect-green.log",
-      "test": "internal/agent/control/reconnect_test.go"
-    },
-    {
-      "story": "S6 direct-v4 walking skeleton",
-      "red": ".hermes/evidence/p10/s6-walking-red.log",
-      "green": ".hermes/evidence/p10/s6-walking-green.log",
-      "test": "test/e2e/walking_skeleton_test.go"
-    },
-    {
-      "story": "R7 desired-apply capability fence",
-      "red": ".hermes/evidence/p10/r7-apply-desired-capability-red.log",
-      "green": ".hermes/evidence/p10/r7-apply-desired-capability-green.log",
-      "test": "internal/agent/reconcile/desired_test.go",
-      "red_capture": "truthful pre-fix behavioral reproduction on 5a844dcf749014393aa32f967b4f06369b8d1148 using the existing ApplyDesired API; the temporary test was removed after capture"
-    },
-    {
-      "story": "R6 route/source revocation",
-      "red": ".hermes/evidence/p10/r6-route-fingerprint-red.log",
-      "green": ".hermes/evidence/p10/r6-route-fingerprint-green.log",
-      "test": "internal/agent/app_test.go"
-    },
-    {
-      "story": "R6 startup rollback wait",
-      "red": ".hermes/evidence/p10/r6-startup-wait-red.log",
-      "green": ".hermes/evidence/p10/r6-startup-wait-green.log",
-      "test": "internal/agent/startup_cleanup_regression_test.go"
-    },
-    {
-      "story": "R6 controller session drain",
-      "red": ".hermes/evidence/p10/r6-hub-close-red.log",
-      "green": ".hermes/evidence/p10/r6-hub-close-green.log",
-      "test": "internal/controller/agenthub/hub_close_test.go"
-    },
-    {
-      "story": "R6 ProbeGate worker join",
-      "red": ".hermes/evidence/p10/r6-probe-gate-red.log",
-      "green": ".hermes/evidence/p10/r6-probe-gate-green.log",
-      "test": "internal/agent/reconcile/probe_gate_lifecycle_test.go"
+    "branch_evidence_tip_commit": {
+      "command": "git show -s --format='%H%n%T%n%P%n%s' 494fd38daa25d42386470af4242519bdc531c997",
+      "exit_code": 0,
+      "sha": "494fd38daa25d42386470af4242519bdc531c997",
+      "tree_sha": "3607e97da31ec0a5fc94d4701e7052b69b8ccb68"
     }
-  ],
-  "final_verification": [
-    {
-      "command": "go test ./internal/controller/probe ./internal/agent/reconcile ./internal/controller/api ./cmd/antinatctl -race -count=1",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r6-required-race.log"
-    },
-    {
-      "command": "GOWORK=off GOMAXPROCS=2 go test -race -p=1 ./internal/agent ./internal/controller/agenthub ./internal/controller -count=1",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r6-lifecycle-race.log"
-    },
-    {
-      "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make check",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r6-final-make-check.log"
-    },
-    {
-      "command": "GOWORK=off GOMAXPROCS=2 make build",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r6-final-make-build.log"
-    },
-    {
-      "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -p=1 ./test/e2e -run ^TestLinuxDirectV4WalkingSkeleton$ -count=1 -v -timeout=300s",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/s6-walking-green.log"
-    },
-    {
-      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent/reconcile -run '^TestApplyDesiredRejectsCapabilityLossBeforeCommit$' -count=1 -v",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r7-apply-desired-capability-green.log"
-    },
-    {
-      "command": "git diff --check && git status --porcelain=v1",
-      "exit_code": 0,
-      "evidence": "terminal final status after handoff-only update"
-    }
-  ],
-  "handoff_artifact_policy": {
-    "excluded_path": ".hermes/handoffs/P10.json",
-    "post_candidate_artifacts": [
-      ".hermes/evidence/p10/r7-apply-desired-capability-red.log",
-      ".hermes/evidence/p10/r7-apply-desired-capability-green.log"
-    ],
-    "candidate_head_definition": "The immutable candidate head is 5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919 with tree da95cffeb1737fdfb7e8d24a6607a7914ac0c80f; later handoff/evidence-only revisions, including .hermes/handoffs/P10.json and the two R7 capability-fence logs above, are excluded from the candidate source tree.",
-    "handoff_artifact_commits": [
-      "4c2eaaf23ce9a638a721d8019a1722fe78dbddfc",
-      "f1235449f482d28587aa8e229a94fe1623a73451",
-      "bee7836f96167fa2efaffaddf2988aff84e240a1",
-      "b360aea8bfe7e05a68eb2016dfd519f4960db3ef"
-    ],
-    "current_revision": "This R8 JSON and the two capability-fence logs are handoff/evidence-only artifacts; no production or test source changed, and the candidate source/evidence tree remains pinned to 5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919/da95cffeb1737fdfb7e8d24a6607a7914ac0c80f."
+  },
+  "verification_status": "Candidate base ancestry, exact 27-path R9 delta, 9-path documentation-only evidence-tip delta, evidence existence, contract hashes, clean worktree, and generated-artifact cleanup were mechanically verified. This handoff remains REVIEW_REQUIRED.",
+  "reconciliation": {
+    "source_handoff": ".hermes/handoffs/P10-r9-repair.json",
+    "canonical_handoff_path": ".hermes/handoffs/P10.json",
+    "production_and_test_code_changed": false,
+    "contracts_changed": "none",
+    "cleanup_done": true
   }
 }
