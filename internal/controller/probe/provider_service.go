@@ -15,6 +15,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -57,12 +58,17 @@ type Provider struct {
 	slots     chan struct{}
 	inbound   chan struct{}
 	mu        sync.Mutex
-	replay    map[string]time.Time
+	replay    map[string]replayEntry
 	started   time.Time
 	requests  int64
 	maxReplay int
 	rateStart time.Time
 	rateCount int
+}
+
+type replayEntry struct {
+	expires  time.Time
+	material [32]byte
 }
 
 // NewProvider validates config and builds the provider.
@@ -104,7 +110,7 @@ func NewProvider(cfg ProviderConfig) (*Provider, error) {
 		cfg:       cfg,
 		slots:     make(chan struct{}, cfg.MaxConcurrent),
 		inbound:   make(chan struct{}, cfg.MaxConcurrent*2),
-		replay:    map[string]time.Time{},
+		replay:    map[string]replayEntry{},
 		started:   cfg.Clock(),
 		maxReplay: cfg.MaxReplayEntries,
 		rateStart: cfg.Clock(),
@@ -168,39 +174,20 @@ func (p *Provider) handleRequest(w http.ResponseWriter, r *http.Request) {
 	body := http.MaxBytesReader(w, r.Body, p.cfg.MaxRequestBytes)
 	req, err := decodeProviderRequestAt(body, p.cfg.ControllerPublicKey, p.cfg.Clock())
 	if err != nil {
-		p.writeResult(w, providerResult{ProbeID: "", Accepted: false, Reason: "bad_request"})
+		if req != nil {
+			if reason := p.admitReplay(req, p.cfg.Clock()); reason != "" {
+				p.writeResult(w, providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: reason})
+				return
+			}
+		}
+		p.writeResult(w, providerResult{ProbeID: "", Accepted: false, Reason: providerRequestReason(err)})
 		return
 	}
 
-	// TTL nonce replay cache: the same request (by probe id) within the
-	// window is a replay and is refused generically. Expired entries and the
-	// oldest live entry are evicted before admitting a new id.
-	now = p.cfg.Clock()
-	p.mu.Lock()
-	for id, expire := range p.replay {
-		if !now.Before(expire) {
-			delete(p.replay, id)
-		}
-	}
-	if expire, ok := p.replay[req.ProbeID]; ok && now.Before(expire) {
-		p.mu.Unlock()
-		p.writeResult(w, providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "replay"})
+	if reason := p.admitReplay(req, p.cfg.Clock()); reason != "" {
+		p.writeResult(w, providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: reason})
 		return
 	}
-	if len(p.replay) >= p.maxReplay {
-		var oldestID string
-		var oldest time.Time
-		for id, expire := range p.replay {
-			if oldest.IsZero() || expire.Before(oldest) {
-				oldestID, oldest = id, expire
-			}
-		}
-		if oldestID != "" {
-			delete(p.replay, oldestID)
-		}
-	}
-	p.replay[req.ProbeID] = now.Add(p.cfg.ReplayWindow)
-	p.mu.Unlock()
 
 	// Bounded execution concurrency.
 	select {
@@ -213,6 +200,44 @@ func (p *Provider) handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	res := p.execute(r.Context(), req)
 	p.writeResult(w, res)
+}
+
+// admitReplay consumes a signed request's probe id in the bounded replay
+// cache. Identical signed material is a replay; reuse of the id with different
+// material is a conflict and must not be treated as harmless duplication.
+func (p *Provider) admitReplay(req *providerRequest, now time.Time) string {
+	canonical, err := req.canonical()
+	if err != nil {
+		return "bad_request"
+	}
+	material := sha256.Sum256(canonical)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for id, entry := range p.replay {
+		if !now.Before(entry.expires) {
+			delete(p.replay, id)
+		}
+	}
+	if entry, ok := p.replay[req.ProbeID]; ok && now.Before(entry.expires) {
+		if entry.material == material {
+			return "replay"
+		}
+		return "conflict"
+	}
+	if len(p.replay) >= p.maxReplay {
+		var oldestID string
+		var oldest time.Time
+		for id, entry := range p.replay {
+			if oldest.IsZero() || entry.expires.Before(oldest) {
+				oldestID, oldest = id, entry.expires
+			}
+		}
+		if oldestID != "" {
+			delete(p.replay, oldestID)
+		}
+	}
+	p.replay[req.ProbeID] = replayEntry{expires: now.Add(p.cfg.ReplayWindow), material: material}
+	return ""
 }
 
 // execute performs the exchange: generate challenge, build WAN1, dial the

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -172,6 +173,10 @@ func TestProviderFullExchange(t *testing.T) {
 	// The agent's published listener (TEST-NET global literal on lo).
 	_ = provPub
 	ln, endpoint := globalTestEndpoint(t)
+	if out, err := exec.Command("ip", "addr", "add", "198.51.100.9/32", "dev", "lo").CombinedOutput(); err != nil {
+		_ = out
+	}
+	t.Cleanup(func() { _ = exec.Command("ip", "addr", "del", "198.51.100.9/32", "dev", "lo").Run() })
 
 	nodePub, nodePriv, _ := ed25519.GenerateKey(rand.Reader)
 	var digest [32]byte
@@ -210,7 +215,7 @@ func TestProviderFullExchange(t *testing.T) {
 		NodePublicKeyHash: hex.EncodeToString(hash256(nodePub)),
 		ProbeID:           hex.EncodeToString(probeID[:]), ProviderID: hex.EncodeToString(providerID[:]),
 		Activation: hex.EncodeToString(activation[:]), Endpoint: endpoint,
-		ExpectedSourceIP: "7f000001", ExpiryOpaque: hex.EncodeToString(opaque[:]),
+		ExpectedSourceIP: "c6336409", ExpiryOpaque: hex.EncodeToString(opaque[:]),
 		TTLMS: 30000, ArmDigest: hex.EncodeToString(digest[:]),
 		TimestampUnix: time.Now().Unix(),
 	}

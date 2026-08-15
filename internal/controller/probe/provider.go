@@ -13,8 +13,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -48,6 +48,90 @@ type providerRequest struct {
 	Signature          string `json:"signature"`
 }
 
+var providerRequestJSONSchema = map[string]protocol.FieldKind{
+	"schema":                 protocol.KindString,
+	"controller_instance_id": protocol.KindString,
+	"controller_key_id":      protocol.KindString,
+	"node_public_key":        protocol.KindString,
+	"node_public_key_hash":   protocol.KindString,
+	"probe_id":               protocol.KindString,
+	"provider_id":            protocol.KindString,
+	"activation":             protocol.KindString,
+	"endpoint":               protocol.KindString,
+	"expected_source_ip":     protocol.KindString,
+	"expiry_opaque":          protocol.KindString,
+	"ttl_ms":                 protocol.KindInt,
+	"arm_digest":             protocol.KindString,
+	"timestamp_unix":         protocol.KindInt,
+	"signature":              protocol.KindString,
+}
+
+var providerResultJSONSchema = map[string]protocol.FieldKind{
+	"schema":         protocol.KindString,
+	"probe_id":       protocol.KindString,
+	"accepted":       protocol.KindBool,
+	"challenge_hash": protocol.KindString,
+	"wan1_frame":     protocol.KindString,
+	"ack1_frame":     protocol.KindString,
+	"reason":         protocol.KindString,
+	"timestamp_unix": protocol.KindInt,
+	"signature":      protocol.KindString,
+}
+
+var probeResultJSONSchema = map[string]protocol.FieldKind{
+	"probe_id": protocol.KindString,
+	"outcome":  protocol.KindString,
+}
+
+// providerRequestSemanticError preserves a safe response classification after
+// a signed request has been decoded. The request is returned alongside this
+// error so a validly signed request still consumes bounded replay state.
+type providerRequestSemanticError struct {
+	reason string
+	err    error
+}
+
+func (e *providerRequestSemanticError) Error() string {
+	return "provider: " + e.reason + ": " + e.err.Error()
+}
+func (e *providerRequestSemanticError) Unwrap() error { return e.err }
+
+func providerRequestReason(err error) string {
+	var semantic *providerRequestSemanticError
+	if errors.As(err, &semantic) {
+		return semantic.reason
+	}
+	return "bad_request"
+}
+
+func decodeProviderResultJSON(raw []byte) (providerResult, error) {
+	var result providerResult
+	if err := protocol.ValidateStrictJSON(raw, providerResultJSONSchema); err != nil {
+		return result, err
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func decodeProbeResultJSON(raw []byte) (struct {
+	ProbeID string `json:"probe_id"`
+	Outcome string `json:"outcome"`
+}, error) {
+	var result struct {
+		ProbeID string `json:"probe_id"`
+		Outcome string `json:"outcome"`
+	}
+	if err := protocol.ValidateStrictJSON(raw, probeResultJSONSchema); err != nil {
+		return result, err
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
 // canonical renders the exact signed bytes (all fields except signature).
 func (r *providerRequest) canonical() ([]byte, error) {
 	// Explicit field list so adding a field never silently changes what is
@@ -71,17 +155,15 @@ func decodeProviderRequest(body io.Reader, controllerPub ed25519.PublicKey) (*pr
 }
 
 func decodeProviderRequestAt(body io.Reader, controllerPub ed25519.PublicKey, nowTime time.Time) (*providerRequest, error) {
-	var req providerRequest
-	dec := json.NewDecoder(body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
+	raw, err := io.ReadAll(io.LimitReader(body, protocol.MaxPayloadBytes+1))
+	if err != nil {
 		return nil, err
 	}
-	var extra any
-	if err := dec.Decode(&extra); err != io.EOF {
-		if err == nil {
-			return nil, errors.New("provider: trailing JSON")
-		}
+	if err := protocol.ValidateStrictJSON(raw, providerRequestJSONSchema); err != nil {
+		return nil, err
+	}
+	var req providerRequest
+	if err := json.Unmarshal(raw, &req); err != nil {
 		return nil, err
 	}
 	if req.Schema != providerRequestSchema {
@@ -127,22 +209,6 @@ func decodeProviderRequestAt(body io.Reader, controllerPub ed25519.PublicKey, no
 	if bytes.Equal(opaque, make([]byte, protocol.ProbeOpaqueLen)) {
 		return nil, errors.New("provider: expiry opaque is empty")
 	}
-	source, err := hex.DecodeString(req.ExpectedSourceIP)
-	if err != nil || len(source) != 4 || net.IP(source).IsUnspecified() {
-		return nil, errors.New("provider: invalid expected source")
-	}
-	if req.TTLMS == 0 || req.TTLMS > uint64(protocol.ProbeTTLMax/time.Millisecond) {
-		return nil, errors.New("provider: invalid ttl")
-	}
-	now := nowTime.Unix()
-	// The request timestamp is signed and must be recent enough that a
-	// captured request cannot be replayed after its arm TTL has elapsed.
-	if req.TimestampUnix < now-120 || req.TimestampUnix > now+30 {
-		return nil, errors.New("provider: stale request")
-	}
-	if req.TimestampUnix+int64((req.TTLMS+999)/1000) <= now {
-		return nil, errors.New("provider: request ttl expired")
-	}
 	canonical, err := req.canonical()
 	if err != nil {
 		return nil, err
@@ -153,6 +219,30 @@ func decodeProviderRequestAt(body io.Reader, controllerPub ed25519.PublicKey, no
 	}
 	if !ed25519.Verify(controllerPub, canonical, sig) {
 		return nil, errors.New("provider: controller signature verification failed")
+	}
+	if _, err := protocol.ValidateEndpoint(req.Endpoint); err != nil {
+		return &req, &providerRequestSemanticError{reason: "invalid_endpoint", err: err}
+	}
+	source, err := hex.DecodeString(req.ExpectedSourceIP)
+	if err != nil || len(source) != 4 {
+		return &req, &providerRequestSemanticError{reason: "invalid_source", err: errors.New("provider: invalid expected source")}
+	}
+	var source4 [4]byte
+	copy(source4[:], source)
+	if !protocol.IsGlobalEndpoint(netip.AddrFrom4(source4)) {
+		return &req, &providerRequestSemanticError{reason: "invalid_source", err: errors.New("provider: expected source is not global IPv4")}
+	}
+	if req.TTLMS == 0 || req.TTLMS > uint64(protocol.ProbeTTLMax/time.Millisecond) {
+		return &req, &providerRequestSemanticError{reason: "invalid_ttl", err: errors.New("provider: invalid ttl")}
+	}
+	now := nowTime.Unix()
+	// The request timestamp is signed and must be recent enough that a
+	// captured request cannot be replayed after its arm TTL has elapsed.
+	if req.TimestampUnix < now-120 || req.TimestampUnix > now+30 {
+		return &req, &providerRequestSemanticError{reason: "stale", err: errors.New("provider: stale request")}
+	}
+	if req.TimestampUnix+int64((req.TTLMS+999)/1000) <= now {
+		return &req, &providerRequestSemanticError{reason: "expired", err: errors.New("provider: request ttl expired")}
 	}
 	return &req, nil
 }

@@ -370,14 +370,26 @@ func (m *Manager) handleReceipt(nodeID string, payload []byte) error {
 	if err != nil {
 		return fmt.Errorf("probe: probe_ingress_receipt rejected: %w", err)
 	}
-	op, err := m.store.ProbeOperationByArmDigestForNode(receipt.ArmDigest, nodeID, m.clock().Unix())
+	op, err := m.store.ProbeOperationByArmDigestForNodeIncludingExpired(receipt.ArmDigest, nodeID)
 	if err != nil {
 		return err
+	}
+	if !m.clock().Before(time.Unix(op.ExpiresAt, 0)) {
+		if op.Status == "ARMED" || op.Status == "IN_FLIGHT" || op.Status == "PENDING" {
+			return m.store.SetProbeOperationStatusCAS(op.ID, op.Status, string(protocol.OutcomeTimeout))
+		}
+		return nil
 	}
 	if op.Status != "ARMED" && op.Status != "IN_FLIGHT" {
 		return nil // late receipts cannot resurrect a terminal operation
 	}
 	if err := m.store.RecordProbeResult(op.ID, "rct1", hex.EncodeToString(payload)); err != nil {
+		if errors.Is(err, store.ErrProbeExpired) {
+			return m.store.SetProbeOperationStatusCAS(op.ID, op.Status, string(protocol.OutcomeTimeout))
+		}
+		if errors.Is(err, store.ErrProbeDuplicateEvidence) {
+			m.failOperation(op.ID, string(protocol.OutcomeRejected))
+		}
 		return err
 	}
 	return m.tryJoin(op)
@@ -386,11 +398,8 @@ func (m *Manager) handleReceipt(nodeID string, payload []byte) error {
 // handleProbeResult records a terminal agent-reported outcome (best-effort;
 // the provider result + receipt join is authoritative).
 func (m *Manager) handleProbeResult(nodeID string, payload []byte) error {
-	var v struct {
-		ProbeID string `json:"probe_id"`
-		Outcome string `json:"outcome"`
-	}
-	if err := json.Unmarshal(payload, &v); err != nil || v.ProbeID == "" {
+	v, err := decodeProbeResultJSON(payload)
+	if err != nil || v.ProbeID == "" {
 		return errors.New("probe: malformed probe_result payload")
 	}
 	outcome, err := protocol.ParseProbeOutcome(v.Outcome)
@@ -406,6 +415,9 @@ func (m *Manager) handleProbeResult(nodeID string, payload []byte) error {
 		op.Status == string(protocol.OutcomeDropped) || op.Status == string(protocol.OutcomeTimeout) ||
 		op.Status == string(protocol.OutcomeNoIndependentVantage) || op.Status == string(protocol.OutcomeProbeInfraUnavailable) {
 		return nil // terminal already
+	}
+	if !m.clock().Before(time.Unix(op.ExpiresAt, 0)) {
+		return m.store.SetProbeOperationStatusCAS(op.ID, op.Status, string(protocol.OutcomeTimeout))
 	}
 	if op.Status != "ARMED" && op.Status != "IN_FLIGHT" && op.Status != "PENDING" {
 		return errors.New("probe: probe_result is not bound to a live operation")
@@ -505,15 +517,8 @@ func (m *Manager) requestProvider(op store.ProbeOperation, nodeID string, nodePu
 		m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
 		return
 	}
-	dec := json.NewDecoder(bytes.NewReader(bodyBytes))
-	dec.DisallowUnknownFields()
-	var res providerResult
-	if err := dec.Decode(&res); err != nil {
-		m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
-		return
-	}
-	var trailing any
-	if err := dec.Decode(&trailing); err != io.EOF {
+	res, err := decodeProviderResultJSON(bodyBytes)
+	if err != nil {
 		m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
 		return
 	}
@@ -614,9 +619,8 @@ func (m *Manager) tryJoin(op store.ProbeOperation) error {
 		_ = m.store.SetProbeOperationStatusCAS(op.ID, current.Status, string(protocol.OutcomeRejected))
 		return cause
 	}
-	var providerRes providerResult
-	if err := json.Unmarshal([]byte(providerJSON), &providerRes); err != nil ||
-		!providerRes.Accepted || providerRes.ProbeID != current.ID || providerRes.ChallengeHash == "" {
+	providerRes, err := decodeProviderResultJSON([]byte(providerJSON))
+	if err != nil || !providerRes.Accepted || providerRes.ProbeID != current.ID || providerRes.ChallengeHash == "" {
 		return m.store.SetProbeOperationStatusCAS(op.ID, current.Status, string(protocol.OutcomeRejected))
 	}
 	armBytes, err := hex.DecodeString(current.ArmHex)

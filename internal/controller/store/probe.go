@@ -5,13 +5,14 @@
 package store
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/gxbrave/AntiNAT/internal/protocol"
@@ -210,6 +211,7 @@ var (
 	ErrProbeExpired           = errors.New("store: probe operation has expired")
 	ErrProbeDuplicateEvidence = errors.New("store: duplicate probe evidence")
 	ErrProbeJoinIncomplete    = errors.New("store: probe join evidence is incomplete")
+	ErrProbeJoinRequired      = errors.New("store: OPEN_FROM_VANTAGE requires a complete probe join")
 	ErrProbeChallengeConflict = errors.New("store: probe challenge evidence conflicts")
 )
 
@@ -270,7 +272,13 @@ func (s *Store) setProbeOperationStatusCAS(id, expected, status string) error {
 		return fmt.Errorf("store: read probe status: %w", err)
 	}
 	if expected != "" && current != expected {
-		return ErrProbeTerminal
+		if probeTerminal(current) {
+			return ErrProbeTerminal
+		}
+		return ErrCASConflict
+	}
+	if status == string(protocol.OutcomeOpenFromVantage) {
+		return ErrProbeJoinRequired
 	}
 	if !probeTransitionAllowed(current, status) {
 		if current == status {
@@ -337,21 +345,132 @@ func (s *Store) SetProbeOperationChallenge(id, challengeHash string) error {
 	return nil
 }
 
+var activationSnapshotJSONSchema = map[string]protocol.FieldKind{
+	"control_state":          protocol.KindString,
+	"listener_state":         protocol.KindString,
+	"mapping_state":          protocol.KindString,
+	"keepalive_state":        protocol.KindString,
+	"wan_reachability_state": protocol.KindString,
+	"return_path_state":      protocol.KindString,
+	"target_health_state":    protocol.KindString,
+	"publication_state":      protocol.KindString,
+	"data_plane_state":       protocol.KindString,
+}
+
+func decodeActivationSnapshot(snapshotJSON string) (protocol.ActivationStates, error) {
+	var snapshot protocol.ActivationStates
+	if err := protocol.ValidateStrictJSON([]byte(snapshotJSON), activationSnapshotJSONSchema); err != nil {
+		return snapshot, err
+	}
+	if err := json.Unmarshal([]byte(snapshotJSON), &snapshot); err != nil {
+		return snapshot, err
+	}
+	if err := snapshot.Validate(); err != nil {
+		return snapshot, err
+	}
+	return snapshot, nil
+}
+
+type storedProviderResult struct {
+	Schema        string `json:"schema"`
+	ProbeID       string `json:"probe_id"`
+	Accepted      bool   `json:"accepted"`
+	ChallengeHash string `json:"challenge_hash"`
+	WAN1Frame     string `json:"wan1_frame"`
+	ACK1Frame     string `json:"ack1_frame"`
+	Reason        string `json:"reason"`
+	TimestampUnix int64  `json:"timestamp_unix"`
+	Signature     string `json:"signature"`
+}
+
+var storedProviderResultJSONSchema = map[string]protocol.FieldKind{
+	"schema":         protocol.KindString,
+	"probe_id":       protocol.KindString,
+	"accepted":       protocol.KindBool,
+	"challenge_hash": protocol.KindString,
+	"wan1_frame":     protocol.KindString,
+	"ack1_frame":     protocol.KindString,
+	"reason":         protocol.KindString,
+	"timestamp_unix": protocol.KindInt,
+	"signature":      protocol.KindString,
+}
+
+func decodeStoredProviderResult(payload string) (storedProviderResult, error) {
+	var result storedProviderResult
+	if err := protocol.ValidateStrictJSON([]byte(payload), storedProviderResultJSONSchema); err != nil {
+		return result, err
+	}
+	if err := json.Unmarshal([]byte(payload), &result); err != nil {
+		return result, err
+	}
+	if result.Schema != "antinat.provider-result/v1" || result.ProbeID == "" || !result.Accepted ||
+		result.ChallengeHash == "" || result.WAN1Frame == "" || result.ACK1Frame == "" ||
+		result.TimestampUnix <= 0 || result.Signature == "" {
+		return result, errors.New("store: incomplete provider result")
+	}
+	return result, nil
+}
+
+func (r storedProviderResult) canonical() []byte {
+	fields := []string{
+		r.Schema, strings.ToLower(r.ProbeID), fmt.Sprintf("%t", r.Accepted),
+		strings.ToLower(r.ChallengeHash), strings.ToLower(r.WAN1Frame),
+		strings.ToLower(r.ACK1Frame), r.Reason, fmt.Sprintf("%d", r.TimestampUnix),
+	}
+	return []byte(strings.Join(fields, "\x00"))
+}
+
+func (r storedProviderResult) verify(publicKeyHex string) bool {
+	publicKey, err := hex.DecodeString(publicKeyHex)
+	if err != nil || len(publicKey) != ed25519.PublicKeySize {
+		return false
+	}
+	signature, err := hex.DecodeString(r.Signature)
+	if err != nil || len(signature) != ed25519.SignatureSize {
+		return false
+	}
+	return ed25519.Verify(ed25519.PublicKey(publicKey), r.canonical(), signature)
+}
+
+func parseStoredACK(raw []byte) (protocol.ProbeACK, error) {
+	var ack protocol.ProbeACK
+	const fixed = 4 + protocol.ProbeDigestLen + protocol.ProbeDigestLen
+	if len(raw) != fixed+ed25519.SignatureSize || !bytes.Equal(raw[:4], []byte(protocol.ProbeMagicACK)) {
+		return ack, errors.New("store: malformed ACK1")
+	}
+	copy(ack.ArmDigest[:], raw[4:4+protocol.ProbeDigestLen])
+	copy(ack.ChallengeHash[:], raw[4+protocol.ProbeDigestLen:fixed])
+	ack.Signature = append([]byte(nil), raw[fixed:]...)
+	return ack, nil
+}
+
+func parseStoredReceipt(raw []byte) (protocol.ProbeReceipt, error) {
+	var receipt protocol.ProbeReceipt
+	const fixed = 4 + protocol.ProbeDigestLen + protocol.ProbeDigestLen + protocol.ProbeProviderIDLen
+	if len(raw) != fixed+ed25519.SignatureSize || !bytes.Equal(raw[:4], []byte(protocol.ProbeMagicReceipt)) {
+		return receipt, errors.New("store: malformed RCT1")
+	}
+	copy(receipt.ArmDigest[:], raw[4:4+protocol.ProbeDigestLen])
+	copy(receipt.ChallengeHash[:], raw[4+protocol.ProbeDigestLen:4+2*protocol.ProbeDigestLen])
+	copy(receipt.ProviderID[:], raw[4+2*protocol.ProbeDigestLen:fixed])
+	receipt.Signature = append([]byte(nil), raw[fixed:]...)
+	return receipt, nil
+}
+
+func hasNonZeroBytes(raw []byte) bool {
+	for _, b := range raw {
+		if b != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // PublishProbeJoin atomically transitions the operation to OPEN_FROM_VANTAGE
 // and persists its legal activation mirror. Observers can never see an OPEN
 // operation without its corresponding frozen snapshot.
 func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activationID, snapshotJSON string) error {
-	var snapshot protocol.ActivationStates
-	dec := json.NewDecoder(strings.NewReader(snapshotJSON))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&snapshot); err != nil {
-		return fmt.Errorf("%w: malformed activation snapshot: %v", ErrProbeJoinIncomplete, err)
-	}
-	var trailing any
-	if err := dec.Decode(&trailing); err != io.EOF {
-		return fmt.Errorf("%w: malformed activation snapshot trailing data", ErrProbeJoinIncomplete)
-	}
-	if err := snapshot.Validate(); err != nil {
+	if _, err := decodeActivationSnapshot(snapshotJSON); err != nil {
 		return fmt.Errorf("%w: illegal activation snapshot: %v", ErrProbeJoinIncomplete, err)
 	}
 	if expectedStatus != "IN_FLIGHT" {
@@ -362,19 +481,30 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 		return fmt.Errorf("store: begin probe join: %w", err)
 	}
 	defer tx.Rollback()
-	var current, storedForwardID, storedActivationID, providerID string
-	var expiresAt int64
-	if err := tx.QueryRow(`SELECT status, forward_id, activation_id, expires_at, provider_id
-		FROM probe_operations WHERE id = ?`, operationID).Scan(&current, &storedForwardID, &storedActivationID, &expiresAt, &providerID); errors.Is(err, sql.ErrNoRows) {
+	var current, storedForwardID, storedActivationID, providerID, providerPublicKey, storedEndpoint, storedExpiryOpaque, operationArmHex string
+	var expiresAt, createdAt int64
+	var storedTTLMS uint64
+	if err := tx.QueryRow(`SELECT status, forward_id, activation_id, expires_at, created_at, provider_id,
+		endpoint, ttl_ms, expiry_opaque, arm_hex
+		FROM probe_operations WHERE id = ?`, operationID).Scan(&current, &storedForwardID, &storedActivationID, &expiresAt, &createdAt, &providerID,
+		&storedEndpoint, &storedTTLMS, &storedExpiryOpaque, &operationArmHex); errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return fmt.Errorf("store: read probe join status: %w", err)
 	}
 	if current != expectedStatus {
-		return ErrProbeTerminal
+		if probeTerminal(current) {
+			return ErrProbeTerminal
+		}
+		return ErrCASConflict
 	}
 	if storedForwardID != forwardID || storedActivationID != activationID {
 		return fmt.Errorf("%w: operation binding mismatch", ErrProbeJoinIncomplete)
+	}
+	if err := tx.QueryRow(`SELECT public_key FROM probe_providers WHERE id = ?`, providerID).Scan(&providerPublicKey); errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: provider is not registered", ErrProbeJoinIncomplete)
+	} else if err != nil {
+		return fmt.Errorf("store: read probe join provider key: %w", err)
 	}
 	nowUnix := now()
 	if expiresAt <= nowUnix {
@@ -408,7 +538,7 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 	if providerEnabled == 0 || independentVantage == 0 {
 		return fmt.Errorf("%w: provider is not an enabled independent vantage", ErrProbeJoinIncomplete)
 	}
-	var providerPayload, wan1Payload, ack1Payload string
+	var providerPayload, wan1Payload, ack1Payload, rct1Payload string
 	for _, artifact := range []struct {
 		kind string
 		dst  *string
@@ -416,7 +546,7 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 		{kind: "provider", dst: &providerPayload},
 		{kind: "wan1", dst: &wan1Payload},
 		{kind: "ack1", dst: &ack1Payload},
-		{kind: "rct1", dst: new(string)},
+		{kind: "rct1", dst: &rct1Payload},
 	} {
 		var count int
 		if err := tx.QueryRow(`SELECT COUNT(*) FROM probe_results WHERE probe_id = ? AND kind = ?`, operationID, artifact.kind).Scan(&count); err != nil {
@@ -429,18 +559,68 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 			return fmt.Errorf("store: read probe join %s artifact: %w", artifact.kind, err)
 		}
 	}
-	var providerResult struct {
-		ProbeID       string `json:"probe_id"`
-		Accepted      bool   `json:"accepted"`
-		ChallengeHash string `json:"challenge_hash"`
-		WAN1Frame     string `json:"wan1_frame"`
-		ACK1Frame     string `json:"ack1_frame"`
-	}
-	if err := json.Unmarshal([]byte(providerPayload), &providerResult); err != nil ||
-		!providerResult.Accepted || providerResult.ProbeID != operationID || providerResult.ChallengeHash == "" ||
-		providerResult.WAN1Frame == "" || providerResult.ACK1Frame == "" ||
+	providerResult, err := decodeStoredProviderResult(providerPayload)
+	if err != nil || !providerResult.verify(providerPublicKey) || providerResult.ProbeID != operationID ||
 		!strings.EqualFold(providerResult.WAN1Frame, wan1Payload) || !strings.EqualFold(providerResult.ACK1Frame, ack1Payload) {
-		return fmt.Errorf("%w: provider result is malformed, rejected, or unbound", ErrProbeJoinIncomplete)
+		return fmt.Errorf("%w: provider result is malformed, rejected, unbound, or unsigned", ErrProbeJoinIncomplete)
+	}
+	if providerResult.TimestampUnix < createdAt-5*60 || providerResult.TimestampUnix > expiresAt+5*60 ||
+		providerResult.TimestampUnix > nowUnix+5*60 {
+		return fmt.Errorf("%w: provider result timestamp outside operation window", ErrProbeJoinIncomplete)
+	}
+	challengeHash, err := hex.DecodeString(providerResult.ChallengeHash)
+	if err != nil || len(challengeHash) != protocol.ProbeDigestLen {
+		return fmt.Errorf("%w: invalid provider challenge hash", ErrProbeJoinIncomplete)
+	}
+	armBytes, err := hex.DecodeString(operationArmHex)
+	if err != nil {
+		return fmt.Errorf("%w: invalid ARM1 evidence", ErrProbeJoinIncomplete)
+	}
+	arm, err := protocol.ParseProbeArm(armBytes)
+	if err != nil {
+		return fmt.Errorf("%w: invalid ARM1 evidence: %v", ErrProbeJoinIncomplete, err)
+	}
+	maxExpiry := createdAt + int64((arm.TTLMS+999)/1000)
+	if storedEndpoint != arm.Endpoint || storedTTLMS != arm.TTLMS ||
+		!strings.EqualFold(storedExpiryOpaque, hex.EncodeToString(arm.ExpiryOpaque[:])) ||
+		expiresAt > maxExpiry {
+		return fmt.Errorf("%w: operation is not bound to ARM1 TTL/endpoint/opaque expiry", ErrProbeJoinIncomplete)
+	}
+	wan1Bytes, err := hex.DecodeString(wan1Payload)
+	if err != nil {
+		return fmt.Errorf("%w: invalid WAN1 evidence", ErrProbeJoinIncomplete)
+	}
+	frame, err := protocol.ParseProviderFrame(wan1Bytes)
+	if err != nil {
+		return fmt.Errorf("%w: malformed WAN1 evidence: %v", ErrProbeJoinIncomplete, err)
+	}
+	providerPublicKeyBytes, err := hex.DecodeString(providerPublicKey)
+	if err != nil || len(providerPublicKeyBytes) != ed25519.PublicKeySize ||
+		!ed25519.Verify(ed25519.PublicKey(providerPublicKeyBytes), frame.SigningBytes(), frame.Signature) {
+		return fmt.Errorf("%w: WAN1 provider signature is invalid", ErrProbeJoinIncomplete)
+	}
+	frameChallenge := frame.ChallengeHash()
+	if frame.ArmDigest != arm.Digest() || frame.ProbeID != arm.ProbeID || frame.ProviderID != arm.ProviderID ||
+		frame.Activation != arm.Activation || frame.Endpoint != arm.Endpoint || frame.ExpiryOpaque != arm.ExpiryOpaque ||
+		!bytes.Equal(frameChallenge[:], challengeHash) {
+		return fmt.Errorf("%w: WAN1 binding mismatch", ErrProbeJoinIncomplete)
+	}
+	ackBytes, err := hex.DecodeString(ack1Payload)
+	if err != nil {
+		return fmt.Errorf("%w: invalid ACK1 evidence", ErrProbeJoinIncomplete)
+	}
+	ack, err := parseStoredACK(ackBytes)
+	if err != nil || !hasNonZeroBytes(ack.Signature) || ack.ArmDigest != frame.ArmDigest || ack.ChallengeHash != frameChallenge {
+		return fmt.Errorf("%w: ACK1 binding mismatch", ErrProbeJoinIncomplete)
+	}
+	receiptBytes, err := hex.DecodeString(rct1Payload)
+	if err != nil {
+		return fmt.Errorf("%w: invalid RCT1 evidence", ErrProbeJoinIncomplete)
+	}
+	receipt, err := parseStoredReceipt(receiptBytes)
+	if err != nil || !hasNonZeroBytes(receipt.Signature) || receipt.ArmDigest != frame.ArmDigest ||
+		receipt.ChallengeHash != frameChallenge || receipt.ProviderID != arm.ProviderID {
+		return fmt.Errorf("%w: RCT1 binding mismatch", ErrProbeJoinIncomplete)
 	}
 	var operationChallenge string
 	if err := tx.QueryRow(`SELECT challenge_hash FROM probe_operations WHERE id = ?`, operationID).Scan(&operationChallenge); err != nil {
@@ -532,6 +712,39 @@ func (s *Store) ProbeOperationByArmDigestForNode(digest [32]byte, nodeID string,
 			&op.Endpoint, &op.ArmHex, &op.ChallengeHash, &op.TTLMS, &op.ExpiryOpaque,
 			&op.ExpiresAt, &op.CreatedAt, &op.UpdatedAt); err != nil {
 			return ProbeOperation{}, fmt.Errorf("store: scan live probe operation: %w", err)
+		}
+		armBytes, err := hex.DecodeString(op.ArmHex)
+		if err != nil {
+			continue
+		}
+		arm, err := ParseProbeArmLite(armBytes)
+		if err == nil && hex.EncodeToString(arm[:]) == want {
+			return op, nil
+		}
+	}
+	return ProbeOperation{}, ErrNotFound
+}
+
+// ProbeOperationByArmDigestForNodeIncludingExpired resolves an operation for
+// nodeID without applying status or deadline predicates. The caller uses the
+// returned row to terminalize a receipt that crossed the deadline, or to ignore
+// evidence that arrived after the sweeper already wrote a terminal tombstone.
+func (s *Store) ProbeOperationByArmDigestForNodeIncludingExpired(digest [32]byte, nodeID string) (ProbeOperation, error) {
+	rows, err := s.db.Query(`SELECT id, node_id, forward_id, activation_id, provider_id, status,
+		endpoint, arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
+		FROM probe_operations
+		WHERE node_id = ?`, nodeID)
+	if err != nil {
+		return ProbeOperation{}, fmt.Errorf("store: scan probe operations: %w", err)
+	}
+	defer rows.Close()
+	want := hex.EncodeToString(digest[:])
+	for rows.Next() {
+		var op ProbeOperation
+		if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ProviderID, &op.Status,
+			&op.Endpoint, &op.ArmHex, &op.ChallengeHash, &op.TTLMS, &op.ExpiryOpaque,
+			&op.ExpiresAt, &op.CreatedAt, &op.UpdatedAt); err != nil {
+			return ProbeOperation{}, fmt.Errorf("store: scan probe operation: %w", err)
 		}
 		armBytes, err := hex.DecodeString(op.ArmHex)
 		if err != nil {
@@ -804,6 +1017,9 @@ type ForwardRuntimeStatus struct {
 // advances). Any other write — a stale event from an older activation — is
 // rejected with ErrCASConflict and leaves the row untouched.
 func (s *Store) SetForwardRuntimeStatus(forwardID, activationID, snapshotJSON string) error {
+	if _, err := decodeActivationSnapshot(snapshotJSON); err != nil {
+		return fmt.Errorf("store: invalid forward runtime snapshot: %w", err)
+	}
 	res, err := s.db.Exec(
 		`INSERT INTO forward_runtime_status (forward_id, activation_id, snapshot_json, updated_at)
 		 VALUES (?, ?, ?, ?)
