@@ -112,8 +112,9 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 
 // handleInit implements POST /api/v1/auth/init (P10 bootstrap surface, not in
 // the frozen openapi: the frozen API has no bootstrap endpoint, and the M1
-// CLI needs a one-time admin creation path). It refuses when an admin
-// already exists.
+// CLI needs a one-time admin creation path). Only an empty store may be
+// initialized without a session. Once an administrator exists, callers must
+// authenticate before receiving the safe conflict response.
 func (s *Server) handleInit(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Username string `json:"username"`
@@ -126,29 +127,29 @@ func (s *Server) handleInit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "username and a password of at least 8 chars are required")
 		return
 	}
-	password, created, err := s.auth.EnsureAdmin(body.Username)
+	count, err := s.store.CountUsers()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "admin init failed")
 		return
 	}
-	if !created {
+	if count != 0 {
+		if _, ok := s.currentUser(r); !ok {
+			writeError(w, http.StatusUnauthorized, "UNAUTHENTICATED", "administrator initialization requires authentication")
+			return
+		}
 		writeError(w, http.StatusConflict, "CONFLICT", "an administrator already exists")
 		return
 	}
-	_ = password
-	// Rotate to the operator-provided password.
-	enc, err := auth.HashPassword(body.Password)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "password hashing failed")
-		return
-	}
-	user, err := s.store.GetUserByUsername(body.Username)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "admin lookup failed")
-		return
-	}
-	if err := s.store.SetUserPassword(user.ID, enc.Algorithm, enc.Hash); err != nil {
-		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "password rotation failed")
+	if err := s.auth.BootstrapAdmin(body.Username, body.Password); err != nil {
+		if errors.Is(err, auth.ErrAdminAlreadyInitialized) {
+			if _, ok := s.currentUser(r); !ok {
+				writeError(w, http.StatusUnauthorized, "UNAUTHENTICATED", "administrator initialization requires authentication")
+				return
+			}
+			writeError(w, http.StatusConflict, "CONFLICT", "an administrator already exists")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "admin init failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"username": body.Username, "created": true})

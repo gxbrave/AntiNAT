@@ -52,6 +52,65 @@ func appliedFor(id string, rev uint64) protocol.AppliedForwardState {
 	}
 }
 
+func TestApplyDesiredRollsBackNewActorsWhenCommitLosesCapability(t *testing.T) {
+	store := testStore(t)
+	var sideEffect bool
+	var stopCalls int
+	_, err := ApplyDesired(context.Background(), store, localstate.NewLatch(), testDesired(present("fwd-r", 1)),
+		func(ctx context.Context, spec protocol.ForwardSpec) (protocol.AppliedForwardState, error) {
+			sideEffect = true
+			// Simulate a capability-loss/deletion race after the side effect
+			// but before the atomic desired commit.
+			if _, err := store.CommitDesired(testDesired(absent("fwd-r", "race-delete", 2)), []localstate.ForwardApply{{
+				ForwardID: "fwd-r", Outcome: localstate.ApplyDeleted,
+			}}); err != nil {
+				return protocol.AppliedForwardState{}, err
+			}
+			return appliedFor(spec.ForwardID, spec.DesiredRevision), nil
+		},
+		func(ctx context.Context, forwardID string) error {
+			stopCalls++
+			sideEffect = false
+			return nil
+		})
+	if err == nil {
+		t.Fatal("ApplyDesired succeeded after commit race, want rollback error")
+	}
+	if stopCalls != 1 || sideEffect {
+		t.Fatalf("rollback stop calls=%d sideEffect=%v, want one stop and no side effect", stopCalls, sideEffect)
+	}
+	if _, ok, err := store.GetAppliedState("fwd-r"); err != nil || ok {
+		t.Fatalf("applied state after failed commit present=%v err=%v, want absent", ok, err)
+	}
+}
+
+func TestApplyDesiredRejectsCapabilityLossBeforeCommit(t *testing.T) {
+	store := testStore(t)
+	available := true
+	var stopCalls int
+	_, err := ApplyDesiredWithGuard(context.Background(), store, localstate.NewLatch(), testDesired(present("fwd-c", 1)),
+		func(ctx context.Context, spec protocol.ForwardSpec) (protocol.AppliedForwardState, error) {
+			available = false
+			return appliedFor(spec.ForwardID, spec.DesiredRevision), nil
+		},
+		func(ctx context.Context, forwardID string) error {
+			stopCalls++
+			return nil
+		},
+		func() error {
+			if !available {
+				return errors.New("route disappeared")
+			}
+			return nil
+		})
+	if !errors.Is(err, ErrCapabilityLost) {
+		t.Fatalf("capability loss error = %v, want ErrCapabilityLost", err)
+	}
+	if stopCalls != 1 {
+		t.Fatalf("rollback stop calls = %d, want 1", stopCalls)
+	}
+}
+
 func TestApplyDesiredPartialKeepsOldAppliedAndAdvancesSibling(t *testing.T) {
 	store := testStore(t)
 	seed := testDesired(present("fwd-a", 1), present("fwd-b", 1))

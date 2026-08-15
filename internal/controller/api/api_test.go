@@ -132,6 +132,38 @@ func TestUnauthenticatedAccessFails(t *testing.T) {
 	}
 }
 
+// RED R7-1: the first admin may bootstrap without a session, but an
+// unauthenticated caller must not create a second administrator by choosing a
+// different username. An authenticated retry is a safe conflict, not a second
+// account or a partial password rotation.
+func TestAuthInitAllowsOnlyUnauthenticatedFirstBootstrap(t *testing.T) {
+	srv, st := newTestServer(t)
+
+	resp, body := doReq(t, srv, http.MethodPost, "/api/v1/auth/init", nil,
+		map[string]string{"username": "admin", "password": "operator-password"})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("first auth init = %d (%s), want 201", resp.StatusCode, body)
+	}
+
+	resp, body = doReq(t, srv, http.MethodPost, "/api/v1/auth/init", nil,
+		map[string]string{"username": "attacker", "password": "attacker-password"})
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated second auth init = %d (%s), want 401", resp.StatusCode, body)
+	}
+
+	cookie := login(t, srv, "admin", "operator-password")
+	resp, body = doReq(t, srv, http.MethodPost, "/api/v1/auth/init", cookie,
+		map[string]string{"username": "attacker", "password": "attacker-password"})
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("authenticated second auth init = %d (%s), want 409", resp.StatusCode, body)
+	}
+	if count, err := st.CountUsers(); err != nil {
+		t.Fatalf("CountUsers: %v", err)
+	} else if count != 1 {
+		t.Fatalf("user count = %d, want one administrator", count)
+	}
+}
+
 // TestLoginLogoutMe covers the auth surface: login sets a session cookie,
 // /me resolves it, logout revokes it.
 func TestLoginLogoutMe(t *testing.T) {
@@ -308,8 +340,9 @@ func TestForwardCreateListDelete(t *testing.T) {
 	}
 
 	// DELETE with If-Match => 202 with an operation id.
+	deleteETag := mustETag(t, srv, cookie, fwdID)
 	delReq, _ := http.NewRequest(http.MethodDelete, srv.URL+"/api/v1/forwards/"+fwdID, nil)
-	delReq.Header.Set("If-Match", mustETag(t, srv, cookie, fwdID))
+	delReq.Header.Set("If-Match", deleteETag)
 	delReq.AddCookie(cookie)
 	resp5, err := http.DefaultClient.Do(delReq)
 	if err != nil {
@@ -326,6 +359,25 @@ func TestForwardCreateListDelete(t *testing.T) {
 		t.Fatalf("delete response missing operation_id: %s", body5)
 	}
 	operationID := op["operation_id"].(string)
+	// Repeating the same delete with the original parent ETag replays the
+	// existing operation rather than creating another command.
+	retryReq, _ := http.NewRequest(http.MethodDelete, srv.URL+"/api/v1/forwards/"+fwdID, nil)
+	retryReq.Header.Set("If-Match", deleteETag)
+	retryReq.AddCookie(cookie)
+	retryResp, retryErr := http.DefaultClient.Do(retryReq)
+	if retryErr != nil {
+		t.Fatal(retryErr)
+	}
+	retryBody, _ := io.ReadAll(retryResp.Body)
+	retryResp.Body.Close()
+	if retryResp.StatusCode != http.StatusAccepted {
+		t.Fatalf("replayed delete = %d (%s)", retryResp.StatusCode, retryBody)
+	}
+	var retryOp map[string]any
+	_ = json.Unmarshal(retryBody, &retryOp)
+	if retryOp["operation_id"] != operationID {
+		t.Fatalf("replayed delete operation = %v, want %s", retryOp["operation_id"], operationID)
+	}
 	// The frozen deletion polling route is not nested below /forwards.
 	pollResp, pollBody := doReq(t, srv, http.MethodGet,
 		"/api/v1/forward-deletions/"+operationID, cookie, nil)

@@ -174,7 +174,7 @@ func New(cfg Config) (*App, error) {
 	a.activations = make(map[string]*reconcile.Activation)
 
 	a.reconciler = reconcile.New(st, localstate.NewLatch(), localstate.MarkerActive,
-		a.dp.apply, a.dp.stop)
+		a.dp.apply, a.dp.stop, a.dp.capabilityCheck)
 
 	client, err := control.NewClient(control.ClientOptions{
 		Endpoint:  cfg.Endpoint,
@@ -227,6 +227,17 @@ func (a *App) Start(ctx context.Context) error {
 		_ = a.store.Close()
 		return fmt.Errorf("agent: retry pending probe receipts: %w", err)
 	}
+	// A persisted verified result is evidence from the previous process. Clear
+	// it before replaying activation status or recovering listeners.
+	if err := a.prepareActivationRecovery(); err != nil {
+		runCancel()
+		a.client.Shutdown()
+		a.client.Wait()
+		a.dp.closeAll()
+		a.probeMgr.Close()
+		_ = a.store.Close()
+		return fmt.Errorf("agent: prepare activation recovery: %w", err)
+	}
 	a.replayActivationStatuses(runCtx)
 	// Restart recovery: reopen listeners for durably applied forwards
 	// (Story 6: restart restores the listener, initially UNVERIFIED).
@@ -253,6 +264,36 @@ func (a *App) Start(ctx context.Context) error {
 	return nil
 }
 
+// prepareActivationRecovery rewrites persisted snapshots before any status
+// replay or listener recovery. This ordering prevents a stale verified mirror
+// from being published during the reconnect window.
+func (a *App) prepareActivationRecovery() error {
+	if a.store == nil {
+		return nil
+	}
+	snapshots, err := a.store.ListActivationSnapshots(256)
+	if err != nil {
+		return err
+	}
+	for _, snapshot := range snapshots {
+		act := reconcile.NewActivation(snapshot.ForwardID, snapshot.Activation, snapshot.Generation)
+		if err := act.Set(snapshot.States); err != nil {
+			return fmt.Errorf("activation %s: %w", snapshot.ForwardID, err)
+		}
+		if err := act.RecoverAfterRestart(); err != nil {
+			return fmt.Errorf("activation %s recovery: %w", snapshot.ForwardID, err)
+		}
+		state := act.Snapshot()
+		if err := a.store.SaveActivationSnapshot(localstate.ActivationSnapshot{
+			ForwardID: snapshot.ForwardID, Activation: snapshot.Activation,
+			Generation: snapshot.Generation, States: state,
+		}); err != nil {
+			return fmt.Errorf("activation %s save recovery: %w", snapshot.ForwardID, err)
+		}
+	}
+	return nil
+}
+
 // replayActivationStatuses re-sends persisted evidence-loss mirrors after a
 // reconnect. The status message is idempotent and the controller applies its
 // activation CAS before replacing the runtime row.
@@ -265,7 +306,7 @@ func (a *App) replayActivationStatuses(ctx context.Context) {
 		return
 	}
 	for _, snapshot := range snapshots {
-		if snapshot.States.PublicationState != "STALE" && snapshot.States.PublicationState != "UNPUBLISHED" {
+		if snapshot.States.PublicationState == "NONE" {
 			continue
 		}
 		payload, err := json.Marshal(struct {
@@ -301,6 +342,10 @@ func (a *App) sendActivationStatus(ctx context.Context, payload []byte) {
 func (a *App) reconnectControl(ctx context.Context) {
 	for {
 		a.client.Wait()
+		a.ready.Store(false)
+		// A reconnect is also an evidence boundary: the old independent proof
+		// cannot be treated as current while the control session was absent.
+		a.markActivationsUnverified(ctx)
 		select {
 		case <-ctx.Done():
 			return
@@ -361,6 +406,39 @@ func (a *App) monitorLiveness(ctx context.Context) {
 	}
 }
 
+func (a *App) markActivationsUnverified(ctx context.Context) {
+	if a.dp == nil {
+		return
+	}
+	a.dp.mu.Lock()
+	activations := make([]*reconcile.Activation, 0, len(a.activations))
+	for _, act := range a.activations {
+		activations = append(activations, act)
+	}
+	a.dp.mu.Unlock()
+	for _, act := range activations {
+		if err := act.RecoverAfterRestart(); err != nil {
+			continue
+		}
+		state := act.Snapshot()
+		if a.store != nil {
+			_ = a.store.SaveActivationSnapshot(localstate.ActivationSnapshot{
+				ForwardID: act.ForwardID(), Activation: act.ActivationID(),
+				Generation: act.Generation(), States: state,
+			})
+		}
+		payload, err := json.Marshal(struct {
+			ForwardID  string                    `json:"forward_id"`
+			Activation string                    `json:"activation"`
+			Generation uint64                    `json:"generation"`
+			Snapshot   protocol.ActivationStates `json:"snapshot"`
+		}{act.ForwardID(), act.ActivationID(), act.Generation(), state})
+		if err == nil && a.client != nil {
+			a.sendActivationStatus(ctx, payload)
+		}
+	}
+}
+
 func (a *App) markEvidenceLost(ctx context.Context) {
 	a.dp.mu.Lock()
 	activations := make([]*reconcile.Activation, 0, len(a.activations))
@@ -402,9 +480,58 @@ func (a *App) handleCommand(ctx context.Context, op control.Operation) ([]byte, 
 		return a.armProbe(ctx, op)
 	case "forward_delete":
 		return a.applyDesired(ctx, op)
+	case "probe_outcome":
+		return a.applyProbeOutcome(op)
 	default:
 		return nil, fmt.Errorf("agent: unexpected command type %q", op.MessageType)
 	}
+}
+
+// applyProbeOutcome joins the controller's durably accepted probe outcome
+// into the matching activation. Activation and generation are both fenced so
+// a delayed outcome cannot publish an older revision.
+func (a *App) applyProbeOutcome(op control.Operation) ([]byte, error) {
+	var v struct {
+		ForwardID  string `json:"forward_id"`
+		Activation string `json:"activation"`
+		Generation uint64 `json:"generation"`
+		Outcome    string `json:"outcome"`
+	}
+	if err := json.Unmarshal(op.Payload, &v); err != nil {
+		return nil, fmt.Errorf("agent: probe outcome decode: %w", err)
+	}
+	if v.ForwardID == "" || v.Activation == "" || v.Generation == 0 || v.Outcome == "" {
+		return nil, errors.New("agent: incomplete probe outcome")
+	}
+	outcome, err := protocol.ParseProbeOutcome(v.Outcome)
+	if err != nil {
+		return nil, err
+	}
+	act := a.activation(v.ForwardID)
+	if act == nil {
+		return nil, fmt.Errorf("agent: activation %s not found", v.ForwardID)
+	}
+	if act.ActivationID() != v.Activation {
+		return nil, reconcile.ErrStaleEvent
+	}
+	if err := act.RecordProbeOutcome(outcome, v.Generation); err != nil {
+		return nil, err
+	}
+	state := act.Snapshot()
+	if a.store != nil {
+		if err := a.store.SaveActivationSnapshot(localstate.ActivationSnapshot{
+			ForwardID: v.ForwardID, Activation: v.Activation,
+			Generation: v.Generation, States: state,
+		}); err != nil {
+			return nil, fmt.Errorf("agent: save probe outcome: %w", err)
+		}
+	}
+	return json.Marshal(struct {
+		Status     string                    `json:"status"`
+		ForwardID  string                    `json:"forward_id"`
+		Activation string                    `json:"activation"`
+		Snapshot   protocol.ActivationStates `json:"snapshot"`
+	}{"applied", v.ForwardID, v.Activation, state})
 }
 
 // applyDesired reconciles a desired snapshot through the data plane and
@@ -498,26 +625,55 @@ func (a *App) ActivationSnapshot(forwardID string) *protocol.ActivationStates {
 	return &snap
 }
 
+// waitWithContext joins a lifecycle waiter without allowing a stuck transport
+// implementation to ignore the caller's shutdown deadline.
+func waitWithContext(ctx context.Context, wait func()) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	done := make(chan struct{})
+	go func() {
+		wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // Shutdown closes the control client, then the data plane, then the store.
-// It is idempotent.
+// It is idempotent and honors ctx while joining transport/lifecycle workers.
 func (a *App) Shutdown(ctx context.Context) error {
 	a.closeMu.Lock()
-	defer a.closeMu.Unlock()
 	if a.closed {
+		a.closeMu.Unlock()
 		return nil
 	}
 	a.closed = true
 	a.ready.Store(false)
-	if a.runCancel != nil {
-		a.runCancel()
-		a.runCancel = nil
+	cancel := a.runCancel
+	a.runCancel = nil
+	client := a.client
+	a.closeMu.Unlock()
+
+	if cancel != nil {
+		cancel()
 	}
-	if a.client != nil {
-		a.client.Shutdown()
-		a.client.Wait()
+	if client != nil {
+		client.Shutdown()
+		if err := waitWithContext(ctx, client.Wait); err != nil {
+			return fmt.Errorf("agent: wait for control shutdown: %w", err)
+		}
 	}
-	a.reconnectWG.Wait()
-	a.lifecycleWG.Wait()
+	if err := waitWithContext(ctx, a.reconnectWG.Wait); err != nil {
+		return fmt.Errorf("agent: wait for reconnect loop: %w", err)
+	}
+	if err := waitWithContext(ctx, a.lifecycleWG.Wait); err != nil {
+		return fmt.Errorf("agent: wait for liveness loop: %w", err)
+	}
 	if a.probeMgr != nil {
 		a.probeMgr.Close()
 	}
@@ -578,6 +734,27 @@ func newDataPlane(cfg dataPlaneConfig) *dataPlane {
 	}
 }
 
+func (d *dataPlane) capabilityCheck() error {
+	d.mu.Lock()
+	ready := d.capabilityReady
+	fingerprint := d.capabilityFingerprint
+	d.mu.Unlock()
+	if !ready {
+		return reconcile.ErrCapabilityLost
+	}
+	_, capability, assessErr := traversal.Assess(d.cfg.RouteTable)
+	if assessErr != nil || capability != traversal.CapabilityDirectV4Ready {
+		return reconcile.ErrCapabilityLost
+	}
+	if fingerprint != "" {
+		currentFingerprint, err := traversal.Fingerprint(d.cfg.RouteTable)
+		if err != nil || currentFingerprint != fingerprint {
+			return reconcile.ErrCapabilityLost
+		}
+	}
+	return nil
+}
+
 // apply implements reconcile.ApplyHook: it opens (or hot-updates) one
 // direct-v4 forward and returns the durable applied state.
 func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (protocol.AppliedForwardState, error) {
@@ -596,6 +773,11 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 			onApplied(spec, st)
 		}
 		return st, nil
+	}
+
+	if !d.capabilityReady {
+		d.mu.Unlock()
+		return protocol.AppliedForwardState{}, reconcile.ErrCapabilityLost
 	}
 
 	if spec.Strategy != protocol.StrategyDirectV4 {

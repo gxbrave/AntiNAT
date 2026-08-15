@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/json"
+	"errors"
 	"net"
 	"net/netip"
 	"path/filepath"
@@ -10,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gxbrave/AntiNAT/internal/agent/control"
 	"github.com/gxbrave/AntiNAT/internal/agent/localstate"
 	"github.com/gxbrave/AntiNAT/internal/agent/reconcile"
 	"github.com/gxbrave/AntiNAT/internal/controller"
@@ -100,6 +103,55 @@ func TestAgentNewEnrollsAndConnects(t *testing.T) {
 	}
 }
 
+type blockingShutdownClient struct {
+	unblock chan struct{}
+}
+
+func (c *blockingShutdownClient) Connect(context.Context) error                     { return nil }
+func (c *blockingShutdownClient) SendMessage(context.Context, string, []byte) error { return nil }
+func (c *blockingShutdownClient) Shutdown()                                         {}
+func (c *blockingShutdownClient) Wait()                                             { <-c.unblock }
+
+func TestShutdownHonorsContextWhileWaitingForControlDrain(t *testing.T) {
+	client := &blockingShutdownClient{unblock: make(chan struct{})}
+	a := &App{client: client}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := a.Shutdown(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Shutdown error = %v, want context deadline", err)
+	}
+	close(client.unblock)
+}
+
+func TestPrepareActivationRecoveryUnverifiesPersistedSnapshot(t *testing.T) {
+	st, err := localstate.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	states := protocol.ActivationStates{
+		ControlState: "ONLINE", ListenerState: "READY", MappingState: "PUBLIC_CANDIDATE",
+		WanReachabilityState: "OPEN_FROM_VANTAGE", ReturnPathState: "VERIFIED",
+		PublicationState: "PUBLISHED_VERIFIED", KeepaliveState: "HEALTHY", TargetHealthState: "PASS", DataPlaneState: "READY",
+	}
+	if err := st.SaveActivationSnapshot(localstate.ActivationSnapshot{
+		ForwardID: "fwd-restart", Activation: "act-restart", Generation: 1, States: states,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	a := &App{store: st}
+	if err := a.prepareActivationRecovery(); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := st.LoadActivationSnapshot("fwd-restart")
+	if err != nil || !ok {
+		t.Fatalf("recovered snapshot ok=%v err=%v", ok, err)
+	}
+	if got.States.PublicationState != "PUBLISHED_UNVERIFIED" || got.States.WanReachabilityState != "NOT_TESTED" || got.States.ReturnPathState != "NOT_TESTED" {
+		t.Fatalf("recovered states = %+v, want unverified/not-tested", got.States)
+	}
+}
+
 func TestDataPlaneApplyDoesNotDeadlockActivationCallback(t *testing.T) {
 	target, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
@@ -169,6 +221,41 @@ func TestAgentStartupFailureRollsBack(t *testing.T) {
 			_ = app.Shutdown(context.Background())
 		}
 		t.Fatal("New succeeded with an unwritable state dir")
+	}
+}
+
+// RED R7-2: an accepted controller-side probe outcome must be joined into the
+// current activation, rather than leaving the agent in PROBING forever.
+func TestProbeOutcomeCommandJoinsActivationState(t *testing.T) {
+	st, err := localstate.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	d := newDataPlane(dataPlaneConfig{Store: st, Clock: time.Now})
+	act := reconcile.NewActivation("fwd-outcome", "act-outcome", 1)
+	if err := act.StartProbe(1); err != nil {
+		t.Fatal(err)
+	}
+	a := &App{store: st, dp: d, activations: map[string]*reconcile.Activation{
+		"fwd-outcome": act,
+	}}
+	payload, err := json.Marshal(map[string]any{
+		"forward_id": "fwd-outcome", "activation": "act-outcome",
+		"generation": 1, "outcome": string(protocol.OutcomeOpenFromVantage),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.handleCommand(context.Background(), control.Operation{
+		MessageType: "probe_outcome", Payload: payload,
+	}); err != nil {
+		t.Fatalf("probe outcome command: %v", err)
+	}
+	snap := act.Snapshot()
+	if snap.WanReachabilityState != string(protocol.OutcomeOpenFromVantage) ||
+		snap.PublicationState != "PUBLISHED_VERIFIED" {
+		t.Fatalf("activation after outcome = %+v", snap)
 	}
 }
 

@@ -263,12 +263,25 @@ func (s *Server) handleForwardByID(w http.ResponseWriter, r *http.Request) {
 			OperationID: opID, MessageType: "desired", NodeID: f.NodeID,
 			SemanticPayload: desiredJSON(desired), State: "PENDING",
 		}); err != nil {
+			if errors.Is(err, store.ErrCASConflict) {
+				writeError(w, http.StatusPreconditionFailed, "PRECONDITION_FAILED", "forward revision changed")
+				return
+			}
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "desired apply failed")
 			return
 		}
 		got, _ := s.store.GetForward(id)
 		writeJSON(w, http.StatusOK, s.forwardView(got, spec, nil))
 	case http.MethodDelete:
+		// Once a delete intent has fenced and advanced the parent revision,
+		// repeated DELETEs replay its operation id. This is deliberately checked
+		// before If-Match so a retry carrying the original ETag is idempotent.
+		if previous, findErr := s.store.LatestForwardDeletion(id); findErr == nil && previous.DesiredRevision+1 == f.Revision {
+			writeJSON(w, http.StatusAccepted, map[string]any{
+				"operation_id": previous.ID, "state": previous.Status,
+			})
+			return
+		}
 		if err := requireIfMatch(w, r, etagFor(f.Revision)); err != nil {
 			return
 		}
@@ -288,6 +301,10 @@ func (s *Server) handleForwardByID(w http.ResponseWriter, r *http.Request) {
 			OperationID: opID, MessageType: "desired", NodeID: f.NodeID,
 			SemanticPayload: desiredJSON(desired), State: "PENDING",
 		}); err != nil {
+			if errors.Is(err, store.ErrCASConflict) {
+				writeError(w, http.StatusPreconditionFailed, "PRECONDITION_FAILED", "forward revision changed")
+				return
+			}
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "deletion op failed")
 			return
 		}

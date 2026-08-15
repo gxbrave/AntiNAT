@@ -86,6 +86,39 @@ func TestSaveLoadDeleteArmedProbe(t *testing.T) {
 	}
 }
 
+// TestReceiptAcknowledgementUsesCompleteIndexAcrossBoundedHistory ensures a
+// retained tombstone after the first bounded scan batch is still acknowledged.
+func TestReceiptAcknowledgementUsesCompleteIndexAcrossBoundedHistory(t *testing.T) {
+	s := openProbeStore(t)
+	for i := 0; i < defaultProbeScanLimit+32; i++ {
+		arm := sampleArm()
+		arm.ProbeID = [16]byte{}
+		arm.ProbeID[0] = byte(i >> 8)
+		arm.ProbeID[1] = byte(i)
+		if err := s.SaveArmedProbe(arm, time.Now().Add(time.Hour)); err != nil {
+			t.Fatalf("save probe %d: %v", i, err)
+		}
+		id := "receipt-" + string(rune(i))
+		if err := s.MarkArmedProbeConsumedWithReceipt(arm.ProbeID, []byte(id), id, time.Now().Add(time.Hour)); err != nil {
+			t.Fatalf("consume probe %d: %v", i, err)
+		}
+	}
+	target := sampleArm()
+	target.ProbeID = [16]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+	if err := s.SaveArmedProbe(target, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("save target: %v", err)
+	}
+	if err := s.MarkArmedProbeConsumedWithReceipt(target.ProbeID, []byte("target-receipt"), "target-receipt", time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("consume target: %v", err)
+	}
+	if err := s.AcknowledgeArmedProbeReceipt("target-receipt"); err != nil {
+		t.Fatalf("ack target receipt: %v", err)
+	}
+	if _, ok, err := s.LoadArmedProbe(target.ProbeID); err != nil || ok {
+		t.Fatalf("target tombstone remains: ok=%v err=%v", ok, err)
+	}
+}
+
 // TestListArmedProbesLoadsAll covers listing for restart recovery: expired
 // probes are returned too (the caller decides expiry by deadline).
 func TestListArmedProbesLoadsAll(t *testing.T) {

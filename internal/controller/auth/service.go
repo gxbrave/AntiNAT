@@ -13,9 +13,10 @@ import (
 // unknown users and wrong passwords (no user enumeration); session failures
 // collapse to ErrInvalidSession.
 var (
-	ErrInvalidCredentials = errors.New("auth: invalid credentials")
-	ErrInvalidSession     = errors.New("auth: invalid or expired session")
-	ErrUserExists         = errors.New("auth: user already exists")
+	ErrInvalidCredentials      = errors.New("auth: invalid credentials")
+	ErrInvalidSession          = errors.New("auth: invalid or expired session")
+	ErrUserExists              = errors.New("auth: user already exists")
+	ErrAdminAlreadyInitialized = errors.New("auth: administrator already initialized")
 )
 
 // DefaultSessionTTL is the web-session lifetime.
@@ -80,13 +81,41 @@ func (a *AuthService) EnsureAdmin(username string) (password string, created boo
 	if err != nil {
 		return "", false, err
 	}
-	if err := a.store.CreateUser(store.UserRecord{
+	if err := a.store.CreateFirstUser(store.UserRecord{
 		ID: id, Username: username,
 		PasswordHash: enc.Hash, PasswordAlgorithm: enc.Algorithm,
 	}); err != nil {
+		if errors.Is(err, store.ErrAdminExists) {
+			return "", false, nil
+		}
 		return "", false, err
 	}
 	return secret, true, nil
+}
+
+// BootstrapAdmin atomically creates the first administrator with the requested
+// operator password. The password is hashed before any durable mutation, and
+// CreateFirstUser's immediate transaction makes retries/races safe: a failed
+// hash or losing concurrent request cannot leave a half-initialized account.
+func (a *AuthService) BootstrapAdmin(username, password string) error {
+	enc, err := HashPassword(password)
+	if err != nil {
+		return err
+	}
+	id, err := newID()
+	if err != nil {
+		return err
+	}
+	if err := a.store.CreateFirstUser(store.UserRecord{
+		ID: id, Username: username,
+		PasswordHash: enc.Hash, PasswordAlgorithm: enc.Algorithm,
+	}); err != nil {
+		if errors.Is(err, store.ErrAdminExists) {
+			return ErrAdminAlreadyInitialized
+		}
+		return err
+	}
+	return nil
 }
 
 // Login verifies credentials and creates a session. On success it returns the

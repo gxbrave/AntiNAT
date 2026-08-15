@@ -1,13 +1,17 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 )
 
 // ErrUserNotFound is returned when no user matches a lookup.
-var ErrUserNotFound = errors.New("store: user not found")
+var (
+	ErrUserNotFound = errors.New("store: user not found")
+	ErrAdminExists  = errors.New("store: administrator already exists")
+)
 
 // UserRecord is a persistent administrator row. PasswordHash is always the
 // encoded password hash (never the plaintext); PasswordAlgorithm records the
@@ -35,6 +39,61 @@ func (s *Store) CreateUser(u UserRecord) error {
 	if err != nil {
 		return fmt.Errorf("store: create user: %w", err)
 	}
+	return nil
+}
+
+// CountUsers returns the number of administrator rows. All users in the
+// minimal API are administrators, so this is also the bootstrap gate.
+func (s *Store) CountUsers() (int, error) {
+	var count int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+		return 0, fmt.Errorf("store: count users: %w", err)
+	}
+	return count, nil
+}
+
+// CreateFirstUser atomically inserts the first administrator. BEGIN IMMEDIATE
+// serializes concurrent first-start callers so exactly one can observe an
+// empty users table and commit a row; the losing caller receives ErrAdminExists
+// without leaving any partial bootstrap state behind.
+func (s *Store) CreateFirstUser(u UserRecord) error {
+	conn, err := s.db.Conn(context.Background())
+	if err != nil {
+		return fmt.Errorf("store: first user conn: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		return fmt.Errorf("store: begin first user: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+
+	var exists int
+	err = conn.QueryRowContext(context.Background(), `SELECT 1 FROM users LIMIT 1`).Scan(&exists)
+	switch {
+	case err == nil:
+		return ErrAdminExists
+	case !errors.Is(err, sql.ErrNoRows):
+		return fmt.Errorf("store: check first user: %w", err)
+	}
+
+	ts := now()
+	if _, err := conn.ExecContext(context.Background(),
+		`INSERT INTO users (id, username, password_hash, password_algorithm,
+		                    revision, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		u.ID, u.Username, u.PasswordHash, u.PasswordAlgorithm,
+		u.Revision, ts, ts); err != nil {
+		return fmt.Errorf("store: create first user: %w", err)
+	}
+	if _, err := conn.ExecContext(context.Background(), "COMMIT"); err != nil {
+		return fmt.Errorf("store: commit first user: %w", err)
+	}
+	committed = true
 	return nil
 }
 

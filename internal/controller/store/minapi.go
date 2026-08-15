@@ -209,6 +209,27 @@ func (s *Store) CompleteForwardDeletionOperation(id string) error {
 	return nil
 }
 
+// LatestForwardDeletion returns the most recent durable deletion intent for a
+// forward. It is used to make duplicate DELETE requests replay the same
+// operation instead of enqueueing a second side effect.
+func (s *Store) LatestForwardDeletion(forwardID string) (ForwardDeletionOperation, error) {
+	var op ForwardDeletionOperation
+	var completedAt sql.NullInt64
+	err := s.db.QueryRow(
+		`SELECT id, forward_id, status, desired_revision, created_at, completed_at
+		   FROM forward_deletion_operations WHERE forward_id = ?
+		   ORDER BY created_at DESC, id DESC LIMIT 1`, forwardID,
+	).Scan(&op.ID, &op.ForwardID, &op.Status, &op.DesiredRevision, &op.CreatedAt, &completedAt)
+	op.CompletedAt = completedAt.Int64
+	if errors.Is(err, sql.ErrNoRows) {
+		return ForwardDeletionOperation{}, ErrNotFound
+	}
+	if err != nil {
+		return ForwardDeletionOperation{}, fmt.Errorf("store: latest forward deletion: %w", err)
+	}
+	return op, nil
+}
+
 // ListControlInboxByType returns the durable inbound A2C records of the
 // given message types, newest first (bounded). Used by the controller app
 // watcher to complete forward-deletion operations when the agent's delete

@@ -389,7 +389,7 @@ func (c *Client) handleInboundFrame(ctx context.Context, frame []byte) error {
 	c.mu.Unlock()
 
 	switch hdr.MessageType {
-	case "desired", "forward_delete", "node_decommission", "probe_arm":
+	case "desired", "forward_delete", "node_decommission", "probe_arm", "probe_outcome":
 		return c.handleCommand(ctx, env)
 	case "message_receipt":
 		return c.handleReceipt(ctx, env)

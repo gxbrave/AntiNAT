@@ -79,8 +79,22 @@ type DesiredApplyReport struct {
 // Agent; only cleanup is allowed from that marker onward.
 var ErrDecommissioned = errors.New("reconcile: agent is decommissioned")
 
+// CapabilityCheck is evaluated before side effects and again immediately
+// before the durable desired commit. A loss between those points rejects the
+// batch and rolls back actors created by this pass.
+type CapabilityCheck func() error
+
+// ErrCapabilityLost is returned when a desired apply crosses a capability
+// boundary and cannot safely be committed.
+var ErrCapabilityLost = errors.New("reconcile: capability lost during desired apply")
+
 // ApplyDesired reconciles one desired snapshot against the applied state.
 func ApplyDesired(ctx context.Context, store *localstate.Store, latch *localstate.Latch, d protocol.DesiredState, apply ApplyHook, stop StopHook) (DesiredApplyReport, error) {
+	return ApplyDesiredWithGuard(ctx, store, latch, d, apply, stop, nil)
+}
+
+// ApplyDesiredWithGuard is ApplyDesired with an optional capability fence.
+func ApplyDesiredWithGuard(ctx context.Context, store *localstate.Store, latch *localstate.Latch, d protocol.DesiredState, apply ApplyHook, stop StopHook, guard CapabilityCheck) (DesiredApplyReport, error) {
 	var report DesiredApplyReport
 	if err := d.Validate(); err != nil {
 		return report, fmt.Errorf("reconcile: desired: %w", err)
@@ -96,6 +110,14 @@ func ApplyDesired(ctx context.Context, store *localstate.Store, latch *localstat
 
 	results := make([]DesiredApplyResult, 0, len(d.Forwards))
 	commits := make([]localstate.ForwardApply, 0, len(d.Forwards))
+	newActors := make([]string, 0, len(d.Forwards))
+	rollbackNewActors := func() {
+		for _, forwardID := range newActors {
+			if stop != nil {
+				_ = stop(ctx, forwardID)
+			}
+		}
+	}
 
 	for _, spec := range d.Forwards {
 		switch spec.Presence {
@@ -133,11 +155,23 @@ func ApplyDesired(ctx context.Context, store *localstate.Store, latch *localstat
 				commits = append(commits, localstate.ForwardApply{ForwardID: spec.ForwardID, Outcome: localstate.ApplySkipped})
 				continue
 			}
+			if guard != nil {
+				if err := guard(); err != nil {
+					rollbackNewActors()
+					return report, fmt.Errorf("%w: before forward %q: %v", ErrCapabilityLost, spec.ForwardID, err)
+				}
+			}
 			appliedState, applyErr := apply(ctx, spec)
+			if applyErr == nil {
+				applyErr = appliedState.Validate()
+			}
 			if applyErr != nil {
 				results = append(results, DesiredApplyResult{ForwardID: spec.ForwardID, Outcome: OutcomeFailed, Err: applyErr})
 				commits = append(commits, localstate.ForwardApply{ForwardID: spec.ForwardID, Outcome: localstate.ApplyFailed, Err: applyErr})
 				continue
+			}
+			if _, existed := prevByID[spec.ForwardID]; !existed {
+				newActors = append(newActors, spec.ForwardID)
 			}
 			results = append(results, DesiredApplyResult{ForwardID: spec.ForwardID, Outcome: OutcomeApplied})
 			commits = append(commits, localstate.ForwardApply{ForwardID: spec.ForwardID, Outcome: localstate.ApplyApplied, Applied: &appliedState})
@@ -145,8 +179,19 @@ func ApplyDesired(ctx context.Context, store *localstate.Store, latch *localstat
 	}
 
 	// One atomic commit: received desired + applied records + tombstones.
+	if guard != nil {
+		if err := guard(); err != nil {
+			rollbackNewActors()
+			return report, fmt.Errorf("%w: before desired commit: %v", ErrCapabilityLost, err)
+		}
+	}
 	if _, err := store.CommitDesired(d, commits); err != nil {
-		return report, err
+		// The hook may have created a real actor before a concurrent tombstone
+		// or capability change made the durable commit fail. Remove only actors
+		// that had no previous applied generation; hot-updated actors remain
+		// owned by the prior durable state.
+		rollbackNewActors()
+		return report, fmt.Errorf("reconcile: commit desired (rolled back %d new actors): %w", len(newActors), err)
 	}
 
 	// Tombstone-before-stop: only now that the tombstone is durable do the

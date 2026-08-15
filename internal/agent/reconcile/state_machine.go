@@ -29,6 +29,26 @@ func (a *Activation) EvidenceLost() error {
 	return nil
 }
 
+// RecoverAfterRestart invalidates proof that was persisted by an earlier
+// process/session. A recovered listener may remain available, but WAN and
+// return-path evidence must be tested again before verified publication. Keep
+// an existing verified publication visible only as explicitly unverified.
+func (a *Activation) RecoverAfterRestart() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	next := a.states
+	next.WanReachabilityState = "NOT_TESTED"
+	next.ReturnPathState = "NOT_TESTED"
+	if next.PublicationState == "PUBLISHED_VERIFIED" {
+		next.PublicationState = "PUBLISHED_UNVERIFIED"
+	}
+	if err := next.Validate(); err != nil {
+		return err
+	}
+	a.states = next
+	return nil
+}
+
 // StartProbe moves the activation into a probe cycle: the WAN axis goes to
 // PROBING and the old publication is unpublished (a fresh probe can never
 // ride on a previous verification). Stale generations are rejected.

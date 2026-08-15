@@ -187,6 +187,42 @@ func TestEnsureAdminGeneratesOneTimePassword(t *testing.T) {
 	}
 }
 
+// RED R7-1: bootstrap must hash the requested operator password and publish
+// exactly one administrator even when two first-start callers race.
+func TestBootstrapAdminIsAtomicAndUsesRequestedPassword(t *testing.T) {
+	svc, s := openAuth(t)
+
+	type result struct {
+		err error
+	}
+	results := make(chan result, 2)
+	for i, password := range []string{"operator-password-a", "operator-password-b"} {
+		go func(i int, password string) {
+			results <- result{err: svc.BootstrapAdmin(fmt.Sprintf("admin-%d", i), password)}
+		}(i, password)
+	}
+
+	var successes int
+	for range 2 {
+		if err := (<-results).err; err == nil {
+			successes++
+		} else if !errors.Is(err, auth.ErrAdminAlreadyInitialized) {
+			t.Fatalf("BootstrapAdmin error = %v, want ErrAdminAlreadyInitialized for the loser", err)
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("BootstrapAdmin successes = %d, want exactly one", successes)
+	}
+
+	users, err := s.CountUsers()
+	if err != nil {
+		t.Fatalf("CountUsers: %v", err)
+	}
+	if users != 1 {
+		t.Fatalf("user count = %d, want one administrator", users)
+	}
+}
+
 // RED 4f: Login/Logout/Me flow; Me fails after logout and on expiry.
 func TestLoginLogoutMe(t *testing.T) {
 	svc, _ := openAuth(t)

@@ -80,6 +80,7 @@ type ProbeManager struct {
 	maxActive     int
 	sendTimeout   time.Duration
 	sweepInterval time.Duration
+	sweepAfter    []byte
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
 }
@@ -159,9 +160,19 @@ func (m *ProbeManager) Start(parent context.Context) {
 			case now := <-ticker.C:
 				m.mu.Lock()
 				m.sweep(now)
+				after := append([]byte(nil), m.sweepAfter...)
 				m.mu.Unlock()
 				if m.store != nil {
-					_ = m.store.SweepArmedProbeTombstonesLimit(now, m.maxActive)
+					next, done, err := m.store.SweepArmedProbeTombstonesPage(now, m.maxActive, after)
+					if err == nil {
+						m.mu.Lock()
+						if done {
+							m.sweepAfter = nil
+						} else {
+							m.sweepAfter = next
+						}
+						m.mu.Unlock()
+					}
 				}
 			}
 		}
@@ -252,34 +263,40 @@ func (m *ProbeManager) RetryPendingReceipts(ctx context.Context) error {
 	if m.store == nil || m.send == nil {
 		return nil
 	}
-	probes, err := m.store.ListArmedProbesLimit(m.maxActive)
-	if err != nil {
-		return err
-	}
 	var firstErr error
-	for _, probe := range probes {
-		if !probe.Consumed || len(probe.Receipt) == 0 {
-			continue
-		}
-		messageID := probe.ReceiptMessageID
-		if messageID == "" {
-			messageID = probeReceiptOperationID(probe.Receipt)
-			_ = m.store.SetArmedProbeReceiptMessageID(probe.Arm.ProbeID, messageID, probe.Deadline.Add(protocol.ProbeReplayWindow))
-		}
-		sendCtx, cancel := context.WithTimeout(ctx, m.sendTimeout)
-		err := m.send(sendCtx, "probe_ingress_receipt", probe.Receipt)
-		cancel()
+	var after []byte
+	for {
+		probes, next, done, err := m.store.ListArmedProbesPage(m.maxActive, after)
 		if err != nil {
-			if firstErr == nil {
+			return err
+		}
+		for _, probe := range probes {
+			if !probe.Consumed || len(probe.Receipt) == 0 {
+				continue
+			}
+			messageID := probe.ReceiptMessageID
+			if messageID == "" {
+				messageID = probeReceiptOperationID(probe.Receipt)
+				_ = m.store.SetArmedProbeReceiptMessageID(probe.Arm.ProbeID, messageID, probe.Deadline.Add(protocol.ProbeReplayWindow))
+			}
+			sendCtx, cancel := context.WithTimeout(ctx, m.sendTimeout)
+			err := m.send(sendCtx, "probe_ingress_receipt", probe.Receipt)
+			cancel()
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+			if err := m.store.MarkArmedProbeReceiptSent(probe.Arm.ProbeID); err != nil && firstErr == nil {
 				firstErr = err
 			}
-			continue
 		}
-		if err := m.store.MarkArmedProbeReceiptSent(probe.Arm.ProbeID); err != nil && firstErr == nil {
-			firstErr = err
+		if done {
+			return firstErr
 		}
+		after = next
 	}
-	return firstErr
 }
 
 // AcknowledgeReceipt consumes the controller semantic receipt for a probe
@@ -297,6 +314,13 @@ func (m *ProbeManager) sweep(now time.Time) {
 		if !now.Before(op.deadline) {
 			delete(m.ops, id)
 			if m.store != nil {
+				// Consuming the ingress operation turns the row into the
+				// receipt replay tombstone. Its lifetime is ReceiptDeadline,
+				// not the original arm deadline.
+				rec, found, err := m.store.LoadArmedProbe(id)
+				if err == nil && found && rec.Consumed {
+					continue
+				}
 				_ = m.store.DeleteArmedProbe(id)
 			}
 		}

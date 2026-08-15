@@ -52,6 +52,16 @@ var (
 
 const defaultProbeScanLimit = 256
 
+const probeReceiptIndexPrefix = "receipt/"
+
+func probeReceiptIndexKey(operationID string) []byte {
+	return []byte(probeReceiptIndexPrefix + operationID)
+}
+
+func isProbeOperationKey(key []byte) bool {
+	return len(key) == 16 && !bytes.HasPrefix(key, []byte(probeReceiptIndexPrefix))
+}
+
 // SaveArmedProbe durably persists an armed probe operation. Re-saving the
 // same unconsumed probe id replaces the row only when the arm material is
 // identical; consumed ids are permanent replay fences.
@@ -107,7 +117,20 @@ func (s *Store) LoadArmedProbe(probeID [16]byte) (ArmedProbe, bool, error) {
 // DeleteArmedProbe removes an operation (normally only an expired row).
 func (s *Store) DeleteArmedProbe(probeID [16]byte) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket([]byte(bucketProbeOps)).Delete(probeID[:])
+		bucket := tx.Bucket([]byte(bucketProbeOps))
+		raw := bucket.Get(probeID[:])
+		if raw != nil {
+			var rec ArmedProbe
+			if err := json.Unmarshal(raw, &rec); err != nil {
+				return err
+			}
+			if rec.ReceiptMessageID != "" {
+				if err := bucket.Delete(probeReceiptIndexKey(rec.ReceiptMessageID)); err != nil {
+					return err
+				}
+			}
+		}
+		return bucket.Delete(probeID[:])
 	})
 }
 
@@ -138,12 +161,27 @@ func (s *Store) MarkArmedProbeConsumedWithReceipt(probeID [16]byte, receipt []by
 			rec.ReceiptSent = false
 			rec.ReceiptMessageID = receiptMessageID
 			rec.ReceiptDeadline = receiptDeadline
+		} else {
+			if rec.ReceiptMessageID == "" {
+				rec.ReceiptMessageID = receiptMessageID
+			}
+			if rec.ReceiptDeadline.IsZero() {
+				rec.ReceiptDeadline = receiptDeadline
+			}
 		}
 		updated, err := json.Marshal(rec)
 		if err != nil {
 			return fmt.Errorf("localstate: encode consumed probe: %w", err)
 		}
-		return bucket.Put(probeID[:], updated)
+		if err := bucket.Put(probeID[:], updated); err != nil {
+			return err
+		}
+		if rec.ReceiptMessageID != "" {
+			if err := bucket.Put(probeReceiptIndexKey(rec.ReceiptMessageID), probeID[:]); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
 
@@ -177,16 +215,10 @@ func (s *Store) MarkArmedProbeReceiptSent(probeID [16]byte) error {
 func (s *Store) AcknowledgeArmedProbeReceipt(operationID string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(bucketProbeOps))
-		var found []byte
-		scanned := 0
-		if err := bucket.ForEach(func(k, raw []byte) error {
-			if scanned >= defaultProbeScanLimit {
-				return nil
-			}
-			scanned++
+		deleteMatch := func(probeID []byte, raw []byte) (bool, error) {
 			var rec ArmedProbe
 			if err := json.Unmarshal(raw, &rec); err != nil {
-				return err
+				return false, err
 			}
 			matches := rec.Consumed && rec.ReceiptMessageID == operationID
 			if !matches && rec.Consumed && len(rec.Receipt) != 0 {
@@ -195,17 +227,47 @@ func (s *Store) AcknowledgeArmedProbeReceipt(operationID string) error {
 				legacyID := security.MessageID(semanticID, "probe_ingress_receipt")
 				matches = operationID == semanticID && rec.ReceiptMessageID == hex.EncodeToString(legacyID[:])
 			}
-			if matches {
-				found = append([]byte(nil), k...)
+			if !matches {
+				return false, nil
 			}
-			return nil
-		}); err != nil {
-			return fmt.Errorf("localstate: scan probe receipts: %w", err)
+			if err := bucket.Delete(probeID); err != nil {
+				return false, err
+			}
+			if rec.ReceiptMessageID != "" {
+				if err := bucket.Delete(probeReceiptIndexKey(rec.ReceiptMessageID)); err != nil {
+					return false, err
+				}
+			}
+			return true, nil
 		}
-		if found == nil {
-			return nil
+
+		// New rows are indexed by their semantic operation id, so an
+		// acknowledgement remains complete even when the retained tombstone is
+		// beyond the bounded history scan.
+		if probeID := bucket.Get(probeReceiptIndexKey(operationID)); len(probeID) == 16 {
+			raw := bucket.Get(probeID)
+			if raw != nil {
+				matched, err := deleteMatch(append([]byte(nil), probeID...), raw)
+				if err != nil {
+					return err
+				}
+				if matched {
+					return nil
+				}
+			}
 		}
-		return bucket.Delete(found)
+
+		// Compatibility path for pre-index rows. It is intentionally bounded;
+		// all newly written rows use the direct index above.
+		scanned := 0
+		return bucket.ForEach(func(k, raw []byte) error {
+			if !isProbeOperationKey(k) || scanned >= defaultProbeScanLimit {
+				return nil
+			}
+			scanned++
+			_, err := deleteMatch(append([]byte(nil), k...), raw)
+			return err
+		})
 	})
 }
 
@@ -220,40 +282,74 @@ func (s *Store) SweepArmedProbeTombstones(now time.Time) error {
 // repeat cleanup on subsequent ticks; a single tick must never scan an
 // unbounded replay/history bucket.
 func (s *Store) SweepArmedProbeTombstonesLimit(now time.Time, limit int) error {
+	_, _, err := s.SweepArmedProbeTombstonesPage(now, limit, nil)
+	return err
+}
+
+// SweepArmedProbeTombstonesPage removes one ordered bounded page and returns a
+// cursor for the next page. Retained rows no longer starve expired rows behind
+// them in the bbolt key order.
+func (s *Store) SweepArmedProbeTombstonesPage(now time.Time, limit int, after []byte) ([]byte, bool, error) {
 	if limit <= 0 {
 		limit = defaultProbeScanLimit
 	}
-	return s.db.Update(func(tx *bolt.Tx) error {
+	var next []byte
+	done := true
+	err := s.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(bucketProbeOps))
-		var remove [][]byte
+		cursor := bucket.Cursor()
+		var key, raw []byte
+		var lastKey []byte
+		if len(after) == 0 {
+			key, raw = cursor.First()
+		} else {
+			key, raw = cursor.Seek(after)
+			if bytes.Equal(key, after) {
+				key, raw = cursor.Next()
+			}
+		}
 		scanned := 0
-		if err := bucket.ForEach(func(k, raw []byte) error {
+		var remove [][]byte
+		for ; key != nil; key, raw = cursor.Next() {
+			if !isProbeOperationKey(key) {
+				continue
+			}
 			if scanned >= limit {
-				return nil
+				next = append([]byte(nil), lastKey...)
+				done = false
+				break
 			}
 			scanned++
+			lastKey = append(lastKey[:0], key...)
 			var rec ArmedProbe
 			if err := json.Unmarshal(raw, &rec); err != nil {
-				return err
+				return fmt.Errorf("localstate: scan probe tombstones: %w", err)
 			}
-			if !rec.Consumed && !now.Before(rec.Deadline) {
-				remove = append(remove, append([]byte(nil), k...))
-				return nil
+			if (!rec.Consumed && !now.Before(rec.Deadline)) ||
+				(rec.Consumed && !rec.ReceiptDeadline.IsZero() && !now.Before(rec.ReceiptDeadline)) {
+				remove = append(remove, append([]byte(nil), key...))
 			}
-			if rec.Consumed && !rec.ReceiptDeadline.IsZero() && !now.Before(rec.ReceiptDeadline) {
-				remove = append(remove, append([]byte(nil), k...))
-			}
-			return nil
-		}); err != nil {
-			return fmt.Errorf("localstate: scan probe tombstones: %w", err)
 		}
 		for _, k := range remove {
+			raw := bucket.Get(k)
+			if raw != nil {
+				var rec ArmedProbe
+				if err := json.Unmarshal(raw, &rec); err != nil {
+					return err
+				}
+				if rec.ReceiptMessageID != "" {
+					if err := bucket.Delete(probeReceiptIndexKey(rec.ReceiptMessageID)); err != nil {
+						return err
+					}
+				}
+			}
 			if err := bucket.Delete(k); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+	return next, done, err
 }
 
 // SetArmedProbeReceiptMessageID fills the deterministic receipt id after an
@@ -282,8 +378,59 @@ func (s *Store) SetArmedProbeReceiptMessageID(probeID [16]byte, messageID string
 		if err != nil {
 			return err
 		}
-		return bucket.Put(probeID[:], updated)
+		if err := bucket.Put(probeID[:], updated); err != nil {
+			return err
+		}
+		if rec.Consumed && rec.ReceiptMessageID != "" {
+			if err := bucket.Put(probeReceiptIndexKey(rec.ReceiptMessageID), probeID[:]); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
+}
+
+// ListArmedProbesPage returns one ordered, bounded page and a cursor for the
+// next page. The cursor is the last returned probe key; index rows are skipped
+// without consuming the page budget.
+func (s *Store) ListArmedProbesPage(limit int, after []byte) ([]ArmedProbe, []byte, bool, error) {
+	if limit <= 0 {
+		limit = defaultProbeScanLimit
+	}
+	var out []ArmedProbe
+	var next []byte
+	done := true
+	err := s.db.View(func(tx *bolt.Tx) error {
+		cursor := tx.Bucket([]byte(bucketProbeOps)).Cursor()
+		var key, raw []byte
+		var lastKey []byte
+		if len(after) == 0 {
+			key, raw = cursor.First()
+		} else {
+			key, raw = cursor.Seek(after)
+			if bytes.Equal(key, after) {
+				key, raw = cursor.Next()
+			}
+		}
+		for ; key != nil; key, raw = cursor.Next() {
+			if !isProbeOperationKey(key) {
+				continue
+			}
+			if len(out) >= limit {
+				next = append([]byte(nil), lastKey...)
+				done = false
+				return nil
+			}
+			var rec ArmedProbe
+			if err := json.Unmarshal(raw, &rec); err != nil {
+				return fmt.Errorf("localstate: decode armed probe: %w", err)
+			}
+			out = append(out, rec)
+			lastKey = append(lastKey[:0], key...)
+		}
+		return nil
+	})
+	return out, next, done, err
 }
 
 // ListArmedProbes returns every durable armed operation (expired included;
@@ -303,8 +450,8 @@ func (s *Store) ListArmedProbesLimit(limit int) ([]ArmedProbe, error) {
 	var out []ArmedProbe
 	err := s.db.View(func(tx *bolt.Tx) error {
 		scanned := 0
-		return tx.Bucket([]byte(bucketProbeOps)).ForEach(func(_, raw []byte) error {
-			if scanned >= limit {
+		return tx.Bucket([]byte(bucketProbeOps)).ForEach(func(key, raw []byte) error {
+			if !isProbeOperationKey(key) || scanned >= limit {
 				return nil
 			}
 			scanned++

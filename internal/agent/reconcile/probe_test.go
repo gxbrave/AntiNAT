@@ -360,6 +360,25 @@ func TestProbeIngressDemultiplexesSameSourceByFrame(t *testing.T) {
 	}
 }
 
+// TestConsumedProbeSurvivesArmDeadlineUntilReceiptDeadline verifies that the
+// in-memory expiry pass cannot delete a consumed receipt tombstone at the arm
+// deadline. The tombstone remains available for reconnect retries/acknowledgement.
+func TestConsumedProbeSurvivesArmDeadlineUntilReceiptDeadline(t *testing.T) {
+	e := newProbeTestEnv(t)
+	arm := e.mustArm(t)
+	receipt := []byte("receipt-retention")
+	receiptDeadline := time.Now().Add(time.Hour)
+	if err := e.store.MarkArmedProbeConsumedWithReceipt(arm.ProbeID, receipt, probeReceiptOperationID(receipt), receiptDeadline); err != nil {
+		t.Fatalf("mark consumed: %v", err)
+	}
+	e.mgr.mu.Lock()
+	e.mgr.sweep(time.Now().Add(2 * time.Hour))
+	e.mgr.mu.Unlock()
+	if _, ok, err := e.store.LoadArmedProbe(arm.ProbeID); err != nil || !ok {
+		t.Fatalf("consumed tombstone removed at arm deadline: ok=%v err=%v", ok, err)
+	}
+}
+
 // TestRetryPendingReceiptsMarksDurableReceiptSent covers restart/disconnect
 // recovery: a consumed row with an unsent receipt is retried and only then
 // marked sent.
@@ -387,6 +406,37 @@ func TestRetryPendingReceiptsMarksDurableReceiptSent(t *testing.T) {
 	rec, ok, err := e.store.LoadArmedProbe(arm.ProbeID)
 	if err != nil || !ok || !rec.Consumed || !rec.ReceiptSent {
 		t.Fatalf("receipt state after retry: ok=%v err=%v rec=%+v", ok, err, rec)
+	}
+}
+
+// TestRetryPendingReceiptsScansAllRetainedRows verifies bounded paging does not
+// strand a receipt tombstone after the first active-operation batch.
+func TestRetryPendingReceiptsScansAllRetainedRows(t *testing.T) {
+	e := newProbeTestEnv(t)
+	const count = 257
+	for i := 0; i < count; i++ {
+		arm := sampleProbeArm()
+		arm.ProbeID = [16]byte{}
+		arm.ProbeID[0] = byte(i >> 8)
+		arm.ProbeID[1] = byte(i)
+		if err := e.store.SaveArmedProbe(arm, time.Now().Add(time.Hour)); err != nil {
+			t.Fatalf("save probe %d: %v", i, err)
+		}
+		id := "retry-" + string(rune(i))
+		if err := e.store.MarkArmedProbeConsumedWithReceipt(arm.ProbeID, []byte(id), id, time.Now().Add(time.Hour)); err != nil {
+			t.Fatalf("consume probe %d: %v", i, err)
+		}
+	}
+	calls := 0
+	e.mgr.send = func(ctx context.Context, messageType string, payload []byte) error {
+		calls++
+		return nil
+	}
+	if err := e.mgr.RetryPendingReceipts(context.Background()); err != nil {
+		t.Fatalf("retry pending receipts: %v", err)
+	}
+	if calls != count {
+		t.Fatalf("retry calls = %d, want %d", calls, count)
 	}
 }
 

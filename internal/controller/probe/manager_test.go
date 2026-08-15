@@ -375,6 +375,23 @@ func TestJoinOpensFromVantage(t *testing.T) {
 			t.Fatal(err)
 		}
 		if got.Status == string(protocol.OutcomeOpenFromVantage) {
+			item, err := env.store.ControlOutboxItemByOperation(op.ID, "probe_outcome")
+			if err != nil {
+				t.Fatalf("probe outcome outbox: %v", err)
+			}
+			var outcome struct {
+				ForwardID  string `json:"forward_id"`
+				Activation string `json:"activation"`
+				Generation uint64 `json:"generation"`
+				Outcome    string `json:"outcome"`
+			}
+			if err := json.Unmarshal([]byte(item.SemanticPayload), &outcome); err != nil {
+				t.Fatalf("probe outcome payload: %v", err)
+			}
+			if outcome.ForwardID != op.ForwardID || outcome.Activation != op.ActivationID ||
+				outcome.Outcome != string(protocol.OutcomeOpenFromVantage) || outcome.Generation != 1 {
+				t.Fatalf("probe outcome = %+v", outcome)
+			}
 			return
 		}
 		time.Sleep(20 * time.Millisecond)

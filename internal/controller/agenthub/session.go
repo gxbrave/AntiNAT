@@ -135,6 +135,11 @@ func (h *Hub) handleControl(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	if !h.beginHandshake(conn) {
+		conn.CloseNow()
+		return
+	}
+	defer h.endHandshake(conn)
 	conn.SetReadLimit(maxEnvelopeBytes)
 	ctx, cancel := context.WithTimeout(r.Context(), handshakeTimeout)
 	defer cancel()

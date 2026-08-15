@@ -263,7 +263,7 @@ func (m *Manager) recoverOperations() {
 	}
 	for _, op := range ops {
 		if !m.clock().Before(time.Unix(op.ExpiresAt, 0)) {
-			_ = m.store.SetProbeOperationStatusCAS(op.ID, op.Status, string(protocol.OutcomeTimeout))
+			_ = m.setTerminalOutcome(op.ID, op.Status, protocol.OutcomeTimeout)
 			continue
 		}
 		m.mu.Lock()
@@ -287,7 +287,7 @@ func (m *Manager) recoverOperations() {
 			continue
 		}
 		if !provider.IndependentVantage {
-			_ = m.store.SetProbeOperationStatusCAS(op.ID, "ARMED", string(protocol.OutcomeNoIndependentVantage))
+			_ = m.setTerminalOutcome(op.ID, "ARMED", protocol.OutcomeNoIndependentVantage)
 			continue
 		}
 		_ = m.startProvider(op, op.NodeID, nodePub)
@@ -481,7 +481,7 @@ func (m *Manager) handleArmed(nodeID string, payload []byte) error {
 		return err
 	}
 	if m.clock().Unix() >= op.ExpiresAt {
-		return m.store.SetProbeOperationStatusCAS(op.ID, op.Status, string(protocol.OutcomeTimeout))
+		return m.setTerminalOutcome(op.ID, op.Status, protocol.OutcomeTimeout)
 	}
 	if err := m.store.SetProbeOperationStatusCAS(op.ID, "PENDING", "ARMED"); err != nil {
 		if errors.Is(err, store.ErrProbeTerminal) {
@@ -491,15 +491,15 @@ func (m *Manager) handleArmed(nodeID string, payload []byte) error {
 	}
 	provider, err := m.store.GetProbeProvider(op.ProviderID)
 	if err != nil {
-		_ = m.store.SetProbeOperationStatusCAS(op.ID, "ARMED", string(protocol.OutcomeProbeInfraUnavailable))
+		_ = m.setTerminalOutcome(op.ID, "ARMED", protocol.OutcomeProbeInfraUnavailable)
 		return err
 	}
 	if !provider.IndependentVantage {
-		return m.store.SetProbeOperationStatusCAS(op.ID, "ARMED", string(protocol.OutcomeNoIndependentVantage))
+		return m.setTerminalOutcome(op.ID, "ARMED", protocol.OutcomeNoIndependentVantage)
 	}
 	// Request the provider asynchronously (bounded concurrency).
 	if !m.startProvider(op, nodeID, nodePub) {
-		return m.store.SetProbeOperationStatusCAS(op.ID, "ARMED", string(protocol.OutcomeProbeInfraUnavailable))
+		return m.setTerminalOutcome(op.ID, "ARMED", protocol.OutcomeProbeInfraUnavailable)
 	}
 	return nil
 }
@@ -520,7 +520,7 @@ func (m *Manager) handleReceipt(nodeID string, payload []byte) error {
 	}
 	if !m.clock().Before(time.Unix(op.ExpiresAt, 0)) {
 		if op.Status == "ARMED" || op.Status == "IN_FLIGHT" || op.Status == "PENDING" {
-			return m.store.SetProbeOperationStatusCAS(op.ID, op.Status, string(protocol.OutcomeTimeout))
+			return m.setTerminalOutcome(op.ID, op.Status, protocol.OutcomeTimeout)
 		}
 		return nil
 	}
@@ -529,7 +529,7 @@ func (m *Manager) handleReceipt(nodeID string, payload []byte) error {
 	}
 	if err := m.store.RecordProbeResult(op.ID, "rct1", hex.EncodeToString(payload)); err != nil {
 		if errors.Is(err, store.ErrProbeExpired) {
-			return m.store.SetProbeOperationStatusCAS(op.ID, op.Status, string(protocol.OutcomeTimeout))
+			return m.setTerminalOutcome(op.ID, op.Status, protocol.OutcomeTimeout)
 		}
 		if errors.Is(err, store.ErrProbeDuplicateEvidence) {
 			m.failOperation(op.ID, string(protocol.OutcomeRejected))
@@ -561,12 +561,12 @@ func (m *Manager) handleProbeResult(nodeID string, payload []byte) error {
 		return nil // terminal already
 	}
 	if !m.clock().Before(time.Unix(op.ExpiresAt, 0)) {
-		return m.store.SetProbeOperationStatusCAS(op.ID, op.Status, string(protocol.OutcomeTimeout))
+		return m.setTerminalOutcome(op.ID, op.Status, protocol.OutcomeTimeout)
 	}
 	if op.Status != "ARMED" && op.Status != "IN_FLIGHT" && op.Status != "PENDING" {
 		return errors.New("probe: probe_result is not bound to a live operation")
 	}
-	return m.store.SetProbeOperationStatusCAS(op.ID, op.Status, string(outcome))
+	return m.setTerminalOutcome(op.ID, op.Status, outcome)
 }
 
 // requestProvider sends the controller-signed provider request and records
@@ -667,7 +667,7 @@ func (m *Manager) requestProvider(requestCtx context.Context, op store.ProbeOper
 		return
 	}
 	if res.ProbeID != op.ID {
-		_ = m.store.SetProbeOperationStatus(op.ID, string(protocol.OutcomeRejected))
+		m.failOperation(op.ID, string(protocol.OutcomeRejected))
 		return
 	}
 	const resultClockSkewSeconds int64 = 5 * 60
@@ -749,7 +749,7 @@ func (m *Manager) tryJoin(op store.ProbeOperation) error {
 		switch r.Kind {
 		case "provider":
 			if providerJSON != "" {
-				return m.store.SetProbeOperationStatusCAS(op.ID, current.Status, string(protocol.OutcomeRejected))
+				return m.setTerminalOutcome(op.ID, current.Status, protocol.OutcomeRejected)
 			}
 			providerJSON = r.PayloadHex
 		case "wan1":
@@ -764,12 +764,12 @@ func (m *Manager) tryJoin(op store.ProbeOperation) error {
 		return nil // not all artifacts joined yet
 	}
 	reject := func(cause error) error {
-		_ = m.store.SetProbeOperationStatusCAS(op.ID, current.Status, string(protocol.OutcomeRejected))
+		_ = m.setTerminalOutcome(op.ID, current.Status, protocol.OutcomeRejected)
 		return cause
 	}
 	providerRes, err := decodeProviderResultJSON([]byte(providerJSON))
 	if err != nil || !providerRes.Accepted || providerRes.ProbeID != current.ID || providerRes.ChallengeHash == "" {
-		return m.store.SetProbeOperationStatusCAS(op.ID, current.Status, string(protocol.OutcomeRejected))
+		return m.setTerminalOutcome(op.ID, current.Status, protocol.OutcomeRejected)
 	}
 	armBytes, err := hex.DecodeString(current.ArmHex)
 	if err != nil {
@@ -791,7 +791,7 @@ func (m *Manager) tryJoin(op store.ProbeOperation) error {
 	frameChallengeHex := hex.EncodeToString(frameChallenge[:])
 	if current.ChallengeHash == "" || !strings.EqualFold(current.ChallengeHash, providerRes.ChallengeHash) ||
 		!strings.EqualFold(providerRes.ChallengeHash, frameChallengeHex) {
-		return m.store.SetProbeOperationStatusCAS(op.ID, current.Status, string(protocol.OutcomeRejected))
+		return m.setTerminalOutcome(op.ID, current.Status, protocol.OutcomeRejected)
 	}
 	ack1, err := hex.DecodeString(ack1Hex)
 	if err != nil {
@@ -815,7 +815,7 @@ func (m *Manager) tryJoin(op store.ProbeOperation) error {
 		return reject(err)
 	}
 	if !protocol.VerifyProbeJoin(arm, frame, ack, receipt, nodePub) {
-		return m.store.SetProbeOperationStatusCAS(op.ID, current.Status, string(protocol.OutcomeRejected))
+		return m.setTerminalOutcome(op.ID, current.Status, protocol.OutcomeRejected)
 	}
 	// Mirror a complete legal orthogonal snapshot. ACTIVE/READY are listener
 	// state values; OPEN_FROM_VANTAGE is evidence, not a listener state.
@@ -842,7 +842,62 @@ func (m *Manager) tryJoin(op store.ProbeOperation) error {
 		}
 		return err
 	}
+	if err := m.enqueueActivationOutcome(op.ID, protocol.OutcomeOpenFromVantage); err != nil {
+		return fmt.Errorf("probe: persist activation outcome: %w", err)
+	}
 	return nil
+}
+
+// enqueueActivationOutcome durably joins the terminal controller result to the
+// agent's current activation. Reusing the same operation is idempotent, while
+// a mismatched activation is rejected by the forward CAS fence.
+func (m *Manager) enqueueActivationOutcome(operationID string, outcome protocol.ProbeOutcome) error {
+	op, err := m.store.GetProbeOperation(operationID)
+	if err != nil {
+		return err
+	}
+	forward, err := m.store.GetForward(op.ForwardID)
+	if err != nil {
+		return err
+	}
+	if forward.CurrentActivationID != op.ActivationID {
+		return store.ErrCASConflict
+	}
+	payload, err := json.Marshal(struct {
+		ForwardID  string `json:"forward_id"`
+		Activation string `json:"activation"`
+		Generation uint64 `json:"generation"`
+		Outcome    string `json:"outcome"`
+	}{op.ForwardID, op.ActivationID, forward.Revision, string(outcome)})
+	if err != nil {
+		return err
+	}
+	item := store.ControlOutboxItem{
+		OperationID:     operationID,
+		MessageType:     "probe_outcome",
+		NodeID:          op.NodeID,
+		SemanticPayload: string(payload),
+	}
+	if err := m.store.EnqueueControlOutbox(item); err != nil {
+		// The operation id/message type pair is unique. A retry after a crash
+		// may observe the already durable command; verify it is the same join.
+		existing, getErr := m.store.ControlOutboxItemByOperation(operationID, "probe_outcome")
+		if getErr == nil && existing.SemanticPayload == item.SemanticPayload {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+// setTerminalOutcome advances a terminal probe result and queues the matching
+// agent activation command. The two durable records are separate SQLite
+// transactions, so callers can retry the queue step without changing status.
+func (m *Manager) setTerminalOutcome(operationID, expected string, outcome protocol.ProbeOutcome) error {
+	if err := m.store.SetProbeOperationStatusCAS(operationID, expected, string(outcome)); err != nil {
+		return err
+	}
+	return m.enqueueActivationOutcome(operationID, outcome)
 }
 
 // failOperation moves a live operation to a terminal status without allowing
@@ -857,7 +912,7 @@ func (m *Manager) failOperation(id, status string) {
 		op.Status == string(protocol.OutcomeNoIndependentVantage) || op.Status == string(protocol.OutcomeProbeInfraUnavailable) {
 		return
 	}
-	_ = m.store.SetProbeOperationStatusCAS(id, op.Status, status)
+	_ = m.setTerminalOutcome(id, op.Status, protocol.ProbeOutcome(status))
 }
 
 // findOperationByDigest scans pending/armed operations for the arm digest.

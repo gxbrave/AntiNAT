@@ -8,6 +8,7 @@
 package agenthub
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -15,6 +16,8 @@ import (
 	"net/netip"
 	"sync"
 	"time"
+
+	"github.com/coder/websocket"
 
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
 	"github.com/gxbrave/AntiNAT/internal/security"
@@ -80,9 +83,11 @@ type Hub struct {
 	cfg        Config
 	sink       ProbeSink
 
-	sessionsMu sync.Mutex
-	sessions   map[string]*ControlSession
-	closed     bool
+	sessionsMu  sync.Mutex
+	sessions    map[string]*ControlSession
+	pending     map[*websocket.Conn]struct{}
+	handshakeWG sync.WaitGroup
+	closed      bool
 }
 
 // NewHub validates the configuration and builds the hub.
@@ -108,12 +113,23 @@ func NewHub(cfg Config) (*Hub, error) {
 	if cfg.ControlWriteTimeout <= 0 {
 		cfg.ControlWriteTimeout = 5 * time.Second
 	}
-	return &Hub{store: cfg.Store, keyring: cfg.Keyring, challenges: cfg.Challenges, clock: cfg.Clock, cfg: cfg, sink: cfg.ProbeSink, sessions: make(map[string]*ControlSession)}, nil
+	return &Hub{store: cfg.Store, keyring: cfg.Keyring, challenges: cfg.Challenges, clock: cfg.Clock, cfg: cfg, sink: cfg.ProbeSink, sessions: make(map[string]*ControlSession), pending: make(map[*websocket.Conn]struct{})}, nil
 }
 
-// Close terminates every active control session. The operation is idempotent;
-// callers use it after stopping the HTTP server and before closing the store.
+// Close terminates every active and handshaking control session. The
+// operation is idempotent; callers that need a bounded shutdown use
+// CloseContext.
 func (h *Hub) Close() error {
+	return h.CloseContext(context.Background())
+}
+
+// CloseContext drains active sessions and in-flight handshakes before
+// returning. Closing a hub also prevents a handshake that races shutdown from
+// registering a new session.
+func (h *Hub) CloseContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	h.sessionsMu.Lock()
 	if h.closed {
 		h.sessionsMu.Unlock()
@@ -124,15 +140,63 @@ func (h *Hub) Close() error {
 	for _, session := range h.sessions {
 		sessions = append(sessions, session)
 	}
+	pending := make([]*websocket.Conn, 0, len(h.pending))
+	for conn := range h.pending {
+		pending = append(pending, conn)
+	}
 	h.sessionsMu.Unlock()
 
+	for _, conn := range pending {
+		conn.CloseNow()
+	}
 	for _, session := range sessions {
 		session.close()
 	}
+	if err := waitGroupContext(ctx, &h.handshakeWG); err != nil {
+		return fmt.Errorf("agenthub: wait for handshakes: %w", err)
+	}
 	for _, session := range sessions {
-		session.wait()
+		if err := waitDoneContext(ctx, session.done); err != nil {
+			return fmt.Errorf("agenthub: wait for session %s: %w", session.nodeID, err)
+		}
 	}
 	return nil
+}
+
+func waitDoneContext(ctx context.Context, done <-chan struct{}) error {
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func waitGroupContext(ctx context.Context, wg *sync.WaitGroup) error {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	return waitDoneContext(ctx, done)
+}
+
+func (h *Hub) beginHandshake(conn *websocket.Conn) bool {
+	h.sessionsMu.Lock()
+	defer h.sessionsMu.Unlock()
+	if h.closed {
+		return false
+	}
+	h.pending[conn] = struct{}{}
+	h.handshakeWG.Add(1)
+	return true
+}
+
+func (h *Hub) endHandshake(conn *websocket.Conn) {
+	h.sessionsMu.Lock()
+	delete(h.pending, conn)
+	h.sessionsMu.Unlock()
+	h.handshakeWG.Done()
 }
 
 // Handler returns the hub's HTTP surface:

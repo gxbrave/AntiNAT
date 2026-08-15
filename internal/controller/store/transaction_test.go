@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -126,6 +127,57 @@ func TestApplyForwardDeleteRollsBackOnOutboxFault(t *testing.T) {
 	}
 	if _, err := s.GetForwardDeletionOperation("delop-1"); err == nil {
 		t.Fatal("deletion operation survived a failed transaction")
+	}
+}
+
+// RED R7-3: delete intent is fenced by the stable parent revision; a stale
+// caller cannot enqueue a second delete after another mutation advanced it.
+func TestApplyForwardDeleteRejectsStaleParentRevision(t *testing.T) {
+	s, _, fwd := openTest(t)
+	first := store.ForwardDeletionOperation{ID: "delop-1", ForwardID: fwd.ID, Status: "PENDING", DesiredRevision: fwd.Revision}
+	if err := s.ApplyForwardDelete(first, store.ControlOutboxItem{
+		OperationID: "op-del-1", MessageType: "C2A_FORWARD_DELETE", NodeID: "node-1",
+		SemanticPayload: `{"forward_id":"fwd-1"}`,
+	}); err != nil {
+		t.Fatalf("first delete: %v", err)
+	}
+	stale := store.ForwardDeletionOperation{ID: "delop-2", ForwardID: fwd.ID, Status: "PENDING", DesiredRevision: fwd.Revision}
+	err := s.ApplyForwardDelete(stale, store.ControlOutboxItem{
+		OperationID: "op-del-2", MessageType: "C2A_FORWARD_DELETE", NodeID: "node-1",
+		SemanticPayload: `{"forward_id":"fwd-1","retry":true}`,
+	})
+	if !errors.Is(err, store.ErrCASConflict) {
+		t.Fatalf("stale delete error = %v, want ErrCASConflict", err)
+	}
+	if _, err := s.GetForwardDeletionOperation(stale.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("stale deletion operation = %v, want absent", err)
+	}
+}
+
+// RED R7-4: replaying one deletion operation is idempotent and does not try to
+// bump the parent revision or insert a duplicate outbox row.
+func TestApplyForwardDeleteReplayIsIdempotent(t *testing.T) {
+	s, _, fwd := openTest(t)
+	op := store.ForwardDeletionOperation{ID: "delop-replay", ForwardID: fwd.ID, Status: "PENDING", DesiredRevision: fwd.Revision}
+	outbox := store.ControlOutboxItem{
+		OperationID: "op-del-replay", MessageType: "C2A_FORWARD_DELETE", NodeID: "node-1",
+		SemanticPayload: `{"forward_id":"fwd-1"}`,
+	}
+	if err := s.ApplyForwardDelete(op, outbox); err != nil {
+		t.Fatalf("first delete: %v", err)
+	}
+	if err := s.ApplyForwardDelete(op, outbox); err != nil {
+		t.Fatalf("replayed delete: %v", err)
+	}
+	got, err := s.GetForward(fwd.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Revision != fwd.Revision+1 {
+		t.Fatalf("forward revision = %d, want %d", got.Revision, fwd.Revision+1)
+	}
+	if count, err := s.ControlOutboxCount("node-1"); err != nil || count != 1 {
+		t.Fatalf("outbox count = %d (err %v), want 1", count, err)
 	}
 }
 

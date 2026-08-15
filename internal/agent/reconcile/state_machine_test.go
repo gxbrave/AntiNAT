@@ -161,6 +161,31 @@ func TestActivationEvidenceLossImmediateUnpublish(t *testing.T) {
 	}
 }
 
+// RED R7-2: a process restart must invalidate the old proof before the
+// recovered listener can be considered for publication. The old verified
+// snapshot is retained only as an explicitly unverified publication.
+func TestActivationRecoveryCannotRestoreVerifiedPublication(t *testing.T) {
+	act := NewActivation("fwd-restart", "act-restart", 1)
+	if err := act.Set(protocol.ActivationStates{
+		ControlState: "ONLINE", ListenerState: "READY", MappingState: "PUBLIC_CANDIDATE",
+		KeepaliveState: "HEALTHY", WanReachabilityState: "OPEN_FROM_VANTAGE",
+		ReturnPathState: "VERIFIED", TargetHealthState: "PASS",
+		PublicationState: "PUBLISHED_VERIFIED", DataPlaneState: "READY",
+	}); err != nil {
+		t.Fatalf("verified snapshot: %v", err)
+	}
+	if err := act.RecoverAfterRestart(); err != nil {
+		t.Fatalf("RecoverAfterRestart: %v", err)
+	}
+	snap := act.Snapshot()
+	if snap.WanReachabilityState != "NOT_TESTED" || snap.ReturnPathState != "NOT_TESTED" {
+		t.Fatalf("recovered evidence = %+v, want NOT_TESTED axes", snap)
+	}
+	if snap.PublicationState != "PUBLISHED_UNVERIFIED" {
+		t.Fatalf("recovered publication = %q, want PUBLISHED_UNVERIFIED", snap.PublicationState)
+	}
+}
+
 // TestActivationPublicationTruthInvariants covers the frozen cross-axis
 // rules: PUBLISHED_VERIFIED requires OPEN_FROM_VANTAGE + VERIFIED return
 // path, and PUBLISHED_UNVERIFIED never claims OPEN_FROM_VANTAGE.

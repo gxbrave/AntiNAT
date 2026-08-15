@@ -275,38 +275,76 @@ func (a *App) ArmProbe(ctx context.Context, nodeID, forwardID, endpoint string) 
 }
 
 // Shutdown stops the HTTP server first, then closes the remaining resources
-// in reverse dependency order (store last). It is idempotent.
+// in reverse dependency order (store last). It is idempotent and bounded by
+// ctx while joining the watcher and AgentHub handshake/session drain.
 func (a *App) Shutdown(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	a.closeMu.Lock()
-	defer a.closeMu.Unlock()
 	if a.closed {
+		a.closeMu.Unlock()
 		return nil
 	}
 	a.closed = true
 	a.ready.Store(false)
-	if a.watchCancel != nil {
-		a.watchCancel()
-		a.watchWG.Wait()
+	cancel := a.watchCancel
+	a.watchCancel = nil
+	a.closeMu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
-	return a.closeResources()
+	if err := waitControllerGroup(ctx, &a.watchWG); err != nil {
+		return fmt.Errorf("controller: wait for watcher: %w", err)
+	}
+	return a.closeResourcesContext(ctx)
+}
+
+func waitControllerGroup(ctx context.Context, wg *sync.WaitGroup) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // closeResources stops the HTTP server, then closes the store. It records
 // the close order for the ordered-shutdown test.
 func (a *App) closeResources() error {
+	return a.closeResourcesContext(context.Background())
+}
+
+func (a *App) closeResourcesContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	a.closeOrder = nil
+	var firstErr error
 	if a.srv != nil {
 		a.closeOrder = append(a.closeOrder, "http")
-		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = a.srv.Shutdown(shutCtx)
-		cancel()
+		if err := a.srv.Shutdown(ctx); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
 	if a.ln != nil {
-		_ = a.ln.Close()
+		if err := a.ln.Close(); err != nil && !errors.Is(err, net.ErrClosed) && firstErr == nil {
+			firstErr = err
+		}
 	}
 	if a.hub != nil {
 		a.closeOrder = append(a.closeOrder, "hub")
-		_ = a.hub.Close()
+		if err := a.hub.CloseContext(ctx); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
 	if a.probe != nil {
 		a.closeOrder = append(a.closeOrder, "probe")
@@ -314,9 +352,11 @@ func (a *App) closeResources() error {
 	}
 	if a.store != nil {
 		a.closeOrder = append(a.closeOrder, "store")
-		_ = a.store.Close()
+		if err := a.store.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
-	return nil
+	return firstErr
 }
 
 // CloseOrder returns the recorded resource close order (test hook).

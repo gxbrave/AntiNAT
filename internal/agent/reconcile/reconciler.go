@@ -22,12 +22,17 @@ type Reconciler struct {
 	marker localstate.MarkerState
 	apply  ApplyHook
 	stop   StopHook
+	guard  CapabilityCheck
 }
 
 // New builds a Reconciler over the Agent store and the shared terminal latch.
 // marker is loaded from disk before the store is opened (marker precedence).
-func New(store *localstate.Store, latch *localstate.Latch, marker localstate.MarkerState, apply ApplyHook, stop StopHook) *Reconciler {
-	return &Reconciler{store: store, latch: latch, marker: marker, apply: apply, stop: stop}
+func New(store *localstate.Store, latch *localstate.Latch, marker localstate.MarkerState, apply ApplyHook, stop StopHook, guards ...CapabilityCheck) *Reconciler {
+	var guard CapabilityCheck
+	if len(guards) > 0 {
+		guard = guards[0]
+	}
+	return &Reconciler{store: store, latch: latch, marker: marker, apply: apply, stop: stop, guard: guard}
 }
 
 // ReconcileOnce applies one desired snapshot and records durable deletion
@@ -37,7 +42,7 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context, d protocol.DesiredState,
 	if r.marker == localstate.MarkerDecommissioned {
 		return DesiredApplyReport{}, ErrDecommissioned
 	}
-	report, err := ApplyDesired(ctx, r.store, r.latch, d, r.apply, r.stop)
+	report, err := ApplyDesiredWithGuard(ctx, r.store, r.latch, d, r.apply, r.stop, r.guard)
 	if err != nil {
 		return report, err
 	}
