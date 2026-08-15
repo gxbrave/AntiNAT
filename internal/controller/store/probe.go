@@ -698,67 +698,22 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 // has the given digest. The digest uniquely identifies the arm; the scan is
 // bounded by the operation TTL (probe state is bounded and expirable).
 func (s *Store) ProbeOperationByArmDigest(digest [32]byte) (ProbeOperation, error) {
-	rows, err := s.db.Query(`SELECT id, node_id, forward_id, activation_id, provider_id, status,
+	const query = `SELECT id, node_id, forward_id, activation_id, provider_id, status,
 		endpoint, arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
-		FROM probe_operations ORDER BY expires_at, id LIMIT ?`, defaultProbeLookupLimit)
-	if err != nil {
-		return ProbeOperation{}, fmt.Errorf("store: scan probe operations: %w", err)
-	}
-	defer rows.Close()
-	want := hex.EncodeToString(digest[:])
-	for rows.Next() {
-		var op ProbeOperation
-		if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ProviderID, &op.Status,
-			&op.Endpoint, &op.ArmHex, &op.ChallengeHash, &op.TTLMS, &op.ExpiryOpaque,
-			&op.ExpiresAt, &op.CreatedAt, &op.UpdatedAt); err != nil {
-			return ProbeOperation{}, fmt.Errorf("store: scan probe operation: %w", err)
-		}
-		armBytes, err := hex.DecodeString(op.ArmHex)
-		if err != nil {
-			continue
-		}
-		arm, err := ParseProbeArmLite(armBytes)
-		if err != nil {
-			continue
-		}
-		if hex.EncodeToString(arm[:]) == want {
-			return op, nil
-		}
-	}
-	return ProbeOperation{}, ErrNotFound
+		FROM probe_operations WHERE 1 = 1 ORDER BY expires_at, id LIMIT ?`
+	return s.findProbeOperationByArmDigest(digest, query, defaultProbeLookupLimit)
 }
 
 // ProbeOperationByArmDigestForNode resolves only live operations belonging to
 // nodeID. The node/status/deadline fence is part of the lookup rather than a
 // caller convention, so a late frame cannot operate on another node's row.
 func (s *Store) ProbeOperationByArmDigestForNode(digest [32]byte, nodeID string, nowUnix int64) (ProbeOperation, error) {
-	rows, err := s.db.Query(`SELECT id, node_id, forward_id, activation_id, provider_id, status,
+	const query = `SELECT id, node_id, forward_id, activation_id, provider_id, status,
 		endpoint, arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
 		FROM probe_operations
 		WHERE node_id = ? AND status IN ('PENDING','ARMED','IN_FLIGHT') AND expires_at > ?
-		ORDER BY expires_at, id LIMIT ?`, nodeID, nowUnix, defaultProbeLookupLimit)
-	if err != nil {
-		return ProbeOperation{}, fmt.Errorf("store: scan live probe operations: %w", err)
-	}
-	defer rows.Close()
-	want := hex.EncodeToString(digest[:])
-	for rows.Next() {
-		var op ProbeOperation
-		if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ProviderID, &op.Status,
-			&op.Endpoint, &op.ArmHex, &op.ChallengeHash, &op.TTLMS, &op.ExpiryOpaque,
-			&op.ExpiresAt, &op.CreatedAt, &op.UpdatedAt); err != nil {
-			return ProbeOperation{}, fmt.Errorf("store: scan live probe operation: %w", err)
-		}
-		armBytes, err := hex.DecodeString(op.ArmHex)
-		if err != nil {
-			continue
-		}
-		arm, err := ParseProbeArmLite(armBytes)
-		if err == nil && hex.EncodeToString(arm[:]) == want {
-			return op, nil
-		}
-	}
-	return ProbeOperation{}, ErrNotFound
+		ORDER BY expires_at, id LIMIT ?`
+	return s.findProbeOperationByArmDigest(digest, query, nodeID, nowUnix, defaultProbeLookupLimit)
 }
 
 // ProbeOperationByArmDigestForNodeIncludingExpired resolves an operation for
@@ -766,32 +721,66 @@ func (s *Store) ProbeOperationByArmDigestForNode(digest [32]byte, nodeID string,
 // returned row to terminalize a receipt that crossed the deadline, or to ignore
 // evidence that arrived after the sweeper already wrote a terminal tombstone.
 func (s *Store) ProbeOperationByArmDigestForNodeIncludingExpired(digest [32]byte, nodeID string) (ProbeOperation, error) {
-	rows, err := s.db.Query(`SELECT id, node_id, forward_id, activation_id, provider_id, status,
+	const query = `SELECT id, node_id, forward_id, activation_id, provider_id, status,
 		endpoint, arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
 		FROM probe_operations
-		WHERE node_id = ? ORDER BY updated_at DESC, id DESC LIMIT ?`, nodeID, defaultProbeLookupLimit)
-	if err != nil {
-		return ProbeOperation{}, fmt.Errorf("store: scan probe operations: %w", err)
-	}
-	defer rows.Close()
+		WHERE node_id = ? ORDER BY updated_at DESC, id DESC LIMIT ?`
+	return s.findProbeOperationByArmDigest(digest, query, nodeID, defaultProbeLookupLimit)
+}
+
+// findProbeOperationByArmDigest scans one bounded page at a time. The arm
+// bytes are intentionally parsed in Go because SQLite stores the canonical
+// frame as text; paging keeps the lookup bounded without silently making rows
+// beyond the first page unreachable.
+func (s *Store) findProbeOperationByArmDigest(digest [32]byte, query string, args ...any) (ProbeOperation, error) {
 	want := hex.EncodeToString(digest[:])
-	for rows.Next() {
-		var op ProbeOperation
-		if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ProviderID, &op.Status,
-			&op.Endpoint, &op.ArmHex, &op.ChallengeHash, &op.TTLMS, &op.ExpiryOpaque,
-			&op.ExpiresAt, &op.CreatedAt, &op.UpdatedAt); err != nil {
-			return ProbeOperation{}, fmt.Errorf("store: scan probe operation: %w", err)
-		}
-		armBytes, err := hex.DecodeString(op.ArmHex)
+	pageArgs := append([]any(nil), args...)
+	for {
+		rows, err := s.db.Query(query, pageArgs...)
 		if err != nil {
-			continue
+			return ProbeOperation{}, fmt.Errorf("store: scan probe operations: %w", err)
 		}
-		arm, err := ParseProbeArmLite(armBytes)
-		if err == nil && hex.EncodeToString(arm[:]) == want {
-			return op, nil
+		lastExpires, lastUpdated, lastID := int64(0), int64(0), ""
+		count := 0
+		for rows.Next() {
+			var op ProbeOperation
+			if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ProviderID, &op.Status,
+				&op.Endpoint, &op.ArmHex, &op.ChallengeHash, &op.TTLMS, &op.ExpiryOpaque,
+				&op.ExpiresAt, &op.CreatedAt, &op.UpdatedAt); err != nil {
+				rows.Close()
+				return ProbeOperation{}, fmt.Errorf("store: scan probe operation: %w", err)
+			}
+			count++
+			lastExpires, lastUpdated, lastID = op.ExpiresAt, op.UpdatedAt, op.ID
+			armBytes, err := hex.DecodeString(op.ArmHex)
+			if err == nil {
+				arm, parseErr := ParseProbeArmLite(armBytes)
+				if parseErr == nil && hex.EncodeToString(arm[:]) == want {
+					rows.Close()
+					return op, nil
+				}
+			}
+		}
+		rowErr := rows.Err()
+		rows.Close()
+		if rowErr != nil {
+			return ProbeOperation{}, fmt.Errorf("store: scan probe operation rows: %w", rowErr)
+		}
+		if count < defaultProbeLookupLimit {
+			return ProbeOperation{}, ErrNotFound
+		}
+		// The three callers use different sort directions. Re-run the same
+		// query with a keyset predicate, preserving each caller's node/status
+		// arguments and replacing only the final LIMIT argument.
+		pageArgs = append(pageArgs[:len(pageArgs)-1], defaultProbeLookupLimit)
+		if strings.Contains(query, "ORDER BY expires_at, id") {
+			query = strings.Replace(query, "ORDER BY expires_at, id LIMIT ?", "AND (expires_at > ? OR (expires_at = ? AND id > ?)) ORDER BY expires_at, id LIMIT ?", 1)
+			pageArgs = append(pageArgs[:len(pageArgs)-1], lastExpires, lastExpires, lastID, defaultProbeLookupLimit)
+		} else {
+			query = strings.Replace(query, "ORDER BY updated_at DESC, id DESC LIMIT ?", "AND (updated_at < ? OR (updated_at = ? AND id < ?)) ORDER BY updated_at DESC, id DESC LIMIT ?", 1)
+			pageArgs = append(pageArgs[:len(pageArgs)-1], lastUpdated, lastUpdated, lastID, defaultProbeLookupLimit)
 		}
 	}
-	return ProbeOperation{}, ErrNotFound
 }
 
 // ParseProbeArmLite computes the canonical-arm digest without full validation
@@ -841,6 +830,35 @@ func (s *Store) ListProbeOperationsByStatusLimit(limit int, statuses ...string) 
 			&op.Endpoint, &op.ArmHex, &op.ChallengeHash, &op.TTLMS, &op.ExpiryOpaque,
 			&op.ExpiresAt, &op.CreatedAt, &op.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("store: scan probe operation: %w", err)
+		}
+		out = append(out, op)
+	}
+	return out, rows.Err()
+}
+
+// ListTerminalProbeOperationsPage returns one deterministic page of terminal
+// operation tombstones. Recovery uses the keyset cursor so a large audit
+// backlog cannot strand a committed terminal result beyond a fixed scan cap.
+func (s *Store) ListTerminalProbeOperationsPage(limit int, afterCreated int64, afterID string) ([]ProbeOperation, error) {
+	if limit <= 0 {
+		limit = defaultProbeLookupLimit
+	}
+	rows, err := s.db.Query(`SELECT id, node_id, forward_id, activation_id, provider_id, status, endpoint,
+		arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
+		FROM probe_operations
+		WHERE `+probeTerminalSQL+` AND (created_at > ? OR (created_at = ? AND id > ?))
+		ORDER BY created_at, id LIMIT ?`, afterCreated, afterCreated, afterID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: list terminal probe operations: %w", err)
+	}
+	defer rows.Close()
+	var out []ProbeOperation
+	for rows.Next() {
+		var op ProbeOperation
+		if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ProviderID, &op.Status,
+			&op.Endpoint, &op.ArmHex, &op.ChallengeHash, &op.TTLMS, &op.ExpiryOpaque,
+			&op.ExpiresAt, &op.CreatedAt, &op.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("store: scan terminal probe operation: %w", err)
 		}
 		out = append(out, op)
 	}

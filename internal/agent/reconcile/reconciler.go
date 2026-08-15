@@ -17,22 +17,29 @@ import (
 
 // Reconciler is the Agent's reconcile control loop.
 type Reconciler struct {
-	store  *localstate.Store
-	latch  *localstate.Latch
-	marker localstate.MarkerState
-	apply  ApplyHook
-	stop   StopHook
-	guard  CapabilityCheck
+	store    *localstate.Store
+	latch    *localstate.Latch
+	marker   localstate.MarkerState
+	apply    ApplyHook
+	stop     StopHook
+	rollback RollbackHook
+	guard    CapabilityCheck
 }
 
 // New builds a Reconciler over the Agent store and the shared terminal latch.
 // marker is loaded from disk before the store is opened (marker precedence).
 func New(store *localstate.Store, latch *localstate.Latch, marker localstate.MarkerState, apply ApplyHook, stop StopHook, guards ...CapabilityCheck) *Reconciler {
+	return NewWithRollback(store, latch, marker, apply, stop, nil, guards...)
+}
+
+// NewWithRollback wires the optional hot-update rollback hook used when a
+// backend update happens before the enclosing desired commit.
+func NewWithRollback(store *localstate.Store, latch *localstate.Latch, marker localstate.MarkerState, apply ApplyHook, stop StopHook, rollback RollbackHook, guards ...CapabilityCheck) *Reconciler {
 	var guard CapabilityCheck
 	if len(guards) > 0 {
 		guard = guards[0]
 	}
-	return &Reconciler{store: store, latch: latch, marker: marker, apply: apply, stop: stop, guard: guard}
+	return &Reconciler{store: store, latch: latch, marker: marker, apply: apply, stop: stop, rollback: rollback, guard: guard}
 }
 
 // ReconcileOnce applies one desired snapshot and records durable deletion
@@ -42,7 +49,7 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context, d protocol.DesiredState,
 	if r.marker == localstate.MarkerDecommissioned {
 		return DesiredApplyReport{}, ErrDecommissioned
 	}
-	report, err := ApplyDesiredWithGuard(ctx, r.store, r.latch, d, r.apply, r.stop, r.guard)
+	report, err := ApplyDesiredWithGuardAndRollback(ctx, r.store, r.latch, d, r.apply, r.stop, r.guard, r.rollback)
 	if err != nil {
 		return report, err
 	}

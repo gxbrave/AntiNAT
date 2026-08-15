@@ -200,9 +200,9 @@ func TestLowDiskRefusesGrowthButAllowsDelete(t *testing.T) {
 
 	// Deletes are priority and must still commit even on a full disk.
 	if err := s.ApplyForwardDelete(store.ForwardDeletionOperation{
-		ID: "delop-1", ForwardID: fwd.ID, Status: "PENDING", DesiredRevision: 1,
+		ID: "delop-1", ForwardID: fwd.ID, Status: "PENDING", DesiredRevision: fwd.Revision,
 	}, store.ControlOutboxItem{
-		OperationID: "op-del-1", MessageType: "C2A_FORWARD_DELETE",
+		OperationID: "delop-1", MessageType: "C2A_FORWARD_DELETE",
 		NodeID: "node-1", SemanticPayload: `{"forward_id":"fwd-1"}`,
 	}); err != nil {
 		t.Fatalf("ApplyForwardDelete under low disk = %v, want success (priority)", err)

@@ -131,10 +131,6 @@ func (h *Hub) CloseContext(ctx context.Context) error {
 		ctx = context.Background()
 	}
 	h.sessionsMu.Lock()
-	if h.closed {
-		h.sessionsMu.Unlock()
-		return nil
-	}
 	h.closed = true
 	sessions := make([]*ControlSession, 0, len(h.sessions))
 	for _, session := range h.sessions {

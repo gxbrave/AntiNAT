@@ -286,7 +286,6 @@ func (a *App) Shutdown(ctx context.Context) error {
 		a.closeMu.Unlock()
 		return nil
 	}
-	a.closed = true
 	a.ready.Store(false)
 	cancel := a.watchCancel
 	a.watchCancel = nil
@@ -297,7 +296,13 @@ func (a *App) Shutdown(ctx context.Context) error {
 	if err := waitControllerGroup(ctx, &a.watchWG); err != nil {
 		return fmt.Errorf("controller: wait for watcher: %w", err)
 	}
-	return a.closeResourcesContext(ctx)
+	err := a.closeResourcesContext(ctx)
+	if err == nil {
+		a.closeMu.Lock()
+		a.closed = true
+		a.closeMu.Unlock()
+	}
+	return err
 }
 
 func waitControllerGroup(ctx context.Context, wg *sync.WaitGroup) error {
@@ -340,11 +345,17 @@ func (a *App) closeResourcesContext(ctx context.Context) error {
 			firstErr = err
 		}
 	}
+	if firstErr != nil {
+		return firstErr
+	}
 	if a.hub != nil {
 		a.closeOrder = append(a.closeOrder, "hub")
 		if err := a.hub.CloseContext(ctx); err != nil && firstErr == nil {
 			firstErr = err
 		}
+	}
+	if firstErr != nil {
+		return firstErr
 	}
 	if a.probe != nil {
 		a.closeOrder = append(a.closeOrder, "probe")

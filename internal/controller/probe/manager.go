@@ -191,8 +191,12 @@ func (m *Manager) sweepLoop(ctx context.Context) {
 // and operators can reason about exact boundaries without sleeps.
 func (m *Manager) sweepOnce(at time.Time) error {
 	nowUnix := at.Unix()
-	if _, err := m.store.ExpireProbeOperationsLimit(nowUnix, m.cleanupBatch); err != nil {
+	expired, err := m.store.ExpireProbeOperationsLimit(nowUnix, m.cleanupBatch)
+	if err != nil {
 		return err
+	}
+	for _, op := range expired {
+		_ = m.enqueueActivationOutcome(op.ID, protocol.OutcomeTimeout)
 	}
 	cutoff := at.Add(-m.resultRetention).Unix()
 	if _, err := m.store.DeleteProbeResultsBeforeLimit(cutoff, m.cleanupBatch); err != nil {
@@ -257,6 +261,7 @@ func (m *Manager) startProvider(op store.ProbeOperation, nodeID string, nodePub 
 // hub session; if a node is offline the ARMED row remains durable and is
 // picked up by the next reconnect/recovery pass.
 func (m *Manager) recoverOperations() {
+	m.recoverTerminalOutcomes()
 	ops, err := m.store.ListProbeOperationsByStatusLimit(m.maxActive, "ARMED", "IN_FLIGHT")
 	if err != nil {
 		return
@@ -291,6 +296,31 @@ func (m *Manager) recoverOperations() {
 			continue
 		}
 		_ = m.startProvider(op, op.NodeID, nodePub)
+	}
+}
+
+// recoverTerminalOutcomes repairs the crash boundary between the operation
+// status transaction and the control-outbox transaction. A terminal status is
+// durable evidence that must eventually have a matching probe_outcome command;
+// enqueueActivationOutcome is idempotent when the command already exists.
+func (m *Manager) recoverTerminalOutcomes() {
+	var afterCreated int64
+	var afterID string
+	for {
+		ops, err := m.store.ListTerminalProbeOperationsPage(m.cleanupBatch, afterCreated, afterID)
+		if err != nil {
+			return
+		}
+		if len(ops) == 0 {
+			return
+		}
+		for _, op := range ops {
+			_ = m.enqueueActivationOutcome(op.ID, protocol.ProbeOutcome(op.Status))
+			afterCreated, afterID = op.CreatedAt, op.ID
+		}
+		if len(ops) < m.cleanupBatch {
+			return
+		}
 	}
 }
 
@@ -451,7 +481,8 @@ func (m *Manager) HandleActivationStatus(nodeID string, payload []byte) error {
 	if err != nil {
 		return err
 	}
-	if forward.NodeID != nodeID || forward.CurrentActivationID != v.Activation {
+	if forward.NodeID != nodeID || forward.CurrentActivationID != v.Activation ||
+		v.Generation == 0 || v.Generation != forward.Revision {
 		return store.ErrCASConflict
 	}
 	stateJSON, err := json.Marshal(v.Snapshot)
@@ -615,7 +646,7 @@ func (m *Manager) requestProvider(requestCtx context.Context, op store.ProbeOper
 		ExpiryOpaque:       op.ExpiryOpaque,
 		TTLMS:              op.TTLMS,
 		ArmDigest:          hex.EncodeToString(digestSlice(arm.Digest())),
-		TimestampUnix:      m.clock().Unix(),
+		TimestampUnix:      op.CreatedAt,
 	}
 	canonical, err := req.canonical()
 	if err != nil {
@@ -689,17 +720,29 @@ func (m *Manager) requestProvider(requestCtx context.Context, op store.ProbeOper
 		return
 	}
 	if err := m.store.RecordProbeResult(op.ID, "provider", mustJSON(res)); err != nil {
+		if errors.Is(err, store.ErrProbeDuplicateEvidence) {
+			_ = m.tryJoin(op)
+			return
+		}
 		m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
 		return
 	}
 	if res.WAN1Frame != "" {
 		if err := m.store.RecordProbeResult(op.ID, "wan1", res.WAN1Frame); err != nil {
+			if errors.Is(err, store.ErrProbeDuplicateEvidence) {
+				_ = m.tryJoin(op)
+				return
+			}
 			m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
 			return
 		}
 	}
 	if res.ACK1Frame != "" {
 		if err := m.store.RecordProbeResult(op.ID, "ack1", res.ACK1Frame); err != nil {
+			if errors.Is(err, store.ErrProbeDuplicateEvidence) {
+				_ = m.tryJoin(op)
+				return
+			}
 			m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
 			return
 		}

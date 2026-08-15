@@ -2,7 +2,10 @@ package store
 
 import (
 	"database/sql"
+	"encoding/hex"
 	"fmt"
+
+	"github.com/gxbrave/AntiNAT/internal/protocol"
 )
 
 // This file contains the atomic Apply* operations that pair a durable change
@@ -28,10 +31,11 @@ func (s *Store) ApplyForwardDesired(spec ForwardSpec, outbox ControlOutboxItem) 
 		return fmt.Errorf("store: desired spec insert: %w", err)
 	}
 
+	activation := protocol.ActivationID(spec.ForwardID, spec.Revision)
 	res, err := tx.Exec(
-		`UPDATE forwards SET revision = revision + 1, updated_at = ?
+		`UPDATE forwards SET current_activation_id = ?, revision = revision + 1, updated_at = ?
 		  WHERE id = ? AND revision = ?`,
-		now(), spec.ForwardID, spec.Revision-1,
+		hex.EncodeToString(activation[:]), now(), spec.ForwardID, spec.Revision-1,
 	)
 	if err != nil {
 		return fmt.Errorf("store: desired parent bump: %w", err)
@@ -55,6 +59,9 @@ func (s *Store) ApplyForwardDesired(spec ForwardSpec, outbox ControlOutboxItem) 
 // enqueues its delete command. The forward row itself is removed only after a
 // durable receipt (P14 lifecycle); the intent and outbox commit together here.
 func (s *Store) ApplyForwardDelete(op ForwardDeletionOperation, outbox ControlOutboxItem) error {
+	if op.ID == "" || outbox.OperationID != op.ID {
+		return fmt.Errorf("%w: deletion operation/outbox identity", ErrIdempotencyConflict)
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("store: begin forward delete tx: %w", err)
@@ -93,17 +100,7 @@ func (s *Store) ApplyForwardDelete(op ForwardDeletionOperation, outbox ControlOu
 		return fmt.Errorf("store: read forward delete parent: %w", err)
 	}
 	if currentRevision != op.DesiredRevision {
-		// Older callers supplied the revision that the deletion command would
-		// publish (current+1), rather than the parent revision being fenced.
-		// Accept that representation only when it is exactly the next revision;
-		// arbitrary stale values still fail closed.
-		if op.DesiredRevision != currentRevision+1 {
-			return fmt.Errorf("%w: forward %s revision %d", ErrCASConflict, op.ForwardID, op.DesiredRevision)
-		}
-	}
-	expectedParentRevision := op.DesiredRevision
-	if currentRevision+1 == op.DesiredRevision {
-		expectedParentRevision = currentRevision
+		return fmt.Errorf("%w: forward %s revision %d", ErrCASConflict, op.ForwardID, op.DesiredRevision)
 	}
 
 	if _, err := tx.Exec(
@@ -114,7 +111,7 @@ func (s *Store) ApplyForwardDelete(op ForwardDeletionOperation, outbox ControlOu
 	); err != nil {
 		return fmt.Errorf("store: forward delete op insert: %w", err)
 	}
-	res, err := tx.Exec(`UPDATE forwards SET revision = revision + 1, updated_at = ? WHERE id = ? AND revision = ?`, now(), op.ForwardID, expectedParentRevision)
+	res, err := tx.Exec(`UPDATE forwards SET revision = revision + 1, updated_at = ? WHERE id = ? AND revision = ?`, now(), op.ForwardID, op.DesiredRevision)
 	if err != nil {
 		return fmt.Errorf("store: forward delete parent bump: %w", err)
 	}

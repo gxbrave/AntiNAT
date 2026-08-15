@@ -326,6 +326,9 @@ func (c *Client) handshake(ctx context.Context, conn *websocket.Conn, pin locals
 	}
 	c.epoch = welcome.ConnectionEpoch
 	c.session = welcome.SessionID
+	if err := c.opts.Store.RecoverApplyingOperations(c.epoch, c.session); err != nil {
+		return fmt.Errorf("control: recover applying operations: %w", err)
+	}
 
 	final := security.SessionFinal{
 		ControllerInstanceID: welcome.ControllerInstanceID,

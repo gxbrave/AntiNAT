@@ -173,8 +173,8 @@ func New(cfg Config) (*App, error) {
 	})
 	a.activations = make(map[string]*reconcile.Activation)
 
-	a.reconciler = reconcile.New(st, localstate.NewLatch(), localstate.MarkerActive,
-		a.dp.apply, a.dp.stop, a.dp.capabilityCheck)
+	a.reconciler = reconcile.NewWithRollback(st, localstate.NewLatch(), localstate.MarkerActive,
+		a.dp.apply, a.dp.stop, a.dp.rollback, a.dp.capabilityCheck)
 
 	client, err := control.NewClient(control.ClientOptions{
 		Endpoint:  cfg.Endpoint,
@@ -267,11 +267,31 @@ func (a *App) Start(ctx context.Context) error {
 // prepareActivationRecovery rewrites persisted snapshots before any status
 // replay or listener recovery. This ordering prevents a stale verified mirror
 // from being published during the reconnect window.
+func (a *App) listActivationSnapshots() ([]localstate.ActivationSnapshot, error) {
+	if a.store == nil {
+		return nil, nil
+	}
+	const pageSize = 256
+	var all []localstate.ActivationSnapshot
+	cursor := ""
+	for {
+		page, next, err := a.store.ListActivationSnapshotsPage(pageSize, cursor)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page...)
+		if next == "" {
+			return all, nil
+		}
+		cursor = next
+	}
+}
+
 func (a *App) prepareActivationRecovery() error {
 	if a.store == nil {
 		return nil
 	}
-	snapshots, err := a.store.ListActivationSnapshots(256)
+	snapshots, err := a.listActivationSnapshots()
 	if err != nil {
 		return err
 	}
@@ -301,7 +321,7 @@ func (a *App) replayActivationStatuses(ctx context.Context) {
 	if a.store == nil || a.client == nil {
 		return
 	}
-	snapshots, err := a.store.ListActivationSnapshots(256)
+	snapshots, err := a.listActivationSnapshots()
 	if err != nil {
 		return
 	}
@@ -358,6 +378,7 @@ func (a *App) reconnectControl(ctx context.Context) {
 			time.Sleep(250 * time.Millisecond)
 			continue
 		}
+		a.replayActivationStatuses(ctx)
 		if err := a.probeMgr.RetryPendingReceipts(ctx); err != nil {
 			a.ready.Store(false)
 			continue
@@ -652,7 +673,6 @@ func (a *App) Shutdown(ctx context.Context) error {
 		a.closeMu.Unlock()
 		return nil
 	}
-	a.closed = true
 	a.ready.Store(false)
 	cancel := a.runCancel
 	a.runCancel = nil
@@ -681,8 +701,13 @@ func (a *App) Shutdown(ctx context.Context) error {
 		a.dp.closeAll()
 	}
 	if a.store != nil {
-		return a.store.Close()
+		if err := a.store.Close(); err != nil {
+			return err
+		}
 	}
+	a.closeMu.Lock()
+	a.closed = true
+	a.closeMu.Unlock()
 	return nil
 }
 
@@ -825,6 +850,28 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 		onApplied(spec, st)
 	}
 	return st, nil
+}
+
+// rollback restores an existing actor's backend target and activation mirror
+// after a hot update whose enclosing localstate transaction did not commit.
+func (d *dataPlane) rollback(ctx context.Context, previous protocol.ForwardSpec, applied protocol.AppliedForwardState) error {
+	_ = ctx
+	d.mu.Lock()
+	actor, ok := d.forwards[previous.ForwardID]
+	if !ok {
+		d.mu.Unlock()
+		return nil
+	}
+	if err := actor.backend.Update(previous.Target); err != nil {
+		d.mu.Unlock()
+		return err
+	}
+	onApplied := d.cfg.OnApplied
+	d.mu.Unlock()
+	if onApplied != nil {
+		onApplied(previous, applied)
+	}
+	return nil
 }
 
 // markCapabilityLost stops every data-plane actor before any remap/reprobe and

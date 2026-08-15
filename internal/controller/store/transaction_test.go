@@ -110,16 +110,16 @@ func TestApplyForwardDeleteRollsBackOnOutboxFault(t *testing.T) {
 	s, _, fwd := openTest(t)
 
 	if err := s.EnqueueControlOutbox(store.ControlOutboxItem{
-		OperationID: "op-del-1", MessageType: "C2A_FORWARD_DELETE",
+		OperationID: "delop-1", MessageType: "C2A_FORWARD_DELETE",
 		NodeID: "node-1", SemanticPayload: `{"stale":true}`,
 	}); err != nil {
 		t.Fatalf("pre-arm outbox: %v", err)
 	}
 
 	err := s.ApplyForwardDelete(store.ForwardDeletionOperation{
-		ID: "delop-1", ForwardID: fwd.ID, Status: "PENDING", DesiredRevision: 1,
+		ID: "delop-1", ForwardID: fwd.ID, Status: "PENDING", DesiredRevision: fwd.Revision,
 	}, store.ControlOutboxItem{
-		OperationID: "op-del-1", MessageType: "C2A_FORWARD_DELETE",
+		OperationID: "delop-1", MessageType: "C2A_FORWARD_DELETE",
 		NodeID: "node-1", SemanticPayload: `{"forward_id":"fwd-1"}`,
 	})
 	if err == nil {
@@ -136,14 +136,14 @@ func TestApplyForwardDeleteRejectsStaleParentRevision(t *testing.T) {
 	s, _, fwd := openTest(t)
 	first := store.ForwardDeletionOperation{ID: "delop-1", ForwardID: fwd.ID, Status: "PENDING", DesiredRevision: fwd.Revision}
 	if err := s.ApplyForwardDelete(first, store.ControlOutboxItem{
-		OperationID: "op-del-1", MessageType: "C2A_FORWARD_DELETE", NodeID: "node-1",
+		OperationID: "delop-1", MessageType: "C2A_FORWARD_DELETE", NodeID: "node-1",
 		SemanticPayload: `{"forward_id":"fwd-1"}`,
 	}); err != nil {
 		t.Fatalf("first delete: %v", err)
 	}
 	stale := store.ForwardDeletionOperation{ID: "delop-2", ForwardID: fwd.ID, Status: "PENDING", DesiredRevision: fwd.Revision}
 	err := s.ApplyForwardDelete(stale, store.ControlOutboxItem{
-		OperationID: "op-del-2", MessageType: "C2A_FORWARD_DELETE", NodeID: "node-1",
+		OperationID: "delop-2", MessageType: "C2A_FORWARD_DELETE", NodeID: "node-1",
 		SemanticPayload: `{"forward_id":"fwd-1","retry":true}`,
 	})
 	if !errors.Is(err, store.ErrCASConflict) {
@@ -160,7 +160,7 @@ func TestApplyForwardDeleteReplayIsIdempotent(t *testing.T) {
 	s, _, fwd := openTest(t)
 	op := store.ForwardDeletionOperation{ID: "delop-replay", ForwardID: fwd.ID, Status: "PENDING", DesiredRevision: fwd.Revision}
 	outbox := store.ControlOutboxItem{
-		OperationID: "op-del-replay", MessageType: "C2A_FORWARD_DELETE", NodeID: "node-1",
+		OperationID: "delop-replay", MessageType: "C2A_FORWARD_DELETE", NodeID: "node-1",
 		SemanticPayload: `{"forward_id":"fwd-1"}`,
 	}
 	if err := s.ApplyForwardDelete(op, outbox); err != nil {

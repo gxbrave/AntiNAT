@@ -266,6 +266,59 @@ func (s *Store) MarkOperationApplying(epoch uint64, sessionID, operationID strin
 	})
 }
 
+// RecoverApplyingOperations closes the crash window between MarkOperationApplying
+// and CompleteOperation/NackOperation. APPLYING is not safe to replay because
+// the handler may already have performed an external side effect, so recovery
+// emits a durable NACK and lets the Controller decide whether to issue a new
+// operation id.
+func (s *Store) RecoverApplyingOperations(epoch uint64, sessionID string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		if err := checkSession(tx, epoch, sessionID); err != nil {
+			return err
+		}
+		ops := tx.Bucket([]byte(bucketOperations))
+		var recovering []string
+		if err := ops.ForEach(func(key, _ []byte) error {
+			if !bytes.HasPrefix(key, keyOpJournal) {
+				return nil
+			}
+			operationID := string(key[len(keyOpJournal):])
+			j, ok, err := s.loadOperationJournal(tx, operationID)
+			if err != nil {
+				return err
+			}
+			if ok && j.Phase == phaseApplying {
+				recovering = append(recovering, operationID)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		for _, operationID := range recovering {
+			j, ok, err := s.loadOperationJournal(tx, operationID)
+			if err != nil {
+				return err
+			}
+			if !ok || j.Phase != phaseApplying {
+				continue
+			}
+			j.Phase = phaseNacked
+			j.Reason = "recovered APPLYING operation after restart"
+			if err := s.putOperationJournal(tx, operationID, j); err != nil {
+				return err
+			}
+			result, err := json.Marshal(map[string]any{"status": "nacked", "reason": j.Reason, "recovered": true})
+			if err != nil {
+				return err
+			}
+			if err := s.recordResultAndQueue(tx, operationID, result); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // CompleteOperation advances an operation APPLYING -> APPLIED and, in the
 // same transaction, durably records the semantic result and queues it to the
 // outbox as PENDING.

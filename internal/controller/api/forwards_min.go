@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -128,7 +129,8 @@ func (s *Server) handleForwards(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		spec.ForwardID = id
-		f := store.Forward{ID: id, NodeID: body.NodeID, Name: body.Name, Protocol: body.Protocol, Revision: 1}
+		activation := protocol.ActivationID(id, 1)
+		f := store.Forward{ID: id, NodeID: body.NodeID, Name: body.Name, Protocol: body.Protocol, CurrentActivationID: hex.EncodeToString(activation[:]), Revision: 1}
 		specRow := store.ForwardSpec{ID: "spec-" + id, ForwardID: id, Revision: 1, SpecJSON: specJSON(spec)}
 		// Build all derived values before opening the atomic store bundle. The
 		// helper explicitly includes the not-yet-persisted forward, so a failure

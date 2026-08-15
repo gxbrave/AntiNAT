@@ -27,6 +27,7 @@ var (
 	ErrNodeNotFound    = errors.New("store: node not found")
 	ErrForwardNotFound = errors.New("store: forward not found")
 	ErrCASConflict     = errors.New("store: revision CAS conflict")
+	ErrSchemaTooNew    = errors.New("store: database schema is newer than this build")
 )
 
 // Store is a configured SQLite-backed Controller store. A Store is safe for

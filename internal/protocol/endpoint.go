@@ -106,6 +106,16 @@ func classifyIPv4(b [4]byte) EndpointClass {
 		return ClassDocumentation
 	case b[0] == 203 && b[1] == 0 && b[2] == 113: // TEST-NET-3
 		return ClassDocumentation
+	case b[0] == 192 && b[1] == 0 && b[2] == 0: // IETF protocol assignments
+		return ClassReserved
+	case b[0] == 192 && b[1] == 31 && b[2] == 196: // AS112-v4
+		return ClassReserved
+	case b[0] == 192 && b[1] == 52 && b[2] == 193: // AMT
+		return ClassReserved
+	case b[0] == 192 && b[1] == 88 && b[2] == 99: // 6to4 relay anycast
+		return ClassReserved
+	case b[0] == 192 && b[1] == 175 && b[2] == 48: // Direct Delegation AS112
+		return ClassReserved
 	case b[0] >= 224 && b[0] <= 239: // 224/4 multicast
 		return ClassMulticast
 	case b[0] == 0: // 0/8 reserved (0.0.0.0 handled as unspecified above)

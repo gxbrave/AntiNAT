@@ -66,6 +66,11 @@ type armedOp struct {
 	used      bool
 }
 
+type replaySource struct {
+	source    [4]byte
+	forwardID string
+}
+
 // ProbeManager implements the agent-side probe plane.
 type ProbeManager struct {
 	store *localstate.Store
@@ -76,6 +81,7 @@ type ProbeManager struct {
 	mu            sync.Mutex
 	ops           map[[16]byte]*armedOp
 	replay        map[[16]byte]time.Time
+	replaySource  map[[16]byte]replaySource
 	maxReplay     int
 	maxActive     int
 	sendTimeout   time.Duration
@@ -110,6 +116,7 @@ func NewProbeManager(opts ProbeManagerOptions) *ProbeManager {
 		send:          opts.SendControl,
 		ops:           map[[16]byte]*armedOp{},
 		replay:        map[[16]byte]time.Time{},
+		replaySource:  map[[16]byte]replaySource{},
 		maxReplay:     opts.MaxReplayEntries,
 		maxActive:     opts.MaxActiveOperations,
 		sendTimeout:   opts.SendTimeout,
@@ -120,6 +127,10 @@ func NewProbeManager(opts ProbeManagerOptions) *ProbeManager {
 		if err == nil {
 			for _, p := range probes {
 				if p.Consumed {
+					if !p.ReceiptDeadline.IsZero() && p.ReceiptDeadline.After(m.clock()) {
+						m.replay[p.Arm.ProbeID] = p.ReceiptDeadline
+						m.replaySource[p.Arm.ProbeID] = replaySource{source: p.Arm.ExpectedSourceIP, forwardID: p.ForwardID}
+					}
 					continue
 				}
 				if p.Deadline.After(m.clock()) {
@@ -328,6 +339,7 @@ func (m *ProbeManager) sweep(now time.Time) {
 	for id, expire := range m.replay {
 		if !now.Before(expire) {
 			delete(m.replay, id)
+			delete(m.replaySource, id)
 		}
 	}
 }
@@ -344,7 +356,15 @@ func (m *ProbeManager) hasArmedBySource(ip [4]byte, forwardIDs ...string) bool {
 		forwardID = forwardIDs[0]
 	}
 	for _, op := range m.ops {
-		if !op.used && op.arm.ExpectedSourceIP == ip && (forwardID == "" || op.forwardID == forwardID) {
+		_, replayed := m.replay[op.arm.ProbeID]
+		if op.arm.ExpectedSourceIP == ip && (forwardID == "" || op.forwardID == forwardID) &&
+			(!op.used || replayed) {
+			return true
+		}
+	}
+	for id, binding := range m.replaySource {
+		if _, active := m.replay[id]; active && binding.source == ip &&
+			(forwardID == "" || binding.forwardID == forwardID) {
 			return true
 		}
 	}
@@ -429,9 +449,11 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 		}
 		if !oldest.IsZero() {
 			delete(m.replay, oldestID)
+			delete(m.replaySource, oldestID)
 		}
 	}
 	m.replay[frame.ProbeID] = now.Add(protocol.ProbeReplayWindow)
+	m.replaySource[frame.ProbeID] = replaySource{source: source, forwardID: op.forwardID}
 	m.mu.Unlock()
 
 	// ACK1 on the same connection.
@@ -464,6 +486,7 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 		m.mu.Lock()
 		op.used = false
 		delete(m.replay, frame.ProbeID)
+		delete(m.replaySource, frame.ProbeID)
 		m.mu.Unlock()
 		return
 	}
@@ -471,6 +494,7 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 		m.mu.Lock()
 		op.used = false
 		delete(m.replay, frame.ProbeID)
+		delete(m.replaySource, frame.ProbeID)
 		m.mu.Unlock()
 		return
 	}

@@ -74,6 +74,7 @@ type Provider struct {
 type replayEntry struct {
 	expires  time.Time
 	material [32]byte
+	result   *providerResult
 }
 
 // NewProvider validates config and builds the provider.
@@ -242,6 +243,12 @@ func (p *Provider) handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if reason := p.admitReplay(req, p.cfg.Clock()); reason != "" {
+		if reason == "replay" {
+			if cached, ok := p.cachedReplayResult(req, p.cfg.Clock()); ok {
+				p.writeCachedResult(w, cached)
+				return
+			}
+		}
 		p.writeResult(w, providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: reason})
 		return
 	}
@@ -256,6 +263,7 @@ func (p *Provider) handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res := p.execute(r.Context(), req)
+	res.cacheKey = replayKey(req)
 	p.writeResult(w, res)
 }
 
@@ -292,6 +300,22 @@ func (p *Provider) admitReplay(req *providerRequest, now time.Time) string {
 	}
 	p.replay[replayID] = replayEntry{expires: now.Add(p.cfg.ReplayWindow), material: material}
 	return ""
+}
+
+func replayKey(req *providerRequest) string {
+	return strings.ToLower(req.ProbeID)
+}
+
+func (p *Provider) cachedReplayResult(req *providerRequest, now time.Time) (providerResult, bool) {
+	key := replayKey(req)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.sweepReplayLocked(now)
+	entry, ok := p.replay[key]
+	if !ok || entry.result == nil || !now.Before(entry.expires) {
+		return providerResult{}, false
+	}
+	return *entry.result, true
 }
 
 // SweepReplay removes entries at or beyond their expiry boundary and returns
@@ -428,6 +452,20 @@ func (p *Provider) writeResult(w http.ResponseWriter, res providerResult) {
 	res.Schema = providerResultSchema
 	res.TimestampUnix = p.cfg.Clock().Unix()
 	res.Signature = hex.EncodeToString(ed25519.Sign(p.cfg.ProviderPrivateKey, res.canonical()))
+	if res.cacheKey != "" {
+		p.mu.Lock()
+		if entry, ok := p.replay[res.cacheKey]; ok {
+			cached := res
+			entry.result = &cached
+			p.replay[res.cacheKey] = entry
+		}
+		p.mu.Unlock()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (p *Provider) writeCachedResult(w http.ResponseWriter, res providerResult) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(res)
 }

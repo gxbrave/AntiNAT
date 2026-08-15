@@ -49,22 +49,44 @@ func (s *Store) LoadActivationSnapshot(forwardID string) (ActivationSnapshot, bo
 }
 
 func (s *Store) ListActivationSnapshots(limit int) ([]ActivationSnapshot, error) {
+	out, _, err := s.ListActivationSnapshotsPage(limit, "")
+	return out, err
+}
+
+// ListActivationSnapshotsPage reads one keyset-paginated page. The cursor is
+// the last forward-id returned by the previous page; an empty cursor starts at
+// the first bucket key. nextCursor is empty when the page reached the end.
+func (s *Store) ListActivationSnapshotsPage(limit int, after string) ([]ActivationSnapshot, string, error) {
 	if limit <= 0 {
 		limit = 256
 	}
 	out := make([]ActivationSnapshot, 0, limit)
+	var nextCursor string
 	err := s.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket([]byte(bucketActivation)).ForEach(func(_, raw []byte) error {
-			if len(out) >= limit || raw == nil {
-				return nil
+		cursor := tx.Bucket([]byte(bucketActivation)).Cursor()
+		var key, raw []byte
+		if after == "" {
+			key, raw = cursor.First()
+		} else {
+			key, raw = cursor.Seek([]byte(after))
+			if key != nil && string(key) == after {
+				key, raw = cursor.Next()
 			}
-			var snapshot ActivationSnapshot
-			if err := json.Unmarshal(raw, &snapshot); err != nil {
-				return err
+		}
+		for key != nil && len(out) < limit {
+			if raw != nil {
+				var snapshot ActivationSnapshot
+				if err := json.Unmarshal(raw, &snapshot); err != nil {
+					return err
+				}
+				out = append(out, snapshot)
 			}
-			out = append(out, snapshot)
-			return nil
-		})
+			key, raw = cursor.Next()
+		}
+		if len(out) == limit && key != nil {
+			nextCursor = string(out[len(out)-1].ForwardID)
+		}
+		return nil
 	})
-	return out, err
+	return out, nextCursor, err
 }

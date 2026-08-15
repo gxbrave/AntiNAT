@@ -260,6 +260,7 @@ type providerResult struct {
 	Reason        string `json:"reason,omitempty"`
 	TimestampUnix int64  `json:"timestamp_unix"`
 	Signature     string `json:"signature"`
+	cacheKey      string `json:"-"`
 }
 
 // canonical renders the exact signed bytes of the result.

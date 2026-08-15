@@ -24,6 +24,13 @@ func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schemaMigrationsDDL); err != nil {
 		return fmt.Errorf("store: create schema_migrations: %w", err)
 	}
+	var current int
+	if err := s.db.QueryRow("SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&current); err != nil {
+		return fmt.Errorf("store: read schema version: %w", err)
+	}
+	if current > len(migrations.Names) {
+		return fmt.Errorf("%w: database schema %d, this build supports %d", ErrSchemaTooNew, current, len(migrations.Names))
+	}
 	for i, name := range migrations.Names {
 		version := i + 1
 		applied, err := s.migrationApplied(version)
