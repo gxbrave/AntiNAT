@@ -1,18 +1,18 @@
 {
   "plan": "P10",
-  "task_id": "t_39a86c28",
-  "stage": "bounded-p10-r6-cumulative-repair",
-  "repair_cycle": 6,
-  "base_sha": "58dd0c6a6827cfcf5e7d34d078cee84c4d20cef8",
+  "task_id": "t_7e4d2857",
+  "stage": "bounded-p10-r7-cumulative-repair",
+  "repair_cycle": 7,
+  "base_sha": "5a844dcf749014393aa32f967b4f06369b8d1148",
   "base_ancestor_check": {
-    "command": "git merge-base --is-ancestor 58dd0c6a6827cfcf5e7d34d078cee84c4d20cef8 HEAD",
+    "command": "git merge-base --is-ancestor 5a844dcf749014393aa32f967b4f06369b8d1148 HEAD",
     "exit_code": 0
   },
-  "head_sha": "ac48fe551eebc7670ec0743e38123a5dec32e7f3",
-  "head_tree_sha": "3e6df4e8ca75e11ddb8d0f3695660457409fd810",
-  "candidate_tree_sha": "3e6df4e8ca75e11ddb8d0f3695660457409fd810",
-  "implementation_tree_sha": "3e6df4e8ca75e11ddb8d0f3695660457409fd810",
-  "candidate_tree_definition": "The exact candidate head is ac48fe551eebc7670ec0743e38123a5dec32e7f3 with tree 3e6df4e8ca75e11ddb8d0f3695660457409fd810; it contains the R6 implementation, tests, and durable evidence. The following handoff-only JSON revision is excluded from the candidate tree and must not change the source/evidence head.",
+  "head_sha": "5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919",
+  "head_tree_sha": "da95cffeb1737fdfb7e8d24a6607a7914ac0c80f",
+  "candidate_tree_sha": "da95cffeb1737fdfb7e8d24a6607a7914ac0c80f",
+  "implementation_tree_sha": "da95cffeb1737fdfb7e8d24a6607a7914ac0c80f",
+  "candidate_tree_definition": "The exact R7 implementation candidate is 5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919 with tree da95cffeb1737fdfb7e8d24a6607a7914ac0c80f; it contains the scoped auth, activation, receipt, forwarding, desired-state, and lifecycle repairs plus their tests. A subsequent handoff-only revision of this JSON is excluded from the candidate source tree.",
   "reconciliation": {
     "partial_fixture_delta": {
       "path": "internal/controller/store/cycle4_regression_test.go",
@@ -78,12 +78,13 @@
     "28a39a6934db75ac1d13db681e205679abb4079e",
     "d0b099671474d9f353fced914722bab14292f088",
     "add8f144366ab91566decb8119a9fc32a91f9c7e",
-    "ac48fe551eebc7670ec0743e38123a5dec32e7f3"
+    "ac48fe551eebc7670ec0743e38123a5dec32e7f3",
+    "5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919"
   ],
   "implementation_commit": {
-    "sha": "add8f144366ab91566decb8119a9fc32a91f9c7e",
-    "message": "fix(P10): close lifecycle workers on capability changes",
-    "changed_files": 30
+    "sha": "5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919",
+    "message": "fix(P10): close R7 auth activation and lifecycle gaps",
+    "changed_files": 26
   },
   "files_changed": [
     ".hermes/evidence/p10/f1-activation-green.log",
@@ -195,6 +196,71 @@
     "test/e2e/harness/harness.go",
     "test/e2e/walking_skeleton_test.go"
   ],
+  "r7_repair": {
+    "task_id": "t_7e4d2857",
+    "contracts_changed": "none",
+    "scope": "Six fresh quality/security blockers were repaired: first-admin atomic bootstrap, activation outcome joining and restart/reconnect unverification, receipt tombstone/index retention and ordered paging, forward parent CAS plus idempotent delete replay, rollback/capability fencing for desired apply, and context-aware controller/agent shutdown with AgentHub handshake draining.",
+    "changed_files": [
+      "internal/agent/app.go",
+      "internal/agent/app_test.go",
+      "internal/agent/control/session.go",
+      "internal/agent/localstate/probe.go",
+      "internal/agent/localstate/probe_test.go",
+      "internal/agent/reconcile/desired.go",
+      "internal/agent/reconcile/desired_test.go",
+      "internal/agent/reconcile/probe.go",
+      "internal/agent/reconcile/probe_test.go",
+      "internal/agent/reconcile/reconciler.go",
+      "internal/agent/reconcile/state_machine.go",
+      "internal/agent/reconcile/state_machine_test.go",
+      "internal/controller/agenthub/hub.go",
+      "internal/controller/agenthub/session.go",
+      "internal/controller/api/api_test.go",
+      "internal/controller/api/auth.go",
+      "internal/controller/api/forwards_min.go",
+      "internal/controller/app.go",
+      "internal/controller/auth/auth_test.go",
+      "internal/controller/auth/service.go",
+      "internal/controller/probe/manager.go",
+      "internal/controller/probe/manager_test.go",
+      "internal/controller/store/minapi.go",
+      "internal/controller/store/transaction_test.go",
+      "internal/controller/store/transactions.go",
+      "internal/controller/store/users.go"
+    ],
+    "red_green": [
+      {"test": "TestBootstrapAdminIsAtomicAndUsesRequestedPassword", "red_exit": 1, "green_exit": 0},
+      {"test": "TestActivationRecoveryCannotRestoreVerifiedPublication", "red_exit": 1, "green_exit": 0},
+      {"test": "TestProbeOutcomeCommandJoinsActivationState", "red_exit": 1, "green_exit": 0},
+      {"test": "TestConsumedProbeSurvivesArmDeadlineUntilReceiptDeadline", "red_exit": 1, "green_exit": 0},
+      {"test": "TestRetryPendingReceiptsScansAllRetainedRows", "red_exit": 1, "green_exit": 0},
+      {"test": "TestApplyForwardDeleteRejectsStaleParentRevision", "red_exit": 1, "green_exit": 0},
+      {"test": "TestApplyForwardDeleteReplayIsIdempotent", "red_exit": 1, "green_exit": 0},
+      {"test": "TestApplyDesiredRollsBackNewActorsWhenCommitLosesCapability", "red_exit": 1, "green_exit": 0},
+      {"test": "TestApplyDesiredRejectsCapabilityLossBeforeCommit", "red_exit": null, "green_exit": 0, "note": "test was added after the guard implementation during the same RED/GREEN repair pass; no independent RED capture retained"},
+      {"test": "TestShutdownHonorsContextWhileWaitingForControlDrain", "red_exit": 124, "green_exit": 0}
+    ],
+    "verification": [
+      {"command": "GOWORK=off GOMAXPROCS=2 go test -race -p=1 ./internal/agent ./internal/agent/reconcile ./internal/agent/control ./internal/controller/agenthub ./internal/controller/probe ./internal/controller/store ./internal/controller/auth ./internal/controller/api -count=1", "exit_code": 0},
+      {"command": "GOWORK=off GOMAXPROCS=2 go test -race -p=1 ./test/e2e -run ^TestLinuxDirectV4WalkingSkeleton$ -count=1 -v -timeout=300s", "exit_code": 0},
+      {"command": "go vet ./...", "exit_code": 0},
+      {"command": "make build", "exit_code": 0},
+      {"command": "go test ./...", "exit_code": 2, "limitation": "spike/sandbox requires ANTINAT_DEDICATED_UID/GID naming a provisioned unique service identity; no such identity is available on this host"},
+      {"command": "make test", "exit_code": 2, "limitation": "same sandbox capability gate"},
+      {"command": "make check", "exit_code": 2, "limitation": "same sandbox capability gate"},
+      {"command": "git diff --check", "exit_code": 0}
+    ],
+    "capability_result": "SUPPORTED_WITH_LIMITS",
+    "residual_limits": [
+      "sandbox dedicated service identity is unavailable on this host, so the full make test/check gates fail closed",
+      "no real independent external-WAN/provider-egress vantage",
+      "no native Windows/arm64 evidence",
+      "no router/UPnP/CGNAT, UDP/traversal, or production deployment evidence",
+      "govulncheck unavailable"
+    ],
+    "review_status": "REVIEW_REQUIRED",
+    "cleanup": "code commit is complete; handoff-only JSON update follows after final candidate SHA/tree reconciliation; no push, merge, integration, or release performed"
+  },
   "review_scope": {
     "candidate_diff_reconciled": true,
     "scope": "R6 reconciles the complete P10 candidate delta against the master/child plans, frozen contracts, supervisor exact-symbol transfer, and the four independent quality findings.",
@@ -1118,7 +1184,7 @@
   ],
   "handoff_artifact_policy": {
     "excluded_path": ".hermes/handoffs/P10.json",
-    "candidate_head_definition": "The candidate head is ac48fe551eebc7670ec0743e38123a5dec32e7f3; all later commits that change only .hermes/handoffs/P10.json are handoff artifact commits excluded from the candidate tree.",
+    "candidate_head_definition": "The candidate head is 5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919; all later commits that change only .hermes/handoffs/P10.json are handoff artifact commits excluded from the candidate tree.",
     "handoff_artifact_commits": [
       "4c2eaaf23ce9a638a721d8019a1722fe78dbddfc",
       "f1235449f482d28587aa8e229a94fe1623a73451",
