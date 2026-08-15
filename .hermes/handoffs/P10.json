@@ -580,6 +580,108 @@
       "No remote push, merge, release, or secret persistence was performed."
     ]
   },
+  "latest_cleanup_repair": {
+    "task_id": "t_51c36205",
+    "repair_cycle": 6,
+    "base_sha": "326ed64b04a95195a998148ef96ccc9d461d1f5e",
+    "head_sha": "7f59b66d76cdba9fbbb1ae953477b53e00ed0821",
+    "branch": "ai/P10-wan-probe-activation-cli-e2e",
+    "commits": [
+      "3aed3776de97be3e28532c2c64d71d2f3e20d9f8",
+      "7f59b66d76cdba9fbbb1ae953477b53e00ed0821"
+    ],
+    "files_changed": [
+      "cmd/antinat-probe/main.go",
+      "internal/controller/probe/manager.go",
+      "internal/controller/probe/manager_test.go",
+      "internal/controller/probe/manager_cleanup_regression_test.go",
+      "internal/controller/probe/provider_service.go",
+      "internal/controller/probe/provider_service_test.go",
+      "internal/controller/store/control.go",
+      "internal/controller/store/control_cleanup_regression_test.go",
+      "internal/controller/store/probe.go",
+      "internal/controller/store/probe_cleanup_regression_test.go",
+      "internal/controller/store/store.go"
+    ],
+    "red_tests": [
+      {
+        "command": "go test ./internal/controller/store ./internal/controller/probe",
+        "exit_code": 1,
+        "failure": "Focused packages failed before the new bounded-cleanup, replay-sweep, and cancellable-lifecycle APIs were implemented."
+      }
+    ],
+    "verification": [
+      {
+        "command": "go test -count=1 ./internal/controller/store ./internal/controller/probe ./cmd/antinat-probe",
+        "exit_code": 0
+      },
+      {
+        "command": "go test -race -count=1 ./cmd/... ./internal/controller/...",
+        "exit_code": 0
+      },
+      {
+        "command": "go test -count=1 ./internal/controller/...",
+        "exit_code": 0
+      },
+      {
+        "command": "go vet ./...",
+        "exit_code": 0
+      },
+      {
+        "command": "make build",
+        "exit_code": 0
+      },
+      {
+        "command": "GOOS=windows GOARCH=amd64 go build ./cmd/...; GOOS=darwin GOARCH=amd64 go build ./cmd/antinat-agent ./cmd/antinat-controller ./cmd/antinat-probe ./cmd/antinatctl; GOOS=linux GOARCH=arm64 go build ./cmd/antinat-agent ./cmd/antinat-controller ./cmd/antinat-probe ./cmd/antinatctl",
+        "exit_code": 0
+      },
+      {
+        "command": "git diff --check",
+        "exit_code": 0
+      }
+    ],
+    "contracts_consumed": [
+      {
+        "path": "docs/state-model.md",
+        "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
+      },
+      {
+        "path": "docs/protocol.md",
+        "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"
+      },
+      {
+        "path": "api/openapi.yaml",
+        "sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32"
+      },
+      {
+        "path": ".hermes/plans/v1-beta/00-master-orchestration.md",
+        "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4"
+      },
+      {
+        "path": ".hermes/plans/v1-beta/10-wan-probe-activation-cli-e2e.md",
+        "sha256": "91c7b8814d969ec9bfbf757a97c9a7aeb865fad7b49b76be826603d693b80ce0"
+      },
+      {
+        "path": "docs/adr/0003-wan-probe-truth.md",
+        "sha256": "31f4b1a01041a228e01c5fbc2cf0d0d9aeb447844b7dfa1da361f55df5b85fbd"
+      }
+    ],
+    "contracts_changed": [],
+    "capability_result": "SUPPORTED_WITH_LIMITS",
+    "known_limits": [
+      "make test and make check remain blocked by the host sandbox gate: ANTINAT_DEDICATED_UID and ANTINAT_DEDICATED_GID are not provisioned in this environment.",
+      "One concurrent full non-race repository run also exposed the pre-existing timing-sensitive internal/traversal/stun TestObserveMappingSameLocalPortDefaultReuseControl; the focused rerun passed.",
+      "No real external-WAN evidence was claimed; provider tests use the existing local TEST-NET harness.",
+      "govulncheck was not run because it is not installed on this host."
+    ],
+    "cleanup_done": true,
+    "cleanup": [
+      "make clean removed generated bin artifacts.",
+      "No remote push, merge, release, or secret persistence was performed."
+    ],
+    "review_status": "REVIEW_REQUIRED",
+    "deviation_notes": "Added bounded Controller probe operation expiry/result/tombstone cleanup, durable control-inbox replay cleanup, injected lifecycle clocks, cancellable provider replay and manager sweepers, and production probe-process lifecycle wiring. Terminal rows remain non-revivable at and after retention boundaries; unacknowledged SEMANTIC_ACKED outbox rows are not removed by replay cleanup. No frozen contract changed."
+  },
   "review_status": "REVIEW_REQUIRED",
   "required_reviews": [
     "fresh specification review",
