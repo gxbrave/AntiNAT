@@ -1,0 +1,8 @@
+Command: GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent/control -run ^TestReconnectResendsResultWithoutDuplicateSideEffect$ -count=1 -v
+
+=== RUN   TestReconnectResendsResultWithoutDuplicateSideEffect
+--- PASS: TestReconnectResendsResultWithoutDuplicateSideEffect (0.34s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/agent/control	0.342s
+
+Exit code: 0

@@ -1,0 +1,10 @@
+Command: GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent/reconcile -run ^TestProbeGateCloseJoinsIngressWorkers$ -count=1 -v
+
+=== RUN   TestProbeGateCloseJoinsIngressWorkers
+    probe_gate_lifecycle_test.go:126: gate Close returned while ingress worker was still blocked
+--- FAIL: TestProbeGateCloseJoinsIngressWorkers (1.00s)
+FAIL
+FAIL	github.com/gxbrave/AntiNAT/internal/agent/reconcile	1.003s
+FAIL
+
+Exit code: 1

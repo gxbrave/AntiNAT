@@ -488,10 +488,16 @@ type ProbeGateOptions struct {
 // armed provider source and passes every other connection to the business
 // accept path untouched.
 type ProbeGate struct {
-	inner net.Listener
-	mgr   *ProbeManager
-	opts  ProbeGateOptions
-	slots chan struct{}
+	inner  net.Listener
+	mgr    *ProbeManager
+	opts   ProbeGateOptions
+	slots  chan struct{}
+	mu     sync.Mutex
+	closed bool
+	active map[net.Conn]struct{}
+	wg     sync.WaitGroup
+	once   sync.Once
+	err    error
 }
 
 // NewProbeGate wraps inner with the probe ingress gate.
@@ -502,7 +508,10 @@ func NewProbeGate(inner net.Listener, mgr *ProbeManager, opts ProbeGateOptions) 
 	if opts.MaxConcurrent <= 0 {
 		opts.MaxConcurrent = 64
 	}
-	return &ProbeGate{inner: inner, mgr: mgr, opts: opts, slots: make(chan struct{}, opts.MaxConcurrent)}
+	return &ProbeGate{
+		inner: inner, mgr: mgr, opts: opts, slots: make(chan struct{}, opts.MaxConcurrent),
+		active: make(map[net.Conn]struct{}),
+	}
 }
 
 // Accept returns the next business connection. Probe connections from the
@@ -512,6 +521,10 @@ func (g *ProbeGate) Accept() (net.Conn, error) {
 		conn, err := g.inner.Accept()
 		if err != nil {
 			return nil, err
+		}
+		if g.isClosed() {
+			_ = conn.Close()
+			return nil, net.ErrClosed
 		}
 		remoteIP := remoteIPv4(conn)
 		if remoteIP == nil {
@@ -524,18 +537,66 @@ func (g *ProbeGate) Accept() (net.Conn, error) {
 		// create an unbounded goroutine per source-matching connection.
 		select {
 		case g.slots <- struct{}{}:
-			go func(source [4]byte) {
+			if !g.track(conn) {
+				<-g.slots
+				_ = conn.Close()
+				return nil, net.ErrClosed
+			}
+			go func(conn net.Conn, source [4]byte) {
+				defer g.untrack(conn)
 				defer func() { <-g.slots }()
 				g.mgr.handleIngress(conn, source, g.opts.ReadTimeout, g.opts.ForwardID)
-			}(*remoteIP)
+			}(conn, *remoteIP)
 		default:
 			_ = conn.Close() // generic resource-bound drop
 		}
 	}
 }
 
-// Close closes the underlying listener.
-func (g *ProbeGate) Close() error { return g.inner.Close() }
+// Close closes the underlying listener, all active provider connections, and
+// joins their ingress workers before returning.
+func (g *ProbeGate) Close() error {
+	g.once.Do(func() {
+		g.mu.Lock()
+		g.closed = true
+		active := make([]net.Conn, 0, len(g.active))
+		for conn := range g.active {
+			active = append(active, conn)
+		}
+		g.mu.Unlock()
+
+		g.err = g.inner.Close()
+		for _, conn := range active {
+			_ = conn.Close()
+		}
+		g.wg.Wait()
+	})
+	return g.err
+}
+
+func (g *ProbeGate) isClosed() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.closed
+}
+
+func (g *ProbeGate) track(conn net.Conn) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.closed {
+		return false
+	}
+	g.active[conn] = struct{}{}
+	g.wg.Add(1)
+	return true
+}
+
+func (g *ProbeGate) untrack(conn net.Conn) {
+	g.mu.Lock()
+	delete(g.active, conn)
+	g.mu.Unlock()
+	g.wg.Done()
+}
 
 // Addr returns the underlying listener address.
 func (g *ProbeGate) Addr() net.Addr { return g.inner.Addr() }

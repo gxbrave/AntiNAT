@@ -53,8 +53,10 @@ type ControlSession struct {
 	// inSeq is the last accepted inbound sequence (A2C) per session.
 	inSeq uint64
 
-	closed chan struct{}
-	once   sync.Once
+	closed   chan struct{}
+	once     sync.Once
+	done     chan struct{}
+	doneOnce sync.Once
 }
 
 // nodeIDBytes pads the store-form node id to the frozen 16-byte wire width.
@@ -72,6 +74,18 @@ func (s *ControlSession) close() {
 		s.conn.CloseNow()
 		s.hub.unregister(s)
 	})
+}
+
+func (s *ControlSession) markDone() {
+	if s.done != nil {
+		s.doneOnce.Do(func() { close(s.done) })
+	}
+}
+
+func (s *ControlSession) wait() {
+	if s.done != nil {
+		<-s.done
+	}
 }
 
 // writeEnvelope signs and writes one C2A envelope with the next sequence.
@@ -131,8 +145,11 @@ func (h *Hub) handleControl(w http.ResponseWriter, r *http.Request) {
 		conn.Close(websocket.StatusPolicyViolation, "handshake rejected")
 		return
 	}
+	defer session.markDone()
+	if !h.register(session) {
+		return
+	}
 	h.audit("CONTROL_SESSION_ACTIVE", fmt.Sprintf(`{"node_id":%q,"epoch":%d,"session_id":%q}`, session.nodeID, session.epoch, session.session))
-	h.register(session)
 
 	// Outbox pump + inbound frame loop.
 	pumpCtx, pumpCancel := context.WithCancel(r.Context())
@@ -232,6 +249,7 @@ func (h *Hub) handshake(ctx context.Context, conn *websocket.Conn) (*ControlSess
 		agentPub: hello.PublicKey(),
 		conn:     conn,
 		closed:   make(chan struct{}),
+		done:     make(chan struct{}),
 	}, nil
 }
 
@@ -588,8 +606,13 @@ func (h *Hub) outboxPump(ctx context.Context, s *ControlSession) {
 // session per node; the new epoch wins). The old session is closed OUTSIDE
 // the lock: close() -> unregister() re-enters the map, so holding the lock
 // across the close would deadlock.
-func (h *Hub) register(s *ControlSession) {
+func (h *Hub) register(s *ControlSession) bool {
 	h.sessionsMu.Lock()
+	if h.closed {
+		h.sessionsMu.Unlock()
+		s.close()
+		return false
+	}
 	old := h.sessions[s.nodeID]
 	h.sessions[s.nodeID] = s
 	h.sessionsMu.Unlock()
@@ -599,6 +622,7 @@ func (h *Hub) register(s *ControlSession) {
 	if err := h.store.SetNodeControlState(s.nodeID, "ONLINE"); err != nil {
 		h.audit("CONTROL_STATE_FAILED", fmt.Sprintf(`{"node_id":%q,"err":%q}`, s.nodeID, err.Error()))
 	}
+	return true
 }
 
 func (h *Hub) unregister(s *ControlSession) {

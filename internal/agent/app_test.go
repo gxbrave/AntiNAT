@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/ed25519"
 	"net"
+	"net/netip"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +18,26 @@ import (
 	"github.com/gxbrave/AntiNAT/internal/protocol"
 	"github.com/gxbrave/AntiNAT/internal/traversal"
 )
+
+type mutableRouteTable struct {
+	mu         sync.RWMutex
+	gateway    netip.Addr
+	iface      string
+	hasDefault bool
+	addrs      []traversal.IPv4Address
+}
+
+func (m *mutableRouteTable) DefaultRouteV4() (netip.Addr, string, bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.gateway, m.iface, m.hasDefault, nil
+}
+
+func (m *mutableRouteTable) IPv4Addresses() ([]traversal.IPv4Address, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]traversal.IPv4Address(nil), m.addrs...), nil
+}
 
 // startTestController composes a controller app on an ephemeral port and
 // returns it (with store access via app.Store()).
@@ -148,4 +170,45 @@ func TestAgentStartupFailureRollsBack(t *testing.T) {
 		}
 		t.Fatal("New succeeded with an unwritable state dir")
 	}
+}
+
+// TestMonitorLivenessRevokesOnRouteFingerprintChange covers the lifecycle
+// boundary where a still-DIRECT_V4_READY route changes its gateway. Capability
+// code alone remains READY, but the route/interface evidence fingerprint must
+// revoke the current data-plane publication.
+func TestMonitorLivenessRevokesOnRouteFingerprintChange(t *testing.T) {
+	routes := &mutableRouteTable{
+		gateway:    netip.MustParseAddr("192.168.1.1"),
+		iface:      "eth0",
+		hasDefault: true,
+		addrs:      []traversal.IPv4Address{{Interface: "eth0", Addr: netip.MustParseAddr("8.8.8.8")}},
+	}
+	d := newDataPlane(dataPlaneConfig{RouteTable: routes, Clock: time.Now})
+	if !d.capabilityReady {
+		t.Fatal("initial route table should be capability-ready")
+	}
+	a := &App{
+		cfg:         Config{RouteTable: routes, LivenessInterval: 5 * time.Millisecond},
+		dp:          d,
+		activations: make(map[string]*reconcile.Activation),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go a.monitorLiveness(ctx)
+
+	routes.mu.Lock()
+	routes.gateway = netip.MustParseAddr("192.168.1.254")
+	routes.mu.Unlock()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		d.mu.Lock()
+		lost := !d.capabilityReady
+		d.mu.Unlock()
+		if lost {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("gateway change did not revoke capability readiness")
 }

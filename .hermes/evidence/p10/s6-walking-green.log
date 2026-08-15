@@ -1,0 +1,8 @@
+Command: GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -p=1 ./test/e2e -run ^TestLinuxDirectV4WalkingSkeleton$ -count=1 -v -timeout=300s
+
+=== RUN   TestLinuxDirectV4WalkingSkeleton
+--- PASS: TestLinuxDirectV4WalkingSkeleton (1.77s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/test/e2e	1.774s
+
+Exit code: 0

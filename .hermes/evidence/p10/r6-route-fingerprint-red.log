@@ -1,0 +1,10 @@
+Command: GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent -run ^TestMonitorLivenessRevokesOnRouteFingerprintChange$ -count=1 -v
+
+=== RUN   TestMonitorLivenessRevokesOnRouteFingerprintChange
+    app_test.go:213: gateway change did not revoke capability readiness
+--- FAIL: TestMonitorLivenessRevokesOnRouteFingerprintChange (2.00s)
+FAIL
+FAIL	github.com/gxbrave/AntiNAT/internal/agent	2.004s
+FAIL
+
+Exit code: 1

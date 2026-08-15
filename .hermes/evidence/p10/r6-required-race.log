@@ -1,0 +1,8 @@
+Command: go test ./internal/controller/probe ./internal/agent/reconcile ./internal/controller/api ./cmd/antinatctl -race -count=1
+
+ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	6.979s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	2.506s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/api	4.355s
+ok  	github.com/gxbrave/AntiNAT/cmd/antinatctl	2.970s
+
+Exit code: 0

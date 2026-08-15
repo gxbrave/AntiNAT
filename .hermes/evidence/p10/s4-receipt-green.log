@@ -1,0 +1,8 @@
+Command: GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/agenthub -run ^TestProbeReceiptReplayAfterSinkFailureIsRetried$ -count=1 -v
+
+=== RUN   TestProbeReceiptReplayAfterSinkFailureIsRetried
+--- PASS: TestProbeReceiptReplayAfterSinkFailureIsRetried (0.08s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/controller/agenthub	0.079s
+
+Exit code: 0

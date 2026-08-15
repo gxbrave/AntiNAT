@@ -82,6 +82,7 @@ type Hub struct {
 
 	sessionsMu sync.Mutex
 	sessions   map[string]*ControlSession
+	closed     bool
 }
 
 // NewHub validates the configuration and builds the hub.
@@ -108,6 +109,30 @@ func NewHub(cfg Config) (*Hub, error) {
 		cfg.ControlWriteTimeout = 5 * time.Second
 	}
 	return &Hub{store: cfg.Store, keyring: cfg.Keyring, challenges: cfg.Challenges, clock: cfg.Clock, cfg: cfg, sink: cfg.ProbeSink, sessions: make(map[string]*ControlSession)}, nil
+}
+
+// Close terminates every active control session. The operation is idempotent;
+// callers use it after stopping the HTTP server and before closing the store.
+func (h *Hub) Close() error {
+	h.sessionsMu.Lock()
+	if h.closed {
+		h.sessionsMu.Unlock()
+		return nil
+	}
+	h.closed = true
+	sessions := make([]*ControlSession, 0, len(h.sessions))
+	for _, session := range h.sessions {
+		sessions = append(sessions, session)
+	}
+	h.sessionsMu.Unlock()
+
+	for _, session := range sessions {
+		session.close()
+	}
+	for _, session := range sessions {
+		session.wait()
+	}
+	return nil
 }
 
 // Handler returns the hub's HTTP surface:

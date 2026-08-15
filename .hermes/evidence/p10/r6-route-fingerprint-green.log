@@ -1,0 +1,8 @@
+Command: GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent -run ^TestMonitorLivenessRevokesOnRouteFingerprintChange$ -count=1 -v
+
+=== RUN   TestMonitorLivenessRevokesOnRouteFingerprintChange
+--- PASS: TestMonitorLivenessRevokesOnRouteFingerprintChange (0.01s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/agent	0.008s
+
+Exit code: 0

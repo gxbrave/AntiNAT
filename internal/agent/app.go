@@ -64,7 +64,7 @@ type App struct {
 	store *localstate.Store
 	key   *security.NodeKey
 
-	client     *control.Client
+	client     controlClient
 	reconciler *reconcile.Reconciler
 	probeMgr   *reconcile.ProbeManager
 	dp         *dataPlane
@@ -80,6 +80,16 @@ type App struct {
 	reconnectWG sync.WaitGroup
 	runCancel   context.CancelFunc
 	lifecycleWG sync.WaitGroup
+}
+
+// controlClient is the lifecycle surface the composed app needs from the
+// transport. Keeping it narrow makes startup rollback testable without
+// weakening the concrete control client used in production.
+type controlClient interface {
+	Connect(context.Context) error
+	SendMessage(context.Context, string, []byte) error
+	Shutdown()
+	Wait()
 }
 
 // New opens the localstate store, loads or creates the node key, and
@@ -223,6 +233,7 @@ func (a *App) Start(ctx context.Context) error {
 	if err := a.dp.recover(runCtx); err != nil {
 		runCancel()
 		a.client.Shutdown()
+		a.client.Wait()
 		a.dp.closeAll()
 		a.probeMgr.Close()
 		_ = a.store.Close()
@@ -324,15 +335,22 @@ func (a *App) monitorLiveness(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_, capability, err := traversal.Assess(a.cfg.RouteTable)
-			available := err == nil && capability == traversal.CapabilityDirectV4Ready
+			_, capability, assessErr := traversal.Assess(a.cfg.RouteTable)
+			fingerprint, fingerprintErr := traversal.Fingerprint(a.cfg.RouteTable)
+			available := assessErr == nil && capability == traversal.CapabilityDirectV4Ready && fingerprintErr == nil
 			if !available {
 				if a.dp.markCapabilityLost() {
 					a.markEvidenceLost(ctx)
 				}
 				continue
 			}
-			if a.dp.markCapabilityRestored() {
+			if a.dp.capabilityChanged(fingerprint) {
+				if a.dp.markCapabilityLost() {
+					a.markEvidenceLost(ctx)
+				}
+				continue
+			}
+			if a.dp.markCapabilityRestored(fingerprint) {
 				if err := a.dp.recover(ctx); err != nil {
 					// Keep the capability degraded so the next poll retries
 					// recovery, without claiming a listener is active.
@@ -519,11 +537,12 @@ func (a *App) Store() *localstate.Store { return a.store }
 // TCP listener per applied forward via the traversal PortRegistry, wraps it
 // in the probe gate, and proxies with the P09 tcp.Forward.
 type dataPlane struct {
-	cfg             dataPlaneConfig
-	registry        *traversal.PortRegistry
-	mu              sync.Mutex
-	forwards        map[string]*forwardActor
-	capabilityReady bool
+	cfg                   dataPlaneConfig
+	registry              *traversal.PortRegistry
+	mu                    sync.Mutex
+	forwards              map[string]*forwardActor
+	capabilityReady       bool
+	capabilityFingerprint string
 }
 
 type dataPlaneConfig struct {
@@ -550,7 +569,13 @@ func newDataPlane(cfg dataPlaneConfig) *dataPlane {
 	if cfg.Clock == nil {
 		cfg.Clock = time.Now
 	}
-	return &dataPlane{cfg: cfg, registry: traversal.NewPortRegistry(), forwards: make(map[string]*forwardActor), capabilityReady: true}
+	fingerprint, fingerprintErr := traversal.Fingerprint(cfg.RouteTable)
+	_, capability, assessErr := traversal.Assess(cfg.RouteTable)
+	capabilityReady := assessErr == nil && fingerprintErr == nil && capability == traversal.CapabilityDirectV4Ready
+	return &dataPlane{
+		cfg: cfg, registry: traversal.NewPortRegistry(), forwards: make(map[string]*forwardActor),
+		capabilityReady: capabilityReady, capabilityFingerprint: fingerprint,
+	}
 }
 
 // apply implements reconcile.ApplyHook: it opens (or hot-updates) one
@@ -649,14 +674,24 @@ func (d *dataPlane) markCapabilityLost() bool {
 	return true
 }
 
-// markCapabilityRestored returns true once per loss->restore transition.
-func (d *dataPlane) markCapabilityRestored() bool {
+// capabilityChanged reports a new route/interface identity while the data
+// plane still believes its previous capability is ready.
+func (d *dataPlane) capabilityChanged(fingerprint string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.capabilityReady && d.capabilityFingerprint != "" && fingerprint != "" && d.capabilityFingerprint != fingerprint
+}
+
+// markCapabilityRestored returns true once per loss->restore transition and
+// records the route/interface identity that the recovered listeners use.
+func (d *dataPlane) markCapabilityRestored(fingerprint string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.capabilityReady {
 		return false
 	}
 	d.capabilityReady = true
+	d.capabilityFingerprint = fingerprint
 	return true
 }
 

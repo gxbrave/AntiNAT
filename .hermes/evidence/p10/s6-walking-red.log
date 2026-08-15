@@ -1,0 +1,11 @@
+Historical RED candidate: 113c542^ with walking-skeleton test and harness from 113c542
+Command: GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -p=1 ./test/e2e -run ^TestLinuxDirectV4WalkingSkeleton$ -count=1 -v -timeout=300s
+
+=== RUN   TestLinuxDirectV4WalkingSkeleton
+    walking_skeleton_test.go:104: agent New: agent: enroll: control: challenge rejected (status 400): {"code":"ENROLL_MALFORMED","message":"invalid node id"}
+--- FAIL: TestLinuxDirectV4WalkingSkeleton (0.81s)
+FAIL
+FAIL	github.com/gxbrave/AntiNAT/test/e2e	0.814s
+FAIL
+
+Exit code: 1

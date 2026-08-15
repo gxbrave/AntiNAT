@@ -1,0 +1,8 @@
+Command: GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent/reconcile -run ^TestProbeGateCloseJoinsIngressWorkers$ -count=1 -v
+
+=== RUN   TestProbeGateCloseJoinsIngressWorkers
+--- PASS: TestProbeGateCloseJoinsIngressWorkers (0.00s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	0.002s
+
+Exit code: 0

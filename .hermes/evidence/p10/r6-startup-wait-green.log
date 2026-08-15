@@ -1,0 +1,8 @@
+Command: GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent -run ^TestStartRecoveryFailureWaitsForControlSession$ -count=1 -v
+
+=== RUN   TestStartRecoveryFailureWaitsForControlSession
+--- PASS: TestStartRecoveryFailureWaitsForControlSession (0.01s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/agent	0.009s
+
+Exit code: 0

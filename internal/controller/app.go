@@ -304,6 +304,10 @@ func (a *App) closeResources() error {
 	if a.ln != nil {
 		_ = a.ln.Close()
 	}
+	if a.hub != nil {
+		a.closeOrder = append(a.closeOrder, "hub")
+		_ = a.hub.Close()
+	}
 	if a.probe != nil {
 		a.closeOrder = append(a.closeOrder, "probe")
 		_ = a.probe.Close()

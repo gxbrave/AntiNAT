@@ -1,0 +1,7 @@
+Command: GOWORK=off GOMAXPROCS=2 go test -race -p=1 ./internal/agent ./internal/controller/agenthub ./internal/controller -count=1
+
+ok  	github.com/gxbrave/AntiNAT/internal/agent	1.465s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/agenthub	5.546s
+ok  	github.com/gxbrave/AntiNAT/internal/controller	2.423s
+
+Exit code: 0

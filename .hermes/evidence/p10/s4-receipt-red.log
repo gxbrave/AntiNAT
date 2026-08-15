@@ -1,0 +1,11 @@
+Historical RED candidate: ce62fbf^ with probe receipt regression test from ce62fbf
+Command: GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/agenthub -run ^TestProbeReceiptReplayAfterSinkFailureIsRetried$ -count=1 -v
+
+=== RUN   TestProbeReceiptReplayAfterSinkFailureIsRetried
+    probe_receipt_ack_regression_test.go:130: replayed receipt was not retried after sink failure; calls=1
+--- FAIL: TestProbeReceiptReplayAfterSinkFailureIsRetried (1.07s)
+FAIL
+FAIL	github.com/gxbrave/AntiNAT/internal/controller/agenthub	1.077s
+FAIL
+
+Exit code: 1

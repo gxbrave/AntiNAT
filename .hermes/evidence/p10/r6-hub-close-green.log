@@ -1,0 +1,8 @@
+Command: GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/agenthub -run ^TestHubCloseDrainsActiveSessions$ -count=1 -v
+
+=== RUN   TestHubCloseDrainsActiveSessions
+--- PASS: TestHubCloseDrainsActiveSessions (0.03s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/controller/agenthub	0.037s
+
+Exit code: 0

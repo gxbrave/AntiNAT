@@ -1,0 +1,8 @@
+Command: GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/agenthub -run ^TestHubCloseDrainsActiveSessions$ -count=1 -v
+
+# github.com/gxbrave/AntiNAT/internal/controller/agenthub_test [github.com/gxbrave/AntiNAT/internal/controller/agenthub.test]
+internal/controller/agenthub/hub_close_test.go:24:16: hub.Close undefined (type *agenthub.Hub has no field or method Close)
+FAIL	github.com/gxbrave/AntiNAT/internal/controller/agenthub [build failed]
+FAIL
+
+Exit code: 1

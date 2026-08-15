@@ -1,0 +1,11 @@
+Historical RED candidate: f06fdd4^ with reconnect regression test from f06fdd4
+Command: GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent/control -run ^TestReconnectResendsResultWithoutDuplicateSideEffect$ -count=1 -v
+
+=== RUN   TestReconnectResendsResultWithoutDuplicateSideEffect
+    reconnect_test.go:107: op-1 not terminal after reconnect: err=<nil> state=SENT
+--- FAIL: TestReconnectResendsResultWithoutDuplicateSideEffect (8.19s)
+FAIL
+FAIL	github.com/gxbrave/AntiNAT/internal/agent/control	8.192s
+FAIL
+
+Exit code: 1
