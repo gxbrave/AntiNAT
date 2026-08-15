@@ -110,9 +110,9 @@ func insertOutboxTx(tx *sql.Tx, item ControlOutboxItem) error {
 		`INSERT INTO control_outbox
 		    (operation_id, message_type, node_id, semantic_payload, state,
 		     attempt_count, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+		 VALUES (?, ?, ?, ?, 'PENDING', 0, ?, ?)`,
 		item.OperationID, item.MessageType, item.NodeID, item.SemanticPayload,
-		orDefault(item.State, "PENDING"), ts, ts,
+		ts, ts,
 	); err != nil {
 		return fmt.Errorf("store: outbox insert: %w", err)
 	}

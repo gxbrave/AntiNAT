@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -21,8 +22,8 @@ var (
 	// ErrStaleSession rejects a transition from a session that is not the
 	// row's binding session (old-epoch ACK rejection).
 	ErrStaleSession = errors.New("store: control transition from a stale session")
-	// ErrMessageConflict rejects a duplicate message_id with different type
-	// or payload (fail-closed session conflict, protocol.md §3.5).
+	// ErrMessageConflict rejects a duplicate message_id with different node,
+	// operation, type, or payload (fail-closed session conflict, protocol.md §3.5).
 	ErrMessageConflict = errors.New("store: control inbox message id conflict")
 )
 
@@ -42,13 +43,27 @@ func (s *Store) ClaimControlOutbox(nodeID, sessionID string, limit int) ([]Contr
 	if limit <= 0 {
 		limit = 100
 	}
-	tx, err := s.db.Begin()
+	// Claim is a read-then-write operation. A deferred SQLite transaction can
+	// let two sessions read the same PENDING snapshot and then fail with
+	// SQLITE_BUSY while upgrading, rather than deterministically letting one
+	// session own the rows. BEGIN IMMEDIATE serializes the claim decision at
+	// the write boundary, just like the other idempotent store operations.
+	conn, err := s.db.Conn(context.Background())
 	if err != nil {
+		return nil, fmt.Errorf("store: outbox claim conn: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
 		return nil, fmt.Errorf("store: begin outbox claim: %w", err)
 	}
-	defer tx.Rollback()
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
 
-	rows, err := tx.Query(
+	rows, err := conn.QueryContext(context.Background(),
 		`SELECT id, operation_id, message_type, node_id, semantic_payload, state
 		   FROM control_outbox
 		  WHERE node_id = ? AND state = 'PENDING'
@@ -75,17 +90,26 @@ func (s *Store) ClaimControlOutbox(nodeID, sessionID string, limit int) ([]Contr
 		return nil, fmt.Errorf("store: pending outbox rows: %w", err)
 	}
 	for _, id := range ids {
-		if _, err := tx.Exec(
+		res, err := conn.ExecContext(context.Background(),
 			`UPDATE control_outbox SET state = 'CLAIMED', session_id = ?, updated_at = ?
 			  WHERE id = ? AND state = 'PENDING'`,
 			sessionID, now(), id,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("store: claim outbox row: %w", err)
 		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return nil, fmt.Errorf("store: claim outbox row count: %w", err)
+		}
+		if n != 1 {
+			return nil, fmt.Errorf("%w: outbox row %d was claimed concurrently", ErrIllegalPhase, id)
+		}
 	}
-	if err := tx.Commit(); err != nil {
+	if _, err := conn.ExecContext(context.Background(), "COMMIT"); err != nil {
 		return nil, fmt.Errorf("store: commit outbox claim: %w", err)
 	}
+	committed = true
 	for i := range items {
 		items[i].State = "CLAIMED"
 	}
@@ -98,8 +122,8 @@ func (s *Store) outboxTransition(operationID, messageType, sessionID, want, next
 	res, err := s.db.Exec(
 		`UPDATE control_outbox
 		    SET state = ?, updated_at = ?
-		  WHERE operation_id = ? AND message_type = ? AND state = ?`,
-		next, now(), operationID, messageType, want,
+		  WHERE operation_id = ? AND message_type = ? AND state = ? AND session_id = ?`,
+		next, now(), operationID, messageType, want, sessionID,
 	)
 	if err != nil {
 		return fmt.Errorf("store: outbox transition %s->%s: %w", want, next, err)
@@ -268,35 +292,46 @@ func (s *Store) RebindControlOutboxSession(operationID, messageType, sessionID s
 }
 
 // RecordControlInbox durably records an inbound A2C message. message_id is
-// UNIQUE (protocol.md §3.5): the same id + same type + same payload is a
-// cached duplicate (returned true); the same id with different type or
-// payload is a fail-closed conflict.
+// UNIQUE (protocol.md §3.5): the same id + same node/operation/type/payload is
+// a cached duplicate (returned true); any different binding or material is a
+// fail-closed conflict. INSERT OR IGNORE makes the first-write decision
+// atomic, so concurrent redelivery cannot leak a UNIQUE constraint error.
 func (s *Store) RecordControlInbox(item ControlInboxItem) (bool, error) {
-	var existingMessageType, existingPayload string
-	err := s.db.QueryRow(
-		`SELECT message_type, semantic_payload FROM control_inbox WHERE message_id = ?`,
-		item.MessageID,
-	).Scan(&existingMessageType, &existingPayload)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		if _, err := s.db.Exec(
-			`INSERT INTO control_inbox
-			    (message_id, node_id, message_type, semantic_payload, state,
-			     operation_id, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, 'RECEIVED', ?, ?, ?)`,
-			item.MessageID, item.NodeID, item.MessageType, item.SemanticPayload,
-			item.OperationID, now(), now(),
-		); err != nil {
-			return false, fmt.Errorf("store: record control inbox: %w", err)
-		}
-		return false, nil
-	case err != nil:
-		return false, fmt.Errorf("store: get control inbox: %w", err)
-	case existingMessageType != item.MessageType || existingPayload != item.SemanticPayload:
-		return false, fmt.Errorf("%w: message %q (type=%s) vs persisted (type=%s)", ErrMessageConflict, item.MessageID, item.MessageType, existingMessageType)
-	default:
-		return true, nil
+	res, err := s.db.Exec(
+		`INSERT OR IGNORE INTO control_inbox
+		    (message_id, node_id, message_type, semantic_payload, state,
+		     operation_id, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, 'RECEIVED', ?, ?, ?)`,
+		item.MessageID, item.NodeID, item.MessageType, item.SemanticPayload,
+		item.OperationID, now(), now(),
+	)
+	if err != nil {
+		return false, fmt.Errorf("store: record control inbox: %w", err)
 	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("store: record control inbox rows: %w", err)
+	}
+	if n == 1 {
+		return false, nil
+	}
+
+	var existingNodeID, existingMessageType, existingOperationID, existingPayload string
+	err = s.db.QueryRow(
+		`SELECT node_id, message_type, COALESCE(operation_id, ''), semantic_payload
+		   FROM control_inbox WHERE message_id = ?`, item.MessageID,
+	).Scan(&existingNodeID, &existingMessageType, &existingOperationID, &existingPayload)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, fmt.Errorf("store: control inbox row disappeared after duplicate insert")
+	}
+	if err != nil {
+		return false, fmt.Errorf("store: get control inbox: %w", err)
+	}
+	if existingNodeID != item.NodeID || existingMessageType != item.MessageType ||
+		existingOperationID != item.OperationID || existingPayload != item.SemanticPayload {
+		return false, fmt.Errorf("%w: message %q binding/material differs from persisted row", ErrMessageConflict, item.MessageID)
+	}
+	return true, nil
 }
 
 // ClaimControlOutboxOperation claims ONE pending row for a session (used when

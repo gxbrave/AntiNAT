@@ -78,6 +78,52 @@ func TestIdempotencyConflictsOnDifferentHash(t *testing.T) {
 	}
 }
 
+// A request hash alone is not sufficient to identify a replay: the same key
+// must remain bound to its route and principal as well as its request bytes.
+func TestIdempotencyConflictsOnDifferentRouteOrPrincipal(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "controller.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	first := store.IdempotencyRecord{
+		Key: "key-route-principal", Route: "POST /api/v1/forwards",
+		Principal: "admin-a", RequestHash: "hash-a",
+		ResponseStatus: 201, ResponseBody: `{"id":"fwd-1"}`,
+	}
+	if _, _, err := s.StoreIdempotency(first); err != nil {
+		t.Fatalf("first store: %v", err)
+	}
+
+	for name, conflict := range map[string]store.IdempotencyRecord{
+		"route": func() store.IdempotencyRecord {
+			r := first
+			r.Route = "POST /api/v1/nodes"
+			return r
+		}(),
+		"principal": func() store.IdempotencyRecord {
+			r := first
+			r.Principal = "admin-b"
+			return r
+		}(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, _, err := s.StoreIdempotency(conflict); !errors.Is(err, store.ErrIdempotencyConflict) {
+				t.Fatalf("binding mismatch error = %v, want ErrIdempotencyConflict", err)
+			}
+		})
+	}
+
+	got, err := s.GetIdempotency(first.Key)
+	if err != nil {
+		t.Fatalf("GetIdempotency: %v", err)
+	}
+	if got.Route != first.Route || got.Principal != first.Principal || got.ResponseBody != first.ResponseBody {
+		t.Fatalf("binding conflict mutated the row: %+v", got)
+	}
+}
+
 // RED 3c: an expired key may be reused by a new request, and the expiry is
 // recorded as a durable admin event (docs/error-codes.md §4).
 func TestIdempotencyExpiredKeyCanBeReused(t *testing.T) {

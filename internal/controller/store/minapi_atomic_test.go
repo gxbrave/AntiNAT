@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
@@ -87,5 +88,62 @@ func TestCreateForwardBundleReplaysIdenticallyAndConflictsOnHashMismatch(t *test
 	}
 	if got, err := s.ForwardCount(); err != nil || got != 2 {
 		t.Fatalf("ForwardCount after conflict = %d (err %v), side effect occurred", got, err)
+	}
+}
+
+func TestCreateForwardBundleConcurrentIdenticalRetryHasOneSideEffect(t *testing.T) {
+	s, _, _ := openTest(t)
+	f, spec, outbox, idem := atomicForwardFixture(t, s, "bundle-op-race")
+	outbox.State = "SEMANTIC_ACKED" // creation must still fence the intent at PENDING
+
+	const callers = 64
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	errs := make(chan error, callers)
+	replayed := make(chan bool, callers)
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, isReplay, err := s.CreateForwardBundle(context.Background(), f, spec, outbox, idem)
+			if err != nil {
+				errs <- err
+				return
+			}
+			replayed <- isReplay
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	close(replayed)
+
+	for err := range errs {
+		t.Fatalf("concurrent bundle retry: %v", err)
+	}
+	firsts, retries := 0, 0
+	for isReplay := range replayed {
+		if isReplay {
+			retries++
+		} else {
+			firsts++
+		}
+	}
+	if firsts != 1 || retries != callers-1 {
+		t.Fatalf("concurrent bundle results: firsts=%d retries=%d, want 1/%d", firsts, retries, callers-1)
+	}
+	if got, err := s.ForwardCount(); err != nil || got != 2 {
+		t.Fatalf("ForwardCount = %d (err %v), want existing plus one created forward", got, err)
+	}
+	if got, err := s.ForwardSpecCount(f.ID); err != nil || got != 1 {
+		t.Fatalf("ForwardSpecCount = %d (err %v), want one spec", got, err)
+	}
+	if got, err := s.ControlOutboxCount(f.NodeID); err != nil || got != 1 {
+		t.Fatalf("ControlOutboxCount = %d (err %v), want one command", got, err)
+	}
+	rows, err := s.ListControlOutboxByState(f.NodeID, "PENDING")
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("created outbox rows = %d (err %v), want one PENDING row", len(rows), err)
 	}
 }

@@ -110,9 +110,9 @@ func (s *Store) CreateForwardBundle(ctx context.Context, f Forward, spec Forward
 		`INSERT INTO control_outbox
 		    (operation_id, message_type, node_id, semantic_payload, state,
 		     attempt_count, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+		 VALUES (?, ?, ?, ?, 'PENDING', 0, ?, ?)`,
 		outbox.OperationID, outbox.MessageType, outbox.NodeID, outbox.SemanticPayload,
-		orDefault(outbox.State, "PENDING"), ts, ts); err != nil {
+		ts, ts); err != nil {
 		return IdempotencyRecord{}, false, fmt.Errorf("store: forward bundle outbox insert: %w", err)
 	}
 	if _, err := conn.ExecContext(ctx,
@@ -231,7 +231,7 @@ func (s *Store) ListControlInboxByType(nodeID string, types ...string) ([]Contro
 		where += " AND node_id = ?"
 	}
 	rows, err := s.db.Query(
-		`SELECT message_id, node_id, message_type, operation_id, semantic_payload, state
+		`SELECT message_id, node_id, message_type, COALESCE(operation_id, ''), semantic_payload, state
 		   FROM control_inbox WHERE `+where+` ORDER BY id DESC LIMIT 500`,
 		args...,
 	)

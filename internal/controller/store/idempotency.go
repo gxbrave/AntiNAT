@@ -14,7 +14,8 @@ import (
 const IdempotencyKeyTTL = 24 * time.Hour
 
 // ErrIdempotencyConflict is returned when an Idempotency-Key is reused with a
-// different request hash (409 IDEMPOTENCY_CONFLICT in the API layer).
+// different route, principal, or request hash (409 IDEMPOTENCY_CONFLICT in the
+// API layer).
 var ErrIdempotencyConflict = errors.New("store: idempotency key reused with a different request")
 
 // IdempotencyRecord is a durable create-result record binding the key to its
@@ -34,8 +35,8 @@ type IdempotencyRecord struct {
 // stored record and whether the caller should replay it:
 //
 //   - no prior row -> insert and return replayed=false;
-//   - matching key + hash (unexpired) -> return stored row and replayed=true;
-//   - matching key + different hash (unexpired) -> ErrIdempotencyConflict;
+//   - matching key + route/principal/hash (unexpired) -> return stored row and replayed=true;
+//   - matching key with different route, principal, or hash (unexpired) -> ErrIdempotencyConflict;
 //   - expired row -> replace the row and emit an IDEMPOTENCY_KEY_EXPIRED
 //     admin event in the same transaction, return replayed=false.
 func (s *Store) StoreIdempotency(rec IdempotencyRecord) (IdempotencyRecord, bool, error) {
@@ -101,7 +102,8 @@ func (s *Store) StoreIdempotency(rec IdempotencyRecord) (IdempotencyRecord, bool
 		result = rec
 	case err != nil:
 		return IdempotencyRecord{}, false, fmt.Errorf("store: get idempotency: %w", err)
-	case existing.ExpiresAt > ts && existing.RequestHash == rec.RequestHash:
+	case existing.ExpiresAt > ts && existing.Route == rec.Route &&
+		existing.Principal == rec.Principal && existing.RequestHash == rec.RequestHash:
 		result, replayed = existing, true
 	case existing.ExpiresAt > ts:
 		conflict = true

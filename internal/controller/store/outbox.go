@@ -17,7 +17,9 @@ type ControlOutboxItem struct {
 	State           string
 }
 
-// EnqueueControlOutbox inserts a PENDING outbox item. (operation_id,
+// EnqueueControlOutbox inserts a PENDING outbox item. The caller-supplied
+// State is intentionally ignored: a new intent cannot bypass delivery and
+// receipt fencing by manufacturing a later FSM phase. (operation_id,
 // message_type) is unique, so re-enqueueing the same operation faults —
 // callers use the transactional Apply* methods to pair an operation with its
 // outbox entry atomically.
@@ -27,9 +29,9 @@ func (s *Store) EnqueueControlOutbox(item ControlOutboxItem) error {
 		`INSERT INTO control_outbox
 		    (operation_id, message_type, node_id, semantic_payload, state,
 		     attempt_count, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+		 VALUES (?, ?, ?, ?, 'PENDING', 0, ?, ?)`,
 		item.OperationID, item.MessageType, item.NodeID, item.SemanticPayload,
-		orDefault(item.State, "PENDING"), ts, ts,
+		ts, ts,
 	)
 	if err != nil {
 		return fmt.Errorf("store: enqueue control outbox: %w", err)
