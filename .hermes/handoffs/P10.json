@@ -584,11 +584,11 @@
     "task_id": "t_51c36205",
     "repair_cycle": 6,
     "base_sha": "326ed64b04a95195a998148ef96ccc9d461d1f5e",
-    "head_sha": "7f59b66d76cdba9fbbb1ae953477b53e00ed0821",
+    "head_sha": "7f59b66cd45c383a042326a35cf01307a97979d6",
     "branch": "ai/P10-wan-probe-activation-cli-e2e",
     "commits": [
       "3aed3776de97be3e28532c2c64d71d2f3e20d9f8",
-      "7f59b66d76cdba9fbbb1ae953477b53e00ed0821"
+      "7f59b66cd45c383a042326a35cf01307a97979d6"
     ],
     "files_changed": [
       "cmd/antinat-probe/main.go",
