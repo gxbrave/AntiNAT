@@ -636,6 +636,22 @@
         "exit_code": 0
       },
       {
+        "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make test",
+        "exit_code": 0
+      },
+      {
+        "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make check",
+        "exit_code": 0
+      },
+      {
+        "command": "make build",
+        "exit_code": 0
+      },
+      {
+        "command": "make clean",
+        "exit_code": 0
+      },
+      {
         "command": "git diff --check",
         "exit_code": 0
       }
@@ -669,8 +685,7 @@
     "contracts_changed": [],
     "capability_result": "SUPPORTED_WITH_LIMITS",
     "known_limits": [
-      "make test and make check remain blocked by the host sandbox gate: ANTINAT_DEDICATED_UID and ANTINAT_DEDICATED_GID are not provisioned in this environment.",
-      "One concurrent full non-race repository run also exposed the pre-existing timing-sensitive internal/traversal/stun TestObserveMappingSameLocalPortDefaultReuseControl; the focused rerun passed.",
+      "The sandbox identity is available on this host as UID/GID 12001; full make test and make check pass when ANTINAT_DEDICATED_UID/GID are explicitly set to 12001.",
       "No real external-WAN evidence was claimed; provider tests use the existing local TEST-NET harness.",
       "govulncheck was not run because it is not installed on this host."
     ],
