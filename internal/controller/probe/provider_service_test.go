@@ -96,6 +96,24 @@ func TestProviderRefusesPrivateEndpoint(t *testing.T) {
 	}
 }
 
+func TestProviderRejectsSignedRequestPastTTL(t *testing.T) {
+	ctrlPub, ctrlPriv, _ := ed25519.GenerateKey(rand.Reader)
+	now := time.Unix(1000, 0)
+	req := providerRequest{
+		Schema: providerRequestSchema, ControllerInstance: "inst", ControllerKeyID: "k1",
+		NodePublicKey: strings.Repeat("11", ed25519.PublicKeySize), NodePublicKeyHash: hex.EncodeToString(hash256(bytes.Repeat([]byte{0x11}, ed25519.PublicKeySize))),
+		ProbeID: strings.Repeat("33", 16), ProviderID: strings.Repeat("44", 16), Activation: strings.Repeat("55", 16),
+		Endpoint: "198.51.100.7:80", ExpectedSourceIP: "7f000001", ExpiryOpaque: strings.Repeat("66", 16),
+		TTLMS: 30000, ArmDigest: strings.Repeat("77", 32), TimestampUnix: now.Unix() - 31,
+	}
+	canonical, _ := req.canonical()
+	req.Signature = hex.EncodeToString(ed25519.Sign(ctrlPriv, canonical))
+	body, _ := json.Marshal(req)
+	if _, err := decodeProviderRequestAt(bytes.NewReader(body), ctrlPub, now); err == nil {
+		t.Fatal("signed provider request was accepted after its TTL")
+	}
+}
+
 // TestProviderReplayCacheIsBounded covers the resource bound: unique probe
 // ids cannot grow the TTL replay map without limit.
 func TestProviderReplayCacheIsBounded(t *testing.T) {

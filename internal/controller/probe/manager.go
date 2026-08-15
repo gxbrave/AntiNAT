@@ -22,8 +22,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -169,7 +169,9 @@ func (m *Manager) sweepLoop(ctx context.Context) {
 			return
 		case now := <-ticker.C:
 			_, _ = m.store.ExpireProbeOperations(now.Unix())
-			_ = m.store.DeleteProbeResultsBefore(now.Add(-m.resultRetention).Unix())
+			cutoff := now.Add(-m.resultRetention).Unix()
+			_ = m.store.DeleteProbeResultsBefore(cutoff)
+			_ = m.store.DeleteTerminalProbeOperationsBefore(cutoff)
 		}
 	}
 }
@@ -238,9 +240,12 @@ func (m *Manager) Arm(ctx context.Context, nodeID, forwardID, activationID, endp
 		copy(activation[:], sum[:16])
 	}
 	var expectedSource [4]byte
-	if ip := parseIPv4(provider.EgressIP); ip != nil {
-		copy(expectedSource[:], ip)
+	sourceAddr, err := netip.ParseAddr(provider.EgressIP)
+	if err != nil || !sourceAddr.Is4() || !protocol.IsGlobalEndpoint(sourceAddr) {
+		return store.ProbeOperation{}, errors.New("probe: provider egress IP is not a global IPv4 literal")
 	}
+	sourceBytes := sourceAddr.As4()
+	copy(expectedSource[:], sourceBytes[:])
 
 	arm := protocol.ProbeArm{
 		ProbeID:           probeID,
@@ -326,6 +331,7 @@ func (m *Manager) handleArmed(nodeID string, payload []byte) error {
 	}
 	provider, err := m.store.GetProbeProvider(op.ProviderID)
 	if err != nil {
+		_ = m.store.SetProbeOperationStatusCAS(op.ID, "ARMED", string(protocol.OutcomeProbeInfraUnavailable))
 		return err
 	}
 	if !provider.IndependentVantage {
@@ -553,7 +559,17 @@ func (m *Manager) requestProvider(op store.ProbeOperation, nodeID string, nodePu
 		m.failOperation(op.ID, string(protocol.OutcomeRejected))
 		return
 	}
-	_ = m.tryJoin(op)
+	if res.ChallengeHash == "" || res.WAN1Frame == "" || res.ACK1Frame == "" {
+		m.failOperation(op.ID, string(protocol.OutcomeRejected))
+		return
+	}
+	if err := m.tryJoin(op); err != nil {
+		if errors.Is(err, store.ErrProbeExpired) {
+			m.failOperation(op.ID, string(protocol.OutcomeTimeout))
+		} else {
+			m.failOperation(op.ID, string(protocol.OutcomeRejected))
+		}
+	}
 }
 
 // tryJoin runs the frozen join: the provider result (WAN1+ACK1) and the
@@ -564,7 +580,7 @@ func (m *Manager) tryJoin(op store.ProbeOperation) error {
 	if err != nil {
 		return err
 	}
-	if current.Status != "ARMED" && current.Status != "IN_FLIGHT" {
+	if current.Status != "IN_FLIGHT" {
 		return nil
 	}
 	if m.clock().Unix() >= current.ExpiresAt {
@@ -575,9 +591,14 @@ func (m *Manager) tryJoin(op store.ProbeOperation) error {
 	if err != nil {
 		return err
 	}
-	var wan1Hex, ack1Hex, rct1Hex string
+	var providerJSON, wan1Hex, ack1Hex, rct1Hex string
 	for _, r := range results {
 		switch r.Kind {
+		case "provider":
+			if providerJSON != "" {
+				return m.store.SetProbeOperationStatusCAS(op.ID, current.Status, string(protocol.OutcomeRejected))
+			}
+			providerJSON = r.PayloadHex
 		case "wan1":
 			wan1Hex = r.PayloadHex
 		case "ack1":
@@ -586,44 +607,60 @@ func (m *Manager) tryJoin(op store.ProbeOperation) error {
 			rct1Hex = r.PayloadHex
 		}
 	}
-	if wan1Hex == "" || ack1Hex == "" || rct1Hex == "" {
+	if providerJSON == "" || wan1Hex == "" || ack1Hex == "" || rct1Hex == "" {
 		return nil // not all artifacts joined yet
 	}
-	armBytes, err := hex.DecodeString(op.ArmHex)
+	reject := func(cause error) error {
+		_ = m.store.SetProbeOperationStatusCAS(op.ID, current.Status, string(protocol.OutcomeRejected))
+		return cause
+	}
+	var providerRes providerResult
+	if err := json.Unmarshal([]byte(providerJSON), &providerRes); err != nil ||
+		!providerRes.Accepted || providerRes.ProbeID != current.ID || providerRes.ChallengeHash == "" {
+		return m.store.SetProbeOperationStatusCAS(op.ID, current.Status, string(protocol.OutcomeRejected))
+	}
+	armBytes, err := hex.DecodeString(current.ArmHex)
 	if err != nil {
-		return err
+		return reject(err)
 	}
 	arm, err := protocol.ParseProbeArm(armBytes)
 	if err != nil {
-		return err
+		return reject(err)
 	}
 	wan1, err := hex.DecodeString(wan1Hex)
 	if err != nil {
-		return err
+		return reject(err)
 	}
 	frame, err := protocol.ParseProviderFrame(wan1)
 	if err != nil {
-		return err
+		return reject(err)
+	}
+	frameChallenge := frame.ChallengeHash()
+	frameChallengeHex := hex.EncodeToString(frameChallenge[:])
+	if current.ChallengeHash == "" || !strings.EqualFold(current.ChallengeHash, providerRes.ChallengeHash) ||
+		!strings.EqualFold(providerRes.ChallengeHash, frameChallengeHex) {
+		return m.store.SetProbeOperationStatusCAS(op.ID, current.Status, string(protocol.OutcomeRejected))
 	}
 	ack1, err := hex.DecodeString(ack1Hex)
 	if err != nil {
-		return err
+		return reject(err)
 	}
-	nodePub, ok := m.nodeKey(op.NodeID)
+	nodePub, ok := m.nodeKey(current.NodeID)
 	if !ok {
+		m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
 		return errors.New("probe: node session lost before join")
 	}
 	ack, err := protocol.ParseProbeACK(ack1, nodePub)
 	if err != nil {
-		return err
+		return reject(err)
 	}
 	rct1, err := hex.DecodeString(rct1Hex)
 	if err != nil {
-		return err
+		return reject(err)
 	}
 	receipt, err := protocol.ParseProbeReceipt(rct1, nodePub)
 	if err != nil {
-		return err
+		return reject(err)
 	}
 	if !protocol.VerifyProbeJoin(arm, frame, ack, receipt, nodePub) {
 		return m.store.SetProbeOperationStatusCAS(op.ID, current.Status, string(protocol.OutcomeRejected))
@@ -645,7 +682,15 @@ func (m *Manager) tryJoin(op store.ProbeOperation) error {
 		return err
 	}
 	raw, _ := json.Marshal(snapshot)
-	return m.store.PublishProbeJoin(op.ID, current.Status, op.ForwardID, op.ActivationID, string(raw))
+	if err := m.store.PublishProbeJoin(op.ID, "IN_FLIGHT", current.ForwardID, current.ActivationID, string(raw)); err != nil {
+		if errors.Is(err, store.ErrProbeExpired) {
+			m.failOperation(op.ID, string(protocol.OutcomeTimeout))
+		} else {
+			m.failOperation(op.ID, string(protocol.OutcomeRejected))
+		}
+		return err
+	}
+	return nil
 }
 
 // failOperation moves a live operation to a terminal status without allowing
@@ -689,14 +734,6 @@ func randomID() ([16]byte, error) {
 	var id [16]byte
 	_, err := rand.Read(id[:])
 	return id, err
-}
-
-func parseIPv4(s string) []byte {
-	ip := net.ParseIP(s)
-	if ip == nil {
-		return nil
-	}
-	return ip.To4()
 }
 
 // providerWireID derives the fixed 16-byte provider id from the operator-

@@ -204,6 +204,27 @@ func TestArmEnqueuesProbeArm(t *testing.T) {
 	}
 }
 
+func TestArmRejectsMalformedProviderEgressIP(t *testing.T) {
+	env := newTestEnv(t, false)
+	env.createNodeForward(t)
+	providerPub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.store.CreateProbeProvider(store.ProbeProvider{
+		ID: "aaa", Name: "malformed", PublicKey: hex.EncodeToString(providerPub),
+		EgressIP: "not-an-ip", Endpoint: "https://provider.invalid", Enabled: true, IndependentVantage: true,
+	}); err != nil {
+		t.Fatalf("register malformed provider fixture: %v", err)
+	}
+	if _, err := env.manager.Arm(context.Background(), "n1", "f1", "act-1", "198.51.100.7:8080"); err == nil {
+		t.Fatal("Arm accepted a provider with malformed egress IP")
+	}
+	if got, err := env.store.CountLiveProbeOperations(); err != nil || got != 0 {
+		t.Fatalf("live operations after malformed provider egress = %d (err %v), want 0", got, err)
+	}
+}
+
 // TestProbeResultRejectsWrongNodeAndOutcome prevents an agent from mutating a
 // different node's operation or writing a non-terminal/unknown outcome.
 func TestProbeResultRejectsWrongNodeAndOutcome(t *testing.T) {

@@ -1,15 +1,135 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // P10-owned store extension: list/query surface for the minimal admin API
 // (Story 4). The frozen schema is unchanged; these are read helpers over the
 // existing tables plus the atomic forward-create-with-desired transaction.
+
+// ErrForwardNameConflict identifies the stable (node_id, name) uniqueness
+// conflict separately from infrastructure/transaction failures.
+var ErrForwardNameConflict = errors.New("store: forward name already exists on node")
+
+// CreateForwardBundle atomically persists a Forward, its initial desired spec,
+// its desired-state outbox command, and the idempotency response. The
+// idempotency lookup and all inserts run under BEGIN IMMEDIATE so concurrent
+// controller processes cannot both pass a read-before-write check. A replay
+// returns the original response without touching any forward-side rows.
+func (s *Store) CreateForwardBundle(ctx context.Context, f Forward, spec ForwardSpec, outbox ControlOutboxItem, rec IdempotencyRecord) (IdempotencyRecord, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if rec.Key == "" {
+		return IdempotencyRecord{}, false, errors.New("store: empty idempotency key")
+	}
+	if f.ID == "" || spec.ForwardID != f.ID || outbox.NodeID != f.NodeID {
+		return IdempotencyRecord{}, false, errors.New("store: forward bundle identity mismatch")
+	}
+	if err := s.checkWriteCapacity(); err != nil {
+		return IdempotencyRecord{}, false, err
+	}
+
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return IdempotencyRecord{}, false, fmt.Errorf("store: forward bundle conn: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return IdempotencyRecord{}, false, fmt.Errorf("store: begin forward bundle: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+
+	ts := now()
+	expires := rec.ExpiresAt
+	if expires == 0 {
+		expires = ts + int64(IdempotencyKeyTTL/time.Second)
+	}
+	rec.CreatedAt = ts
+	rec.ExpiresAt = expires
+
+	var existing IdempotencyRecord
+	err = conn.QueryRowContext(ctx,
+		`SELECT key, route, principal, request_hash, response_status,
+		        response_body, created_at, expires_at
+		   FROM api_idempotency_keys WHERE key = ?`, rec.Key,
+	).Scan(&existing.Key, &existing.Route, &existing.Principal, &existing.RequestHash,
+		&existing.ResponseStatus, &existing.ResponseBody, &existing.CreatedAt, &existing.ExpiresAt)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		// New key: continue with the forward-side writes below.
+	case err != nil:
+		return IdempotencyRecord{}, false, fmt.Errorf("store: get forward idempotency: %w", err)
+	case existing.ExpiresAt > ts:
+		if existing.Route != rec.Route || existing.Principal != rec.Principal || existing.RequestHash != rec.RequestHash {
+			return IdempotencyRecord{}, false, ErrIdempotencyConflict
+		}
+		return existing, true, nil
+	default:
+		// Expired keys are replaced only if the complete forward bundle commits;
+		// the audit row and delete therefore remain inside this transaction.
+		if _, err := conn.ExecContext(ctx, `DELETE FROM api_idempotency_keys WHERE key = ?`, rec.Key); err != nil {
+			return IdempotencyRecord{}, false, fmt.Errorf("store: expire forward idempotency delete: %w", err)
+		}
+		if _, err := conn.ExecContext(ctx,
+			`INSERT INTO admin_events (event_type, payload, created_at) VALUES (?, ?, ?)`,
+			"IDEMPOTENCY_KEY_EXPIRED",
+			fmt.Sprintf(`{"key":%q,"route":%q}`, rec.Key, rec.Route), ts); err != nil {
+			return IdempotencyRecord{}, false, fmt.Errorf("store: forward idempotency expiry audit: %w", err)
+		}
+	}
+
+	if _, err := conn.ExecContext(ctx,
+		`INSERT INTO forwards (id, node_id, name, protocol, current_activation_id,
+		                       revision, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		f.ID, f.NodeID, f.Name, f.Protocol, f.CurrentActivationID, f.Revision, ts, ts); err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed: forwards.node_id, forwards.name") {
+			return IdempotencyRecord{}, false, fmt.Errorf("%w: %v", ErrForwardNameConflict, err)
+		}
+		return IdempotencyRecord{}, false, fmt.Errorf("store: forward bundle forward insert: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx,
+		`INSERT INTO forward_specs (id, forward_id, revision, spec_json, created_at)
+		 VALUES (?, ?, ?, ?, ?)`,
+		spec.ID, spec.ForwardID, spec.Revision, spec.SpecJSON, ts); err != nil {
+		return IdempotencyRecord{}, false, fmt.Errorf("store: forward bundle spec insert: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx,
+		`INSERT INTO control_outbox
+		    (operation_id, message_type, node_id, semantic_payload, state,
+		     attempt_count, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+		outbox.OperationID, outbox.MessageType, outbox.NodeID, outbox.SemanticPayload,
+		orDefault(outbox.State, "PENDING"), ts, ts); err != nil {
+		return IdempotencyRecord{}, false, fmt.Errorf("store: forward bundle outbox insert: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx,
+		`INSERT INTO api_idempotency_keys
+		    (key, route, principal, request_hash, response_status,
+		     response_body, created_at, expires_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		rec.Key, rec.Route, rec.Principal, rec.RequestHash, rec.ResponseStatus,
+		rec.ResponseBody, rec.CreatedAt, rec.ExpiresAt); err != nil {
+		return IdempotencyRecord{}, false, fmt.Errorf("store: forward bundle idempotency insert: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return IdempotencyRecord{}, false, fmt.Errorf("store: commit forward bundle: %w", err)
+	}
+	committed = true
+	return rec, false, nil
+}
 
 // ListNodes returns every node in id order.
 func (s *Store) ListNodes() ([]Node, error) {

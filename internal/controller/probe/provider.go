@@ -140,6 +140,9 @@ func decodeProviderRequestAt(body io.Reader, controllerPub ed25519.PublicKey, no
 	if req.TimestampUnix < now-120 || req.TimestampUnix > now+30 {
 		return nil, errors.New("provider: stale request")
 	}
+	if req.TimestampUnix+int64((req.TTLMS+999)/1000) <= now {
+		return nil, errors.New("provider: request ttl expired")
+	}
 	canonical, err := req.canonical()
 	if err != nil {
 		return nil, err

@@ -5,10 +5,13 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/gxbrave/AntiNAT/internal/protocol"
@@ -204,6 +207,10 @@ func (s *Store) GetProbeOperation(id string) (ProbeOperation, error) {
 var (
 	ErrProbeIllegalTransition = errors.New("store: illegal probe operation transition")
 	ErrProbeTerminal          = errors.New("store: probe operation is terminal")
+	ErrProbeExpired           = errors.New("store: probe operation has expired")
+	ErrProbeDuplicateEvidence = errors.New("store: duplicate probe evidence")
+	ErrProbeJoinIncomplete    = errors.New("store: probe join evidence is incomplete")
+	ErrProbeChallengeConflict = errors.New("store: probe challenge evidence conflicts")
 )
 
 func probeTerminal(status string) bool {
@@ -256,7 +263,8 @@ func (s *Store) setProbeOperationStatusCAS(id, expected, status string) error {
 	}
 	defer tx.Rollback()
 	var current string
-	if err := tx.QueryRow(`SELECT status FROM probe_operations WHERE id = ?`, id).Scan(&current); errors.Is(err, sql.ErrNoRows) {
+	var expiresAt int64
+	if err := tx.QueryRow(`SELECT status, expires_at FROM probe_operations WHERE id = ?`, id).Scan(&current, &expiresAt); errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return fmt.Errorf("store: read probe status: %w", err)
@@ -273,6 +281,9 @@ func (s *Store) setProbeOperationStatusCAS(id, expected, status string) error {
 	if current == status {
 		return nil
 	}
+	if expiresAt <= now() && status != string(protocol.OutcomeTimeout) {
+		return ErrProbeExpired
+	}
 	if _, err := tx.Exec(`UPDATE probe_operations SET status = ?, updated_at = ? WHERE id = ?`, status, now(), id); err != nil {
 		return fmt.Errorf("store: set probe operation status: %w", err)
 	}
@@ -282,19 +293,46 @@ func (s *Store) setProbeOperationStatusCAS(id, expected, status string) error {
 	return nil
 }
 
-// SetProbeOperationChallenge records the joined challenge hash.
+// SetProbeOperationChallenge records the joined challenge hash while the
+// operation is still live. A terminal/expired row cannot be rewritten by a
+// late provider response.
 func (s *Store) SetProbeOperationChallenge(id, challengeHash string) error {
-	res, err := s.db.Exec(
-		`UPDATE probe_operations SET challenge_hash = ?, updated_at = ? WHERE id = ?`,
-		challengeHash, now(), id,
-	)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("store: begin probe challenge: %w", err)
+	}
+	defer tx.Rollback()
+	ts := now()
+	var status, existing string
+	var expiresAt int64
+	if err := tx.QueryRow(`SELECT status, challenge_hash, expires_at FROM probe_operations WHERE id = ?`, id).
+		Scan(&status, &existing, &expiresAt); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return fmt.Errorf("store: read probe operation challenge: %w", err)
+	}
+	if probeTerminal(status) {
+		return ErrProbeTerminal
+	}
+	if expiresAt <= ts {
+		return ErrProbeExpired
+	}
+	if existing != "" && !strings.EqualFold(existing, challengeHash) {
+		return ErrProbeChallengeConflict
+	}
+	res, err := tx.Exec(`UPDATE probe_operations SET challenge_hash = ?, updated_at = ?
+		WHERE id = ? AND status IN ('PENDING','ARMED','IN_FLIGHT') AND expires_at > ?`,
+		challengeHash, ts, id, ts)
 	if err != nil {
 		return fmt.Errorf("store: set probe operation challenge: %w", err)
 	}
 	if n, err := res.RowsAffected(); err != nil {
 		return fmt.Errorf("store: set probe operation challenge rows: %w", err)
 	} else if n != 1 {
-		return ErrNotFound
+		return ErrProbeTerminal
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: commit probe challenge: %w", err)
 	}
 	return nil
 }
@@ -303,13 +341,31 @@ func (s *Store) SetProbeOperationChallenge(id, challengeHash string) error {
 // and persists its legal activation mirror. Observers can never see an OPEN
 // operation without its corresponding frozen snapshot.
 func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activationID, snapshotJSON string) error {
+	var snapshot protocol.ActivationStates
+	dec := json.NewDecoder(strings.NewReader(snapshotJSON))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&snapshot); err != nil {
+		return fmt.Errorf("%w: malformed activation snapshot: %v", ErrProbeJoinIncomplete, err)
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		return fmt.Errorf("%w: malformed activation snapshot trailing data", ErrProbeJoinIncomplete)
+	}
+	if err := snapshot.Validate(); err != nil {
+		return fmt.Errorf("%w: illegal activation snapshot: %v", ErrProbeJoinIncomplete, err)
+	}
+	if expectedStatus != "IN_FLIGHT" {
+		return fmt.Errorf("%w: expected status must be IN_FLIGHT", ErrProbeIllegalTransition)
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("store: begin probe join: %w", err)
 	}
 	defer tx.Rollback()
-	var current string
-	if err := tx.QueryRow(`SELECT status FROM probe_operations WHERE id = ?`, operationID).Scan(&current); errors.Is(err, sql.ErrNoRows) {
+	var current, storedForwardID, storedActivationID, providerID string
+	var expiresAt int64
+	if err := tx.QueryRow(`SELECT status, forward_id, activation_id, expires_at, provider_id
+		FROM probe_operations WHERE id = ?`, operationID).Scan(&current, &storedForwardID, &storedActivationID, &expiresAt, &providerID); errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return fmt.Errorf("store: read probe join status: %w", err)
@@ -317,19 +373,105 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 	if current != expectedStatus {
 		return ErrProbeTerminal
 	}
+	if storedForwardID != forwardID || storedActivationID != activationID {
+		return fmt.Errorf("%w: operation binding mismatch", ErrProbeJoinIncomplete)
+	}
+	nowUnix := now()
+	if expiresAt <= nowUnix {
+		return ErrProbeExpired
+	}
 	if !probeTransitionAllowed(current, string(protocol.OutcomeOpenFromVantage)) {
 		return ErrProbeIllegalTransition
 	}
-	if _, err := tx.Exec(`UPDATE probe_operations SET status = ?, updated_at = ? WHERE id = ? AND status = ?`, string(protocol.OutcomeOpenFromVantage), now(), operationID, expectedStatus); err != nil {
+	var forwardNodeID, currentActivationID sql.NullString
+	if err := tx.QueryRow(`SELECT node_id, current_activation_id FROM forwards WHERE id = ?`, forwardID).Scan(&forwardNodeID, &currentActivationID); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return fmt.Errorf("store: read probe join forward: %w", err)
+	}
+	var operationNodeID string
+	if err := tx.QueryRow(`SELECT node_id FROM probe_operations WHERE id = ?`, operationID).Scan(&operationNodeID); err != nil {
+		return fmt.Errorf("store: read probe join node: %w", err)
+	}
+	if !forwardNodeID.Valid || forwardNodeID.String == "" || operationNodeID != forwardNodeID.String {
+		return fmt.Errorf("%w: operation/forward node mismatch", ErrProbeJoinIncomplete)
+	}
+	if currentActivationID.Valid && currentActivationID.String != "" && currentActivationID.String != activationID {
+		return ErrCASConflict
+	}
+	var providerEnabled, independentVantage int
+	if err := tx.QueryRow(`SELECT enabled, independent_vantage FROM probe_providers WHERE id = ?`, providerID).Scan(&providerEnabled, &independentVantage); errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: provider is not registered", ErrProbeJoinIncomplete)
+	} else if err != nil {
+		return fmt.Errorf("store: read probe join provider: %w", err)
+	}
+	if providerEnabled == 0 || independentVantage == 0 {
+		return fmt.Errorf("%w: provider is not an enabled independent vantage", ErrProbeJoinIncomplete)
+	}
+	var providerPayload, wan1Payload, ack1Payload string
+	for _, artifact := range []struct {
+		kind string
+		dst  *string
+	}{
+		{kind: "provider", dst: &providerPayload},
+		{kind: "wan1", dst: &wan1Payload},
+		{kind: "ack1", dst: &ack1Payload},
+		{kind: "rct1", dst: new(string)},
+	} {
+		var count int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM probe_results WHERE probe_id = ? AND kind = ?`, operationID, artifact.kind).Scan(&count); err != nil {
+			return fmt.Errorf("store: count probe join %s: %w", artifact.kind, err)
+		}
+		if count != 1 {
+			return fmt.Errorf("%w: expected one %s artifact, got %d", ErrProbeJoinIncomplete, artifact.kind, count)
+		}
+		if err := tx.QueryRow(`SELECT payload_hex FROM probe_results WHERE probe_id = ? AND kind = ?`, operationID, artifact.kind).Scan(artifact.dst); err != nil {
+			return fmt.Errorf("store: read probe join %s artifact: %w", artifact.kind, err)
+		}
+	}
+	var providerResult struct {
+		ProbeID       string `json:"probe_id"`
+		Accepted      bool   `json:"accepted"`
+		ChallengeHash string `json:"challenge_hash"`
+		WAN1Frame     string `json:"wan1_frame"`
+		ACK1Frame     string `json:"ack1_frame"`
+	}
+	if err := json.Unmarshal([]byte(providerPayload), &providerResult); err != nil ||
+		!providerResult.Accepted || providerResult.ProbeID != operationID || providerResult.ChallengeHash == "" ||
+		providerResult.WAN1Frame == "" || providerResult.ACK1Frame == "" ||
+		!strings.EqualFold(providerResult.WAN1Frame, wan1Payload) || !strings.EqualFold(providerResult.ACK1Frame, ack1Payload) {
+		return fmt.Errorf("%w: provider result is malformed, rejected, or unbound", ErrProbeJoinIncomplete)
+	}
+	var operationChallenge string
+	if err := tx.QueryRow(`SELECT challenge_hash FROM probe_operations WHERE id = ?`, operationID).Scan(&operationChallenge); err != nil {
+		return fmt.Errorf("store: read probe join challenge: %w", err)
+	}
+	if operationChallenge == "" || !strings.EqualFold(operationChallenge, providerResult.ChallengeHash) {
+		return fmt.Errorf("%w: challenge hash mismatch", ErrProbeJoinIncomplete)
+	}
+	res, err := tx.Exec(`UPDATE probe_operations SET status = ?, updated_at = ?
+		WHERE id = ? AND status = ? AND expires_at > ?`, string(protocol.OutcomeOpenFromVantage), nowUnix, operationID, expectedStatus, nowUnix)
+	if err != nil {
 		return fmt.Errorf("store: publish probe operation: %w", err)
 	}
-	if _, err := tx.Exec(`INSERT INTO forward_runtime_status (forward_id, activation_id, snapshot_json, updated_at)
+	if n, err := res.RowsAffected(); err != nil {
+		return fmt.Errorf("store: publish probe operation rows: %w", err)
+	} else if n != 1 {
+		return ErrProbeTerminal
+	}
+	statusRes, err := tx.Exec(`INSERT INTO forward_runtime_status (forward_id, activation_id, snapshot_json, updated_at)
 		VALUES (?, ?, ?, ?)
 		ON CONFLICT(forward_id) DO UPDATE SET activation_id = excluded.activation_id,
 		 snapshot_json = excluded.snapshot_json, updated_at = excluded.updated_at
 		 WHERE forward_runtime_status.activation_id = excluded.activation_id
-		 OR excluded.activation_id = (SELECT current_activation_id FROM forwards WHERE id = excluded.forward_id)`, forwardID, activationID, snapshotJSON, now()); err != nil {
+		 OR excluded.activation_id = (SELECT current_activation_id FROM forwards WHERE id = excluded.forward_id)`, forwardID, activationID, snapshotJSON, nowUnix)
+	if err != nil {
 		return fmt.Errorf("store: publish probe snapshot: %w", err)
+	}
+	if n, err := statusRes.RowsAffected(); err != nil {
+		return fmt.Errorf("store: publish probe snapshot rows: %w", err)
+	} else if n != 1 {
+		return ErrCASConflict
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("store: commit probe join: %w", err)
@@ -378,7 +520,7 @@ func (s *Store) ProbeOperationByArmDigestForNode(digest [32]byte, nodeID string,
 	rows, err := s.db.Query(`SELECT id, node_id, forward_id, activation_id, provider_id, status,
 		endpoint, arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
 		FROM probe_operations
-		WHERE node_id = ? AND status IN ('PENDING','ARMED','IN_FLIGHT')`, nodeID)
+		WHERE node_id = ? AND status IN ('PENDING','ARMED','IN_FLIGHT') AND expires_at > ?`, nodeID, nowUnix)
 	if err != nil {
 		return ProbeOperation{}, fmt.Errorf("store: scan live probe operations: %w", err)
 	}
@@ -451,7 +593,8 @@ func (s *Store) ListProbeOperationsByStatus(statuses ...string) ([]ProbeOperatio
 // CountLiveProbeOperations returns the number of non-terminal probe rows.
 func (s *Store) CountLiveProbeOperations() (int, error) {
 	var n int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM probe_operations WHERE status IN ('PENDING','ARMED','IN_FLIGHT')`).Scan(&n); err != nil {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM probe_operations
+		WHERE status IN ('PENDING','ARMED','IN_FLIGHT') AND expires_at > ?`, now()).Scan(&n); err != nil {
 		return 0, fmt.Errorf("store: count live probe operations: %w", err)
 	}
 	return n, nil
@@ -493,6 +636,30 @@ func (s *Store) DeleteProbeResultsBefore(cutoff int64) error {
 	return nil
 }
 
+// DeleteTerminalProbeOperationsBefore removes terminal probe tombstones after
+// the retention window. Evidence is deleted first to satisfy the foreign key;
+// a removed operation cannot be revived because every late write then fails
+// with ErrNotFound.
+func (s *Store) DeleteTerminalProbeOperationsBefore(cutoff int64) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("store: begin probe tombstone gc: %w", err)
+	}
+	defer tx.Rollback()
+	const terminal = `status IN ('OPEN_FROM_VANTAGE','REJECTED','DROPPED','TIMEOUT','NO_INDEPENDENT_VANTAGE','PROBE_INFRA_UNAVAILABLE')`
+	if _, err := tx.Exec(`DELETE FROM probe_results WHERE probe_id IN
+		(SELECT id FROM probe_operations WHERE `+terminal+` AND updated_at < ?)`, cutoff); err != nil {
+		return fmt.Errorf("store: delete probe tombstone evidence: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM probe_operations WHERE `+terminal+` AND updated_at < ?`, cutoff); err != nil {
+		return fmt.Errorf("store: delete probe tombstones: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: commit probe tombstone gc: %w", err)
+	}
+	return nil
+}
+
 // ProbeResult is one joined artifact of a probe operation.
 type ProbeResult struct {
 	ID         int64
@@ -502,15 +669,66 @@ type ProbeResult struct {
 	CreatedAt  int64
 }
 
-// RecordProbeResult appends a probe result artifact.
+// RecordProbeResult appends one probe result artifact. A probe may have at
+// most one artifact of each kind; the immediate transaction makes that
+// invariant hold even when provider and receipt work race.
 func (s *Store) RecordProbeResult(probeID, kind, payloadHex string) error {
-	_, err := s.db.Exec(
-		`INSERT INTO probe_results (probe_id, kind, payload_hex, created_at) VALUES (?, ?, ?, ?)`,
-		probeID, kind, payloadHex, now(),
-	)
+	switch kind {
+	case "provider", "wan1", "ack1", "rct1":
+	default:
+		return fmt.Errorf("store: unknown probe result kind %q", kind)
+	}
+	if probeID == "" || payloadHex == "" {
+		return errors.New("store: empty probe result")
+	}
+	conn, err := s.db.Conn(context.Background())
 	if err != nil {
+		return fmt.Errorf("store: probe result conn: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		return fmt.Errorf("store: begin probe result: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+
+	var status string
+	var expiresAt int64
+	if err := conn.QueryRowContext(context.Background(),
+		`SELECT status, expires_at FROM probe_operations WHERE id = ?`, probeID,
+	).Scan(&status, &expiresAt); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return fmt.Errorf("store: read probe result operation: %w", err)
+	}
+	if probeTerminal(status) {
+		return ErrProbeTerminal
+	}
+	if expiresAt <= now() {
+		return ErrProbeExpired
+	}
+	var existing int
+	if err := conn.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM probe_results WHERE probe_id = ? AND kind = ?`, probeID, kind,
+	).Scan(&existing); err != nil {
+		return fmt.Errorf("store: check duplicate probe result: %w", err)
+	}
+	if existing != 0 {
+		return fmt.Errorf("%w: %s", ErrProbeDuplicateEvidence, kind)
+	}
+	if _, err := conn.ExecContext(context.Background(),
+		`INSERT INTO probe_results (probe_id, kind, payload_hex, created_at) VALUES (?, ?, ?, ?)`,
+		probeID, kind, payloadHex, now()); err != nil {
 		return fmt.Errorf("store: record probe result: %w", err)
 	}
+	if _, err := conn.ExecContext(context.Background(), "COMMIT"); err != nil {
+		return fmt.Errorf("store: commit probe result: %w", err)
+	}
+	committed = true
 	return nil
 }
 

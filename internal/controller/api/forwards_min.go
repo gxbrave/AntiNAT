@@ -130,47 +130,48 @@ func (s *Server) handleForwards(w http.ResponseWriter, r *http.Request) {
 		spec.ForwardID = id
 		f := store.Forward{ID: id, NodeID: body.NodeID, Name: body.Name, Protocol: body.Protocol, Revision: 1}
 		specRow := store.ForwardSpec{ID: "spec-" + id, ForwardID: id, Revision: 1, SpecJSON: specJSON(spec)}
-		if _, err := s.store.CreateForward(f); err != nil {
-			writeError(w, http.StatusConflict, "CONFLICT", "forward name already exists on node")
-			return
-		}
-		if err := s.store.CreateForwardSpec(specRow); err != nil {
-			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "spec persist failed")
-			return
-		}
-		// Build the desired snapshot AFTER the row exists so ListForwards sees
-		// the new forward (the M1 walking skeleton caught the null-snapshot bug).
+		// Build all derived values before opening the atomic store bundle. The
+		// helper explicitly includes the not-yet-persisted forward, so a failure
+		// cannot leave a parent/spec without its desired command.
 		desired, err := s.buildDesiredState(body.NodeID, id, spec)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "desired state build failed")
 			return
 		}
-		if err := s.enqueueDesired(body.NodeID, desired); err != nil {
-			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "desired enqueue failed")
+		opID, err := randomHexID()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "operation id generation failed")
 			return
 		}
-		got, _ := s.store.GetForward(id)
-		view := s.forwardView(got, spec, nil)
+		outbox := store.ControlOutboxItem{
+			OperationID: opID, MessageType: "desired", NodeID: body.NodeID,
+			SemanticPayload: desiredJSON(desired), State: "PENDING",
+		}
+		view := s.forwardView(f, spec, nil)
 		raw, _ := json.Marshal(view)
-		if _, replayed, err := s.store.StoreIdempotency(store.IdempotencyRecord{
+		stored, replayed, err := s.store.CreateForwardBundle(r.Context(), f, specRow, outbox, store.IdempotencyRecord{
 			Key: key, Route: "/api/v1/forwards", Principal: principal,
 			RequestHash: requestHash, ResponseStatus: http.StatusCreated, ResponseBody: string(raw),
-		}); err != nil {
+		})
+		if err != nil {
 			if errors.Is(err, store.ErrIdempotencyConflict) {
 				writeError(w, http.StatusConflict, "IDEMPOTENCY_CONFLICT", "Idempotency-Key reused with a different request")
+			} else if errors.Is(err, store.ErrForwardNameConflict) {
+				writeError(w, http.StatusConflict, "CONFLICT", "forward name already exists on node")
 			} else {
-				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "idempotency persist failed")
+				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "forward create transaction failed")
 			}
 			return
-		} else if replayed {
-			// Another process won the race; replay its durable response rather
-			// than returning the newly-created forward.
-			if existing, getErr := s.store.GetIdempotency(key); getErr == nil {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(existing.ResponseStatus)
-				_, _ = w.Write([]byte(existing.ResponseBody))
+		}
+		if replayed {
+			if stored.ResponseBody == "" {
+				writeError(w, http.StatusConflict, "CONFLICT", "request with this Idempotency-Key is in progress")
 				return
 			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(stored.ResponseStatus)
+			_, _ = w.Write([]byte(stored.ResponseBody))
+			return
 		}
 		writeJSON(w, http.StatusCreated, view)
 	default:
@@ -368,12 +369,14 @@ func (s *Server) buildDesiredState(nodeID, newForwardID string, newSpec protocol
 		return protocol.DesiredState{}, err
 	}
 	d := protocol.DesiredState{NodeID: nodeID}
+	newForwardSeen := false
 	for _, f := range forwards {
 		if f.NodeID != nodeID {
 			continue
 		}
 		if f.ID == newForwardID {
 			d.Forwards = append(d.Forwards, newSpec)
+			newForwardSeen = true
 			continue
 		}
 		spec, err := s.latestSpec(f.ID)
@@ -381,6 +384,9 @@ func (s *Server) buildDesiredState(nodeID, newForwardID string, newSpec protocol
 			continue
 		}
 		d.Forwards = append(d.Forwards, spec)
+	}
+	if newForwardID != "" && !newForwardSeen {
+		d.Forwards = append(d.Forwards, newSpec)
 	}
 	return d, d.Validate()
 }
