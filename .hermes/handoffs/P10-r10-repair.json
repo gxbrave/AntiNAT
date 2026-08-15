@@ -1679,7 +1679,8 @@
     "post_commit_final_head_is_reported_in_kanban_metadata": true
   },
   "canonical_handoff_path": ".hermes/handoffs/P10.json",
-  "handoff_kind": "canonical P10 handoff with R10 reconciliation",
+  "handoff_kind": "machine-readable P10 R10 repair handoff",
+  "source_handoff_before_reconciliation": ".hermes/handoffs/P10.json at branch tip 1bfe27a4d031d4406627b8390699dd7761c6198c",
   "branch_state_note": "head_sha/head_tree_sha identify the immutable implementation candidate; repository_state_before_reconciliation records the actual clean branch HEAD/tree. The R10 commit is documentation/evidence-only and does not alter candidate source.",
   "reconciliation_changed_files": [
     ".hermes/evidence/p10/r10-red-claim-audit.log",

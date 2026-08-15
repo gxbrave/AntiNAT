@@ -1,0 +1,77 @@
+R10 HANDOFF/EVIDENCE RECONCILIATION VALIDATION (FINAL PRE-COMMIT)
+workdir=/root/AntiNAT/.worktrees/t_44815fe0
+
+$ python3 -m json.tool .hermes/handoffs/P10.json >/dev/null && python3 -m json.tool .hermes/handoffs/P10-r10-repair.json >/dev/null
+exit_code=0
+
+
+$ python3 -c 'import json,subprocess; p=json.load(open(".hermes/handoffs/P10.json")); old=json.loads(subprocess.check_output(["git","show","ca69aa72ef43851f33b290617e098096a87f7013:.hermes/handoffs/P10.json"],text=True)); assert p["ownership"]["exact_transfers"][:19]==old["ownership"]["exact_transfers"]; assert len(p["ownership"]["r10_temporary_receiving_plan"]["transfers"])==10; assert p["files_changed_count"]==len(p["candidate_delta"]["entries"])==27; assert p["contracts_changed"]=="none"; assert p["review_status"]=="REVIEW_REQUIRED"; print("reconciliation_scope_ok")'
+exit_code=0
+reconciliation_scope_ok
+
+$ python3 -c 'import hashlib,json; d=json.load(open(".hermes/handoffs/P10.json")); assert all(hashlib.sha256(open(x["path"],"rb").read()).hexdigest()==x["sha256"] for x in d["contracts_consumed"]); print("contract_hashes_ok")'
+exit_code=0
+contract_hashes_ok
+
+$ git diff --name-status ca69aa72ef43851f33b290617e098096a87f7013 8a3058afdda448d1d761e5f0815f35ed89c96456
+exit_code=0
+M	internal/agent/app.go
+M	internal/agent/control/session.go
+M	internal/agent/localstate/activation.go
+M	internal/agent/localstate/journal.go
+A	internal/agent/localstate/p10_r9_repair_test.go
+A	internal/agent/p10_r9_repair_test.go
+M	internal/agent/reconcile/desired.go
+A	internal/agent/reconcile/p10_r9_repair_test.go
+M	internal/agent/reconcile/probe.go
+M	internal/agent/reconcile/reconciler.go
+M	internal/controller/agenthub/hub.go
+M	internal/controller/api/forwards_min.go
+M	internal/controller/app.go
+A	internal/controller/app_r9_repair_test.go
+M	internal/controller/probe/manager.go
+A	internal/controller/probe/p10_r9_repair_test.go
+M	internal/controller/probe/provider.go
+M	internal/controller/probe/provider_service.go
+M	internal/controller/store/backup_test.go
+M	internal/controller/store/migrate.go
+A	internal/controller/store/p10_r9_repair_test.go
+M	internal/controller/store/probe.go
+M	internal/controller/store/store.go
+M	internal/controller/store/transaction_test.go
+M	internal/controller/store/transactions.go
+M	internal/protocol/endpoint.go
+A	internal/protocol/p10_r9_repair_test.go
+
+$ git diff --check ca69aa72ef43851f33b290617e098096a87f7013 8a3058afdda448d1d761e5f0815f35ed89c96456
+exit_code=0
+
+
+$ python3 -c 'import json,pathlib; d=json.load(open(".hermes/handoffs/P10.json")); assert all(pathlib.Path(x).exists() for x in d["evidence"]); print("evidence_paths_ok")'
+exit_code=0
+evidence_paths_ok
+
+$ git diff --check
+exit_code=0
+
+
+$ make clean && test ! -e bin
+exit_code=0
+rm -rf bin
+
+$ git add .hermes/handoffs/P10.json .hermes/handoffs/P10-r10-repair.json && git add -f .hermes/evidence/p10/r10-red-claim-audit.log .hermes/evidence/p10/r10-reconciliation-validation.log
+exit_code=0
+
+
+$ python3 -c 'import subprocess; a=set(subprocess.check_output(["git","diff","--cached","--name-only"],text=True).splitlines()); e={".hermes/evidence/p10/r10-red-claim-audit.log",".hermes/evidence/p10/r10-reconciliation-validation.log",".hermes/handoffs/P10-r10-repair.json",".hermes/handoffs/P10.json"}; assert a==e,(a,e); print("staged_scope_ok")'
+exit_code=0
+staged_scope_ok
+
+$ git diff --cached --check && git diff --cached --name-status
+exit_code=0
+A	.hermes/evidence/p10/r10-reconciliation-validation.log
+A	.hermes/evidence/p10/r10-red-claim-audit.log
+A	.hermes/handoffs/P10-r10-repair.json
+M	.hermes/handoffs/P10.json
+
+CONCLUSION: All final pre-commit validation commands exited 0; staged scope is handoff/evidence-only.

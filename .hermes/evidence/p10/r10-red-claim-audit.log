@@ -1,0 +1,29 @@
+R10 RED-CLAIM AUDIT (exact old-base archive)
+base=ca69aa72ef43851f33b290617e098096a87f7013
+archive=/tmp/antinat-p10-r10-old-base
+
+$ GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe -run 'TestRecoverOperationsRequeuesTerminalOutcome|TestHandleActivationStatusRejectsGenerationOutsideCurrentRevision' -count=1 -v
+exit_code=0
+testing: warning: no tests to run
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	0.004s [no tests to run]
+
+$ GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/store -run TestProbeOperationDigestLookupScansBeyondOnePage -count=1 -v
+exit_code=0
+testing: warning: no tests to run
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/controller/store	0.003s [no tests to run]
+
+$ GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent -run TestPrepareActivationRecoveryProcessesAllPersistedSnapshots -count=1 -v
+exit_code=0
+testing: warning: no tests to run
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/agent	0.003s [no tests to run]
+
+$ GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent/reconcile -run TestConsumedProbeSourceRemainsGatedDuringReplayWindow -count=1 -v
+exit_code=0
+testing: warning: no tests to run
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	0.002s [no tests to run]
+
+CONCLUSION: The prior R9 red claim is unverifiable from this exact old base because the named R9 regression tests are absent; no RED transcript is retained as behavioral evidence.
