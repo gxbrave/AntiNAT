@@ -1,0 +1,14 @@
+P10 R7 strict GREEN capture: TestApplyDesiredRejectsCapabilityLossBeforeCommit
+
+Candidate commit: 5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919
+tree: da95cffeb1737fdfb7e8d24a6607a7914ac0c80f
+
+Command:
+GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent/reconcile -run '^TestApplyDesiredRejectsCapabilityLossBeforeCommit$' -count=1 -v
+
+=== RUN   TestApplyDesiredRejectsCapabilityLossBeforeCommit
+--- PASS: TestApplyDesiredRejectsCapabilityLossBeforeCommit (0.00s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	0.007s
+
+EXIT_CODE=0

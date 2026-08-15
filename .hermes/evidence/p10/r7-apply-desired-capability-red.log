@@ -1,0 +1,21 @@
+P10 R7 strict RED capture: TestApplyDesiredRejectsCapabilityLossBeforeCommit
+
+Reviewed pre-fix commit: 5a844dcf749014393aa32f967b4f06369b8d1148
+authored tree: 7698a3124ba098265dc1ad3492edb1e1e276fb2e
+Candidate fix commit: 5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919
+
+The pre-fix API did not yet expose ApplyDesiredWithGuard or ErrCapabilityLost. A temporary test with the exact regression test name used the existing ApplyDesired entry point and asserted the required behavior: a capability loss after the apply side effect must reject the desired commit. The temporary test file was /tmp/antinat-p10-r8-red/internal/agent/reconcile/r7_pre_fix_capability_red_test.go and was not added to the candidate or retained in the repository.
+
+Command:
+GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent/reconcile -run '^TestApplyDesiredRejectsCapabilityLossBeforeCommit$' -count=1 -v
+
+=== RUN   TestApplyDesiredRejectsCapabilityLossBeforeCommit
+    r7_pre_fix_capability_red_test.go:24: ApplyDesired committed after capability loss (available=false), want rejection
+--- FAIL: TestApplyDesiredRejectsCapabilityLossBeforeCommit (0.01s)
+FAIL
+FAIL	github.com/gxbrave/AntiNAT/internal/agent/reconcile	0.010s
+FAIL
+
+EXIT_CODE=1
+
+This is a truthful pre-fix behavioral RED capture; the candidate implementation's same-named test was rerun separately and passed with exit 0.

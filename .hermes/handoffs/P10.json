@@ -1,11 +1,11 @@
 {
   "plan": "P10",
-  "task_id": "t_7e4d2857",
-  "stage": "bounded-p10-r7-cumulative-repair",
-  "repair_cycle": 7,
+  "task_id": "t_481989e5",
+  "stage": "p10-r8-handoff-evidence-reconciliation",
+  "repair_cycle": 8,
   "base_sha": "5a844dcf749014393aa32f967b4f06369b8d1148",
   "base_ancestor_check": {
-    "command": "git merge-base --is-ancestor 5a844dcf749014393aa32f967b4f06369b8d1148 HEAD",
+    "command": "git merge-base --is-ancestor 5a844dcf749014393aa32f967b4f06369b8d1148 5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919",
     "exit_code": 0
   },
   "head_sha": "5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919",
@@ -25,32 +25,18 @@
       "exit_code": 0,
       "summary": "No stale finalizer, test, build, or Git writer process was observed; only the current worker/supervisor control processes were active."
     },
-    "status_before_handoff_update": "clean after partial fixture discard",
-    "base_ancestor_check": {
-      "command": "git merge-base --is-ancestor 58dd0c6a6827cfcf5e7d34d078cee84c4d20cef8 HEAD",
-      "exit_code": 0
-    },
-    "r6_quality_findings": {
-      "source_review": "t_b4fe0219 comment 658",
-      "candidate_fixed": "ac48fe551eebc7670ec0743e38123a5dec32e7f3",
-      "findings": [
-        "route/source fingerprint changes revoke capability and evidence before recovery",
-        "startup recovery rollback waits for the control client before dependent teardown",
-        "controller shutdown closes and joins active AgentHub sessions before the store",
-        "ProbeGate closes active provider connections and joins ingress workers before store teardown"
+    "status_before_handoff_update": "candidate 5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919/tree da95cffeb1737fdfb7e8d24a6607a7914ac0c80f was clean and quiescent; only handoff/evidence reconciliation remained",
+    "candidate_relationship": {
+      "integrated_base": "adf74fa860812054bd71082006a8c78ea4189888",
+      "candidate_head": "5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919",
+      "candidate_tree": "da95cffeb1737fdfb7e8d24a6607a7914ac0c80f",
+      "checkout_tip_before_reconciliation": "b360aea8bfe7e05a68eb2016dfd519f4960db3ef",
+      "candidate_to_checkout_delta": [
+        ".hermes/handoffs/P10.json"
       ],
-      "red_green_evidence": [
-        ".hermes/evidence/p10/r6-route-fingerprint-red.log",
-        ".hermes/evidence/p10/r6-route-fingerprint-green.log",
-        ".hermes/evidence/p10/r6-startup-wait-red.log",
-        ".hermes/evidence/p10/r6-startup-wait-green.log",
-        ".hermes/evidence/p10/r6-hub-close-red.log",
-        ".hermes/evidence/p10/r6-hub-close-green.log",
-        ".hermes/evidence/p10/r6-probe-gate-red.log",
-        ".hermes/evidence/p10/r6-probe-gate-green.log"
-      ]
-    },
-    "temporary_red_worktrees": "S4/S5/S6 historical RED runs used isolated worktrees at ce62fbf^, f06fdd4^, and 113c542^ with the corresponding regression test/harness copied from the fixing commit; all were removed after capture."
+      "candidate_delta_all_paths": 116,
+      "candidate_delta_non_handoff_paths": 115
+    }
   },
   "branch": "ai/P10-wan-probe-activation-cli-e2e",
   "commits": [
@@ -138,9 +124,12 @@
     "internal/agent/localstate/schema.go",
     "internal/agent/localstate/store_test.go",
     "internal/agent/reconcile/activation.go",
+    "internal/agent/reconcile/desired.go",
+    "internal/agent/reconcile/desired_test.go",
     "internal/agent/reconcile/probe.go",
     "internal/agent/reconcile/probe_gate_lifecycle_test.go",
     "internal/agent/reconcile/probe_test.go",
+    "internal/agent/reconcile/reconciler.go",
     "internal/agent/reconcile/state_machine.go",
     "internal/agent/reconcile/state_machine_test.go",
     "internal/agent/startup_cleanup_regression_test.go",
@@ -156,6 +145,8 @@
     "internal/controller/api/nodes_min.go",
     "internal/controller/app.go",
     "internal/controller/app_test.go",
+    "internal/controller/auth/auth_test.go",
+    "internal/controller/auth/service.go",
     "internal/controller/cycle2_regression_test.go",
     "internal/controller/probe/cycle2_regression_test.go",
     "internal/controller/probe/cycle3_regression_test.go",
@@ -186,7 +177,9 @@
     "internal/controller/store/probe_cleanup_regression_test.go",
     "internal/controller/store/probe_test.go",
     "internal/controller/store/store.go",
+    "internal/controller/store/transaction_test.go",
     "internal/controller/store/transactions.go",
+    "internal/controller/store/users.go",
     "internal/controller/web/router_min.go",
     "internal/protocol/probe_adapter.go",
     "internal/traversal/network.go",
@@ -237,7 +230,7 @@
       {"test": "TestApplyForwardDeleteRejectsStaleParentRevision", "red_exit": 1, "green_exit": 0},
       {"test": "TestApplyForwardDeleteReplayIsIdempotent", "red_exit": 1, "green_exit": 0},
       {"test": "TestApplyDesiredRollsBackNewActorsWhenCommitLosesCapability", "red_exit": 1, "green_exit": 0},
-      {"test": "TestApplyDesiredRejectsCapabilityLossBeforeCommit", "red_exit": null, "green_exit": 0, "note": "test was added after the guard implementation during the same RED/GREEN repair pass; no independent RED capture retained"},
+      {"test": "TestApplyDesiredRejectsCapabilityLossBeforeCommit", "red_exit": 1, "green_exit": 0, "evidence": {"red": ".hermes/evidence/p10/r7-apply-desired-capability-red.log", "green": ".hermes/evidence/p10/r7-apply-desired-capability-green.log"}},
       {"test": "TestShutdownHonorsContextWhileWaitingForControlDrain", "red_exit": 124, "green_exit": 0}
     ],
     "verification": [
@@ -259,13 +252,20 @@
       "govulncheck unavailable"
     ],
     "review_status": "REVIEW_REQUIRED",
-    "cleanup": "code commit is complete; handoff-only JSON update follows after final candidate SHA/tree reconciliation; no push, merge, integration, or release performed"
+    "cleanup": "candidate code commit is complete; R8 adds only handoff/evidence artifacts after final candidate SHA/tree reconciliation; temporary RED worktree was removed; no push, merge, integration, or release performed"
   },
   "review_scope": {
     "candidate_diff_reconciled": true,
-    "scope": "R6 reconciles the complete P10 candidate delta against the master/child plans, frozen contracts, supervisor exact-symbol transfer, and the four independent quality findings.",
-    "proven_remaining_controller_defects": [],
-    "bounded_fix_decision": "Retain the tested P10 behavior, add only the four review-listed lifecycle/revocation fixes, and enumerate every persistence/transport hunk under the reversible P10 transfer; no speculative refactor is retained.",
+    "scope": "R8 reconciles the complete P10 candidate delta against the master/child plans, frozen contracts, exact-head reviews, and the supervisor-approved P06/P07/P08/P09-to-P10 extension transfers. This card changes handoff/evidence metadata only; the candidate source remains the immutable R7 tree.",
+    "proven_remaining_controller_defects": [
+      "terminal probe outcomes have no durable retry after status commit",
+      "hot-updated existing actors are not rolled back after a guard/commit failure",
+      "restart/reconnect activation quarantine scans only 256 snapshots",
+      "shutdown timeout can mark the app closed before cleanup and violate store-last ordering",
+      "activation status generation is parsed but not fenced against the current revision",
+      "consumed provider replay can fall through ProbeGate to the business path"
+    ],
+    "bounded_fix_decision": "Retain the tested R7 candidate unchanged; this R8 card adds only exact-head handoff inventory, temporary P06/P07-to-P10 ownership records, and truthful RED/GREEN evidence. No production or test behavior is changed and no speculative refactor is retained.",
     "reverted_experiment": "A payload-derived envelope message-ID rejection was tested and reverted because the frozen transport contract specifies same-message-ID dedup/conflict semantics rather than requiring derivation, and existing probe-sink tests intentionally use arbitrary valid envelope IDs."
   },
   "repair_findings_addressed": [
@@ -747,6 +747,46 @@
       "command": "GOWORK=off GOMAXPROCS=2 make build",
       "exit_code": 0,
       "evidence": ".hermes/evidence/p10/r6-final-make-build.log"
+    },
+    {
+      "phase": "r8-review-checks",
+      "commands": [
+        {
+          "command": "GOWORK=off GOMAXPROCS=2 make test",
+          "exit_code": 2,
+          "limitation": "spike/sandbox TestBoundedActionRealCPULimitTermination fails closed because ANTINAT_DEDICATED_UID/GID do not name a provisioned unique service identity on this host"
+        },
+        {
+          "command": "GOWORK=off GOMAXPROCS=2 make check",
+          "exit_code": 2,
+          "limitation": "make check stops at the same sandbox capability gate before vet"
+        },
+        {
+          "command": "GOWORK=off GOMAXPROCS=2 make build",
+          "exit_code": 0
+        },
+        {
+          "command": "GOWORK=off GOMAXPROCS=2 go vet ./...",
+          "exit_code": 0
+        },
+        {
+          "command": "GOWORK=off go run ./scripts/verify-evidence.go ./test/evidence/fixtures/pass.json",
+          "exit_code": 0
+        },
+        {
+          "command": "python3 scripts/verify-evidence-parity.py",
+          "exit_code": 0
+        },
+        {
+          "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent/reconcile -run '^TestApplyDesiredRejectsCapabilityLossBeforeCommit$' -count=1 -v",
+          "exit_code": 0,
+          "evidence": ".hermes/evidence/p10/r7-apply-desired-capability-green.log"
+        },
+        {
+          "command": "git diff --check",
+          "exit_code": 0
+        }
+      ]
     }
   ],
   "evidence": [
@@ -797,6 +837,8 @@
     ".hermes/evidence/p10/s5-reconnect-green.log",
     ".hermes/evidence/p10/s6-walking-red.log",
     ".hermes/evidence/p10/s6-walking-green.log",
+    ".hermes/evidence/p10/r7-apply-desired-capability-red.log",
+    ".hermes/evidence/p10/r7-apply-desired-capability-green.log",
     "internal/agent/reconcile/probe_gate_lifecycle_test.go",
     "internal/agent/startup_cleanup_regression_test.go",
     "internal/controller/agenthub/hub_close_test.go",
@@ -838,7 +880,7 @@
   ],
   "cleanup_done": true,
   "cleanup": [
-    "make clean removed generated binaries; temporary historical RED worktrees were removed; no remote push/merge/rebase/release or secret persistence was performed."
+    "make clean removed generated binaries; temporary historical and R8 RED worktrees were removed; the R8 RED/GREEN logs contain no secrets; no remote push/merge/rebase/release or secret persistence was performed."
   ],
   "review_status": "REVIEW_REQUIRED",
   "required_reviews": [
@@ -848,8 +890,8 @@
     "fresh exact-head lifecycle-boundary",
     "integration after all fresh reviews pass on unchanged head"
   ],
-  "deviation_notes": "Bounded P10 R6 repair addresses the four independent quality findings plus F2/F3/F3b evidence/ownership gaps. No frozen contract changed; migration numbers and external-WAN capability limits remain unchanged. Integration and release remain review-gated.",
-  "verification_status": "candidate head ac48fe551eebc7670ec0743e38123a5dec32e7f3 tree 3e6df4e8ca75e11ddb8d0f3695660457409fd810 verified; R6 focused, race, full-test, vet, build, contract, and E2E evidence passed; this JSON revision is handoff-only and excluded from the candidate tree",
+  "deviation_notes": "R8 is a handoff/evidence-only reconciliation of the R7 candidate: seven omitted candidate-delta paths were restored to the inventory, eight exact P06/P07-to-P10 transfer records were added, and truthful strict RED/GREEN evidence was captured for TestApplyDesiredRejectsCapabilityLossBeforeCommit. No production code, tests, or frozen contracts changed; migration numbers and external-WAN capability limits remain unchanged. Integration and release remain review-gated.",
+  "verification_status": "candidate head 5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919 tree da95cffeb1737fdfb7e8d24a6607a7914ac0c80f verified; candidate delta is 116 paths including the excluded handoff JSON and 115 non-handoff paths; R7 focused, race, full-test, vet, build, contract, and E2E evidence are preserved; this R8 JSON/evidence revision is handoff-only and excluded from the candidate tree",
   "integrated_base_sha": "adf74fa860812054bd71082006a8c78ea4189888",
   "repair_start_sha": "c4edb088f7ff48cea81e18c56cdd713ce9c6fe33",
   "repair_commits": [
@@ -862,10 +904,10 @@
   "files_changed_excludes": [
     ".hermes/handoffs/P10.json"
   ],
-  "files_changed_count": 108,
+  "files_changed_count": 115,
   "tree_verification": {
     "base_ancestor": {
-      "command": "git merge-base --is-ancestor 58dd0c6a6827cfcf5e7d34d078cee84c4d20cef8 HEAD",
+      "command": "git merge-base --is-ancestor 5a844dcf749014393aa32f967b4f06369b8d1148 5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919",
       "exit_code": 0
     },
     "integrated_base_ancestor": {
@@ -873,12 +915,12 @@
       "exit_code": 0
     },
     "head_command": "git rev-parse HEAD",
-    "head_sha": "ac48fe551eebc7670ec0743e38123a5dec32e7f3",
+    "head_sha": "5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919",
     "tree_command": "git rev-parse HEAD^{tree}",
-    "tree_sha": "3e6df4e8ca75e11ddb8d0f3695660457409fd810",
-    "status_before_handoff_update": "clean after implementation/evidence commits; only .hermes/handoffs/P10.json is pending handoff update",
-    "diff_command": "git diff --name-only adf74fa860812054bd71082006a8c78ea4189888 HEAD",
-    "complete_delta_paths": 109
+    "tree_sha": "da95cffeb1737fdfb7e8d24a6607a7914ac0c80f",
+    "status_before_handoff_update": "candidate checkout was clean/quiescent; current tip b360aea8bfe7e05a68eb2016dfd519f4960db3ef differed from candidate only by .hermes/handoffs/P10.json; R8 adds handoff/evidence artifacts only",
+    "diff_command": "git diff --name-only adf74fa860812054bd71082006a8c78ea4189888 5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919",
+    "complete_delta_paths": 116
   },
   "ownership": {
     "receiving_plan": "P10",
@@ -1051,29 +1093,154 @@
           "type CapabilityError",
           "func NewCapabilityError"
         ]
+      },
+      {
+        "path": "internal/agent/reconcile/desired.go",
+        "source_owner": "P07",
+        "receiving_plan": "P10",
+        "symbols": [
+          "CapabilityCheck",
+          "ErrCapabilityLost",
+          "ApplyDesired",
+          "ApplyDesiredWithGuard",
+          "rollbackNewActors"
+        ],
+        "hunks": [
+          "type CapabilityCheck and var ErrCapabilityLost",
+          "func ApplyDesired wrapper",
+          "func ApplyDesiredWithGuard",
+          "pre-forward and pre-commit guard checks",
+          "new-actor tracking and commit-failure rollback"
+        ],
+        "reason": "P10 desired reconciliation needs a P07-owned capability fence so a route loss between actor side effect and durable commit rejects the batch and removes only newly created actors.",
+        "scope": "Only the R7 capability guard, validation, new-actor rollback, and desired-commit error hunks; no unrelated reconciler redesign.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      },
+      {
+        "path": "internal/agent/reconcile/desired_test.go",
+        "source_owner": "P07",
+        "receiving_plan": "P10",
+        "symbols": [
+          "TestApplyDesiredRollsBackNewActorsWhenCommitLosesCapability",
+          "TestApplyDesiredRejectsCapabilityLossBeforeCommit"
+        ],
+        "hunks": [
+          "func TestApplyDesiredRollsBackNewActorsWhenCommitLosesCapability",
+          "func TestApplyDesiredRejectsCapabilityLossBeforeCommit"
+        ],
+        "reason": "The P10 capability-fence regression tests exercise the P07 desired-apply extension and prove rollback plus pre-commit rejection.",
+        "scope": "Only the two R7 regression tests and their required existing helpers/imports.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      },
+      {
+        "path": "internal/agent/reconcile/reconciler.go",
+        "source_owner": "P07",
+        "receiving_plan": "P10",
+        "symbols": [
+          "Reconciler.guard",
+          "New guards ...CapabilityCheck",
+          "Reconciler.ReconcileOnce"
+        ],
+        "hunks": [
+          "Reconciler.guard field",
+          "func New variadic capability-guard wiring",
+          "ReconcileOnce calls ApplyDesiredWithGuard"
+        ],
+        "reason": "P10 must pass the live capability fence through the P07 reconcile control loop without changing the existing caller-compatible constructor shape.",
+        "scope": "Only capability-guard storage and forwarding into desired apply.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      },
+      {
+        "path": "internal/controller/auth/auth_test.go",
+        "source_owner": "P06",
+        "receiving_plan": "P10",
+        "symbols": [
+          "TestBootstrapAdminIsAtomicAndUsesRequestedPassword"
+        ],
+        "hunks": [
+          "func TestBootstrapAdminIsAtomicAndUsesRequestedPassword"
+        ],
+        "reason": "P10 minimal authenticated API/CLI bootstrap requires a P06-owned auth service regression for requested-password hashing and exactly-one-admin concurrent initialization.",
+        "scope": "Only the R7 bootstrap race/authorization regression test.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      },
+      {
+        "path": "internal/controller/auth/service.go",
+        "source_owner": "P06",
+        "receiving_plan": "P10",
+        "symbols": [
+          "ErrAdminAlreadyInitialized",
+          "AuthService.EnsureAdmin",
+          "AuthService.BootstrapAdmin"
+        ],
+        "hunks": [
+          "service error declarations",
+          "EnsureAdmin uses Store.CreateFirstUser",
+          "func (*AuthService) BootstrapAdmin"
+        ],
+        "reason": "P10's minimal admin initialization path crosses the P06 auth boundary and must atomically hash the operator password while reporting a losing bootstrap race.",
+        "scope": "Only first-admin bootstrap/error handling; existing login/session behavior remains P06-owned.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      },
+      {
+        "path": "internal/controller/store/transaction_test.go",
+        "source_owner": "P06",
+        "receiving_plan": "P10",
+        "symbols": [
+          "TestApplyForwardDeleteRejectsStaleParentRevision",
+          "TestApplyForwardDeleteReplayIsIdempotent"
+        ],
+        "hunks": [
+          "func TestApplyForwardDeleteRejectsStaleParentRevision",
+          "func TestApplyForwardDeleteReplayIsIdempotent"
+        ],
+        "reason": "P10's minimal Forward-delete API/CLI path needs P06 store transaction coverage for parent-revision CAS and same-material replay idempotency.",
+        "scope": "Only the two R7 forward-delete transaction regressions and the errors import they require.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      },
+      {
+        "path": "internal/controller/store/transactions.go",
+        "source_owner": "P06",
+        "receiving_plan": "P10",
+        "symbols": [
+          "Store.ApplyForwardDelete"
+        ],
+        "hunks": [
+          "existing deletion-operation replay binding",
+          "parent revision read and expectedParentRevision selection",
+          "CAS parent revision bump and affected-row check"
+        ],
+        "reason": "P10 online Forward deletion requires the P06 store transaction extension to fence stale callers and make retries atomic/idempotent before the command outbox commit.",
+        "scope": "Only ApplyForwardDelete replay binding, parent-revision CAS, and related transaction hunks.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      },
+      {
+        "path": "internal/controller/store/users.go",
+        "source_owner": "P06",
+        "receiving_plan": "P10",
+        "symbols": [
+          "ErrAdminExists",
+          "Store.CountUsers",
+          "Store.CreateFirstUser"
+        ],
+        "hunks": [
+          "user error declarations",
+          "func (*Store) CountUsers",
+          "func (*Store) CreateFirstUser"
+        ],
+        "reason": "P10 admin bootstrap consumes a P06-owned atomic first-user transaction and count helper to keep initialization race-safe and auditable.",
+        "scope": "Only first-user bootstrap/count additions; ordinary user lookup/create remains P06-owned.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
       }
     ],
-    "unrelated_edits_policy": "Complete integrated-base delta is enumerated in files_changed. The only R6 additions outside already P10-owned app/reconcile paths are the exact supervisor-authorized persistence/CapabilityError symbols above and the narrow Q7 Hub/session drain symbols required by the independent quality finding; no unrelated hunk was transferred.",
+    "unrelated_edits_policy": "Complete integrated-base delta is enumerated in files_changed. Every P06/P07/P08/P09 extension hunk is listed with its source owner, exact symbols/hunks, P10 rationale, and expiry; no unlisted cross-plan hunk is transferred.",
     "required_fresh_reviews": [
       "specification/ownership",
       "quality/security",
       "network/protocol",
       "lifecycle-boundary",
       "integration"
-    ],
-    "r6_quality_scope": {
-      "source_owner": "P08 for Hub/session; P10 for agent app, reconcile ProbeGate, and controller app composition",
-      "receiving_plan": "P10",
-      "reason": "Independent quality review t_b4fe0219 identified four blocking lifecycle/revocation defects; these are the smallest fixes and tests that close them.",
-      "paths": [
-        "internal/agent/app.go",
-        "internal/agent/reconcile/probe.go",
-        "internal/controller/app.go",
-        "internal/controller/agenthub/hub.go",
-        "internal/controller/agenthub/session.go"
-      ],
-      "integration_or_rejection_expiry": true
-    }
+    ]
   },
   "migration_ownership": {
     "immutable_p10": [
@@ -1124,6 +1291,13 @@
       "red": ".hermes/evidence/p10/s6-walking-red.log",
       "green": ".hermes/evidence/p10/s6-walking-green.log",
       "test": "test/e2e/walking_skeleton_test.go"
+    },
+    {
+      "story": "R7 desired-apply capability fence",
+      "red": ".hermes/evidence/p10/r7-apply-desired-capability-red.log",
+      "green": ".hermes/evidence/p10/r7-apply-desired-capability-green.log",
+      "test": "internal/agent/reconcile/desired_test.go",
+      "red_capture": "truthful pre-fix behavioral reproduction on 5a844dcf749014393aa32f967b4f06369b8d1148 using the existing ApplyDesired API; the temporary test was removed after capture"
     },
     {
       "story": "R6 route/source revocation",
@@ -1177,6 +1351,11 @@
       "evidence": ".hermes/evidence/p10/s6-walking-green.log"
     },
     {
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent/reconcile -run '^TestApplyDesiredRejectsCapabilityLossBeforeCommit$' -count=1 -v",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r7-apply-desired-capability-green.log"
+    },
+    {
       "command": "git diff --check && git status --porcelain=v1",
       "exit_code": 0,
       "evidence": "terminal final status after handoff-only update"
@@ -1184,12 +1363,17 @@
   ],
   "handoff_artifact_policy": {
     "excluded_path": ".hermes/handoffs/P10.json",
-    "candidate_head_definition": "The candidate head is 5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919; all later commits that change only .hermes/handoffs/P10.json are handoff artifact commits excluded from the candidate tree.",
+    "post_candidate_artifacts": [
+      ".hermes/evidence/p10/r7-apply-desired-capability-red.log",
+      ".hermes/evidence/p10/r7-apply-desired-capability-green.log"
+    ],
+    "candidate_head_definition": "The immutable candidate head is 5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919 with tree da95cffeb1737fdfb7e8d24a6607a7914ac0c80f; later handoff/evidence-only revisions, including .hermes/handoffs/P10.json and the two R7 capability-fence logs above, are excluded from the candidate source tree.",
     "handoff_artifact_commits": [
       "4c2eaaf23ce9a638a721d8019a1722fe78dbddfc",
       "f1235449f482d28587aa8e229a94fe1623a73451",
-      "bee7836f96167fa2efaffaddf2988aff84e240a1"
+      "bee7836f96167fa2efaffaddf2988aff84e240a1",
+      "b360aea8bfe7e05a68eb2016dfd519f4960db3ef"
     ],
-    "current_revision": "This JSON update is a handoff-only revision and is intentionally excluded from the candidate source/evidence tree."
+    "current_revision": "This R8 JSON and the two capability-fence logs are handoff/evidence-only artifacts; no production or test source changed, and the candidate source/evidence tree remains pinned to 5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919/da95cffeb1737fdfb7e8d24a6607a7914ac0c80f."
   }
 }
