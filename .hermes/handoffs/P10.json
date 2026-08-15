@@ -8,9 +8,9 @@
     "command": "git merge-base --is-ancestor 58dd0c6a6827cfcf5e7d34d078cee84c4d20cef8 HEAD",
     "exit_code": 0
   },
-  "head_sha": "4be6b57f3652828ba5c2abb4ca50a9cbf65ea64c",
-  "head_tree_sha": "91ea56879db97effd5ef55fd8a21b76b2e84f35b",
-  "candidate_tree_sha": "91ea56879db97effd5ef55fd8a21b76b2e84f35b",
+  "head_sha": "4c2eaaf23ce9a638a721d8019a1722fe78dbddfc",
+  "head_tree_sha": "e732539c418dd371cf40cb8ebd23e84d9d881c25",
+  "candidate_tree_sha": "e732539c418dd371cf40cb8ebd23e84d9d881c25",
   "implementation_tree_sha": "fbc82a2879b81655e67f4289c6023d68061bf10f",
   "candidate_tree_definition": "The complete candidate branch tip and tree were verified at head_sha/head_tree_sha before this reconciliation handoff revision. The implementation/regression tree is implementation_tree_sha; the two documentation-only commits after it are included in commits. This reconciliation handoff is committed separately so the worktree can remain clean.",
   "reconciliation": {
@@ -33,6 +33,7 @@
   },
   "branch": "ai/P10-wan-probe-activation-cli-e2e",
   "commits": [
+    "4c2eaaf23ce9a638a721d8019a1722fe78dbddfc",
     "4be6b57f3652828ba5c2abb4ca50a9cbf65ea64c",
     "a2eb8f67c1d9a242506dea7870f8475209cf8f03",
     "f06fdd4c49e624dde76f75e34b08091e4f6db1a0",
@@ -528,10 +529,11 @@
     "integration after all fresh reviews pass on unchanged head"
   ],
   "deviation_notes": "Bounded cumulative P10 repair for F1-F3, Q1-Q10, and network findings. No frozen contract was changed. P10 migration numbers remain immutable; P12/P14 routing was corrected to 0006/0007. This handoff is review-required only; integration and release are blocked until fresh exact-head reviews pass.",
-  "verification_status": "fresh cumulative repair verification before handoff update; pre-handoff head 4be6b57f3652828ba5c2abb4ca50a9cbf65ea64c, tree 91ea56879db97effd5ef55fd8a21b76b2e84f35b; final handoff commit must update these exact fields.",
+  "verification_status": "final exact-head handoff: 4c2eaaf23ce9a638a721d8019a1722fe78dbddfc tree e732539c418dd371cf40cb8ebd23e84d9d881c25; worktree must be clean after this handoff commit",
   "integrated_base_sha": "adf74fa860812054bd71082006a8c78ea4189888",
   "repair_start_sha": "c4edb088f7ff48cea81e18c56cdd713ce9c6fe33",
   "repair_commits": [
+    "4c2eaaf23ce9a638a721d8019a1722fe78dbddfc",
     "4be6b57f3652828ba5c2abb4ca50a9cbf65ea64c",
     "a2eb8f67c1d9a242506dea7870f8475209cf8f03",
     "f06fdd4c49e624dde76f75e34b08091e4f6db1a0"
@@ -550,10 +552,10 @@
       "exit_code": 0
     },
     "head_command": "git rev-parse HEAD",
-    "head_sha": "4be6b57f3652828ba5c2abb4ca50a9cbf65ea64c",
+    "head_sha": "4c2eaaf23ce9a638a721d8019a1722fe78dbddfc",
     "tree_command": "git rev-parse HEAD^{tree}",
-    "tree_sha": "91ea56879db97effd5ef55fd8a21b76b2e84f35b",
-    "status_before_handoff_update": "clean",
+    "tree_sha": "e732539c418dd371cf40cb8ebd23e84d9d881c25",
+    "status_before_handoff_update": "clean after implementation/evidence/handoff commits; this final update is the only pending handoff edit",
     "diff_command": "git diff --name-only adf74fa860812054bd71082006a8c78ea4189888 HEAD",
     "complete_delta_paths": 84
   },
