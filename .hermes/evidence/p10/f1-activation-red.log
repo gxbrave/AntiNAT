@@ -1,0 +1,12 @@
+Command:
+GOWORK=off go test ./internal/controller/probe -run '^TestArmRequiresNonEmptyCurrentActivation$' -count=1 -v
+
+Run against pre-repair tip c4edb088f7ff48cea81e18c56cdd713ce9c6fe33 (temporary detached worktree).
+Exit code: 1
+Output:
+=== RUN   TestArmRequiresNonEmptyCurrentActivation
+    p10_repair_red_test.go:21: arm error = <nil>, want missing-current-activation admission error
+--- FAIL: TestArmRequiresNonEmptyCurrentActivation (0.03s)
+FAIL
+github.com/gxbrave/AntiNAT/internal/controller/probe	0.032s
+FAIL

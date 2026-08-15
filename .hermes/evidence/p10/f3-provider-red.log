@@ -1,0 +1,9 @@
+Command:
+GOWORK=off go test ./internal/controller/probe -run '^TestProviderReplayCanonicalizesProbeID$' -count=1 -v
+
+Run against pre-repair tip c4edb088f7ff48cea81e18c56cdd713ce9c6fe33 with the focused network test copied in.
+Exit code: 1 (the combined focused file also contains the new semantic ACK helper test, so the pre-repair compile failure is retained as RED evidence).
+Output:
+internal/controller/probe/p10_network_red_test.go:48:6: undefined: verifyProbeACKBinding
+internal/controller/probe/p10_network_red_test.go:52:5: undefined: verifyProbeACKBinding
+FAIL github.com/gxbrave/AntiNAT/internal/controller/probe [build failed]

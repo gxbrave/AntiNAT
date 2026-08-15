@@ -1,0 +1,6 @@
+Command:
+GOWORK=off go test ./internal/agent/localstate -run '^TestArmedProbePreservesForwardBinding$' -count=1 -v
+
+Run against repaired worktree.
+Exit code: 0
+The test verifies persisted ForwardID=forward-a and rejects a cross-forward replay with ErrProbeConflict.

@@ -1,0 +1,10 @@
+Command:
+GOWORK=off go test ./internal/controller/probe -run '^TestArmRequiresNonEmptyCurrentActivation$' -count=1 -v
+
+Run against repaired worktree before commit.
+Exit code: 0
+Output:
+=== RUN   TestArmRequiresNonEmptyCurrentActivation
+--- PASS: TestArmRequiresNonEmptyCurrentActivation (0.03s)
+PASS
+ok  github.com/gxbrave/AntiNAT/internal/controller/probe 0.030s

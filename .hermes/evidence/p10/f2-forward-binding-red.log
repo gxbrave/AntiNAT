@@ -1,0 +1,11 @@
+Command:
+GOWORK=off go test ./internal/agent/localstate -run '^TestArmedProbePreservesForwardBinding$' -count=1 -v
+
+Run against pre-repair tip c4edb088f7ff48cea81e18c56cdd713ce9c6fe33 in a temporary detached worktree with the focused test copied in.
+Exit code: 1 (RED build failure because the binding API and field did not exist).
+Output:
+internal/agent/localstate/p10_repair_red_test.go:19:14: s.SaveArmedProbeForForward undefined (type *Store has no field or method SaveArmedProbeForForward)
+internal/agent/localstate/p10_repair_red_test.go:26:9: got.ForwardID undefined (type ArmedProbe has no field or method ForwardID)
+internal/agent/localstate/p10_repair_red_test.go:27:56: got.ForwardID undefined (type ArmedProbe has no field or method ForwardID)
+internal/agent/localstate/p10_repair_red_test.go:29:14: s.SaveArmedProbeForForward undefined (type *Store has no field or method SaveArmedProbeForForward)
+FAIL github.com/gxbrave/AntiNAT/internal/agent/localstate [build failed]

@@ -1,0 +1,6 @@
+Focused GREEN commands and exits from the repaired worktree:
+
+GOWORK=off go test ./internal/controller/probe -run '^(TestProviderReplayCanonicalizesProbeID|TestProviderACKMustBindToWAN1)$' -count=1 -v -> exit 0
+GOWORK=off go test ./internal/controller/probe -count=1 -> exit 0
+
+The focused tests cover replay-key canonicalization and semantic ACK binding to WAN1, including probe, activation, endpoint, source, and challenge digest checks.
