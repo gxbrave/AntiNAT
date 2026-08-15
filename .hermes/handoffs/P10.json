@@ -1,9 +1,9 @@
 {
   "plan": "P10",
-  "repair_cycle": 2,
+  "repair_cycle": 3,
   "base_sha": "adf74fa860812054bd71082006a8c78ea4189888",
-  "head_sha": "d0b099671474d9f353fced914722bab14292f088",
-  "candidate_tree_sha": "bb038b88ec8c0fe848990464b901563a15b4a261",
+  "head_sha": "98ead948bf4bba9316f0a2cb78187735b5b4c8f6",
+  "candidate_tree_sha": "77fe33902223e5eab04028d9f11402215e6a5470",
   "branch": "ai/P10-wan-probe-activation-cli-e2e",
   "commits": [
     "da3e3f45240875ef5b0b81a0679502f766e3e71b",
@@ -15,9 +15,10 @@
     "30a003d2c23f0a973271ed51d0d88ff9c0adb549",
     "113c5424cf1080a759fde3b78d8a581c9f7ee803",
     "4e9a81f8ea1e7d8517b7b6b1692eeff5bd8bac6c",
-    "d0b099671474d9f353fced914722bab14292f088"
+    "d0b099671474d9f353fced914722bab14292f088",
+    "98ead948bf4bba9316f0a2cb78187735b5b4c8f6"
   ],
-  "files_changed_count": 26,
+  "files_changed_count": 29,
   "files_changed": [
     "internal/agent/app.go",
     "internal/agent/control/session.go",
@@ -28,6 +29,7 @@
     "internal/controller/agenthub/session.go",
     "internal/controller/app.go",
     "internal/controller/app_test.go",
+    "internal/controller/api/forwards_min.go",
     "internal/controller/probe/manager.go",
     "internal/controller/probe/manager_test.go",
     "internal/controller/probe/provider.go",
@@ -36,6 +38,8 @@
     "internal/controller/store/backup_test.go",
     "internal/controller/store/corrupt_internal_test.go",
     "internal/controller/store/migrate_test.go",
+    "internal/controller/store/minapi.go",
+    "internal/controller/store/minapi_atomic_test.go",
     "internal/controller/store/probe.go",
     "internal/controller/store/probe_test.go",
     "migrations/migrations.go",
@@ -49,7 +53,7 @@
   "repair_findings_addressed": [
     {
       "finding": "Q1",
-      "change": "Strict bounded JSON, fixed-width hex and node-key-hash validation, signed freshness/TTL checks, replay eviction, rate/concurrency limits, and exact ExpectedSourceIP-bound tcp4 dialing."
+      "change": "Strict bounded JSON, fixed-width hex and node-key-hash validation, signed freshness/TTL checks including provider-request TTL expiry, replay eviction, rate/concurrency limits, and exact ExpectedSourceIP-bound tcp4 dialing."
     },
     {
       "finding": "Q2",
@@ -57,15 +61,15 @@
     },
     {
       "finding": "Q3",
-      "change": "Legal CAS transitions reject agent self-publication of OPEN_FROM_VANTAGE; provider failures and expiry become explicit terminal outcomes."
+      "change": "Legal CAS transitions reject agent self-publication of OPEN_FROM_VANTAGE; provider failures, malformed or contradictory evidence, missing provider artifacts, and expiry become explicit terminal outcomes."
     },
     {
       "finding": "Q4",
-      "change": "Active-operation cap, cancellable expiry/result sweeper, operation-deadline HTTP context, bounded response bodies, and manager worker shutdown prevent orphan work."
+      "change": "Active-operation cap, cancellable expiry/result sweeper, terminal tombstone GC, operation-deadline HTTP context, bounded response bodies, and manager worker shutdown prevent orphan work."
     },
     {
       "finding": "Q5",
-      "change": "Verified joins atomically publish a validated frozen orthogonal snapshot and generation resets clear old evidence; new localstate activation-event persistence was removed as an untransferred P07 edit and remains a downstream repair item."
+      "change": "Verified joins atomically publish a validated frozen orthogonal snapshot only after provider/WAN1/ACK1/RCT1 evidence and operation/node/provider bindings pass; generation resets clear old evidence, while localstate activation-event persistence remains a downstream Agent repair item."
     },
     {
       "finding": "Q6",
@@ -73,7 +77,7 @@
     },
     {
       "finding": "Q7",
-      "change": "The uncommitted forward/spec/desired-outbox/idempotency bundle addition was removed because it modified P06-owned transactions.go outside the approved transfer; baseline desired/delete transactions remain, and the controller repair child owns any reintroduction under an explicit scope."
+      "change": "Controller forward/spec/desired-outbox/idempotency creation now uses a single BEGIN IMMEDIATE bundle with rollback-safe side effects, durable replay of identical requests, conflict on mismatched reuse, and expiry auditing; no frozen contract changed."
     },
     {
       "finding": "Q8",
@@ -85,7 +89,7 @@
     },
     {
       "finding": "Q10",
-      "change": "Migration 0005 adds independent-vantage metadata and terminal probe artifacts are retained only within the sweeper window."
+      "change": "Migration 0005 adds independent-vantage metadata; terminal probe evidence is deleted before terminal tombstones after the sweeper retention window, and late writes fail closed."
     },
     {
       "finding": "Q11",
@@ -93,7 +97,7 @@
     },
     {
       "finding": "Q12",
-      "change": "Strict regressions cover source binding, self-publish rejection, legal snapshots, atomic rollback, tombstone GC, and IPv6; full race/check/build/cross-build checks pass."
+      "change": "Strict regressions cover source binding, provider-request TTL expiry, self-publish rejection, legal/unknown-field snapshots, atomic forward rollback/replay/conflict, contradictory evidence, tombstone GC, and IPv6; full race/check/build/cross-build checks pass."
     }
   ],
   "tests": [
@@ -234,6 +238,114 @@
       "command": "python3 test/contracts/generate_manifest.py . && git diff --exit-code -- test/contracts && GOWORK=off go test -p=1 ./test/contracts/... -count=1",
       "exit_code": 0,
       "summary": "Frozen contract manifest remained byte-identical and contract tests passed."
+    },
+    {
+      "phase": "cycle-3-red-probe-lifecycle",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/store -run TestProbeOperationLifecycle -count=1 -v",
+      "exit_code": 1,
+      "summary": "Contradictory probe challenge evidence was rejected by the new regression before the storage repair."
+    },
+    {
+      "phase": "cycle-3-green-probe-lifecycle",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/store -run TestProbeOperationLifecycle -count=1 -v",
+      "exit_code": 0,
+      "summary": "Probe challenge conflicts now fail closed with a dedicated storage error."
+    },
+    {
+      "phase": "cycle-3-red-egress",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe -run TestArmRejectsMalformedProviderEgressIP -count=1 -v",
+      "exit_code": 1,
+      "summary": "Malformed provider egress input was accepted by the pre-repair arm path."
+    },
+    {
+      "phase": "cycle-3-green-egress",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe -run TestArmRejectsMalformedProviderEgressIP -count=1 -v",
+      "exit_code": 0,
+      "summary": "Provider egress validation now requires a global IPv4 literal and rejects IPv6 or malformed values."
+    },
+    {
+      "phase": "cycle-3-red-snapshot",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/store -run TestPublishProbeJoinRequiresCompleteEvidenceAndLegalSnapshot -count=1 -v",
+      "exit_code": 1,
+      "summary": "The new unknown-field snapshot assertion failed before strict decoder enforcement."
+    },
+    {
+      "phase": "cycle-3-green-snapshot",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/store -run TestPublishProbeJoinRequiresCompleteEvidenceAndLegalSnapshot -count=1 -v",
+      "exit_code": 0,
+      "summary": "Activation snapshots now reject unknown fields and trailing JSON."
+    },
+    {
+      "phase": "cycle-3-red-provider-ttl",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe -run TestProviderRejectsSignedRequestPastTTL -count=1 -v",
+      "exit_code": 1,
+      "summary": "A signed provider request past its arm TTL was accepted before the TTL fence."
+    },
+    {
+      "phase": "cycle-3-green-provider-ttl",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe -run TestProviderRejectsSignedRequestPastTTL -count=1 -v",
+      "exit_code": 0,
+      "summary": "Provider requests are now rejected after their signed TTL expires."
+    },
+    {
+      "phase": "cycle-3-focused",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/store ./internal/controller/probe ./internal/controller/api -count=1",
+      "exit_code": 0,
+      "summary": "Affected Controller store, probe, and minimal API packages passed."
+    },
+    {
+      "phase": "cycle-3-focused-race",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -race -p=1 ./internal/controller/store ./internal/controller/probe ./internal/controller/api -count=1",
+      "exit_code": 0,
+      "summary": "Affected Controller packages passed under the race detector."
+    },
+    {
+      "phase": "cycle-3-e2e",
+      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./test/e2e -run TestLinuxDirectV4WalkingSkeleton -count=1 -v -timeout=180s",
+      "exit_code": 0,
+      "summary": "The direct-v4 walking-skeleton CLI/e2e test passed."
+    },
+    {
+      "phase": "cycle-3-cumulative-unconfigured",
+      "command": "make test",
+      "exit_code": 2,
+      "summary": "Expected sandbox identity gate failure because ANTINAT_DEDICATED_UID/GID were unset."
+    },
+    {
+      "phase": "cycle-3-cumulative",
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make test",
+      "exit_code": 0,
+      "summary": "Full repository tests passed with the provisioned sandbox identity."
+    },
+    {
+      "phase": "cycle-3-check-unconfigured",
+      "command": "make check",
+      "exit_code": 2,
+      "summary": "Expected sandbox identity gate failure during the unconfigured check."
+    },
+    {
+      "phase": "cycle-3-check",
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make check",
+      "exit_code": 0,
+      "summary": "Full tests and go vet passed with the provisioned sandbox identity."
+    },
+    {
+      "phase": "cycle-3-build",
+      "command": "make build",
+      "exit_code": 0,
+      "summary": "Controller and agent production binaries built successfully."
+    },
+    {
+      "phase": "cycle-3-full-race",
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off GOMAXPROCS=2 go test -race -p=1 ./... -count=1",
+      "exit_code": 0,
+      "summary": "Full repository race-enabled tests passed."
+    },
+    {
+      "phase": "cycle-3-cross-build",
+      "command": "make cross-build",
+      "exit_code": 0,
+      "summary": "Windows/amd64 command cross-build passed."
     }
   ],
   "evidence": [
@@ -242,6 +354,7 @@
     "internal/agent/reconcile/probe_test.go",
     "internal/agent/reconcile/state_machine_test.go",
     "internal/controller/api/api_test.go",
+    "internal/controller/store/minapi_atomic_test.go",
     "internal/controller/cycle2_regression_test.go",
     "internal/controller/probe/cycle2_regression_test.go",
     "internal/controller/probe/manager_test.go",
@@ -276,9 +389,9 @@
   ],
   "contracts_changed": [],
   "ownership": {
-    "repair_scope": "P10 cycle-2 probe/activation/network repairs plus the exact scoped extension points authorized by the supervisor decision recorded on parent task t_64d9004e. This is a candidate-only transfer, not future directory ownership.",
+    "repair_scope": "P10 cycle-3 Controller probe/activation/network repairs plus the explicitly assigned minimal forward atomic-persistence extension. This is a candidate-only transfer, not future directory ownership.",
     "approved_transfer": true,
-    "transfer_authority": "Supervisor decision on t_64d9004e: scoped reversible transfer for this existing P10 candidate, cycle 2, fresh reviews, and the P10 integration gate only; duration ends when P10 integrates or is rejected.",
+    "transfer_authority": "Supervisor decision on t_64d9004e: scoped reversible transfer for this existing P10 candidate, cycle 3 Controller repair, fresh reviews, and the P10 integration gate only; duration ends when P10 integrates or is rejected.",
     "transferred_paths": {
       "P07_origin": [
         "internal/agent/localstate/probe.go"
@@ -300,12 +413,16 @@
       ],
       "new_P10_probe_extension": [
         "migrations/0005_probe_hardening.sql"
+      ],
+      "new_P10_controller_extension": [
+        "internal/controller/api/forwards_min.go",
+        "internal/controller/store/minapi.go",
+        "internal/controller/store/minapi_atomic_test.go"
       ]
     },
     "removed_untransferred_edits": [
       "internal/agent/localstate/activation.go",
       "internal/agent/localstate/cycle2_regression_test.go",
-      "internal/controller/api/forwards_min.go",
       "internal/controller/store/control.go",
       "internal/controller/store/cycle2_regression_test.go",
       "internal/controller/store/store.go",
@@ -316,11 +433,11 @@
       "S1": "RESOLVED_FOR_CANDIDATE: exact scoped transfer is recorded above; no whole-directory or future ownership transfer is inferred.",
       "S2": "CARRIED_FORWARD: controller/probe and reconcile changes remain; untransferred localstate activation persistence was removed for the downstream Agent lifecycle repair.",
       "S3": "RETAINED: bounded operation/replay/tombstone and terminal lifecycle changes remain in P10-owned probe code and the explicitly transferred probe store/localstate surfaces.",
-      "S4": "CARRIED_FORWARD: the untransferred atomic forward-create bundle was removed; baseline transactional desired/delete behavior remains for the downstream Controller repair.",
+      "S4": "RESOLVED_FOR_CANDIDATE: the Controller minimal forward/spec/desired-outbox/idempotency bundle is now atomic with deterministic replay/conflict handling; unrelated control/store transaction edits remain carried forward.",
       "S5": "CARRIED_FORWARD: P10-specific regression files remain, while final strict Story 1-6 RED/GREEN evidence is owned by the downstream proof task.",
       "S6": "PRESERVED: the previously verified provider key-file loading fix remains unchanged."
     },
-    "resolution": "All remaining candidate edits are either P10-owned, explicitly listed in the scoped transfer, or a new P10 probe migration/test extension. The eight untransferred edits listed above were removed rather than treated as implicitly authorized."
+    "resolution": "All remaining candidate edits are either P10-owned, explicitly listed in the scoped transfer, or the newly assigned Controller atomic-persistence extension. The seven still-untransferred edits listed above remain removed rather than treated as implicitly authorized."
   },
   "capability_result": "SUPPORTED_WITH_LIMITS",
   "known_limits": [
@@ -339,7 +456,7 @@
     "No remote push, merge, release, or secret persistence was performed.",
     "make clean removed bin/ build artifacts after cycle-2 build.",
     "Cross-build emitted no repository artifacts; e2e state was cleaned by harness teardown.",
-    "Ownership-boundary cleanup removed eight untransferred edits; code commit d0b099671474d9f353fced914722bab14292f088 contains only the 26 declared remaining candidate files."
+    "Ownership-boundary cleanup remains in force; code commit 98ead948bf4bba9316f0a2cb78187735b5b4c8f6 contains the bounded Controller repair, and the candidate now has 29 declared code files."
   ],
   "review_status": "REVIEW_REQUIRED",
   "required_reviews": [
@@ -348,5 +465,5 @@
     "ownership-boundary review",
     "network review"
   ],
-  "deviation_notes": "This boundary card preserves the P10 probe/provider/CAS/lifecycle changes and the explicitly authorized P06/P07/P08 extension points, while removing eight untransferred edits in localstate activation, Controller control/store transactions, the minimal API, and the frozen protocol domain. Atomic forward-create and durable Agent activation-event persistence remain explicit downstream repair items. Migration 0005 is retained as a P10-specific probe extension. No frozen contract file changed. Fresh independent specification, quality/security, ownership-boundary, and network reviews remain required before integration."
+  "deviation_notes": "This cycle preserves the P10 probe/provider/CAS/lifecycle changes, adds the explicitly assigned Controller minimal-forward atomic bundle, and leaves durable Agent activation-event persistence as the downstream sibling repair. Seven untransferred edits in localstate activation, Controller control/store transactions, and the frozen protocol domain remain removed. Migration 0005 is retained as a P10-specific probe extension. No frozen contract file changed. Fresh independent specification, quality/security, ownership-boundary, and network reviews remain required before integration."
 }
