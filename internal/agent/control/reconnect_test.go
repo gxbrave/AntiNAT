@@ -73,25 +73,12 @@ func TestReconnectResendsResultWithoutDuplicateSideEffect(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	client.Close() // hard disconnect (receipt may or may not have landed)
+	fix1Disconnect(t, h, client) // wait for the old controller session to unregister
 
-	// Reconnect: new epoch, outbox requeued, same results re-enveloped.
-	client2, err := control.NewClient(control.ClientOptions{
-		Endpoint:  h.srv.URL,
-		NodeID:    h.nodeID,
-		Store:     h.ls,
-		Key:       h.key,
-		Heartbeat: 50 * time.Millisecond,
-		OnCommand: func(ctx context.Context, op control.Operation) ([]byte, error) {
-			applied.Add(1)
-			return []byte(`{"applied":true}`), nil
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client2.Close()
-	if err := client2.Connect(ctx); err != nil {
+	// Reconnect the SAME Client: a transport close is not terminal; the
+	// subsequent handshake must reuse its durable state and pumps.
+	client.Wait()
+	if err := client.Connect(ctx); err != nil {
 		t.Fatalf("reconnect Connect: %v", err)
 	}
 

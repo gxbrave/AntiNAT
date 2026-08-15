@@ -18,10 +18,14 @@
 
 - Create/own: `internal/agent/reconcile/{delete.go,decommission.go,recovery.go}`
 - Modify with transferred ownership: P07 localstate lifecycle files, P08 keyring/control rotation files
-- Create/own: `internal/controller/lifecycle/**`, `internal/controller/recovery/**`, `migrations/0005_lifecycle.sql`, `docs/recovery.md`
+- Create/own: `internal/controller/lifecycle/**`, `internal/controller/recovery/**`, `migrations/0007_lifecycle.sql`, `docs/recovery.md`
 - Create lifecycle crash/integration tests
 
 ## Ownership transfer / integration notes
+
+- P10 owns `migrations/0004_probe.sql` and `migrations/0005_probe_hardening.sql`.
+  Lifecycle schema work starts at `0007_lifecycle.sql`; do not rename, edit, or
+  reuse P10 migration numbers.
 
 P15 exposes operations through API. P18 invokes uninstall/recovery interfaces. Existing migrations/contracts immutable without revision.
 

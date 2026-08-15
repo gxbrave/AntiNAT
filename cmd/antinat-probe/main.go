@@ -29,16 +29,21 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/gxbrave/AntiNAT/internal/controller/probe"
 )
 
 // providerConfig is the strict-JSON provider config.
 type providerConfig struct {
-	ListenAddress    string `json:"listen_address"`
-	ControllerPubKey string `json:"controller_public_key"`
-	ProviderKeyFile  string `json:"provider_key_file"`
-	MaxConcurrent    int    `json:"max_concurrent"`
+	ListenAddress       string `json:"listen_address"`
+	ControllerPubKey    string `json:"controller_public_key"`
+	ProviderKeyFile     string `json:"provider_key_file"`
+	MaxConcurrent       int    `json:"max_concurrent"`
+	ReadHeaderTimeoutMS int    `json:"read_header_timeout_ms"`
+	ReadTimeoutMS       int    `json:"read_timeout_ms"`
+	WriteTimeoutMS      int    `json:"write_timeout_ms"`
+	IdleTimeoutMS       int    `json:"idle_timeout_ms"`
 }
 
 func (c *providerConfig) validate() error {
@@ -50,6 +55,18 @@ func (c *providerConfig) validate() error {
 	}
 	if c.ProviderKeyFile == "" {
 		return errors.New("config: provider_key_file is required")
+	}
+	if c.ReadHeaderTimeoutMS <= 0 {
+		c.ReadHeaderTimeoutMS = 5000
+	}
+	if c.ReadTimeoutMS <= 0 {
+		c.ReadTimeoutMS = 15000
+	}
+	if c.WriteTimeoutMS <= 0 {
+		c.WriteTimeoutMS = 15000
+	}
+	if c.IdleTimeoutMS <= 0 {
+		c.IdleTimeoutMS = 60000
 	}
 	return nil
 }
@@ -107,7 +124,14 @@ func main() {
 	}
 	defer provider.Close()
 
-	srv := &http.Server{Addr: cfg.ListenAddress, Handler: provider.Handler()}
+	srv := &http.Server{
+		Addr: cfg.ListenAddress, Handler: provider.Handler(),
+		ReadHeaderTimeout: time.Duration(cfg.ReadHeaderTimeoutMS) * time.Millisecond,
+		ReadTimeout:       time.Duration(cfg.ReadTimeoutMS) * time.Millisecond,
+		WriteTimeout:      time.Duration(cfg.WriteTimeoutMS) * time.Millisecond,
+		IdleTimeout:       time.Duration(cfg.IdleTimeoutMS) * time.Millisecond,
+		MaxHeaderBytes:    16 << 10,
+	}
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
 	fmt.Printf("antinat-probe: listening on %s\n", cfg.ListenAddress)

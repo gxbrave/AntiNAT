@@ -414,19 +414,30 @@ func (s *Store) ClaimControlOutboxOperation(operationID, messageType, sessionID 
 // ListControlOutboxByState returns the node's outbox rows in the given
 // states (used to correlate inbound results/receipts to in-flight rows).
 func (s *Store) ListControlOutboxByState(nodeID string, states ...string) ([]ControlOutboxItem, error) {
+	return s.ListControlOutboxByStateLimit(nodeID, 256, states...)
+}
+
+// ListControlOutboxByStateLimit bounds correlation scans to the active
+// outbox budget. Controller history is not a correlation index.
+func (s *Store) ListControlOutboxByStateLimit(nodeID string, limit int, states ...string) ([]ControlOutboxItem, error) {
 	if len(states) == 0 {
 		return nil, nil
 	}
+	if limit <= 0 {
+		limit = 256
+	}
 	placeholders := strings.Repeat("?,", len(states))
 	placeholders = placeholders[:len(placeholders)-1]
-	args := make([]any, 0, len(states)+1)
+	args := make([]any, 0, len(states)+2)
 	args = append(args, nodeID)
 	for _, st := range states {
 		args = append(args, st)
 	}
+	args = append(args, limit)
 	rows, err := s.db.Query(
 		`SELECT operation_id, message_type, node_id, semantic_payload, state
-		   FROM control_outbox WHERE node_id = ? AND state IN (`+placeholders+`)`,
+		   FROM control_outbox WHERE node_id = ? AND state IN (`+placeholders+`)
+		   ORDER BY operation_id LIMIT ?`,
 		args...,
 	)
 	if err != nil {

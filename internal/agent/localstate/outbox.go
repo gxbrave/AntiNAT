@@ -10,9 +10,19 @@ import bolt "go.etcd.io/bbolt"
 // OutboxOperationIDs returns every operation id with a durable outbox row
 // (any FSM phase). Bounded by the operation set; used by the transport pump.
 func (s *Store) OutboxOperationIDs() ([]string, error) {
+	return s.OutboxOperationIDsLimit(256)
+}
+
+func (s *Store) OutboxOperationIDsLimit(limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 256
+	}
 	var ids []string
 	err := s.db.View(func(tx *bolt.Tx) error {
 		return tx.Bucket([]byte(bucketOutbox)).ForEach(func(k, _ []byte) error {
+			if len(ids) >= limit {
+				return nil
+			}
 			ids = append(ids, string(k))
 			return nil
 		})

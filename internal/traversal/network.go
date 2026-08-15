@@ -44,8 +44,25 @@ const (
 	CapabilityNoGlobalV4Source          Capability = "NO_GLOBAL_V4_SOURCE"
 )
 
-// Sentinel errors for the stable capability codes. errors.Is works on the
-// error returned by Assess.
+// Sentinel errors for the stable capability codes. CapabilityError preserves
+// the stable capability code while retaining the underlying cause for callers
+// and logs. It prevents all topology failures from collapsing into
+// NO_GLOBAL_V4_SOURCE at the data-plane boundary.
+type CapabilityError struct {
+	Capability Capability
+	Err        error
+}
+
+func (e *CapabilityError) Error() string { return string(e.Capability) + ": " + e.Err.Error() }
+func (e *CapabilityError) Unwrap() error { return e.Err }
+
+func NewCapabilityError(capability Capability, err error) error {
+	if err == nil {
+		err = errors.New(string(capability))
+	}
+	return &CapabilityError{Capability: capability, Err: err}
+}
+
 var (
 	ErrV4SourceUnavailable       = errors.New("traversal: no IPv4 source address available")
 	ErrV4DefaultRouteUnavailable = errors.New("traversal: no IPv4 default route")

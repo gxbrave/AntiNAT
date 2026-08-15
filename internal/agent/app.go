@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -74,8 +75,11 @@ type App struct {
 
 	ready atomic.Bool
 
-	closeMu sync.Mutex
-	closed  bool
+	closeMu     sync.Mutex
+	closed      bool
+	reconnectWG sync.WaitGroup
+	runCancel   context.CancelFunc
+	lifecycleWG sync.WaitGroup
 }
 
 // New opens the localstate store, loads or creates the node key, and
@@ -185,29 +189,125 @@ func New(cfg Config) (*App, error) {
 // or ctx is done; the session and all loops run on ctx, so the caller must
 // keep ctx alive for the app's lifetime (Shutdown cancels the client).
 func (a *App) Start(ctx context.Context) error {
-	if err := a.client.Connect(ctx); err != nil {
-		a.client.Close()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	runCtx, runCancel := context.WithCancel(ctx)
+	a.closeMu.Lock()
+	a.runCancel = runCancel
+	a.closeMu.Unlock()
+	if err := a.client.Connect(runCtx); err != nil {
+		runCancel()
+		a.client.Shutdown()
 		a.client.Wait()
 		a.dp.closeAll()
+		a.probeMgr.Close()
 		_ = a.store.Close()
 		return fmt.Errorf("agent: control connect: %w", err)
 	}
-	a.probeMgr.Start(ctx)
+	a.probeMgr.Start(runCtx)
 	// A receipt may have been durably recorded immediately before a crash or
-	// control disconnect. Retry it after the new session is established; a
-	// transient send failure remains durable for the next reconnect.
-	_ = a.probeMgr.RetryPendingReceipts(ctx)
+	// control disconnect. Retry it after the new session is established.
+	if err := a.probeMgr.RetryPendingReceipts(runCtx); err != nil {
+		runCancel()
+		a.client.Shutdown()
+		a.client.Wait()
+		a.dp.closeAll()
+		a.probeMgr.Close()
+		_ = a.store.Close()
+		return fmt.Errorf("agent: retry pending probe receipts: %w", err)
+	}
+	a.replayActivationStatuses(runCtx)
 	// Restart recovery: reopen listeners for durably applied forwards
 	// (Story 6: restart restores the listener, initially UNVERIFIED).
-	if err := a.dp.recover(ctx); err != nil {
-		a.client.Close()
+	if err := a.dp.recover(runCtx); err != nil {
+		runCancel()
+		a.client.Shutdown()
 		a.dp.closeAll()
+		a.probeMgr.Close()
 		_ = a.store.Close()
 		return fmt.Errorf("agent: data plane recovery: %w", err)
 	}
-	go a.monitorLiveness(ctx)
+	a.lifecycleWG.Add(1)
+	go func() {
+		defer a.lifecycleWG.Done()
+		a.monitorLiveness(runCtx)
+	}()
+	a.reconnectWG.Add(1)
+	go func() {
+		defer a.reconnectWG.Done()
+		a.reconnectControl(runCtx)
+	}()
 	a.ready.Store(true)
 	return nil
+}
+
+// replayActivationStatuses re-sends persisted evidence-loss mirrors after a
+// reconnect. The status message is idempotent and the controller applies its
+// activation CAS before replacing the runtime row.
+func (a *App) replayActivationStatuses(ctx context.Context) {
+	if a.store == nil || a.client == nil {
+		return
+	}
+	snapshots, err := a.store.ListActivationSnapshots(256)
+	if err != nil {
+		return
+	}
+	for _, snapshot := range snapshots {
+		if snapshot.States.PublicationState != "STALE" && snapshot.States.PublicationState != "UNPUBLISHED" {
+			continue
+		}
+		payload, err := json.Marshal(struct {
+			ForwardID  string                    `json:"forward_id"`
+			Activation string                    `json:"activation"`
+			Generation uint64                    `json:"generation"`
+			Snapshot   protocol.ActivationStates `json:"snapshot"`
+		}{snapshot.ForwardID, snapshot.Activation, snapshot.Generation, snapshot.States})
+		if err == nil {
+			a.sendActivationStatus(ctx, payload)
+		}
+	}
+}
+
+// sendActivationStatus uses a bounded write context. If the transport is
+// unavailable, the persisted snapshot is replayed on the next reconnect.
+func (a *App) sendActivationStatus(ctx context.Context, payload []byte) {
+	if a.client == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	statusCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_ = a.client.SendMessage(statusCtx, "status", payload)
+}
+
+// reconnectControl waits for a transport session to finish and reuses the
+// same Client for the next handshake. Durable receipts are retried after every
+// successful reconnect; a failed retry remains in localstate for the next
+// pass and keeps readiness conservative.
+func (a *App) reconnectControl(ctx context.Context) {
+	for {
+		a.client.Wait()
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		if err := a.client.Connect(ctx); err != nil {
+			if strings.Contains(err.Error(), "client is closed") || ctx.Err() != nil {
+				return
+			}
+			time.Sleep(250 * time.Millisecond)
+			continue
+		}
+		if err := a.probeMgr.RetryPendingReceipts(ctx); err != nil {
+			a.ready.Store(false)
+			continue
+		}
+		a.ready.Store(true)
+	}
 }
 
 // Ready reports whether the control session is established.
@@ -228,7 +328,7 @@ func (a *App) monitorLiveness(ctx context.Context) {
 			available := err == nil && capability == traversal.CapabilityDirectV4Ready
 			if !available {
 				if a.dp.markCapabilityLost() {
-					a.markEvidenceLost()
+					a.markEvidenceLost(ctx)
 				}
 				continue
 			}
@@ -243,7 +343,7 @@ func (a *App) monitorLiveness(ctx context.Context) {
 	}
 }
 
-func (a *App) markEvidenceLost() {
+func (a *App) markEvidenceLost(ctx context.Context) {
 	a.dp.mu.Lock()
 	activations := make([]*reconcile.Activation, 0, len(a.activations))
 	for _, act := range a.activations {
@@ -251,7 +351,25 @@ func (a *App) markEvidenceLost() {
 	}
 	a.dp.mu.Unlock()
 	for _, act := range activations {
-		_ = act.EvidenceLost()
+		if err := act.EvidenceLost(); err != nil {
+			continue
+		}
+		state := act.Snapshot()
+		if a.store != nil {
+			_ = a.store.SaveActivationSnapshot(localstate.ActivationSnapshot{
+				ForwardID: act.ForwardID(), Activation: act.ActivationID(),
+				Generation: act.Generation(), States: state,
+			})
+		}
+		payload, err := json.Marshal(struct {
+			ForwardID  string                    `json:"forward_id"`
+			Activation string                    `json:"activation"`
+			Generation uint64                    `json:"generation"`
+			Snapshot   protocol.ActivationStates `json:"snapshot"`
+		}{act.ForwardID(), act.ActivationID(), act.Generation(), state})
+		if err == nil && a.client != nil {
+			a.sendActivationStatus(ctx, payload)
+		}
 	}
 }
 
@@ -331,6 +449,17 @@ func (a *App) onForwardApplied(spec protocol.ForwardSpec, applied protocol.Appli
 		act.ResetForGeneration(applied.SpecRevision)
 	}
 	a.dp.mu.Unlock()
+	if a.store != nil {
+		aid := protocol.ActivationID(applied.ForwardID, applied.SpecRevision)
+		activationID := hex.EncodeToString(aid[:])
+		if saved, ok, err := a.store.LoadActivationSnapshot(applied.ForwardID); err == nil && ok && saved.Activation == activationID && saved.Generation == applied.SpecRevision {
+			_ = act.Set(saved.States)
+		}
+		_ = a.store.SaveActivationSnapshot(localstate.ActivationSnapshot{
+			ForwardID: applied.ForwardID, Activation: activationID,
+			Generation: applied.SpecRevision, States: act.Snapshot(),
+		})
+	}
 }
 
 // activation returns the tracked activation for a forward, if any.
@@ -361,10 +490,16 @@ func (a *App) Shutdown(ctx context.Context) error {
 	}
 	a.closed = true
 	a.ready.Store(false)
+	if a.runCancel != nil {
+		a.runCancel()
+		a.runCancel = nil
+	}
 	if a.client != nil {
-		a.client.Close()
+		a.client.Shutdown()
 		a.client.Wait()
 	}
+	a.reconnectWG.Wait()
+	a.lifecycleWG.Wait()
 	if a.probeMgr != nil {
 		a.probeMgr.Close()
 	}
@@ -442,10 +577,10 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 		d.mu.Unlock()
 		return protocol.AppliedForwardState{}, fmt.Errorf("agent: strategy %q not supported by the M1 data plane", spec.Strategy)
 	}
-	sel, capability, err := traversal.Assess(d.cfg.RouteTable)
-	if err != nil || capability != traversal.CapabilityDirectV4Ready {
+	sel, capability, assessErr := traversal.Assess(d.cfg.RouteTable)
+	if assessErr != nil || capability != traversal.CapabilityDirectV4Ready {
 		d.mu.Unlock()
-		return protocol.AppliedForwardState{}, traversal.ErrNoGlobalV4Source
+		return protocol.AppliedForwardState{}, traversal.NewCapabilityError(capability, assessErr)
 	}
 	lease, err := d.registry.Acquire(ctx, spec.ForwardID, traversal.TupleKey{
 		Address:  sel.Source.String(),
@@ -589,9 +724,20 @@ func (d *dataPlane) recover(ctx context.Context) error {
 
 // reopen restores one forward's actor on the durable bind tuple.
 func (d *dataPlane) reopen(ctx context.Context, spec protocol.ForwardSpec, st protocol.AppliedForwardState) error {
+	sel, capability, assessErr := traversal.Assess(d.cfg.RouteTable)
+	if assessErr != nil || capability != traversal.CapabilityDirectV4Ready {
+		return traversal.NewCapabilityError(capability, assessErr)
+	}
+	// The durable tuple is evidence of the previous bind, not an instruction
+	// to reopen a stale source. Re-select the current direct-v4 source after a
+	// route/interface change and request the desired port when one was pinned.
+	port := spec.RequestedLocalPort
+	if port == 0 {
+		port = st.ActualBindPort
+	}
 	lease, err := d.registry.Acquire(ctx, spec.ForwardID, traversal.TupleKey{
-		Address:  st.ActualBindHost,
-		Port:     st.ActualBindPort,
+		Address:  sel.Source.String(),
+		Port:     port,
 		Family:   "ipv4",
 		Protocol: "tcp",
 	})

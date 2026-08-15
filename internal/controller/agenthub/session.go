@@ -300,7 +300,14 @@ func (h *Hub) handleInboundFrame(s *ControlSession, frame []byte) error {
 		return h.handleProbePlaneMessage(s, env)
 	case "message_receipt":
 		return h.handleAgentReceipt(s, env)
-	case "heartbeat", "status":
+	case "heartbeat":
+		return nil
+	case "status":
+		if sink, ok := h.sink.(ActivationStatusSink); ok {
+			if err := sink.HandleActivationStatus(s.nodeID, env.Payload); err != nil {
+				return err
+			}
+		}
 		return nil // liveness only
 	default:
 		return fmt.Errorf("unexpected message type %q", hdr.MessageType)
@@ -337,22 +344,18 @@ func (h *Hub) handleProbePlaneMessage(s *ControlSession, env protocol.Envelope) 
 		return err
 	}
 	if duplicate && hdr.MessageType != "probe_ingress_receipt" {
-		// Cached duplicate of an already-recorded probe message: the sink
-		// was already notified for the first delivery; do not double-forward
-		// and do not re-advance the outbox row.
-		return nil
-	}
-	if hdr.MessageType == "probe_armed" {
-		// Correlate to the probe_arm outbox row (if still in flight) and
-		// advance it to SEMANTIC_ACKED with a durable receipt, exactly like
-		// a command result. A missing row (already GC'd, or a revalidation
-		// arm without an outbox row) is tolerated: the sink still receives
-		// the frame.
-		row, agentOp, err := h.matchOutboxRow(s, hdr.MessageID, hdr.MessageType)
-		if err == nil {
-			if err := h.advanceResultRow(s, row, agentOp); err != nil {
-				return err
-			}
+		if hdr.MessageType != "probe_armed" {
+			// Cached duplicate of an already-recorded probe message: the sink
+			// was already notified for the first delivery; do not double-forward
+			// and do not re-advance the outbox row.
+			return nil
+		}
+		state, stateErr := h.store.ControlInboxState(hex.EncodeToString(hdr.MessageID[:]))
+		if stateErr != nil {
+			return stateErr
+		}
+		if state == "PROCESSED" && hdr.MessageType != "probe_armed" {
+			return nil
 		}
 	}
 	if hdr.MessageType == "probe_ingress_receipt" {
@@ -375,11 +378,36 @@ func (h *Hub) handleProbePlaneMessage(s *ControlSession, env protocol.Envelope) 
 		}
 		receiptID := security.MessageID(operationID, "message_receipt")
 		payload := fmt.Sprintf(`{"operation_id":%q}`, operationID)
-		return s.writeEnvelope(context.Background(), receiptID, "message_receipt", []byte(payload))
+		writeCtx, cancel := context.WithTimeout(context.Background(), h.cfg.ControlWriteTimeout)
+		defer cancel()
+		return s.writeEnvelope(writeCtx, receiptID, "message_receipt", []byte(payload))
 	}
-	if h.sink != nil {
+	messageID := hex.EncodeToString(hdr.MessageID[:])
+	state, err := h.store.ControlInboxState(messageID)
+	if err != nil {
+		return err
+	}
+	if state != "PROCESSED" {
+		if h.sink == nil {
+			return errors.New("agenthub: probe sink is not configured")
+		}
 		if err := h.sink.HandleProbeMessage(s.nodeID, hdr.MessageType, env.Payload); err != nil {
 			h.audit("PROBE_SINK_ERROR", fmt.Sprintf(`{"node_id":%q,"type":%q,"err":%q}`, s.nodeID, hdr.MessageType, err.Error()))
+			return err
+		}
+		if err := h.store.SetControlInboxState(messageID, "PROCESSED"); err != nil {
+			return err
+		}
+	}
+	if hdr.MessageType == "probe_armed" {
+		// Correlate only after the sink has durably accepted RDY1. A missing
+		// row is tolerated for revalidation arms; the durable probe sink is
+		// still the admission authority.
+		row, agentOp, err := h.matchOutboxRow(s, hdr.MessageID, hdr.MessageType)
+		if err == nil {
+			if err := h.advanceResultRow(s, row, agentOp); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -402,6 +430,11 @@ func (h *Hub) handleAgentResult(s *ControlSession, env protocol.Envelope) error 
 	if err != nil {
 		return err
 	}
+	// probe_armed is the semantic boundary for controller probe admission.
+	// Do not acknowledge or garbage-collect the command until the probe sink
+	// has durably accepted the RDY1 payload. A failed sink leaves the inbox in
+	// RECEIVED and the outbox row unacknowledged so reconnect can retry it.
+	messageID := hex.EncodeToString(hdr.MessageID[:])
 	row, agentOp, err := h.matchOutboxRow(s, hdr.MessageID, hdr.MessageType)
 	if err != nil {
 		if duplicate {
@@ -409,16 +442,29 @@ func (h *Hub) handleAgentResult(s *ControlSession, env protocol.Envelope) error 
 		}
 		return err
 	}
-	if err := h.advanceResultRow(s, row, agentOp); err != nil {
-		return err
-	}
 	// A result correlated to a probe_arm row IS the durable probe_armed
 	// answer (the agent's OnCommand returned the RDY1 frame through the
 	// journal). Notify the probe sink with the raw payload.
-	if row.MessageType == "probe_arm" && h.sink != nil {
-		if err := h.sink.HandleProbeMessage(s.nodeID, "probe_armed", env.Payload); err != nil {
-			h.audit("PROBE_SINK_ERROR", fmt.Sprintf(`{"node_id":%q,"type":%q,"err":%q}`, s.nodeID, "probe_armed", err.Error()))
+	if row.MessageType == "probe_arm" {
+		state, stateErr := h.store.ControlInboxState(messageID)
+		if stateErr != nil {
+			return stateErr
 		}
+		if state != "PROCESSED" {
+			if h.sink == nil {
+				return errors.New("agenthub: probe sink is not configured")
+			}
+			if err := h.sink.HandleProbeMessage(s.nodeID, "probe_armed", env.Payload); err != nil {
+				h.audit("PROBE_SINK_ERROR", fmt.Sprintf(`{"node_id":%q,"type":%q,"err":%q}`, s.nodeID, "probe_armed", err.Error()))
+				return err
+			}
+			if err := h.store.SetControlInboxState(messageID, "PROCESSED"); err != nil {
+				return err
+			}
+		}
+	}
+	if err := h.advanceResultRow(s, row, agentOp); err != nil {
+		return err
 	}
 	return nil
 }
@@ -467,7 +513,9 @@ func (h *Hub) advanceResultRow(s *ControlSession, row store.ControlOutboxItem, a
 	}
 	receiptID := security.MessageID(agentOp, "message_receipt")
 	payload := fmt.Sprintf(`{"operation_id":%q}`, agentOp)
-	return s.writeEnvelope(context.Background(), receiptID, "message_receipt", []byte(payload))
+	writeCtx, cancel := context.WithTimeout(context.Background(), h.cfg.ControlWriteTimeout)
+	defer cancel()
+	return s.writeEnvelope(writeCtx, receiptID, "message_receipt", []byte(payload))
 }
 
 // handleAgentReceipt advances the controller outbox row SEMANTIC_ACKED ->

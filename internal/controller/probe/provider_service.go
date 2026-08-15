@@ -21,6 +21,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -270,7 +271,8 @@ func (p *Provider) admitReplay(req *providerRequest, now time.Time) string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.sweepReplayLocked(now)
-	if entry, ok := p.replay[req.ProbeID]; ok && now.Before(entry.expires) {
+	replayID := strings.ToLower(req.ProbeID)
+	if entry, ok := p.replay[replayID]; ok && now.Before(entry.expires) {
 		if entry.material == material {
 			return "replay"
 		}
@@ -288,7 +290,7 @@ func (p *Provider) admitReplay(req *providerRequest, now time.Time) string {
 			delete(p.replay, oldestID)
 		}
 	}
-	p.replay[req.ProbeID] = replayEntry{expires: now.Add(p.cfg.ReplayWindow), material: material}
+	p.replay[replayID] = replayEntry{expires: now.Add(p.cfg.ReplayWindow), material: material}
 	return ""
 }
 
@@ -386,7 +388,8 @@ func (p *Provider) execute(ctx context.Context, req *providerRequest) providerRe
 	if err != nil || len(nodePub) != ed25519.PublicKeySize {
 		return providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "bad_request"}
 	}
-	if _, err := protocol.ParseProbeACK(ackBuf, ed25519.PublicKey(nodePub)); err != nil {
+	ack, err := protocol.ParseProbeACK(ackBuf, ed25519.PublicKey(nodePub))
+	if err != nil || !verifyProbeACKBinding(frame, ack) {
 		return providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "bad_ack"}
 	}
 	chash := frame.ChallengeHash()
@@ -398,6 +401,13 @@ func (p *Provider) execute(ctx context.Context, req *providerRequest) providerRe
 		ACK1Frame:     hex.EncodeToString(ackBuf),
 		Reason:        "ack_verified",
 	}
+}
+
+// verifyProbeACKBinding keeps signature validity separate from semantic
+// binding: a valid node signature over another operation is not evidence for
+// this WAN1 exchange.
+func verifyProbeACKBinding(frame protocol.ProviderFrame, ack protocol.ProbeACK) bool {
+	return ack.ArmDigest == frame.ArmDigest && ack.ChallengeHash == frame.ChallengeHash()
 }
 
 // readFullConn reads exactly len(buf) bytes or returns an error.

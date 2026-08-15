@@ -72,11 +72,13 @@ type Manager struct {
 	resultRetention time.Duration
 	cleanupBatch    int
 	mu              sync.Mutex
+	active          map[string]struct{}
 	armMu           sync.Mutex
 	ctx             context.Context
 	cancel          context.CancelFunc
 	wg              sync.WaitGroup
 	workWG          sync.WaitGroup
+	closed          bool
 }
 
 // NewManager validates config and builds the manager.
@@ -123,6 +125,7 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 		sweepInterval:   cfg.SweepInterval,
 		resultRetention: cfg.ResultRetention,
 		cleanupBatch:    cfg.CleanupBatchSize,
+		active:          make(map[string]struct{}),
 	}, nil
 }
 
@@ -130,16 +133,20 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 // Start in focused unit tests; request paths then use a per-operation context.
 func (m *Manager) Start(parent context.Context) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.cancel != nil {
+		m.mu.Unlock()
 		return errors.New("probe: manager already started")
 	}
 	if parent == nil {
 		parent = context.Background()
 	}
 	m.ctx, m.cancel = context.WithCancel(parent)
+	m.closed = false
 	m.wg.Add(1)
-	go m.sweepLoop(m.ctx)
+	ctx := m.ctx
+	m.mu.Unlock()
+	go m.sweepLoop(ctx)
+	m.recoverOperations()
 	return nil
 }
 
@@ -148,6 +155,7 @@ func (m *Manager) Close() error {
 	m.mu.Lock()
 	cancel := m.cancel
 	m.cancel = nil
+	m.closed = true
 	m.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -173,6 +181,7 @@ func (m *Manager) sweepLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			_ = m.sweepOnce(m.clock())
+			m.recoverOperations()
 		}
 	}
 }
@@ -200,6 +209,91 @@ func (m *Manager) sweepOnce(at time.Time) error {
 	return nil
 }
 
+// startProvider reserves one provider round and records ownership before the
+// goroutine starts. The active map prevents a recovery sweep from launching a
+// duplicate request while the original request is still live.
+func (m *Manager) startProvider(op store.ProbeOperation, nodeID string, nodePub ed25519.PublicKey) bool {
+	m.mu.Lock()
+	if _, ok := m.active[op.ID]; ok {
+		m.mu.Unlock()
+		return true
+	}
+	if m.closed {
+		m.mu.Unlock()
+		return false
+	}
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil {
+		m.mu.Unlock()
+		return false
+	}
+	select {
+	case m.rounds <- struct{}{}:
+	default:
+		m.mu.Unlock()
+		return false
+	}
+	m.active[op.ID] = struct{}{}
+	m.workWG.Add(1)
+	m.mu.Unlock()
+	go func(requestCtx context.Context) {
+		defer m.workWG.Done()
+		defer func() { <-m.rounds }()
+		defer func() {
+			m.mu.Lock()
+			delete(m.active, op.ID)
+			m.mu.Unlock()
+		}()
+		m.requestProvider(requestCtx, op, nodeID, nodePub)
+	}(ctx)
+	return true
+}
+
+// recoverOperations rehydrates live ARMED and interrupted IN_FLIGHT work
+// after a controller restart. Node keys are intentionally read from the live
+// hub session; if a node is offline the ARMED row remains durable and is
+// picked up by the next reconnect/recovery pass.
+func (m *Manager) recoverOperations() {
+	ops, err := m.store.ListProbeOperationsByStatusLimit(m.maxActive, "ARMED", "IN_FLIGHT")
+	if err != nil {
+		return
+	}
+	for _, op := range ops {
+		if !m.clock().Before(time.Unix(op.ExpiresAt, 0)) {
+			_ = m.store.SetProbeOperationStatusCAS(op.ID, op.Status, string(protocol.OutcomeTimeout))
+			continue
+		}
+		m.mu.Lock()
+		_, active := m.active[op.ID]
+		m.mu.Unlock()
+		if active {
+			continue
+		}
+		if op.Status == "IN_FLIGHT" {
+			if err := m.store.RequeueProbeOperationForRecovery(op.ID); err != nil {
+				continue
+			}
+			op.Status = "ARMED"
+		}
+		nodePub, ok := m.nodeKey(op.NodeID)
+		if !ok {
+			continue
+		}
+		provider, err := m.store.GetProbeProvider(op.ProviderID)
+		if err != nil {
+			continue
+		}
+		if !provider.IndependentVantage {
+			_ = m.store.SetProbeOperationStatusCAS(op.ID, "ARMED", string(protocol.OutcomeNoIndependentVantage))
+			continue
+		}
+		_ = m.startProvider(op, op.NodeID, nodePub)
+	}
+}
+
 // Arm creates a durable probe operation and enqueues the probe_arm C2A
 // command. The returned operation's ID is the probe id (hex). The arm frame
 // carries the provider public key and expected source but NEVER the
@@ -220,7 +314,10 @@ func (m *Manager) Arm(ctx context.Context, nodeID, forwardID, activationID, endp
 	if forward.NodeID != nodeID {
 		return store.ProbeOperation{}, errors.New("probe: forward is bound to a different node")
 	}
-	if forward.CurrentActivationID != "" && forward.CurrentActivationID != activationID {
+	if forward.CurrentActivationID == "" {
+		return store.ProbeOperation{}, errors.New("probe: forward has no current activation")
+	}
+	if forward.CurrentActivationID != activationID {
 		return store.ProbeOperation{}, errors.New("probe: activation is stale for forward")
 	}
 	m.armMu.Lock()
@@ -335,6 +432,35 @@ func (m *Manager) HandleProbeMessage(nodeID, messageType string, payload []byte)
 	}
 }
 
+// HandleActivationStatus consumes an agent evidence-loss status and updates
+// the controller runtime mirror under the current activation CAS.
+func (m *Manager) HandleActivationStatus(nodeID string, payload []byte) error {
+	var v struct {
+		ForwardID  string                    `json:"forward_id"`
+		Activation string                    `json:"activation"`
+		Generation uint64                    `json:"generation"`
+		Snapshot   protocol.ActivationStates `json:"snapshot"`
+	}
+	if err := json.Unmarshal(payload, &v); err != nil || v.ForwardID == "" || v.Activation == "" {
+		return errors.New("probe: malformed activation status")
+	}
+	if err := v.Snapshot.Validate(); err != nil {
+		return fmt.Errorf("probe: invalid activation status: %w", err)
+	}
+	forward, err := m.store.GetForward(v.ForwardID)
+	if err != nil {
+		return err
+	}
+	if forward.NodeID != nodeID || forward.CurrentActivationID != v.Activation {
+		return store.ErrCASConflict
+	}
+	stateJSON, err := json.Marshal(v.Snapshot)
+	if err != nil {
+		return err
+	}
+	return m.store.SetForwardRuntimeStatus(v.ForwardID, v.Activation, string(stateJSON))
+}
+
 // handleArmed verifies the RDY1 frame against the node key and the arm
 // digest, marks the operation ARMED, and fires the provider request.
 func (m *Manager) handleArmed(nodeID string, payload []byte) error {
@@ -372,26 +498,7 @@ func (m *Manager) handleArmed(nodeID string, payload []byte) error {
 		return m.store.SetProbeOperationStatusCAS(op.ID, "ARMED", string(protocol.OutcomeNoIndependentVantage))
 	}
 	// Request the provider asynchronously (bounded concurrency).
-	select {
-	case m.rounds <- struct{}{}:
-		m.mu.Lock()
-		ctx := m.ctx
-		if ctx != nil && ctx.Err() != nil {
-			m.mu.Unlock()
-			<-m.rounds
-			return m.store.SetProbeOperationStatusCAS(op.ID, "ARMED", string(protocol.OutcomeProbeInfraUnavailable))
-		}
-		if ctx == nil {
-			ctx = context.Background()
-		}
-		m.workWG.Add(1)
-		m.mu.Unlock()
-		go func(requestCtx context.Context) {
-			defer m.workWG.Done()
-			defer func() { <-m.rounds }()
-			m.requestProvider(requestCtx, op, nodeID, nodePub)
-		}(ctx)
-	default:
+	if !m.startProvider(op, nodeID, nodePub) {
 		return m.store.SetProbeOperationStatusCAS(op.ID, "ARMED", string(protocol.OutcomeProbeInfraUnavailable))
 	}
 	return nil
@@ -574,6 +681,10 @@ func (m *Manager) requestProvider(requestCtx context.Context, op store.ProbeOper
 		return
 	}
 	if !res.verify(providerPub) {
+		m.failOperation(op.ID, string(protocol.OutcomeRejected))
+		return
+	}
+	if !res.Accepted {
 		m.failOperation(op.ID, string(protocol.OutcomeRejected))
 		return
 	}

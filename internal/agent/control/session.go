@@ -70,10 +70,11 @@ type Operation struct {
 type Client struct {
 	opts ClientOptions
 
-	conn    *websocket.Conn
-	mu      sync.Mutex
-	writeMu sync.Mutex
-	wg      sync.WaitGroup
+	connectMu sync.Mutex
+	mu        sync.Mutex
+	conn      *websocket.Conn
+	writeMu   sync.Mutex
+	wg        sync.WaitGroup
 	// outSeq is the agent's outbound sequence (A2C).
 	outSeq uint64
 	// inSeq is the last accepted inbound sequence (C2A).
@@ -82,8 +83,9 @@ type Client struct {
 	epoch   uint64
 	session string
 
-	closed chan struct{}
-	once   sync.Once
+	closed        chan struct{}
+	once          sync.Once
+	sessionCancel context.CancelFunc
 }
 
 // NewClient validates the options and builds a client.
@@ -135,18 +137,34 @@ func defaultDialer(ctx context.Context, endpoint string) (*websocket.Conn, error
 	return conn, nil
 }
 
-// Close terminates the session. Wait must be called by the owner when it
-// needs the reader/pump goroutines to have exited.
-func (c *Client) Close() {
+// Close terminates only the active transport session. The Client remains
+// reusable for a later Connect after a network failure or test disconnect.
+func (c *Client) Close() { c.stopSession() }
+
+// Shutdown permanently closes the Client and prevents further reconnects.
+// App lifecycle teardown uses this terminal operation.
+func (c *Client) Shutdown() {
 	c.once.Do(func() {
 		close(c.closed)
-		c.mu.Lock()
-		conn := c.conn
-		c.mu.Unlock()
-		if conn != nil {
-			conn.CloseNow()
-		}
 	})
+	c.stopSession()
+}
+
+// stopSession tears down only the current transport. Unlike Close, it keeps
+// the Client reusable for a later handshake on the same process.
+func (c *Client) stopSession() {
+	c.mu.Lock()
+	conn := c.conn
+	c.conn = nil
+	cancel := c.sessionCancel
+	c.sessionCancel = nil
+	c.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if conn != nil {
+		_ = conn.CloseNow()
+	}
 }
 
 // Wait waits for all session goroutines started by Connect.
@@ -171,6 +189,22 @@ func (c *Client) SendMessage(ctx context.Context, messageType string, payload []
 // persistence BEFORE socket activation, then starts the inbound frame loop,
 // the outbox pump, and heartbeats. It returns once the handshake completes.
 func (c *Client) Connect(ctx context.Context) error {
+	c.connectMu.Lock()
+	defer c.connectMu.Unlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-c.closed:
+		return errors.New("control: client is closed")
+	default:
+	}
+	c.mu.Lock()
+	if c.conn != nil || c.sessionCancel != nil {
+		c.mu.Unlock()
+		return errors.New("control: session already connected")
+	}
+	c.mu.Unlock()
 	// Load the pinned controller key (the trust anchor from enrollment).
 	pins, err := c.opts.Store.ListControllerPins()
 	if err != nil {
@@ -186,33 +220,45 @@ func (c *Client) Connect(ctx context.Context) error {
 		return err
 	}
 	conn.SetReadLimit(maxEnvelopeBytes)
-	c.conn = conn
-
 	if err := c.handshake(ctx, conn, pin); err != nil {
-		conn.CloseNow()
+		_ = conn.CloseNow()
 		return err
+	}
+	select {
+	case <-c.closed:
+		_ = conn.CloseNow()
+		return errors.New("control: client is closed")
+	default:
 	}
 
 	// Requeue any un-receipted outbox rows for the new session (semantic
-	// resend) and start the pumps.
+	// resend) and start the pumps. A session context is cancelled on a
+	// transport failure; the terminal client channel is reserved for Shutdown.
+	sessionCtx, sessionCancel := context.WithCancel(ctx)
+	c.mu.Lock()
+	c.conn = conn
+	c.sessionCancel = sessionCancel
+	c.inSeq = 0
+	c.outSeq = 0
+	c.mu.Unlock()
 	if _, err := c.opts.Store.RequeueOutboxForSession(c.epoch, c.session); err != nil {
-		conn.CloseNow()
+		c.stopSession()
 		return fmt.Errorf("control: requeue outbox: %w", err)
 	}
 	c.wg.Add(2)
 	go func() {
 		defer c.wg.Done()
-		c.frameLoop(ctx)
+		c.frameLoop(sessionCtx, conn)
 	}()
 	go func() {
 		defer c.wg.Done()
-		c.outboxPump(ctx)
+		c.outboxPump(sessionCtx)
 	}()
 	if c.opts.Heartbeat > 0 {
 		c.wg.Add(1)
 		go func() {
 			defer c.wg.Done()
-			c.heartbeatLoop(ctx)
+			c.heartbeatLoop(sessionCtx)
 		}()
 	}
 	return nil
@@ -300,17 +346,17 @@ func (c *Client) handshake(ctx context.Context, conn *websocket.Conn, pin locals
 
 // frameLoop reads C2A envelopes until the session dies. Any verification
 // failure closes the session (fail closed).
-func (c *Client) frameLoop(ctx context.Context) {
+func (c *Client) frameLoop(ctx context.Context, conn *websocket.Conn) {
 	for {
 		readCtx, cancel := context.WithTimeout(ctx, sessionIdleTimeout)
-		_, frame, err := c.conn.Read(readCtx)
+		_, frame, err := conn.Read(readCtx)
 		cancel()
 		if err != nil {
-			c.Close()
+			c.stopSession()
 			return
 		}
 		if err := c.handleInboundFrame(ctx, frame); err != nil {
-			c.Close()
+			c.stopSession()
 			return
 		}
 	}
@@ -518,7 +564,7 @@ func (c *Client) outboxPump(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if err := c.pumpOnce(ctx); err != nil {
-				c.Close()
+				c.stopSession()
 				return
 			}
 		}
@@ -587,7 +633,7 @@ func (c *Client) heartbeatLoop(ctx context.Context) {
 			var msgID [16]byte
 			rand.Read(msgID[:])
 			if err := c.writeEnvelope(ctx, msgID, "heartbeat", []byte(`{}`)); err != nil {
-				c.Close()
+				c.stopSession()
 				return
 			}
 		}

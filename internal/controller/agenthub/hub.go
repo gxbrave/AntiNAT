@@ -41,6 +41,9 @@ type Config struct {
 	// MaxEnrollBodyBytes bounds enrollment request bodies (resource bound).
 	MaxEnrollBodyBytes int64
 
+	// ControlWriteTimeout bounds controller-generated receipt writes.
+	ControlWriteTimeout time.Duration
+
 	// ProbeSink is the P10-declared consumption interface: the controller
 	// probe manager registers here to receive durable probe-plane A2C
 	// messages (probe_armed, probe_ingress_receipt, probe_result). The hub
@@ -60,6 +63,12 @@ type ProbeSink interface {
 	// payload (RDY1 frame bytes for probe_armed, RCT1 frame bytes for
 	// probe_ingress_receipt, JSON for probe_result).
 	HandleProbeMessage(nodeID, messageType string, payload []byte) error
+}
+
+// ActivationStatusSink consumes durable agent evidence-loss snapshots. It is
+// optional so older non-P10 sinks remain source-compatible.
+type ActivationStatusSink interface {
+	HandleActivationStatus(nodeID string, payload []byte) error
 }
 
 // Hub is the Controller-side Agent hub.
@@ -94,6 +103,9 @@ func NewHub(cfg Config) (*Hub, error) {
 	}
 	if cfg.MaxEnrollBodyBytes <= 0 {
 		cfg.MaxEnrollBodyBytes = 4096
+	}
+	if cfg.ControlWriteTimeout <= 0 {
+		cfg.ControlWriteTimeout = 5 * time.Second
 	}
 	return &Hub{store: cfg.Store, keyring: cfg.Keyring, challenges: cfg.Challenges, clock: cfg.Clock, cfg: cfg, sink: cfg.ProbeSink, sessions: make(map[string]*ControlSession)}, nil
 }

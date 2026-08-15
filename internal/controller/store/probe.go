@@ -183,7 +183,7 @@ func (s *Store) CreateProbeOperationBundle(op ProbeOperation, outbox ControlOutb
 	if !forwardNodeID.Valid || forwardNodeID.String != op.NodeID {
 		return ProbeOperation{}, fmt.Errorf("%w: operation/forward node mismatch", ErrCASConflict)
 	}
-	if currentActivationID.Valid && currentActivationID.String != "" && currentActivationID.String != op.ActivationID {
+	if !currentActivationID.Valid || currentActivationID.String == "" || currentActivationID.String != op.ActivationID {
 		return ProbeOperation{}, ErrCASConflict
 	}
 	if _, err := tx.Exec(`INSERT INTO probe_operations
@@ -275,6 +275,25 @@ func (s *Store) SetProbeOperationStatusCAS(id, expected, status string) error {
 	return s.setProbeOperationStatusCAS(id, expected, status)
 }
 
+// RequeueProbeOperationForRecovery reopens only an interrupted provider
+// request. It is intentionally separate from the public lifecycle CAS: a
+// process restart must be able to recover IN_FLIGHT work, while ordinary late
+// evidence must never reopen a terminal row.
+func (s *Store) RequeueProbeOperationForRecovery(id string) error {
+	nowUnix := s.currentUnix()
+	res, err := s.db.Exec(`UPDATE probe_operations SET status = 'ARMED', updated_at = ?
+		WHERE id = ? AND status = 'IN_FLIGHT' AND expires_at > ?`, nowUnix, id, nowUnix)
+	if err != nil {
+		return fmt.Errorf("store: requeue probe operation: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return fmt.Errorf("store: requeue probe operation rows: %w", err)
+	} else if n != 1 {
+		return ErrCASConflict
+	}
+	return nil
+}
+
 func (s *Store) setProbeOperationStatusCAS(id, expected, status string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -309,11 +328,19 @@ func (s *Store) setProbeOperationStatusCAS(id, expected, status string) error {
 	if current == status {
 		return nil
 	}
-	if expiresAt <= s.currentUnix() && status != string(protocol.OutcomeTimeout) {
+	nowUnix := s.currentUnix()
+	if expiresAt <= nowUnix && status != string(protocol.OutcomeTimeout) {
 		return ErrProbeExpired
 	}
-	if _, err := tx.Exec(`UPDATE probe_operations SET status = ?, updated_at = ? WHERE id = ?`, status, s.currentUnix(), id); err != nil {
+	res, err := tx.Exec(`UPDATE probe_operations SET status = ?, updated_at = ?
+		WHERE id = ? AND status = ?`, status, nowUnix, id, current)
+	if err != nil {
 		return fmt.Errorf("store: set probe operation status: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return fmt.Errorf("store: set probe operation status rows: %w", err)
+	} else if n != 1 {
+		return ErrCASConflict
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("store: commit probe status: %w", err)
@@ -534,7 +561,7 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 	if !forwardNodeID.Valid || forwardNodeID.String == "" || operationNodeID != forwardNodeID.String {
 		return fmt.Errorf("%w: operation/forward node mismatch", ErrProbeJoinIncomplete)
 	}
-	if currentActivationID.Valid && currentActivationID.String != "" && currentActivationID.String != activationID {
+	if !currentActivationID.Valid || currentActivationID.String == "" || currentActivationID.String != activationID {
 		return ErrCASConflict
 	}
 	var providerEnabled, independentVantage int
@@ -673,7 +700,7 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 func (s *Store) ProbeOperationByArmDigest(digest [32]byte) (ProbeOperation, error) {
 	rows, err := s.db.Query(`SELECT id, node_id, forward_id, activation_id, provider_id, status,
 		endpoint, arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
-		FROM probe_operations`)
+		FROM probe_operations ORDER BY expires_at, id LIMIT ?`, defaultProbeLookupLimit)
 	if err != nil {
 		return ProbeOperation{}, fmt.Errorf("store: scan probe operations: %w", err)
 	}
@@ -708,7 +735,8 @@ func (s *Store) ProbeOperationByArmDigestForNode(digest [32]byte, nodeID string,
 	rows, err := s.db.Query(`SELECT id, node_id, forward_id, activation_id, provider_id, status,
 		endpoint, arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
 		FROM probe_operations
-		WHERE node_id = ? AND status IN ('PENDING','ARMED','IN_FLIGHT') AND expires_at > ?`, nodeID, nowUnix)
+		WHERE node_id = ? AND status IN ('PENDING','ARMED','IN_FLIGHT') AND expires_at > ?
+		ORDER BY expires_at, id LIMIT ?`, nodeID, nowUnix, defaultProbeLookupLimit)
 	if err != nil {
 		return ProbeOperation{}, fmt.Errorf("store: scan live probe operations: %w", err)
 	}
@@ -741,7 +769,7 @@ func (s *Store) ProbeOperationByArmDigestForNodeIncludingExpired(digest [32]byte
 	rows, err := s.db.Query(`SELECT id, node_id, forward_id, activation_id, provider_id, status,
 		endpoint, arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
 		FROM probe_operations
-		WHERE node_id = ?`, nodeID)
+		WHERE node_id = ? ORDER BY updated_at DESC, id DESC LIMIT ?`, nodeID, defaultProbeLookupLimit)
 	if err != nil {
 		return ProbeOperation{}, fmt.Errorf("store: scan probe operations: %w", err)
 	}
@@ -779,6 +807,13 @@ func ParseProbeArmLite(raw []byte) ([32]byte, error) {
 // ListProbeOperationsByStatus returns operations in the given statuses
 // (bounded by TTL; used by the manager sweep).
 func (s *Store) ListProbeOperationsByStatus(statuses ...string) ([]ProbeOperation, error) {
+	return s.ListProbeOperationsByStatusLimit(defaultProbeLookupLimit, statuses...)
+}
+
+func (s *Store) ListProbeOperationsByStatusLimit(limit int, statuses ...string) ([]ProbeOperation, error) {
+	if limit <= 0 {
+		limit = defaultProbeLookupLimit
+	}
 	if len(statuses) == 0 {
 		return nil, nil
 	}
@@ -788,10 +823,11 @@ func (s *Store) ListProbeOperationsByStatus(statuses ...string) ([]ProbeOperatio
 	for _, st := range statuses {
 		args = append(args, st)
 	}
+	args = append(args, limit)
 	rows, err := s.db.Query(
 		`SELECT id, node_id, forward_id, activation_id, provider_id, status, endpoint,
 		        arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
-		   FROM probe_operations WHERE status IN (`+placeholders+`) ORDER BY created_at`,
+		   FROM probe_operations WHERE status IN (`+placeholders+`) ORDER BY created_at LIMIT ?`,
 		args...,
 	)
 	if err != nil {
@@ -814,6 +850,7 @@ func (s *Store) ListProbeOperationsByStatus(statuses ...string) ([]ProbeOperatio
 const (
 	probeTerminalSQL         = `status IN ('OPEN_FROM_VANTAGE','REJECTED','DROPPED','TIMEOUT','NO_INDEPENDENT_VANTAGE','PROBE_INFRA_UNAVAILABLE')`
 	defaultProbeCleanupBatch = 256
+	defaultProbeLookupLimit  = 256
 )
 
 func probeCleanupLimit(limit int) int {

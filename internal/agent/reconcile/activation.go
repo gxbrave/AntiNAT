@@ -139,6 +139,20 @@ func (a *Activation) ResetForGeneration(next uint64) {
 	a.states.PublicationState = "NONE"
 }
 
+// ForwardID returns the identity bound to this activation.
+func (a *Activation) ForwardID() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.forwardID
+}
+
+// ActivationID returns the opaque activation identity.
+func (a *Activation) ActivationID() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.activation
+}
+
 // Generation returns the current activation generation.
 func (a *Activation) Generation() uint64 {
 	a.mu.Lock()

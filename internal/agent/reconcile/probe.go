@@ -49,15 +49,21 @@ type ProbeManagerOptions struct {
 	MaxReplayEntries int
 	// SweepInterval bounds expired operation/tombstone retention.
 	SweepInterval time.Duration
+	// MaxActiveOperations bounds durable replay/recovery and in-memory armed
+	// operations.
+	MaxActiveOperations int
+	// SendTimeout bounds receipt/control writes during retry.
+	SendTimeout time.Duration
 }
 
 // armedOp is one in-memory armed probe operation (loaded from bbolt at
 // startup, persisted at arm time).
 type armedOp struct {
-	arm      protocol.ProbeArm
-	digest   [32]byte
-	deadline time.Time
-	used     bool
+	arm       protocol.ProbeArm
+	forwardID string
+	digest    [32]byte
+	deadline  time.Time
+	used      bool
 }
 
 // ProbeManager implements the agent-side probe plane.
@@ -71,6 +77,8 @@ type ProbeManager struct {
 	ops           map[[16]byte]*armedOp
 	replay        map[[16]byte]time.Time
 	maxReplay     int
+	maxActive     int
+	sendTimeout   time.Duration
 	sweepInterval time.Duration
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
@@ -88,6 +96,12 @@ func NewProbeManager(opts ProbeManagerOptions) *ProbeManager {
 	if opts.SweepInterval <= 0 {
 		opts.SweepInterval = time.Minute
 	}
+	if opts.MaxActiveOperations <= 0 {
+		opts.MaxActiveOperations = 256
+	}
+	if opts.SendTimeout <= 0 {
+		opts.SendTimeout = 5 * time.Second
+	}
 	m := &ProbeManager{
 		store:         opts.Store,
 		key:           opts.NodeKey,
@@ -96,17 +110,19 @@ func NewProbeManager(opts ProbeManagerOptions) *ProbeManager {
 		ops:           map[[16]byte]*armedOp{},
 		replay:        map[[16]byte]time.Time{},
 		maxReplay:     opts.MaxReplayEntries,
+		maxActive:     opts.MaxActiveOperations,
+		sendTimeout:   opts.SendTimeout,
 		sweepInterval: opts.SweepInterval,
 	}
 	if m.store != nil {
-		probes, err := m.store.ListArmedProbes()
+		probes, err := m.store.ListArmedProbesLimit(m.maxActive)
 		if err == nil {
 			for _, p := range probes {
 				if p.Consumed {
 					continue
 				}
 				if p.Deadline.After(m.clock()) {
-					m.ops[p.Arm.ProbeID] = &armedOp{arm: p.Arm, digest: p.Digest, deadline: p.Deadline}
+					m.ops[p.Arm.ProbeID] = &armedOp{arm: p.Arm, forwardID: p.ForwardID, digest: p.Digest, deadline: p.Deadline}
 				} else {
 					_ = m.store.DeleteArmedProbe(p.Arm.ProbeID)
 				}
@@ -145,7 +161,7 @@ func (m *ProbeManager) Start(parent context.Context) {
 				m.sweep(now)
 				m.mu.Unlock()
 				if m.store != nil {
-					_ = m.store.SweepArmedProbeTombstones(now)
+					_ = m.store.SweepArmedProbeTombstonesLimit(now, m.maxActive)
 				}
 			}
 		}
@@ -173,7 +189,7 @@ func (m *ProbeManager) HandleProbeArm(ctx context.Context, raw []byte, forwardID
 	if err != nil {
 		return nil, err
 	}
-	if m.store == nil {
+	if m.store == nil || forwardID == "" {
 		return nil, ErrProbeArmRejected
 	}
 	applied, ok, err := m.store.GetAppliedState(forwardID)
@@ -195,14 +211,21 @@ func (m *ProbeManager) HandleProbeArm(ctx context.Context, raw []byte, forwardID
 	}
 
 	deadline := m.clock().Add(time.Duration(arm.TTLMS) * time.Millisecond)
-	if err := m.store.SaveArmedProbe(arm, deadline); err != nil {
+	m.mu.Lock()
+	_, alreadyArmed := m.ops[arm.ProbeID]
+	capacity := len(m.ops) >= m.maxActive && !alreadyArmed
+	m.mu.Unlock()
+	if capacity {
+		return nil, ErrProbeArmRejected
+	}
+	if err := m.store.SaveArmedProbeForForward(arm, forwardID, deadline); err != nil {
 		if errors.Is(err, localstate.ErrProbeConsumed) || errors.Is(err, localstate.ErrProbeConflict) {
 			return nil, ErrProbeArmRejected
 		}
 		return nil, err
 	}
 	m.mu.Lock()
-	m.ops[arm.ProbeID] = &armedOp{arm: arm, digest: arm.Digest(), deadline: deadline}
+	m.ops[arm.ProbeID] = &armedOp{arm: arm, forwardID: forwardID, digest: arm.Digest(), deadline: deadline}
 	m.mu.Unlock()
 
 	// RDY1: magic + digest + signature over (RDY1 || digest).
@@ -223,10 +246,13 @@ func (m *ProbeManager) HandleProbeArm(ctx context.Context, raw []byte, forwardID
 // only a prior transport write; the Controller may have disconnected before
 // processing it, so it must not suppress a reconnect retry.
 func (m *ProbeManager) RetryPendingReceipts(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if m.store == nil || m.send == nil {
 		return nil
 	}
-	probes, err := m.store.ListArmedProbes()
+	probes, err := m.store.ListArmedProbesLimit(m.maxActive)
 	if err != nil {
 		return err
 	}
@@ -240,7 +266,10 @@ func (m *ProbeManager) RetryPendingReceipts(ctx context.Context) error {
 			messageID = probeReceiptOperationID(probe.Receipt)
 			_ = m.store.SetArmedProbeReceiptMessageID(probe.Arm.ProbeID, messageID, probe.Deadline.Add(protocol.ProbeReplayWindow))
 		}
-		if err := m.send(ctx, "probe_ingress_receipt", probe.Receipt); err != nil {
+		sendCtx, cancel := context.WithTimeout(ctx, m.sendTimeout)
+		err := m.send(sendCtx, "probe_ingress_receipt", probe.Receipt)
+		cancel()
+		if err != nil {
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -282,12 +311,16 @@ func (m *ProbeManager) sweep(now time.Time) {
 // hasArmedBySource reports whether a source currently has an armed operation.
 // The gate uses this only to decide whether to consume a bounded probe attempt;
 // frame-to-operation demultiplexing happens after the frame is parsed.
-func (m *ProbeManager) hasArmedBySource(ip [4]byte) bool {
+func (m *ProbeManager) hasArmedBySource(ip [4]byte, forwardIDs ...string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sweep(m.clock())
+	forwardID := ""
+	if len(forwardIDs) > 0 {
+		forwardID = forwardIDs[0]
+	}
 	for _, op := range m.ops {
-		if !op.used && op.arm.ExpectedSourceIP == ip {
+		if !op.used && op.arm.ExpectedSourceIP == ip && (forwardID == "" || op.forwardID == forwardID) {
 			return true
 		}
 	}
@@ -299,7 +332,7 @@ func (m *ProbeManager) hasArmedBySource(ip [4]byte) bool {
 // the armed operation, writes the ACK1 on the same connection, and sends the
 // RCT1 receipt over the control channel. Every failure is a generic drop
 // with zero authenticated material (anti-oracle).
-func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout time.Duration) {
+func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout time.Duration, forwardIDs ...string) {
 	defer conn.Close()
 	deadline := time.Now().Add(readTimeout)
 	conn.SetReadDeadline(deadline)
@@ -330,6 +363,10 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 	// the first operation by source alone lets one provider starve another
 	// operation armed on the same source IP.
 	now := m.clock()
+	forwardID := ""
+	if len(forwardIDs) > 0 {
+		forwardID = forwardIDs[0]
+	}
 	m.mu.Lock()
 	m.sweep(now)
 	if _, replayed := m.replay[frame.ProbeID]; replayed {
@@ -339,6 +376,7 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 	var op *armedOp
 	for _, candidate := range m.ops {
 		if candidate.used || !now.Before(candidate.deadline) || candidate.arm.ExpectedSourceIP != source ||
+			(forwardID != "" && candidate.forwardID != forwardID) ||
 			candidate.arm.ProbeID != frame.ProbeID || candidate.digest != frame.ArmDigest {
 			continue
 		}
@@ -479,7 +517,7 @@ func (g *ProbeGate) Accept() (net.Conn, error) {
 		if remoteIP == nil {
 			return conn, nil // non-IPv4 (test doubles): business path
 		}
-		if !g.mgr.hasArmedBySource(*remoteIP) {
+		if !g.mgr.hasArmedBySource(*remoteIP, g.opts.ForwardID) {
 			return conn, nil // not the provider source: straight to business
 		}
 		// Provider source with an armed op: bounded probe-frame parse. Never
@@ -488,7 +526,7 @@ func (g *ProbeGate) Accept() (net.Conn, error) {
 		case g.slots <- struct{}{}:
 			go func(source [4]byte) {
 				defer func() { <-g.slots }()
-				g.mgr.handleIngress(conn, source, g.opts.ReadTimeout)
+				g.mgr.handleIngress(conn, source, g.opts.ReadTimeout, g.opts.ForwardID)
 			}(*remoteIP)
 		default:
 			_ = conn.Close() // generic resource-bound drop

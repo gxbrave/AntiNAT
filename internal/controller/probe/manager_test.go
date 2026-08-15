@@ -163,7 +163,7 @@ func (e *testEnv) createNodeForward(t *testing.T) {
 	if err := e.store.CreateNode(store.Node{ID: "n1", Name: "n1"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.store.CreateForward(store.Forward{ID: "f1", NodeID: "n1", Name: "fwd", Protocol: "tcp"}); err != nil {
+	if _, err := e.store.CreateForward(store.Forward{ID: "f1", NodeID: "n1", Name: "fwd", Protocol: "tcp", CurrentActivationID: "act-1", Revision: 1}); err != nil {
 		t.Fatal(err)
 	}
 }

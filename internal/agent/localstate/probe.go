@@ -26,7 +26,11 @@ import (
 // monotonic-clock deadline derived from the arm's ttl_ms. Consumed rows are
 // retained as durable replay fences until their control receipt is accepted.
 type ArmedProbe struct {
-	Arm         protocol.ProbeArm
+	Arm protocol.ProbeArm
+	// ForwardID binds ingress admission to the listener that received the
+	// controller arm. It is part of the durable operation, not inferred from
+	// the source address or probe id.
+	ForwardID   string
 	Digest      [32]byte
 	Deadline    time.Time
 	Consumed    bool
@@ -46,11 +50,20 @@ var (
 	ErrProbeNotFound = errors.New("localstate: probe id not found")
 )
 
+const defaultProbeScanLimit = 256
+
 // SaveArmedProbe durably persists an armed probe operation. Re-saving the
 // same unconsumed probe id replaces the row only when the arm material is
 // identical; consumed ids are permanent replay fences.
 func (s *Store) SaveArmedProbe(arm protocol.ProbeArm, deadline time.Time) error {
-	rec := ArmedProbe{Arm: arm, Digest: arm.Digest(), Deadline: deadline}
+	return s.SaveArmedProbeForForward(arm, "", deadline)
+}
+
+// SaveArmedProbeForForward persists an armed operation and its listener
+// ownership in one bbolt write. Replays must match both the arm material and
+// the forward binding.
+func (s *Store) SaveArmedProbeForForward(arm protocol.ProbeArm, forwardID string, deadline time.Time) error {
+	rec := ArmedProbe{Arm: arm, ForwardID: forwardID, Digest: arm.Digest(), Deadline: deadline}
 	raw, err := json.Marshal(rec)
 	if err != nil {
 		return fmt.Errorf("localstate: encode armed probe: %w", err)
@@ -65,7 +78,7 @@ func (s *Store) SaveArmedProbe(arm protocol.ProbeArm, deadline time.Time) error 
 			if existing.Consumed {
 				return ErrProbeConsumed
 			}
-			if existing.Digest != rec.Digest || !bytes.Equal(existing.Arm.Canonical(), arm.Canonical()) {
+			if existing.ForwardID != rec.ForwardID || existing.Digest != rec.Digest || !bytes.Equal(existing.Arm.Canonical(), arm.Canonical()) {
 				return ErrProbeConflict
 			}
 		}
@@ -165,7 +178,12 @@ func (s *Store) AcknowledgeArmedProbeReceipt(operationID string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(bucketProbeOps))
 		var found []byte
+		scanned := 0
 		if err := bucket.ForEach(func(k, raw []byte) error {
+			if scanned >= defaultProbeScanLimit {
+				return nil
+			}
+			scanned++
 			var rec ArmedProbe
 			if err := json.Unmarshal(raw, &rec); err != nil {
 				return err
@@ -195,10 +213,25 @@ func (s *Store) AcknowledgeArmedProbeReceipt(operationID string) error {
 // are retained until their arm deadline; consumed rows are retained until the
 // controller receipt or the explicit receipt deadline, whichever comes first.
 func (s *Store) SweepArmedProbeTombstones(now time.Time) error {
+	return s.SweepArmedProbeTombstonesLimit(now, defaultProbeScanLimit)
+}
+
+// SweepArmedProbeTombstonesLimit bounds one cleanup transaction. Callers may
+// repeat cleanup on subsequent ticks; a single tick must never scan an
+// unbounded replay/history bucket.
+func (s *Store) SweepArmedProbeTombstonesLimit(now time.Time, limit int) error {
+	if limit <= 0 {
+		limit = defaultProbeScanLimit
+	}
 	return s.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(bucketProbeOps))
 		var remove [][]byte
+		scanned := 0
 		if err := bucket.ForEach(func(k, raw []byte) error {
+			if scanned >= limit {
+				return nil
+			}
+			scanned++
 			var rec ArmedProbe
 			if err := json.Unmarshal(raw, &rec); err != nil {
 				return err
@@ -257,9 +290,24 @@ func (s *Store) SetArmedProbeReceiptMessageID(probeID [16]byte, messageID string
 // the caller filters by deadline). Used for restart recovery and bounded
 // sweeping.
 func (s *Store) ListArmedProbes() ([]ArmedProbe, error) {
+	return s.ListArmedProbesLimit(defaultProbeScanLimit)
+}
+
+// ListArmedProbesLimit returns at most limit durable probe rows, keeping
+// restart replay and receipt retry work proportional to the bounded active
+// operation budget rather than total database history.
+func (s *Store) ListArmedProbesLimit(limit int) ([]ArmedProbe, error) {
+	if limit <= 0 {
+		limit = defaultProbeScanLimit
+	}
 	var out []ArmedProbe
 	err := s.db.View(func(tx *bolt.Tx) error {
+		scanned := 0
 		return tx.Bucket([]byte(bucketProbeOps)).ForEach(func(_, raw []byte) error {
+			if scanned >= limit {
+				return nil
+			}
+			scanned++
 			var rec ArmedProbe
 			if err := json.Unmarshal(raw, &rec); err != nil {
 				return fmt.Errorf("localstate: decode armed probe: %w", err)
