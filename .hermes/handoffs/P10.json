@@ -1,9 +1,9 @@
 {
   "plan": "P10",
-  "repair_cycle": 3,
-  "base_sha": "adf74fa860812054bd71082006a8c78ea4189888",
-  "head_sha": "98ead948bf4bba9316f0a2cb78187735b5b4c8f6",
-  "candidate_tree_sha": "77fe33902223e5eab04028d9f11402215e6a5470",
+  "repair_cycle": 4,
+  "base_sha": "64f5d04b607a573dc53154fe9e401db618171b25",
+  "head_sha": "e2f303f1a61ebd79213c28180225515281f23545",
+  "candidate_tree_sha": "8eef3ac257550c636f8a36ec8f543ad5f43e3f51",
   "branch": "ai/P10-wan-probe-activation-cli-e2e",
   "commits": [
     "da3e3f45240875ef5b0b81a0679502f766e3e71b",
@@ -16,7 +16,8 @@
     "113c5424cf1080a759fde3b78d8a581c9f7ee803",
     "4e9a81f8ea1e7d8517b7b6b1692eeff5bd8bac6c",
     "d0b099671474d9f353fced914722bab14292f088",
-    "98ead948bf4bba9316f0a2cb78187735b5b4c8f6"
+    "98ead948bf4bba9316f0a2cb78187735b5b4c8f6",
+    "e2f303f1a61ebd79213c28180225515281f23545"
   ],
   "files_changed_count": 29,
   "files_changed": [
@@ -458,6 +459,67 @@
     "Cross-build emitted no repository artifacts; e2e state was cleaned by harness teardown.",
     "Ownership-boundary cleanup remains in force; code commit 98ead948bf4bba9316f0a2cb78187735b5b4c8f6 contains the bounded Controller repair, and the candidate now has 29 declared code files."
   ],
+  "current_repair": {
+    "repair_cycle": 4,
+    "base_sha": "64f5d04b607a573dc53154fe9e401db618171b25",
+    "head_sha": "e2f303f1a61ebd79213c28180225515281f23545",
+    "branch": "ai/P10-wan-probe-activation-cli-e2e",
+    "changed_files": [
+      "internal/controller/probe/manager.go",
+      "internal/controller/probe/provider.go",
+      "internal/controller/probe/provider_service.go",
+      "internal/controller/probe/provider_service_test.go",
+      "internal/controller/store/probe.go"
+    ],
+    "tests": [
+      {
+        "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe ./internal/controller/store -run 'Test(LateReceiptTransitionsToTimeout|ProbeResultRejectsUnknownJSONFields|ProviderRejectsPrivateExpectedSource|ProviderReplayDifferentMaterialIsConflict|SetProbeOperationStatusCannotPublishVerifiedOutcome|SetForwardRuntimeStatusRejectsContradictoryPublication|PublishProbeJoinRejectsMismatchedWireEvidence|PublishProbeJoinRejectsWrongPathACK)$' -count=1 -v",
+        "exit_code": 0,
+        "summary": "All eight P10 Controller regression tests passed."
+      },
+      {
+        "command": "GOWORK=off GOMAXPROCS=2 go test -race -p=1 ./internal/controller/probe ./internal/agent/reconcile ./internal/controller/api ./cmd/antinatctl -count=1",
+        "exit_code": 0,
+        "summary": "Required activation/decoder/Controller race suite passed."
+      },
+      {
+        "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make test",
+        "exit_code": 0,
+        "summary": "Full repository tests passed with the provisioned sandbox identity."
+      },
+      {
+        "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make check",
+        "exit_code": 0,
+        "summary": "Full tests and go vet passed with the provisioned sandbox identity."
+      },
+      {
+        "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -race -p=1 ./... -count=1",
+        "exit_code": 0,
+        "summary": "Full repository race-enabled suite passed."
+      },
+      {
+        "command": "GOWORK=off GOMAXPROCS=2 make build && make clean",
+        "exit_code": 0,
+        "summary": "Controller and agent production binaries built and build output was removed."
+      },
+      {
+        "command": "make test",
+        "exit_code": 2,
+        "summary": "Unconfigured capability run failed only because ANTINAT_DEDICATED_UID/GID were unset; the configured run above passed."
+      }
+    ],
+    "contracts_changed": [],
+    "capability_result": "SUPPORTED",
+    "known_limits": [
+      "The happy-path provider exchange uses the local TEST-NET/loopback harness; real external-WAN reachability was not claimed.",
+      "No frozen protocol, state-model, or API contract files changed.",
+      "Fresh specification and quality/security review remain required before integration."
+    ],
+    "cleanup": [
+      "make clean removed build artifacts.",
+      "No remote push, merge, release, or secret persistence was performed."
+    ]
+  },
   "review_status": "REVIEW_REQUIRED",
   "required_reviews": [
     "fresh specification review",
@@ -465,5 +527,5 @@
     "ownership-boundary review",
     "network review"
   ],
-  "deviation_notes": "This cycle preserves the P10 probe/provider/CAS/lifecycle changes, adds the explicitly assigned Controller minimal-forward atomic bundle, and leaves durable Agent activation-event persistence as the downstream sibling repair. Seven untransferred edits in localstate activation, Controller control/store transactions, and the frozen protocol domain remain removed. Migration 0005 is retained as a P10-specific probe extension. No frozen contract file changed. Fresh independent specification, quality/security, ownership-boundary, and network reviews remain required before integration."
+  "deviation_notes": "Repair cycle 4 addresses the eight Controller P10 regressions: strict duplicate/unknown-field decoding, global expected-source and endpoint validation, signed replay-material conflict handling, late evidence terminalization, provider-result/WAN1/ACK1/RCT1 binding, activation snapshot validation, legal CAS transitions, and terminal non-revival. The bounded implementation is committed at e2f303f1a61ebd79213c28180225515281f23545 on the candidate branch. No frozen contract changed; fresh independent specification and quality/security reviews remain required before integration."
 }
