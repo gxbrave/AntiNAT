@@ -157,7 +157,7 @@
     },
     {
       "phase": "format-cleanup",
-      "command": "make clean; gofmt -l <affected Go files>; git diff --check",
+      "command": "make clean && test -z \"$(gofmt -l internal/agent/localstate/probe.go internal/agent/reconcile/probe.go internal/agent/reconcile/probe_test.go internal/controller/agenthub/session.go internal/controller/agenthub/probe_receipt_ack_regression_test.go internal/controller/probe/manager.go internal/controller/probe/cycle4_regression_test.go internal/controller/store/control.go internal/controller/store/probe.go internal/controller/store/cycle4_regression_test.go)\" && git diff --check",
       "exit_code": 0,
       "summary": "Generated bin artifacts were removed; affected files are formatted and whitespace-clean."
     }
