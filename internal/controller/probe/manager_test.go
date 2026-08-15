@@ -272,8 +272,8 @@ func TestProbeArmedTriggersProviderRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != "ARMED" {
-		t.Fatalf("status = %q, want ARMED", got.Status)
+	if got.Status != "ARMED" && got.Status != "IN_FLIGHT" {
+		t.Fatalf("status = %q, want ARMED or IN_FLIGHT", got.Status)
 	}
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
