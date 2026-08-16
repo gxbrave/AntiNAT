@@ -214,6 +214,18 @@ func (s *Store) AcceptControlReceipt(operationID, messageType, sessionID string)
 	); err != nil {
 		return fmt.Errorf("store: mark outbox receipted: %w", err)
 	}
+	// A terminal probe outcome needs a durable acknowledgement fence that
+	// survives outbox GC. Keep it in the operation's evidence rows so the
+	// marker is removed atomically with the terminal tombstone, while a crash
+	// between receipt processing and recovery cannot cause a duplicate command.
+	if messageType == "probe_outcome" {
+		if _, err := tx.Exec(
+			`INSERT OR IGNORE INTO probe_results (probe_id, kind, payload_hex, created_at)
+			 VALUES (?, 'outcome_acked', 'ack', ?)`, operationID, now(),
+		); err != nil {
+			return fmt.Errorf("store: record probe outcome acknowledgement: %w", err)
+		}
+	}
 	// GC: the outbox row is removed; the durable record lives in control_inbox.
 	if _, err := tx.Exec(
 		`DELETE FROM control_outbox WHERE operation_id = ? AND message_type = ?`,
@@ -225,6 +237,24 @@ func (s *Store) AcceptControlReceipt(operationID, messageType, sessionID string)
 		return fmt.Errorf("store: commit outbox receipt: %w", err)
 	}
 	return nil
+}
+
+// ProbeOutcomeAcknowledged reports whether the terminal activation command was
+// durably consumed by the agent. The marker is intentionally separate from the
+// control outbox row because receipt processing deletes that row.
+func (s *Store) ProbeOutcomeAcknowledged(operationID string) (bool, error) {
+	var marker int
+	err := s.db.QueryRow(
+		`SELECT 1 FROM probe_results WHERE probe_id = ? AND kind = 'outcome_acked' LIMIT 1`,
+		operationID,
+	).Scan(&marker)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("store: query probe outcome acknowledgement: %w", err)
+	}
+	return marker == 1, nil
 }
 
 // RequeueControlOutboxForSession resets every in-flight row of the node to

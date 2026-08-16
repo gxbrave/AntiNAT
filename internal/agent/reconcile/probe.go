@@ -123,22 +123,52 @@ func NewProbeManager(opts ProbeManagerOptions) *ProbeManager {
 		sweepInterval: opts.SweepInterval,
 	}
 	if m.store != nil {
-		probes, err := m.store.ListArmedProbesLimit(m.maxActive)
-		if err == nil {
+		// Replay tombstones may outlive active operations. Walk every durable
+		// page so a consumed or armed source fence beyond the active-operation
+		// page cannot be forgotten on restart.
+		var after []byte
+		for {
+			probes, next, done, err := m.store.ListArmedProbesPage(m.maxActive, after)
+			if err != nil {
+				break
+			}
 			for _, p := range probes {
+				now := m.clock()
 				if p.Consumed {
-					if !p.ReceiptDeadline.IsZero() && p.ReceiptDeadline.After(m.clock()) {
+					// A consumed row is a replay fence, not an active arm. Once
+					// its receipt window has elapsed, remove the fence so the id
+					// can be reused; a clock rollback before ArmedAt remains
+					// fail-closed and retains the durable row.
+					if !p.ReceiptDeadline.IsZero() && !p.ReceiptDeadline.After(now) &&
+						(p.ArmedAt.IsZero() || !now.Before(p.ArmedAt)) {
+						_ = m.store.DeleteArmedProbe(p.Arm.ProbeID)
+						continue
+					}
+					if !p.ReceiptDeadline.IsZero() && p.ReceiptDeadline.After(now) && len(m.replay) < m.maxReplay {
 						m.replay[p.Arm.ProbeID] = p.ReceiptDeadline
 						m.replaySource[p.Arm.ProbeID] = replaySource{source: p.Arm.ExpectedSourceIP, forwardID: p.ForwardID}
 					}
 					continue
 				}
-				if p.Deadline.After(m.clock()) {
+				if !p.ArmedAt.IsZero() && now.Before(p.ArmedAt) {
+					// A wall-clock rollback makes elapsed TTL unknowable. Delete
+					// an unconsumed row rather than reviving it after restart.
+					_ = m.store.DeleteArmedProbe(p.Arm.ProbeID)
+					continue
+				}
+				if p.Deadline.After(now) {
+					if len(m.ops) >= m.maxActive {
+						continue
+					}
 					m.ops[p.Arm.ProbeID] = &armedOp{arm: p.Arm, forwardID: p.ForwardID, digest: p.Digest, deadline: p.Deadline}
 				} else {
 					_ = m.store.DeleteArmedProbe(p.Arm.ProbeID)
 				}
 			}
+			if done {
+				break
+			}
+			after = next
 		}
 	}
 	return m

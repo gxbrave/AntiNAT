@@ -83,7 +83,7 @@ func TestProbeOperationDigestLookupScansBeyondOnePage(t *testing.T) {
 		t.Fatal(err)
 	}
 	var target protocol.ProbeArm
-	for i := 0; i < 257; i++ {
+	for i := 0; i < 513; i++ {
 		var arm protocol.ProbeArm
 		if _, err := rand.Read(arm.ProbeID[:]); err != nil {
 			t.Fatal(err)
@@ -100,7 +100,7 @@ func TestProbeOperationDigestLookupScansBeyondOnePage(t *testing.T) {
 		if _, err := rand.Read(arm.ExpiryOpaque[:]); err != nil {
 			t.Fatal(err)
 		}
-		if i == 256 {
+		if i == 512 {
 			target = arm
 		}
 		if _, err := s.CreateProbeOperation(ProbeOperation{

@@ -30,9 +30,13 @@ type ArmedProbe struct {
 	// ForwardID binds ingress admission to the listener that received the
 	// controller arm. It is part of the durable operation, not inferred from
 	// the source address or probe id.
-	ForwardID   string
-	Digest      [32]byte
-	Deadline    time.Time
+	ForwardID string
+	Digest    [32]byte
+	Deadline  time.Time
+	// ArmedAt is the wall-clock anchor persisted alongside Deadline. A restart
+	// whose wall clock is before this anchor cannot prove elapsed TTL and must
+	// fail closed instead of reviving the operation.
+	ArmedAt     time.Time
 	Consumed    bool
 	Receipt     []byte
 	ReceiptSent bool
@@ -73,7 +77,14 @@ func (s *Store) SaveArmedProbe(arm protocol.ProbeArm, deadline time.Time) error 
 // ownership in one bbolt write. Replays must match both the arm material and
 // the forward binding.
 func (s *Store) SaveArmedProbeForForward(arm protocol.ProbeArm, forwardID string, deadline time.Time) error {
-	rec := ArmedProbe{Arm: arm, ForwardID: forwardID, Digest: arm.Digest(), Deadline: deadline}
+	armedAt := time.Time{}
+	if arm.TTLMS > 0 {
+		armedAt = deadline.Add(-time.Duration(arm.TTLMS) * time.Millisecond)
+	}
+	rec := ArmedProbe{
+		Arm: arm, ForwardID: forwardID, Digest: arm.Digest(), Deadline: deadline,
+		ArmedAt: armedAt,
+	}
 	raw, err := json.Marshal(rec)
 	if err != nil {
 		return fmt.Errorf("localstate: encode armed probe: %w", err)

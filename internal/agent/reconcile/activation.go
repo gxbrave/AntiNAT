@@ -125,18 +125,44 @@ func (a *Activation) AdvanceGeneration(next uint64) {
 // specification revision is a new activation: an old WAN proof and
 // publication decision cannot be carried into the new revision.
 func (a *Activation) ResetForGeneration(next uint64) {
+	a.ResetForGenerationWithID(next, a.ActivationID())
+}
+
+// ResetForGenerationWithID advances an activation, rotates its identity, and
+// clears evidence axes. The identity rotation is part of the same generation
+// transition so no live activation can retain proof from a prior revision.
+func (a *Activation) ResetForGenerationWithID(next uint64, activationID string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if next <= a.generation {
 		return
 	}
+	a.resetForGenerationLocked(next, activationID)
+}
+
+// RestoreForGenerationWithID restores a previously committed activation
+// revision after a failed desired-state transaction. Unlike Reset, rollback
+// may move the generation backwards because the durable desired revision is
+// the source of truth.
+func (a *Activation) RestoreForGenerationWithID(previous uint64, activationID string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if previous == a.generation && activationID == a.activation {
+		return
+	}
+	a.resetForGenerationLocked(previous, activationID)
+}
+
+func (a *Activation) resetForGenerationLocked(next uint64, activationID string) {
 	a.generation = next
+	a.activation = activationID
 	a.states.MappingState = "NOT_REQUIRED"
 	a.states.KeepaliveState = "NOT_REQUIRED"
 	a.states.WanReachabilityState = "NOT_TESTED"
 	a.states.ReturnPathState = "NOT_TESTED"
 	a.states.TargetHealthState = "UNKNOWN"
 	a.states.PublicationState = "NONE"
+	a.states.DataPlaneState = "STOPPED"
 }
 
 // ForwardID returns the identity bound to this activation.

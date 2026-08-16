@@ -75,6 +75,7 @@ type App struct {
 
 	ready atomic.Bool
 
+	shutdownMu  sync.Mutex
 	closeMu     sync.Mutex
 	closed      bool
 	reconnectWG sync.WaitGroup
@@ -206,6 +207,27 @@ func (a *App) Start(ctx context.Context) error {
 	a.closeMu.Lock()
 	a.runCancel = runCancel
 	a.closeMu.Unlock()
+	// Recover durable activation/listener state before opening the control
+	// session. Connect invokes the command handler synchronously, so accepting
+	// frames before this barrier would race a stale activation/listener map.
+	if err := a.prepareActivationRecovery(); err != nil {
+		runCancel()
+		a.client.Shutdown()
+		a.client.Wait()
+		a.dp.closeAll()
+		a.probeMgr.Close()
+		_ = a.store.Close()
+		return fmt.Errorf("agent: prepare activation recovery: %w", err)
+	}
+	if err := a.dp.recover(runCtx); err != nil {
+		runCancel()
+		a.client.Shutdown()
+		a.client.Wait()
+		a.dp.closeAll()
+		a.probeMgr.Close()
+		_ = a.store.Close()
+		return fmt.Errorf("agent: data plane recovery: %w", err)
+	}
 	if err := a.client.Connect(runCtx); err != nil {
 		runCancel()
 		a.client.Shutdown()
@@ -227,29 +249,7 @@ func (a *App) Start(ctx context.Context) error {
 		_ = a.store.Close()
 		return fmt.Errorf("agent: retry pending probe receipts: %w", err)
 	}
-	// A persisted verified result is evidence from the previous process. Clear
-	// it before replaying activation status or recovering listeners.
-	if err := a.prepareActivationRecovery(); err != nil {
-		runCancel()
-		a.client.Shutdown()
-		a.client.Wait()
-		a.dp.closeAll()
-		a.probeMgr.Close()
-		_ = a.store.Close()
-		return fmt.Errorf("agent: prepare activation recovery: %w", err)
-	}
 	a.replayActivationStatuses(runCtx)
-	// Restart recovery: reopen listeners for durably applied forwards
-	// (Story 6: restart restores the listener, initially UNVERIFIED).
-	if err := a.dp.recover(runCtx); err != nil {
-		runCancel()
-		a.client.Shutdown()
-		a.client.Wait()
-		a.dp.closeAll()
-		a.probeMgr.Close()
-		_ = a.store.Close()
-		return fmt.Errorf("agent: data plane recovery: %w", err)
-	}
 	a.lifecycleWG.Add(1)
 	go func() {
 		defer a.lifecycleWG.Done()
@@ -612,7 +612,13 @@ func (a *App) onForwardApplied(spec protocol.ForwardSpec, applied protocol.Appli
 		act = reconcile.NewActivation(applied.ForwardID, hex.EncodeToString(aid[:]), applied.SpecRevision)
 		a.activations[applied.ForwardID] = act
 	} else {
-		act.ResetForGeneration(applied.SpecRevision)
+		aid := protocol.ActivationID(applied.ForwardID, applied.SpecRevision)
+		activationID := hex.EncodeToString(aid[:])
+		if applied.SpecRevision < act.Generation() {
+			act.RestoreForGenerationWithID(applied.SpecRevision, activationID)
+		} else {
+			act.ResetForGenerationWithID(applied.SpecRevision, activationID)
+		}
 	}
 	a.dp.mu.Unlock()
 	if a.store != nil {
@@ -668,6 +674,8 @@ func waitWithContext(ctx context.Context, wait func()) error {
 // Shutdown closes the control client, then the data plane, then the store.
 // It is idempotent and honors ctx while joining transport/lifecycle workers.
 func (a *App) Shutdown(ctx context.Context) error {
+	a.shutdownMu.Lock()
+	defer a.shutdownMu.Unlock()
 	a.closeMu.Lock()
 	if a.closed {
 		a.closeMu.Unlock()
@@ -926,24 +934,35 @@ func (d *dataPlane) markCapabilityRestored(fingerprint string) bool {
 
 // stop implements reconcile.StopHook: it stops one forward's actor.
 func (d *dataPlane) stop(ctx context.Context, forwardID string) error {
+	_ = ctx
 	d.mu.Lock()
 	actor, ok := d.forwards[forwardID]
-	if ok {
-		delete(d.forwards, forwardID)
-	}
 	d.mu.Unlock()
 	if !ok {
 		return nil
 	}
+	var errs []error
 	if actor.stop != nil {
 		actor.stop()
 	}
 	if actor.fwd != nil {
-		_ = actor.fwd.Close()
+		if err := actor.fwd.Close(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	if actor.lease != nil {
-		return actor.lease.Release()
+		if err := actor.lease.Release(); err != nil {
+			errs = append(errs, err)
+		}
 	}
+	if err := errors.Join(errs...); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	if current, exists := d.forwards[forwardID]; exists && current == actor {
+		delete(d.forwards, forwardID)
+	}
+	d.mu.Unlock()
 	return nil
 }
 

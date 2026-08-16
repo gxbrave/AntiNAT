@@ -137,20 +137,28 @@ func ApplyDesiredWithGuardAndRollback(ctx context.Context, store *localstate.Sto
 		applied  protocol.AppliedForwardState
 	}
 	var hotUpdates []hotUpdate
-	rollbackNewActors := func() {
+	rollbackNewActors := func() error {
+		var rollbackErr error
 		for _, forwardID := range newActors {
-			if stop != nil {
-				_ = stop(ctx, forwardID)
+			if stop == nil {
+				continue
+			}
+			if err := stop(ctx, forwardID); err != nil {
+				rollbackErr = errors.Join(rollbackErr, fmt.Errorf("stop new forward %q during rollback: %w", forwardID, err))
 			}
 		}
+		return rollbackErr
 	}
-	rollbackSideEffects := func() {
+	rollbackSideEffects := func() error {
+		var rollbackErr error
 		if rollback != nil {
 			for i := len(hotUpdates) - 1; i >= 0; i-- {
-				_ = rollback(ctx, hotUpdates[i].previous, hotUpdates[i].applied)
+				if err := rollback(ctx, hotUpdates[i].previous, hotUpdates[i].applied); err != nil {
+					rollbackErr = errors.Join(rollbackErr, fmt.Errorf("rollback hot update for %q: %w", hotUpdates[i].applied.ForwardID, err))
+				}
 			}
 		}
-		rollbackNewActors()
+		return errors.Join(rollbackErr, rollbackNewActors())
 	}
 
 	for _, spec := range d.Forwards {
@@ -191,8 +199,8 @@ func ApplyDesiredWithGuardAndRollback(ctx context.Context, store *localstate.Sto
 			}
 			if guard != nil {
 				if err := guard(); err != nil {
-					rollbackSideEffects()
-					return report, fmt.Errorf("%w: before forward %q: %v", ErrCapabilityLost, spec.ForwardID, err)
+					rollbackErr := rollbackSideEffects()
+					return report, errors.Join(fmt.Errorf("%w: before forward %q: %v", ErrCapabilityLost, spec.ForwardID, err), rollbackErr)
 				}
 			}
 			appliedState, applyErr := apply(ctx, spec)
@@ -217,16 +225,16 @@ func ApplyDesiredWithGuardAndRollback(ctx context.Context, store *localstate.Sto
 	// One atomic commit: received desired + applied records + tombstones.
 	if guard != nil {
 		if err := guard(); err != nil {
-			rollbackSideEffects()
-			return report, fmt.Errorf("%w: before desired commit: %v", ErrCapabilityLost, err)
+			rollbackErr := rollbackSideEffects()
+			return report, errors.Join(fmt.Errorf("%w: before desired commit: %v", ErrCapabilityLost, err), rollbackErr)
 		}
 	}
 	if _, err := store.CommitDesired(d, commits); err != nil {
 		// The hook may have created a real actor or hot-updated an existing
 		// actor before a concurrent tombstone or capability change made the
 		// durable commit fail. Restore both categories to their prior state.
-		rollbackSideEffects()
-		return report, fmt.Errorf("reconcile: commit desired (rolled back %d new actors and %d hot updates): %w", len(newActors), len(hotUpdates), err)
+		rollbackErr := rollbackSideEffects()
+		return report, errors.Join(fmt.Errorf("reconcile: commit desired (rolled back %d new actors and %d hot updates): %w", len(newActors), len(hotUpdates), err), rollbackErr)
 	}
 
 	// Tombstone-before-stop: only now that the tombstone is durable do the

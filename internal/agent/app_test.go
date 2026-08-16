@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net"
@@ -18,6 +19,7 @@ import (
 	"github.com/gxbrave/AntiNAT/internal/controller"
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
 	"github.com/gxbrave/AntiNAT/internal/forward"
+	tcpforward "github.com/gxbrave/AntiNAT/internal/forward/tcp"
 	"github.com/gxbrave/AntiNAT/internal/protocol"
 	"github.com/gxbrave/AntiNAT/internal/traversal"
 )
@@ -100,6 +102,41 @@ func TestAgentNewEnrollsAndConnects(t *testing.T) {
 	// A second Shutdown is idempotent.
 	if err := app.Shutdown(context.Background()); err != nil {
 		t.Fatalf("second Shutdown: %v", err)
+	}
+}
+
+func TestOnForwardAppliedRotatesLiveActivationIdentity(t *testing.T) {
+	a := &App{dp: &dataPlane{}, activations: make(map[string]*reconcile.Activation)}
+	spec := protocol.ForwardSpec{ForwardID: "forward-rotate", DesiredRevision: 1}
+	a.onForwardApplied(spec, protocol.AppliedForwardState{ForwardID: spec.ForwardID, SpecRevision: 1})
+	first := a.activation(spec.ForwardID)
+	if first == nil {
+		t.Fatal("initial activation was not created")
+	}
+	firstID := first.ActivationID()
+	secondSpec := spec
+	secondSpec.DesiredRevision = 2
+	a.onForwardApplied(secondSpec, protocol.AppliedForwardState{ForwardID: spec.ForwardID, SpecRevision: 2})
+	second := a.activation(spec.ForwardID)
+	want := protocol.ActivationID(spec.ForwardID, 2)
+	if second.ActivationID() == firstID || second.ActivationID() != hex.EncodeToString(want[:]) {
+		t.Fatalf("rotated activation id = %q, first = %q, want %x", second.ActivationID(), firstID, want)
+	}
+	if second.Generation() != 2 {
+		t.Fatalf("rotated activation generation = %d, want 2", second.Generation())
+	}
+}
+
+func TestOnForwardAppliedRollsBackLiveActivationIdentity(t *testing.T) {
+	a := &App{dp: &dataPlane{}, activations: make(map[string]*reconcile.Activation)}
+	forwardID := "forward-rollback"
+	a.onForwardApplied(protocol.ForwardSpec{ForwardID: forwardID}, protocol.AppliedForwardState{ForwardID: forwardID, SpecRevision: 1})
+	a.onForwardApplied(protocol.ForwardSpec{ForwardID: forwardID}, protocol.AppliedForwardState{ForwardID: forwardID, SpecRevision: 2})
+	a.onForwardApplied(protocol.ForwardSpec{ForwardID: forwardID}, protocol.AppliedForwardState{ForwardID: forwardID, SpecRevision: 1})
+	act := a.activation(forwardID)
+	want := protocol.ActivationID(forwardID, 1)
+	if act == nil || act.Generation() != 1 || act.ActivationID() != hex.EncodeToString(want[:]) {
+		t.Fatalf("rollback activation = %+v, want generation 1 and activation %x", act, want)
 	}
 }
 
@@ -298,4 +335,39 @@ func TestMonitorLivenessRevokesOnRouteFingerprintChange(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("gateway change did not revoke capability readiness")
+}
+
+type closeErrorListener struct {
+	net.Listener
+	err error
+}
+
+func (l *closeErrorListener) Close() error {
+	_ = l.Listener.Close()
+	return l.err
+}
+
+func TestDataPlaneStopSurfacesAndRetainsForwardCloseError(t *testing.T) {
+	base, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeErr := errors.New("listener close failed")
+	listener := &closeErrorListener{Listener: base, err: closeErr}
+	backend, err := forward.NewBackend("127.0.0.1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fwd, err := tcpforward.New(listener, tcpforward.Options{Backend: backend})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := newDataPlane(dataPlaneConfig{})
+	d.forwards["stop-error"] = &forwardActor{fwd: fwd}
+	if err := d.stop(context.Background(), "stop-error"); !errors.Is(err, closeErr) {
+		t.Fatalf("data-plane stop error = %v, want listener close error", err)
+	}
+	if _, ok := d.forwards["stop-error"]; !ok {
+		t.Fatal("failed forward close was removed before durable retry")
+	}
 }

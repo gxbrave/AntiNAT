@@ -316,3 +316,116 @@ func TestProviderFullExchange(t *testing.T) {
 		t.Fatalf("returned ACK1 invalid: %v", err)
 	}
 }
+
+func signedAdmissionRequest(t *testing.T, controllerPrivate ed25519.PrivateKey, probeID string) []byte {
+	t.Helper()
+	nodeBytes := bytes.Repeat([]byte{0x11}, ed25519.PublicKeySize)
+	req := providerRequest{
+		Schema: providerRequestSchema, ControllerInstance: "inst", ControllerKeyID: "k1",
+		NodePublicKey: hex.EncodeToString(nodeBytes), NodePublicKeyHash: hex.EncodeToString(hash256(nodeBytes)),
+		ProbeID: probeID, ProviderID: strings.Repeat("44", 16), Activation: strings.Repeat("55", 16),
+		Endpoint: "10.0.0.1:80", ExpectedSourceIP: "7f000001", ExpiryOpaque: strings.Repeat("66", 16),
+		TTLMS: 30_000, ArmDigest: strings.Repeat("77", 32), TimestampUnix: time.Now().Unix(),
+	}
+	canonical, err := req.canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Signature = hex.EncodeToString(ed25519.Sign(controllerPrivate, canonical))
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body
+}
+
+func TestProviderRateLimitedResultRetainsProbeID(t *testing.T) {
+	controllerPub, controllerPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, providerPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := NewProvider(ProviderConfig{
+		ControllerPublicKey: controllerPub,
+		ProviderPrivateKey:  providerPrivate,
+		MaxRequests:         1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := signedAdmissionRequest(t, controllerPrivate, strings.Repeat("aa", 16))
+	first := httptest.NewRecorder()
+	p.handleRequest(first, httptest.NewRequest(http.MethodPost, "/probe/v1/request", bytes.NewReader(body)))
+	second := httptest.NewRecorder()
+	p.handleRequest(second, httptest.NewRequest(http.MethodPost, "/probe/v1/request", bytes.NewReader(body)))
+	var result providerResult
+	if err := json.Unmarshal(second.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Reason != "rate_limited" || result.ProbeID != strings.Repeat("aa", 16) {
+		t.Fatalf("rate-limited result = %+v, want correlated rate_limited result", result)
+	}
+}
+
+func TestProviderBusyResultRetainsProbeID(t *testing.T) {
+	controllerPub, controllerPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, providerPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := NewProvider(ProviderConfig{ControllerPublicKey: controllerPub, ProviderPrivateKey: providerPrivate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < cap(p.inbound); i++ {
+		p.inbound <- struct{}{}
+	}
+	defer func() {
+		for i := 0; i < cap(p.inbound); i++ {
+			<-p.inbound
+		}
+	}()
+	probeID := strings.Repeat("bb", 16)
+	recorder := httptest.NewRecorder()
+	p.handleRequest(recorder, httptest.NewRequest(http.MethodPost, "/probe/v1/request", bytes.NewReader(signedAdmissionRequest(t, controllerPrivate, probeID))))
+	var result providerResult
+	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Reason != "busy" || result.ProbeID != probeID {
+		t.Fatalf("busy result = %+v, want correlated busy result", result)
+	}
+}
+
+func TestProviderFullReplayCachePreservesLiveFence(t *testing.T) {
+	controllerPub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, providerPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := NewProvider(ProviderConfig{ControllerPublicKey: controllerPub, ProviderPrivateKey: providerPrivate, MaxReplayEntries: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	first := &providerRequest{Schema: providerRequestSchema, ProbeID: "first", TimestampUnix: now.Unix()}
+	second := &providerRequest{Schema: providerRequestSchema, ProbeID: "second", TimestampUnix: now.Unix()}
+	if reason := p.admitReplay(first, now); reason != "" {
+		t.Fatalf("first replay admission = %q", reason)
+	}
+	if reason := p.admitReplay(second, now); reason != "busy" {
+		t.Fatalf("full replay admission = %q, want busy", reason)
+	}
+	if _, ok := p.replay[replayKey(first)]; !ok {
+		t.Fatal("full replay admission evicted the live first fence")
+	}
+}

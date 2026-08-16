@@ -12,6 +12,7 @@
 package probe
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -19,6 +20,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -217,20 +219,32 @@ func (p *Provider) handleRequest(w http.ResponseWriter, r *http.Request) {
 	p.rateCount++
 	rateLimited := p.rateCount > p.cfg.MaxRequests
 	p.mu.Unlock()
+
+	// Read the bounded body once before admission gates so resource-pressure
+	// responses can still correlate to the signed request's probe id. The hint
+	// is untrusted until decodeProviderRequestAt verifies the full request.
+	raw, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, p.cfg.MaxRequestBytes))
+	var hint struct {
+		ProbeID string `json:"probe_id"`
+	}
+	_ = json.Unmarshal(raw, &hint)
+	if readErr != nil {
+		p.writeResult(w, providerResult{ProbeID: hint.ProbeID, Accepted: false, Reason: "bad_request"})
+		return
+	}
 	if rateLimited {
-		p.writeResult(w, providerResult{ProbeID: "", Accepted: false, Reason: "rate_limited"})
+		p.writeResult(w, providerResult{ProbeID: hint.ProbeID, Accepted: false, Reason: "rate_limited"})
 		return
 	}
 	select {
 	case p.inbound <- struct{}{}:
 		defer func() { <-p.inbound }()
 	default:
-		p.writeResult(w, providerResult{ProbeID: "", Accepted: false, Reason: "busy"})
+		p.writeResult(w, providerResult{ProbeID: hint.ProbeID, Accepted: false, Reason: "busy"})
 		return
 	}
 
-	body := http.MaxBytesReader(w, r.Body, p.cfg.MaxRequestBytes)
-	req, err := decodeProviderRequestAt(body, p.cfg.ControllerPublicKey, p.cfg.Clock())
+	req, err := decodeProviderRequestAt(bytes.NewReader(raw), p.cfg.ControllerPublicKey, p.cfg.Clock())
 	if err != nil {
 		if req != nil {
 			if reason := p.admitReplay(req, p.cfg.Clock()); reason != "" {
@@ -238,27 +252,28 @@ func (p *Provider) handleRequest(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		p.writeResult(w, providerResult{ProbeID: "", Accepted: false, Reason: providerRequestReason(err)})
+		p.writeResult(w, providerResult{ProbeID: hint.ProbeID, Accepted: false, Reason: providerRequestReason(err)})
 		return
 	}
 
+	// Reserve execution capacity before consuming the replay key. A request that
+	// cannot run must remain retryable and must not poison the cache.
+	select {
+	case p.slots <- struct{}{}:
+		defer func() { <-p.slots }()
+	default:
+		p.writeResult(w, providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "busy"})
+		return
+	}
 	if reason := p.admitReplay(req, p.cfg.Clock()); reason != "" {
 		if reason == "replay" {
 			if cached, ok := p.cachedReplayResult(req, p.cfg.Clock()); ok {
 				p.writeCachedResult(w, cached)
 				return
 			}
+			reason = "pending"
 		}
 		p.writeResult(w, providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: reason})
-		return
-	}
-
-	// Bounded execution concurrency.
-	select {
-	case p.slots <- struct{}{}:
-		defer func() { <-p.slots }()
-	default:
-		p.writeResult(w, providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "busy"})
 		return
 	}
 
@@ -287,16 +302,9 @@ func (p *Provider) admitReplay(req *providerRequest, now time.Time) string {
 		return "conflict"
 	}
 	if len(p.replay) >= p.maxReplay {
-		var oldestID string
-		var oldest time.Time
-		for id, entry := range p.replay {
-			if oldest.IsZero() || entry.expires.Before(oldest) {
-				oldestID, oldest = id, entry.expires
-			}
-		}
-		if oldestID != "" {
-			delete(p.replay, oldestID)
-		}
+		// Never evict a live fence to admit new work: doing so would reopen an
+		// in-window probe id. The caller can retry after the replay window sweep.
+		return "busy"
 	}
 	p.replay[replayID] = replayEntry{expires: now.Add(p.cfg.ReplayWindow), material: material}
 	return ""

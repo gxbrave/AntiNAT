@@ -315,7 +315,13 @@ func (m *Manager) recoverTerminalOutcomes() {
 			return
 		}
 		for _, op := range ops {
-			_ = m.enqueueActivationOutcome(op.ID, protocol.ProbeOutcome(op.Status))
+			acked, err := m.store.ProbeOutcomeAcknowledged(op.ID)
+			if err != nil {
+				return
+			}
+			if !acked {
+				_ = m.enqueueActivationOutcome(op.ID, protocol.ProbeOutcome(op.Status))
+			}
 			afterCreated, afterID = op.CreatedAt, op.ID
 		}
 		if len(ops) < m.cleanupBatch {
@@ -600,6 +606,22 @@ func (m *Manager) handleProbeResult(nodeID string, payload []byte) error {
 	return m.setTerminalOutcome(op.ID, op.Status, outcome)
 }
 
+// providerFailureOutcome maps provider transport/admission taxonomy to the
+// durable probe outcome registry. A pending admission is deliberately
+// non-terminal: recovery retries the still-IN_FLIGHT operation.
+func providerFailureOutcome(reason string) (string, bool) {
+	switch strings.ToLower(reason) {
+	case "pending", "busy", "replay", "rate_limited":
+		return "", false
+	case "timeout":
+		return string(protocol.OutcomeTimeout), true
+	case "unreachable", "no_ack", "send_failed", "challenge_unavailable", "invalid_source":
+		return string(protocol.OutcomeProbeInfraUnavailable), true
+	default:
+		return string(protocol.OutcomeRejected), true
+	}
+}
+
 // requestProvider sends the controller-signed provider request and records
 // the result artifacts; then tries the join.
 func (m *Manager) requestProvider(requestCtx context.Context, op store.ProbeOperation, nodeID string, nodePub ed25519.PublicKey) {
@@ -716,7 +738,11 @@ func (m *Manager) requestProvider(requestCtx context.Context, op store.ProbeOper
 		return
 	}
 	if !res.Accepted {
-		m.failOperation(op.ID, string(protocol.OutcomeRejected))
+		if status, terminal := providerFailureOutcome(res.Reason); terminal {
+			m.failOperation(op.ID, status)
+		}
+		// pending/busy are transient admission results. Keep the operation in
+		// IN_FLIGHT so recovery requeues it instead of manufacturing REJECTED.
 		return
 	}
 	if err := m.store.RecordProbeResult(op.ID, "provider", mustJSON(res)); err != nil {

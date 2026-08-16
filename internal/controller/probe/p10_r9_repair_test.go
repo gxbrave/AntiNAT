@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -45,6 +46,34 @@ func TestProviderReplayReturnsCachedSignedResult(t *testing.T) {
 	}
 }
 
+// RED R10-C: a duplicate request that races the first provider execution is
+// pending, not a terminal ingress rejection with no cached result.
+func TestProviderDuplicateAdmissionReportsPendingBeforeResultIsCached(t *testing.T) {
+	controllerPub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, providerPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := NewProvider(ProviderConfig{ControllerPublicKey: controllerPub, ProviderPrivateKey: providerPriv})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := &providerRequest{Schema: providerRequestSchema, ProbeID: "PENDING", TimestampUnix: time.Now().Unix()}
+	now := time.Now()
+	if reason := p.admitReplay(req, now); reason != "" {
+		t.Fatalf("first admission = %q", reason)
+	}
+	if reason := p.admitReplay(req, now.Add(time.Second)); reason != "replay" {
+		t.Fatalf("duplicate admission = %q, want replay before response classification", reason)
+	}
+	if _, ok := p.cachedReplayResult(req, now.Add(time.Second)); ok {
+		t.Fatal("duplicate admission unexpectedly had a cached result")
+	}
+}
+
 func TestRecoverOperationsRequeuesTerminalOutcome(t *testing.T) {
 	env := newTestEnv(t, false)
 	env.createNodeForward(t)
@@ -77,6 +106,40 @@ func TestRecoverOperationsRequeuesTerminalOutcome(t *testing.T) {
 	}
 	if payload.ForwardID != "f1" || payload.Activation != "act-1" || payload.Generation != 1 || payload.Outcome != string(protocol.OutcomeRejected) {
 		t.Fatalf("unexpected outcome payload: %+v", payload)
+	}
+}
+
+// RED R10-A: once the terminal outcome receipt has been durably consumed, GC
+// of the control outbox must not make recovery enqueue the same outcome again.
+func TestConsumedTerminalOutcomeIsNotRequeuedAfterOutboxGC(t *testing.T) {
+	env := newTestEnv(t, false)
+	env.createNodeForward(t)
+	op, err := env.store.CreateProbeOperation(store.ProbeOperation{
+		ID: "terminal-ack-fence", NodeID: "n1", ForwardID: "f1", ActivationID: "act-1", ProviderID: "prov-1",
+		Status: string(protocol.OutcomeRejected), Endpoint: "198.51.100.7:8080", ExpiresAt: time.Now().Add(time.Hour).Unix(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.manager.recoverOperations()
+	if _, err := env.store.ClaimControlOutbox("n1", "session-1", 1); err != nil {
+		t.Fatalf("claim terminal outcome: %v", err)
+	}
+	if err := env.store.MarkControlOutboxSent(op.ID, "probe_outcome", "session-1"); err != nil {
+		t.Fatalf("mark terminal outcome sent: %v", err)
+	}
+	if err := env.store.AcceptControlSemanticACK(op.ID, "probe_outcome", "session-1"); err != nil {
+		t.Fatalf("accept semantic ack: %v", err)
+	}
+	if err := env.store.AcceptControlReceipt(op.ID, "probe_outcome", "session-1"); err != nil {
+		t.Fatalf("accept outcome receipt: %v", err)
+	}
+	if _, err := env.store.ControlOutboxItemByOperation(op.ID, "probe_outcome"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("outbox after consumed receipt error = %v, want ErrNotFound", err)
+	}
+	env.manager.recoverOperations()
+	if _, err := env.store.ControlOutboxItemByOperation(op.ID, "probe_outcome"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("consumed terminal outcome was requeued: %v", err)
 	}
 }
 
@@ -133,5 +196,12 @@ func TestHandleActivationStatusRejectsGenerationOutsideCurrentRevision(t *testin
 	}
 	if err := env.manager.HandleActivationStatus("n1", payload); err != nil {
 		t.Fatalf("current generation rejected: %v", err)
+	}
+}
+
+func TestProviderRateLimitedOutcomeRemainsRetryable(t *testing.T) {
+	status, terminal := providerFailureOutcome("rate_limited")
+	if terminal || status != "" {
+		t.Fatalf("rate_limited classification = (%q, %v), want transient retry", status, terminal)
 	}
 }

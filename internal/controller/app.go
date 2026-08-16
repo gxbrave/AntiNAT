@@ -68,6 +68,7 @@ type App struct {
 
 	ready atomic.Bool
 
+	shutdownMu sync.Mutex
 	closeMu    sync.Mutex
 	closed     bool
 	closeOrder []string
@@ -183,13 +184,13 @@ func (a *App) Start() error {
 		Handler:           mux,
 		ReadHeaderTimeout: 15 * time.Second,
 	}
-	go func() {
-		_ = a.srv.Serve(ln)
-	}()
 	if err := a.probe.Start(context.Background()); err != nil {
 		_ = a.closeResources()
 		return fmt.Errorf("controller: start probe manager: %w", err)
 	}
+	go func() {
+		_ = a.srv.Serve(ln)
+	}()
 	// Start the deletion watcher: it completes online-delete operations
 	// when the agent's delete result arrives (Story 6 online delete).
 	watchCtx, watchCancel := context.WithCancel(context.Background())
@@ -278,6 +279,8 @@ func (a *App) ArmProbe(ctx context.Context, nodeID, forwardID, endpoint string) 
 // in reverse dependency order (store last). It is idempotent and bounded by
 // ctx while joining the watcher and AgentHub handshake/session drain.
 func (a *App) Shutdown(ctx context.Context) error {
+	a.shutdownMu.Lock()
+	defer a.shutdownMu.Unlock()
 	if ctx == nil {
 		ctx = context.Background()
 	}

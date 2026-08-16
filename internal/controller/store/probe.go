@@ -734,14 +734,35 @@ func (s *Store) ProbeOperationByArmDigestForNodeIncludingExpired(digest [32]byte
 // beyond the first page unreachable.
 func (s *Store) findProbeOperationByArmDigest(digest [32]byte, query string, args ...any) (ProbeOperation, error) {
 	want := hex.EncodeToString(digest[:])
-	pageArgs := append([]any(nil), args...)
+	if len(args) == 0 {
+		return ProbeOperation{}, fmt.Errorf("store: probe lookup query has no page limit")
+	}
+	baseQuery := query
+	baseArgs := append([]any(nil), args[:len(args)-1]...)
+	byExpires := strings.Contains(baseQuery, "ORDER BY expires_at, id")
+	var afterExpires, afterUpdated int64
+	var afterID string
+	haveCursor := false
 	for {
-		rows, err := s.db.Query(query, pageArgs...)
+		pageQuery := baseQuery
+		pageArgs := append([]any(nil), baseArgs...)
+		if haveCursor {
+			if byExpires {
+				pageQuery = strings.Replace(pageQuery, "ORDER BY expires_at, id LIMIT ?", "AND (expires_at > ? OR (expires_at = ? AND id > ?)) ORDER BY expires_at, id LIMIT ?", 1)
+				pageArgs = append(pageArgs, afterExpires, afterExpires, afterID)
+			} else {
+				pageQuery = strings.Replace(pageQuery, "ORDER BY updated_at DESC, id DESC LIMIT ?", "AND (updated_at < ? OR (updated_at = ? AND id < ?)) ORDER BY updated_at DESC, id DESC LIMIT ?", 1)
+				pageArgs = append(pageArgs, afterUpdated, afterUpdated, afterID)
+			}
+		}
+		pageArgs = append(pageArgs, defaultProbeLookupLimit)
+		rows, err := s.db.Query(pageQuery, pageArgs...)
 		if err != nil {
 			return ProbeOperation{}, fmt.Errorf("store: scan probe operations: %w", err)
 		}
-		lastExpires, lastUpdated, lastID := int64(0), int64(0), ""
 		count := 0
+		var lastExpires, lastUpdated int64
+		var lastID string
 		for rows.Next() {
 			var op ProbeOperation
 			if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ProviderID, &op.Status,
@@ -769,17 +790,8 @@ func (s *Store) findProbeOperationByArmDigest(digest [32]byte, query string, arg
 		if count < defaultProbeLookupLimit {
 			return ProbeOperation{}, ErrNotFound
 		}
-		// The three callers use different sort directions. Re-run the same
-		// query with a keyset predicate, preserving each caller's node/status
-		// arguments and replacing only the final LIMIT argument.
-		pageArgs = append(pageArgs[:len(pageArgs)-1], defaultProbeLookupLimit)
-		if strings.Contains(query, "ORDER BY expires_at, id") {
-			query = strings.Replace(query, "ORDER BY expires_at, id LIMIT ?", "AND (expires_at > ? OR (expires_at = ? AND id > ?)) ORDER BY expires_at, id LIMIT ?", 1)
-			pageArgs = append(pageArgs[:len(pageArgs)-1], lastExpires, lastExpires, lastID, defaultProbeLookupLimit)
-		} else {
-			query = strings.Replace(query, "ORDER BY updated_at DESC, id DESC LIMIT ?", "AND (updated_at < ? OR (updated_at = ? AND id < ?)) ORDER BY updated_at DESC, id DESC LIMIT ?", 1)
-			pageArgs = append(pageArgs[:len(pageArgs)-1], lastUpdated, lastUpdated, lastID, defaultProbeLookupLimit)
-		}
+		haveCursor = true
+		afterExpires, afterUpdated, afterID = lastExpires, lastUpdated, lastID
 	}
 }
 
@@ -977,7 +989,7 @@ func (s *Store) DeleteProbeResultsBeforeLimit(cutoff int64, limit int) (int, err
 	limit = probeCleanupLimit(limit)
 	query := `DELETE FROM probe_results WHERE id IN
 		(SELECT r.id FROM probe_results r JOIN probe_operations o ON o.id = r.probe_id
-		 WHERE ` + probeTerminalSQL + ` AND o.updated_at < ? ORDER BY r.id LIMIT ?)`
+		 WHERE ` + probeTerminalSQL + ` AND r.kind <> 'outcome_acked' AND o.updated_at < ? ORDER BY r.id LIMIT ?)`
 	args := []any{cutoff, limit}
 	res, err := s.db.Exec(query, args...)
 	if err != nil {
@@ -1009,7 +1021,9 @@ func (s *Store) DeleteTerminalProbeOperationsBeforeLimit(cutoff int64, limit int
 		return 0, fmt.Errorf("store: begin probe tombstone gc: %w", err)
 	}
 	defer tx.Rollback()
-	query := `SELECT id FROM probe_operations WHERE ` + probeTerminalSQL + ` AND updated_at < ? ORDER BY updated_at, id LIMIT ?`
+	query := `SELECT id FROM probe_operations WHERE ` + probeTerminalSQL + ` AND updated_at < ?
+		AND EXISTS (SELECT 1 FROM probe_results ack WHERE ack.probe_id = probe_operations.id AND ack.kind = 'outcome_acked')
+		ORDER BY updated_at, id LIMIT ?`
 	args := []any{cutoff, limit}
 	rows, err := tx.Query(query, args...)
 	if err != nil {

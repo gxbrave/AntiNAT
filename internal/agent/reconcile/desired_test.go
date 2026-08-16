@@ -56,6 +56,7 @@ func TestApplyDesiredRollsBackNewActorsWhenCommitLosesCapability(t *testing.T) {
 	store := testStore(t)
 	var sideEffect bool
 	var stopCalls int
+	rollbackErr := errors.New("rollback stop failed")
 	_, err := ApplyDesired(context.Background(), store, localstate.NewLatch(), testDesired(present("fwd-r", 1)),
 		func(ctx context.Context, spec protocol.ForwardSpec) (protocol.AppliedForwardState, error) {
 			sideEffect = true
@@ -71,10 +72,13 @@ func TestApplyDesiredRollsBackNewActorsWhenCommitLosesCapability(t *testing.T) {
 		func(ctx context.Context, forwardID string) error {
 			stopCalls++
 			sideEffect = false
-			return nil
+			return rollbackErr
 		})
 	if err == nil {
 		t.Fatal("ApplyDesired succeeded after commit race, want rollback error")
+	}
+	if !errors.Is(err, rollbackErr) {
+		t.Fatalf("rollback error = %v, want rollback failure to be surfaced", err)
 	}
 	if stopCalls != 1 || sideEffect {
 		t.Fatalf("rollback stop calls=%d sideEffect=%v, want one stop and no side effect", stopCalls, sideEffect)

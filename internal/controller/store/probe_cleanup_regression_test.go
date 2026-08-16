@@ -46,7 +46,11 @@ func TestTerminalProbeCleanupIsBounded(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 4; i++ {
-		createTerminalProbeForCleanup(t, s, fmt.Sprintf("cleanup-op-%d", i), 1)
+		id := fmt.Sprintf("cleanup-op-%d", i)
+		createTerminalProbeForCleanup(t, s, id, 1)
+		if _, err := s.db.Exec(`INSERT INTO probe_results (probe_id, kind, payload_hex, created_at) VALUES (?, 'outcome_acked', 'ack', ?)`, id, 1); err != nil {
+			t.Fatalf("insert outcome acknowledgement %s: %v", id, err)
+		}
 	}
 
 	removed, err := s.DeleteTerminalProbeOperationsBeforeLimit(2_000, 2)
@@ -106,6 +110,31 @@ func TestProbeCleanupRetainsRecentTerminalReceipt(t *testing.T) {
 	}
 }
 
+// An old terminal operation must remain durable until the agent's outcome
+// receipt creates the acknowledgement fence. Deleting the evidence row first
+// must not make the operation eligible for tombstone GC.
+func TestTerminalProbeCleanupRetainsUnacknowledgedOutcome(t *testing.T) {
+	s := openTestStore(t)
+	withStoreNow(t, 2_000)
+	if err := s.CreateNode(Node{ID: "cleanup-node", Name: "cleanup-node"}); err != nil {
+		t.Fatal(err)
+	}
+	createTerminalProbeForCleanup(t, s, "unack-terminal", 1)
+	if _, err := s.DeleteProbeResultsBeforeLimit(2_000, 100); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := s.DeleteTerminalProbeOperationsBeforeLimit(2_000, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 0 {
+		t.Fatalf("removed %d unacknowledged tombstones, want 0", removed)
+	}
+	if _, err := s.GetProbeOperation("unack-terminal"); err != nil {
+		t.Fatalf("unacknowledged terminal operation was collected: %v", err)
+	}
+}
+
 // A terminal tombstone is retained exactly at the cutoff and continues to
 // reject late rewrites; only after the boundary passes can cleanup remove it.
 func TestTerminalProbeRetentionBoundaryPreventsRevival(t *testing.T) {
@@ -115,6 +144,9 @@ func TestTerminalProbeRetentionBoundaryPreventsRevival(t *testing.T) {
 		t.Fatal(err)
 	}
 	createTerminalProbeForCleanup(t, s, "boundary-terminal", 2_000)
+	if _, err := s.db.Exec(`INSERT INTO probe_results (probe_id, kind, payload_hex, created_at) VALUES (?, 'outcome_acked', 'ack', ?)`, "boundary-terminal", 2_000); err != nil {
+		t.Fatalf("insert outcome acknowledgement: %v", err)
+	}
 	if removed, err := s.DeleteTerminalProbeOperationsBeforeLimit(2_000, 1); err != nil {
 		t.Fatal(err)
 	} else if removed != 0 {

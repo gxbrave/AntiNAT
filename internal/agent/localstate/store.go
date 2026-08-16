@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -43,8 +44,10 @@ func WithLockTimeout(d time.Duration) Option {
 // Store methods; the *bolt.DB handle is package-private so journal and apply
 // invariants cannot be bypassed from outside the package.
 type Store struct {
-	dir string
-	db  *bolt.DB
+	dir     string
+	db      *bolt.DB
+	closeMu sync.Mutex
+	closed  bool
 }
 
 // Open opens (creating if needed) the Agent state store under dir. It fails
@@ -104,11 +107,13 @@ func (s *Store) Dir() string { return s.dir }
 
 // Close closes the database. Closing is idempotent.
 func (s *Store) Close() error {
-	if s.db == nil {
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+	if s.closed || s.db == nil {
 		return nil
 	}
+	s.closed = true
 	err := s.db.Close()
-	s.db = nil
 	return err
 }
 

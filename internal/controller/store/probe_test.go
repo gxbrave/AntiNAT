@@ -302,6 +302,9 @@ func TestTerminalProbeTombstoneGCPreventsRevival(t *testing.T) {
 	if err := s.SetProbeOperationStatus("probe-gc", string(protocol.OutcomeRejected)); err != nil {
 		t.Fatalf("terminalize gc operation: %v", err)
 	}
+	if _, err := s.db.Exec(`INSERT INTO probe_results (probe_id, kind, payload_hex, created_at) VALUES (?, 'outcome_acked', 'ack', ?)`, "probe-gc", 1); err != nil {
+		t.Fatalf("record gc outcome acknowledgement: %v", err)
+	}
 	if _, err := s.db.Exec(`UPDATE probe_operations SET updated_at = 1 WHERE id = ?`, "probe-gc"); err != nil {
 		t.Fatalf("age gc tombstone: %v", err)
 	}
