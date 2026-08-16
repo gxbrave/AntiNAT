@@ -1,0 +1,446 @@
+{
+  "base_sha": "f1a72ddec963abf07dd664cfee679908476c85e1",
+  "base_tree_sha": "6fdb779a65ad7c3503244efe888516e1523e1941",
+  "branch": "ai/P10-wan-probe-activation-cli-e2e",
+  "candidate_head_sha": "519cbda7e3193526ba95c3f5f77ec8148ce041c1",
+  "candidate_tree_sha": "a8a6f831cb4b5c2adaf82f11530e31ed4c4ad69b",
+  "candidate_worktree_manifest_sha256": "11e8036bd7d974fdf1a0822c31cf35a3ca7d043ddf872acda41fb41417f3de3c",
+  "capability_result": "SUPPORTED_WITH_LIMITS",
+  "changed_file_sha256": {
+    "internal/agent/app.go": "6fae8e480c59c60f6d6537f0b52dc8c4ffe35b61eefb1851b10f7149e96cd5a4",
+    "internal/agent/app_test.go": "98fedd3d9ec09629ea33797224e8010c38473f14d2369740a3092943c453b981",
+    "internal/agent/localstate/p10_r10_repair_test.go": "c32c87db103acce3b87ed2b0ea1c78c7638163cf4af3ecc18cb9fa7dbb26a327",
+    "internal/agent/localstate/probe.go": "48d0f6a5bf76a70e4eb2485807fd7d11feee3413ea888d1e9773e841fef9429d",
+    "internal/agent/localstate/store.go": "ff96cc9995be908f96b510acaee75752c79318804ac9809b6758987ca044a0af",
+    "internal/agent/reconcile/activation.go": "9f5d69afda3f989b8a4a0d06382fb962758d994d4b5a6979770c2afe44353cee",
+    "internal/agent/reconcile/desired.go": "726b68dab2606f503fe8ba672fbcedc781dce87d38aa148ae9066102763cd816",
+    "internal/agent/reconcile/desired_test.go": "29877025d26750e492e3ece2e0f628e83ef2d337e48bfb7babfdd1200fd78a9c",
+    "internal/agent/reconcile/p10_r10_repair_test.go": "9cba5ac17a3bd663610831b661f823441804ea8be16f8e5e6c114f92d5da98bd",
+    "internal/agent/reconcile/probe.go": "9d6972809632dd2b1ccd3ea2f3cb1b06f99390ecab0d0dce4898fd43873adbcb",
+    "internal/controller/app.go": "523111378bd5c27c5d7fe46e9e42e13d2715a95a3c01dad71980156f52dc6b23",
+    "internal/controller/app_r9_repair_test.go": "81dc412b77b1cc1dd18f48cdddcef3dc939d23e457124868c00e2df9883354ea",
+    "internal/controller/probe/manager.go": "6420213a07d1fe19e0bd3918f8a20729f612842c3b211ed53e99603d3cf015b3",
+    "internal/controller/probe/p10_r9_repair_test.go": "17a9032e9f6311becd8bec8abb6ccabafb8666d709f2fa5e93e6f8a8a98e6bd2",
+    "internal/controller/probe/provider_service.go": "1160d987ae0b432a9664cd2500f46ae6fd2ffd84f85649f1e017740d8acca1b7",
+    "internal/controller/probe/provider_service_test.go": "3e532fc1e81b985f9c62edeea14933ed51b15339168f346a7463a0a75d02a20d",
+    "internal/controller/store/control.go": "e863198964d7cf93767bbfa926569c765642c990703229bc0d11eef5af2d8327",
+    "internal/controller/store/p10_r9_repair_test.go": "057a8876bccc936d54f4513e794695f3d8bcdb4dfc158ff2d2c47508d736e25f",
+    "internal/controller/store/probe.go": "19bacf04b8a67133b4523847301edfdb1f3e518ecd650d9343be9bcc8c45e5d2",
+    "internal/controller/store/probe_cleanup_regression_test.go": "efb4c7e4b99737fbdc9de82d310f103d649ce3c922a187aad2472b78a7b1447d",
+    "internal/controller/store/probe_test.go": "6fefd7172604c5aef191031084387cd02d93ba8346a2334198eb3c7c09332d93"
+  },
+  "changed_files": [
+    "internal/agent/app.go",
+    "internal/agent/app_test.go",
+    "internal/agent/localstate/p10_r10_repair_test.go",
+    "internal/agent/localstate/probe.go",
+    "internal/agent/localstate/store.go",
+    "internal/agent/reconcile/activation.go",
+    "internal/agent/reconcile/desired.go",
+    "internal/agent/reconcile/desired_test.go",
+    "internal/agent/reconcile/p10_r10_repair_test.go",
+    "internal/agent/reconcile/probe.go",
+    "internal/controller/app.go",
+    "internal/controller/app_r9_repair_test.go",
+    "internal/controller/probe/manager.go",
+    "internal/controller/probe/p10_r9_repair_test.go",
+    "internal/controller/probe/provider_service.go",
+    "internal/controller/probe/provider_service_test.go",
+    "internal/controller/store/control.go",
+    "internal/controller/store/p10_r9_repair_test.go",
+    "internal/controller/store/probe.go",
+    "internal/controller/store/probe_cleanup_regression_test.go",
+    "internal/controller/store/probe_test.go"
+  ],
+  "changed_files_count": 21,
+  "cleanup_status": "The exact 21-path source/test candidate is committed; no background test/build/git writer remained. Final handoff-only commit cleanliness is reported in the review-required Kanban block.",
+  "commits": [
+    {
+      "sha": "519cbda7e3193526ba95c3f5f77ec8148ce041c1",
+      "tree_sha": "a8a6f831cb4b5c2adaf82f11530e31ed4c4ad69b",
+      "parent_sha": "f1a72ddec963abf07dd664cfee679908476c85e1",
+      "message": "fix(P10): package R11 repair candidate",
+      "role": "implementation candidate packaging"
+    }
+  ],
+  "contract_files": {
+    "docs/protocol.md": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74",
+    "docs/state-model.md": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
+  },
+  "contracts_changed": [],
+  "deviation": "none from assigned P10 repair scope; frozen contract files were not changed.",
+  "evidence_sha256": {
+    ".hermes/evidence/p10/r12-affected.log": "0029523753f803f602cd868c6ff5a2f8049026a9678f83103c46286e7858567b",
+    ".hermes/evidence/p10/r12-diff-check.log": "3d4d50cd32af92c6d4df37c1df74a96622fca8cfb5643a155c91f034a42f2068",
+    ".hermes/evidence/p10/r12-e2e.log": "ec04f66ba0038172249148209fb8db69ec809eec229d2d982fd4555fca603fc0",
+    ".hermes/evidence/p10/r12-focused.log": "f86c367c70dbab95f031827b4481bc46f1cd1dc62a2fef1305e097244281594e",
+    ".hermes/evidence/p10/r12-make-build.log": "9a14e8b1daaa3de62e9d79c6824b58552d91e3d547207ab92383a041da4ef291",
+    ".hermes/evidence/p10/r12-make-check.log": "ee2873a575e5a45a2786849bd5bcce5added8e288149bd9bfb2ad73646cd76f6",
+    ".hermes/evidence/p10/r12-make-test-first-fail.log": "b1c539f66e82c5014bd32a2e14859d54324e9cf31d294bc0ada7512fcdf13b03",
+    ".hermes/evidence/p10/r12-make-test.log": "2d2572f927b8101e36fe65210de8278e1bccab77b630ec5601be9435aa277679",
+    ".hermes/evidence/p10/r12-race.log": "19aa74ca8ce419b507d72948986dcef6f5f842e11562bedb6a5224901eed92c5",
+    ".hermes/evidence/p10/r12-red.log": "df2640749189ecb351d073632beb4522a3c2f4317c5b5caabc98e75c22d16670",
+    ".hermes/evidence/p10/r12-vet.log": "bb1ede403057e15598724f3f63119129966a9ddddebe26eff4f7647ae2e0afdc"
+  },
+  "head_sha": "519cbda7e3193526ba95c3f5f77ec8148ce041c1",
+  "head_tree_sha": "a8a6f831cb4b5c2adaf82f11530e31ed4c4ad69b",
+  "implementation_task_id": "t_407c573e",
+  "known_limits": [
+    "No independent public external-WAN/provider-egress vantage or privileged deployment evidence was available; external reachability remains local/sandbox evidence only.",
+    "Provider pending/busy/rate_limited responses remain non-terminal and rely on manager recovery retry; timeout/transport taxonomy remains the terminal boundary.",
+    "Restart recovery intentionally bounds in-memory active/replay maps; durable rows outside the in-memory cap remain fail-closed until expiry/cleanup.",
+    "One initial concurrent make test run recorded an E2E deletion failure; the retained standalone E2E and final qualified make test evidence passed, but fresh reviewers must independently rerun their commands.",
+    "This packaging task did not rerun broad suites and does not approve implementation, integration, real-WAN support, native Windows/arm64 execution, router traversal, deployment, or soak capability."
+  ],
+  "ownership_reconciliation": {
+    "candidate_path_disposition": [
+      {
+        "ownership": "P10-owned candidate path",
+        "path": "internal/agent/app.go"
+      },
+      {
+        "ownership": "P10-owned candidate path",
+        "path": "internal/agent/app_test.go"
+      },
+      {
+        "ownership": "previously declared inherited extension path; no new transfer in this repair",
+        "path": "internal/agent/localstate/p10_r10_repair_test.go"
+      },
+      {
+        "ownership": "previously declared inherited extension path; no new transfer in this repair",
+        "path": "internal/agent/localstate/probe.go"
+      },
+      {
+        "ownership": "previously declared inherited extension path; no new transfer in this repair",
+        "path": "internal/agent/localstate/store.go"
+      },
+      {
+        "ownership": "P10-owned candidate path",
+        "path": "internal/agent/reconcile/activation.go"
+      },
+      {
+        "ownership": "previously declared inherited extension path; no new transfer in this repair",
+        "path": "internal/agent/reconcile/desired.go"
+      },
+      {
+        "ownership": "previously declared inherited extension path; no new transfer in this repair",
+        "path": "internal/agent/reconcile/desired_test.go"
+      },
+      {
+        "ownership": "P10-owned candidate path",
+        "path": "internal/agent/reconcile/p10_r10_repair_test.go"
+      },
+      {
+        "ownership": "P10-owned candidate path",
+        "path": "internal/agent/reconcile/probe.go"
+      },
+      {
+        "ownership": "P10-owned candidate path",
+        "path": "internal/controller/app.go"
+      },
+      {
+        "ownership": "P10-owned candidate path",
+        "path": "internal/controller/app_r9_repair_test.go"
+      },
+      {
+        "ownership": "P10-owned candidate path",
+        "path": "internal/controller/probe/manager.go"
+      },
+      {
+        "ownership": "P10-owned candidate path",
+        "path": "internal/controller/probe/p10_r9_repair_test.go"
+      },
+      {
+        "ownership": "P10-owned candidate path",
+        "path": "internal/controller/probe/provider_service.go"
+      },
+      {
+        "ownership": "P10-owned candidate path",
+        "path": "internal/controller/probe/provider_service_test.go"
+      },
+      {
+        "ownership": "P10-owned candidate path",
+        "path": "internal/controller/store/control.go"
+      },
+      {
+        "ownership": "P10-owned candidate path",
+        "path": "internal/controller/store/p10_r9_repair_test.go"
+      },
+      {
+        "ownership": "P10-owned candidate path",
+        "path": "internal/controller/store/probe.go"
+      },
+      {
+        "ownership": "P10-owned candidate path",
+        "path": "internal/controller/store/probe_cleanup_regression_test.go"
+      },
+      {
+        "ownership": "P10-owned candidate path",
+        "path": "internal/controller/store/probe_test.go"
+      }
+    ],
+    "new_transfers": [
+      {
+        "path": "internal/agent/localstate/store.go",
+        "source_owner": "P07",
+        "receiving_plan": "P10",
+        "temporary": true,
+        "symbols": [
+          "Store.Close"
+        ],
+        "hunks": [
+          "Store.closeMu sync.Mutex and Store.closed lifecycle fields",
+          "func (*Store) Close serialized idempotent close guard"
+        ],
+        "reason": "The R11 lifecycle repair must serialize concurrent closes of the P07-owned local-state store so startup rollback and shutdown cannot race bbolt Close.",
+        "scope": "Only the close serialization fields/import and Store.Close hunk.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      },
+      {
+        "path": "internal/agent/localstate/p10_r10_repair_test.go",
+        "source_owner": "P07",
+        "receiving_plan": "P10",
+        "temporary": true,
+        "symbols": [
+          "TestStoreCloseConcurrentCallsAreIdempotent"
+        ],
+        "hunks": [
+          "entire named TestStoreCloseConcurrentCallsAreIdempotent regression and required sync/testing imports"
+        ],
+        "reason": "The named R11 regression proves the transferred P07 Store.Close serialization under concurrent callers.",
+        "scope": "Only the named test file and test.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      },
+      {
+        "path": "internal/agent/reconcile/p10_r10_repair_test.go",
+        "source_owner": "P07",
+        "receiving_plan": "P10",
+        "temporary": true,
+        "symbols": [
+          "TestRestartRecoversConsumedReplayFencesBeyondOnePage",
+          "TestRestartFailsClosedWhenWallClockRollsBackBeforeArm",
+          "TestRestartRecoveryHonorsActiveAndReplayBounds",
+          "TestRestartQuarantinesConsumedFenceAcrossWallClockRollback",
+          "TestRestartRemovesConsumedFenceAfterReplayDeadline"
+        ],
+        "hunks": [
+          "entire named P10 R11 restart/replay regression file containing only the five listed tests and required imports"
+        ],
+        "reason": "The five named regressions exercise the P07-owned durable probe/reconcile restart fences, bounded hydration, and wall-clock rollback handling transferred for P10 review.",
+        "scope": "Only the named file and five listed tests.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      },
+      {
+        "path": "internal/agent/localstate/probe.go",
+        "source_owner": "P07",
+        "receiving_plan": "P10",
+        "temporary": true,
+        "symbols": [
+          "ArmedProbe.ArmedAt",
+          "Store.SaveArmedProbeForForward"
+        ],
+        "hunks": [
+          "ArmedProbe.ArmedAt persisted wall-clock-anchor field and fail-closed comment",
+          "SaveArmedProbeForForward derives ArmedAt from Deadline minus ProbeArm.TTLMS and persists it"
+        ],
+        "reason": "The R11 restart repair needs a durable wall-clock anchor to distinguish elapsed TTL from clock rollback and fail closed instead of reviving a probe.",
+        "scope": "Only ArmedAt and the exact wall-clock-anchor persistence hunks.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      },
+      {
+        "path": "internal/agent/reconcile/desired.go",
+        "source_owner": "P07",
+        "receiving_plan": "P10",
+        "temporary": true,
+        "symbols": [
+          "ApplyDesiredWithGuardAndRollback.rollbackNewActors",
+          "ApplyDesiredWithGuardAndRollback.rollbackSideEffects"
+        ],
+        "hunks": [
+          "rollbackNewActors returns and errors.Join-aggregates stop failures",
+          "rollbackSideEffects errors.Join-aggregates hot-update rollback and new-actor stop failures",
+          "guard and desired-commit failure returns join the primary error with rollbackSideEffects errors"
+        ],
+        "reason": "The R11 lifecycle repair must surface every rollback/stop failure from the P07-owned desired reconciler instead of discarding cleanup errors.",
+        "scope": "Only rollbackSideEffects/rollbackNewActors error aggregation and their three call sites.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      },
+      {
+        "path": "internal/controller/store/control.go",
+        "source_owner": "P08",
+        "receiving_plan": "P10",
+        "temporary": true,
+        "symbols": [
+          "Store.AcceptControlReceipt",
+          "Store.ProbeOutcomeAcknowledged"
+        ],
+        "hunks": [
+          "AcceptControlReceipt atomically inserts the probe_results outcome_acked marker before probe_outcome outbox GC",
+          "func (*Store) ProbeOutcomeAcknowledged queries the durable outcome_acked marker"
+        ],
+        "reason": "The R11 terminal-outcome repair crosses the P08 control-store boundary so receipt GC retains a durable acknowledgement fence for probe cleanup/recovery.",
+        "scope": "Only probe_outcome acknowledgement persistence in AcceptControlReceipt and ProbeOutcomeAcknowledged.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      }
+    ],
+    "prior_transfers": "All 29 canonical prior exact transfer records are preserved with their common expiry normalized to P10 integration or rejection; exactly the six supervisor-named R12 temporary records are added in the canonical handoff.",
+    "status": "REVIEW_REQUIRED; canonical P10.json contains the complete exact-transfer inventory.",
+    "undeclared_paths": []
+  },
+  "plan": "P10",
+  "red_green": {
+    "green": {
+      "focused_evidence": ".hermes/evidence/p10/r12-focused.log",
+      "focused_exit_code": 0,
+      "new_regressions": [
+        "TestTerminalProbeCleanupRetainsUnacknowledgedOutcome",
+        "TestProviderRateLimitedOutcomeRemainsRetryable",
+        "TestProviderRateLimitedResultRetainsProbeID",
+        "TestProviderBusyResultRetainsProbeID",
+        "TestProviderFullReplayCachePreservesLiveFence",
+        "TestRestartRecoveryHonorsActiveAndReplayBounds",
+        "TestRestartQuarantinesConsumedFenceAcrossWallClockRollback",
+        "TestRestartRemovesConsumedFenceAfterReplayDeadline",
+        "TestOnForwardAppliedRollsBackLiveActivationIdentity",
+        "TestDataPlaneStopSurfacesAndRetainsForwardCloseError"
+      ]
+    },
+    "red": {
+      "status": "UNVERIFIABLE_AND_REMOVED",
+      "audit": {
+        "status": "UNVERIFIABLE_AND_REMOVED",
+        "transcript_path": ".hermes/evidence/p10/r12-red.log",
+        "transcript_sha256": "df2640749189ecb351d073632beb4522a3c2f4317c5b5caabc98e75c22d16670",
+        "hash_verified": true,
+        "exact_pre_repair_procedure_validated": false,
+        "reason": "The retained transcript hash matches, but its only procedure header is `$ git worktree HEAD + focused P10-R12 regression tests`; it does not pin an immutable pre-repair commit/tree, copied-test byte hashes, temporary worktree/archive identity, or exact executable commands. The claimed pre-repair failures therefore cannot be reproduced as an exact procedure and are removed rather than presented as RED evidence.",
+        "previous_claim_retained_as_red_evidence": false
+      },
+      "historical_claimed_commands": [
+        "git worktree HEAD plus focused P10-R12 regression tests: go test ./internal/controller/probe -run TestProviderRateLimitedResultRetainsProbeID|TestProviderBusyResultRetainsProbeID|TestProviderFullReplayCachePreservesLiveFence -count=1 -v",
+        "go test ./internal/controller/store -run TestTerminalProbeCleanupRetainsUnacknowledgedOutcome -count=1 -v",
+        "go test ./internal/agent/reconcile -run TestRestartRecoveryHonorsActiveAndReplayBounds|TestRestartQuarantinesConsumedFenceAcrossWallClockRollback|TestRestartRemovesConsumedFenceAfterReplayDeadline -count=1 -v",
+        "go test ./internal/agent -run TestOnForwardAppliedRollsBackLiveActivationIdentity|TestDataPlaneStopSurfacesAndRetainsForwardCloseError -count=1 -v"
+      ],
+      "historical_claimed_exit_code": 1
+    }
+  },
+  "repair_cycle": 11,
+  "repository_state_before_handoff": {
+    "branch": "ai/P10-wan-probe-activation-cli-e2e",
+    "head_sha": "f1a72ddec963abf07dd664cfee679908476c85e1",
+    "head_tree_sha": "6fdb779a65ad7c3503244efe888516e1523e1941",
+    "worktree_status_command": "git status --porcelain=v1 --branch --untracked-files=all",
+    "worktree_status_exit_code": 0,
+    "writer_quiescence": "No stale test/build/git writer was observed; current Hermes/supervisor control processes were not candidate code writers.",
+    "writer_quiescence_command": "ps -eo pid=,ppid=,stat=,comm=,args= filtered for go test/build, make test/check/build, and git mutation commands",
+    "writer_quiescence_exit_code": 0
+  },
+  "residual_risk": [
+    "Provider pending/busy/rate_limited responses remain non-terminal and rely on manager recovery retry; timeout/transport taxonomy remains the terminal boundary.",
+    "Restart recovery intentionally bounds in-memory active/replay maps; durable rows outside the in-memory cap are fail-closed until expiry/cleanup."
+  ],
+  "review_status": "REVIEW_REQUIRED",
+  "scope": "Repair durable terminal outcome acknowledgement fencing, provider rate_limited/busy correlation and taxonomy, bounded provider replay admission, bounded restart recovery with wall-clock quarantine and consumed-fence expiry, activation identity rollback, controller/agent startup and shutdown barriers, and data-plane stop error propagation.",
+  "stage": "p10-r11-fix1-exact-head-ownership-handoff-red-evidence-reconciliation",
+  "task_id": "t_407c573e",
+  "task_identity": {
+    "candidate_worktree": "/root/AntiNAT/.worktrees/t_44815fe0",
+    "candidate_worktree_task_alias": "t_44815fe0",
+    "kanban_task_id": "t_407c573e",
+    "relationship": "Dispatcher task and worktree alias were mechanically checked on the confirmed branch; no competing writer was active."
+  },
+  "verification": [
+    {
+      "command": "go test focused P10-R12 regressions (controller/probe, controller/store, agent/reconcile, agent)",
+      "evidence": ".hermes/evidence/p10/r12-focused.log",
+      "exit_code": 0
+    },
+    {
+      "command": "go test ./internal/controller/probe ./internal/controller/store ./internal/agent/reconcile ./internal/agent/localstate ./internal/agent ./internal/controller -count=1",
+      "evidence": ".hermes/evidence/p10/r12-affected.log",
+      "exit_code": 0
+    },
+    {
+      "command": "go test -race ./internal/... ./cmd/... ./test/contracts ./test/e2e -count=1",
+      "evidence": ".hermes/evidence/p10/r12-race.log",
+      "exit_code": 0
+    },
+    {
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make test",
+      "evidence": ".hermes/evidence/p10/r12-make-test.log",
+      "exit_code": 0
+    },
+    {
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make check",
+      "evidence": ".hermes/evidence/p10/r12-make-check.log",
+      "exit_code": 0
+    },
+    {
+      "command": "make build",
+      "evidence": ".hermes/evidence/p10/r12-make-build.log",
+      "exit_code": 0
+    },
+    {
+      "command": "go vet ./...",
+      "evidence": ".hermes/evidence/p10/r12-vet.log",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "evidence": ".hermes/evidence/p10/r12-diff-check.log",
+      "exit_code": 0
+    },
+    {
+      "command": "go test ./test/e2e -run TestLinuxDirectV4WalkingSkeleton -count=1 -v",
+      "evidence": ".hermes/evidence/p10/r12-e2e.log",
+      "exit_code": 0
+    }
+  ],
+  "verification_notes": {
+    "initial_failure": "One concurrent full-suite run hit a transient TestLinuxDirectV4WalkingSkeleton deletion operation HTTP 500; the standalone E2E rerun and the complete make test rerun passed. The final canonical make test result is exit 0.",
+    "initial_make_test_evidence": ".hermes/evidence/p10/r12-make-test-first-fail.log",
+    "initial_make_test_exit_code": 2
+  },
+  "working_tree_policy": "The previously uncommitted 21-path candidate was hash-verified against this handoff and committed byte-for-byte as the immutable implementation commit. The later two-file handoff commit is audit metadata, not candidate code.",
+  "contracts_consumed": [
+    {
+      "path": "docs/state-model.md",
+      "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
+    },
+    {
+      "path": "docs/protocol.md",
+      "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"
+    },
+    {
+      "path": "api/openapi.yaml",
+      "sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32"
+    },
+    {
+      "path": ".hermes/plans/v1-beta/00-master-orchestration.md",
+      "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4"
+    },
+    {
+      "path": ".hermes/plans/v1-beta/10-wan-probe-activation-cli-e2e.md",
+      "sha256": "91c7b8814d969ec9bfbf757a97c9a7aeb865fad7b49b76be826603d693b80ce0"
+    },
+    {
+      "path": "docs/adr/0003-wan-probe-truth.md",
+      "sha256": "31f4b1a01041a228e01c5fbc2cf0d0d9aeb447844b7dfa1da361f55df5b85fbd"
+    }
+  ],
+  "repository_state_after_packaging": {
+    "implementation_head_sha": "519cbda7e3193526ba95c3f5f77ec8148ce041c1",
+    "implementation_tree_sha": "a8a6f831cb4b5c2adaf82f11530e31ed4c4ad69b",
+    "implementation_parent_sha": "f1a72ddec963abf07dd664cfee679908476c85e1",
+    "implementation_commit_message": "fix(P10): package R11 repair candidate",
+    "committed_path_count": 21,
+    "worktree_after_implementation_commit": "only untracked P10-r11-repair.json before handoff reconciliation"
+  },
+  "cleanup_done": true,
+  "packaging_task_id": "t_b6ad63e6",
+  "packaging_stage": "p10-r12-fix2-committed-candidate-packaging",
+  "canonical_handoff": ".hermes/handoffs/P10.json",
+  "handoff_only_tip_policy": "The canonical candidate identity is the implementation commit/tree; the later two-file handoff-only tip is reported externally as audit metadata.",
+  "candidate_worktree_manifest_note": "Historical opaque pre-packaging field retained verbatim and not used or reverse-engineered; the committed implementation SHA/tree and per-file SHA-256 map are authoritative."
+}

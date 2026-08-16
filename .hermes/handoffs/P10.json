@@ -1,70 +1,34 @@
 {
   "plan": "P10",
-  "task_id": "t_304538dc",
-  "implementation_task_id": "t_f958eff0",
-  "prior_handoff_reconciliation_task_id": "t_43b8db67",
-  "handoff_reconciliation_task_id": "t_304538dc",
-  "stage": "p10-r10-ownership-and-red-evidence-reconciliation",
-  "repair_cycle": 10,
-  "base_sha": "ca69aa72ef43851f33b290617e098096a87f7013",
-  "base_tree_sha": "09d0539767ae03c181baf8e61f3877f07b9e3de4",
-  "head_sha": "8a3058afdda448d1d761e5f0815f35ed89c96456",
-  "head_tree_sha": "f1bf1ae29e64dd509bd5a1eab67fc87b48a43f26",
-  "candidate_head_sha": "8a3058afdda448d1d761e5f0815f35ed89c96456",
-  "candidate_tree_sha": "f1bf1ae29e64dd509bd5a1eab67fc87b48a43f26",
+  "task_id": "t_b6ad63e6",
+  "repair_implementation_task_id": "t_407c573e",
+  "stage": "p10-r12-fix2-committed-candidate-packaging",
+  "repair_cycle": 12,
+  "source_repair_cycle": 11,
   "branch": "ai/P10-wan-probe-activation-cli-e2e",
-  "candidate_definition": "The immutable R9 implementation candidate is 8a3058afdda448d1d761e5f0815f35ed89c96456 with tree f1bf1ae29e64dd509bd5a1eab67fc87b48a43f26, based on ca69aa72ef43851f33b290617e098096a87f7013 with tree 09d0539767ae03c181baf8e61f3877f07b9e3de4. Reviews and any later repair must inspect this exact implementation commit/tree; handoff/evidence commits are documentation-only and do not change the candidate source tree.",
-  "repository_state_before_reconciliation": {
-    "head_sha": "1bfe27a4d031d4406627b8390699dd7761c6198c",
-    "head_tree_sha": "0725a0c2dab9c1a28a0f658682e35e6bbcfb584b",
-    "head_commit": {
-      "sha": "1bfe27a4d031d4406627b8390699dd7761c6198c",
-      "tree_sha": "0725a0c2dab9c1a28a0f658682e35e6bbcfb584b",
-      "parents": [
-        "494fd38daa25d42386470af4242519bdc531c997"
-      ],
-      "message": "docs(P10): reconcile canonical R9 handoff"
-    },
-    "worktree_status_command": "git status --porcelain=v1 --branch",
-    "worktree_status_exit_code": 0,
-    "worktree_status": "clean",
-    "writer_quiescence_command": "ps -eo pid=,stat=,comm=,args= (filtered for go test/build, make test/check/build, and git mutation commands)",
-    "writer_quiescence_exit_code": 0,
-    "writer_quiescence": "no stale test/build/git writer was observed; only current control processes were active"
+  "base_sha": "adf74fa860812054bd71082006a8c78ea4189888",
+  "base_tree_sha": "b304c39ec7573fb22d6508fa4585d8a9b2b4f105",
+  "head_sha": "519cbda7e3193526ba95c3f5f77ec8148ce041c1",
+  "head_tree_sha": "a8a6f831cb4b5c2adaf82f11530e31ed4c4ad69b",
+  "candidate_head_sha": "519cbda7e3193526ba95c3f5f77ec8148ce041c1",
+  "candidate_tree_sha": "a8a6f831cb4b5c2adaf82f11530e31ed4c4ad69b",
+  "candidate_definition": "The review candidate is the immutable implementation commit 519cbda7e3193526ba95c3f5f77ec8148ce041c1 with tree a8a6f831cb4b5c2adaf82f11530e31ed4c4ad69b, based on integrated base adf74fa860812054bd71082006a8c78ea4189888 with tree b304c39ec7573fb22d6508fa4585d8a9b2b4f105. The later handoff-only tip contains only .hermes/handoffs/P10.json and .hermes/handoffs/P10-r11-repair.json; it is audit metadata and is not candidate code.",
+  "repository_state_before_packaging": {
+    "head_sha": "f1a72ddec963abf07dd664cfee679908476c85e1",
+    "head_tree_sha": "6fdb779a65ad7c3503244efe888516e1523e1941",
+    "writer_quiescent": true,
+    "index_lock_absent": true,
+    "changed_source_test_paths_verified": 21,
+    "changed_source_test_sha256_verified": 21,
+    "r12_evidence_hashes_verified": 11,
+    "contract_hashes_verified": 6
   },
-  "branch_evidence_tip": {
-    "sha": "1bfe27a4d031d4406627b8390699dd7761c6198c",
-    "tree_sha": "0725a0c2dab9c1a28a0f658682e35e6bbcfb584b",
-    "relationship": "Actual clean branch/evidence tip before this R10 handoff-only reconciliation; it is descended from the immutable implementation candidate and contains documentation/evidence only.",
-    "documentation_only_delta": [
-      ".hermes/evidence/p10/r9-contracts.log",
-      ".hermes/evidence/p10/r9-e2e.log",
-      ".hermes/evidence/p10/r9-focused.log",
-      ".hermes/evidence/p10/r9-make-build.log",
-      ".hermes/evidence/p10/r9-make-check.log",
-      ".hermes/evidence/p10/r9-make-test.log",
-      ".hermes/evidence/p10/r9-race.log",
-      ".hermes/evidence/p10/r9-vet.log",
-      ".hermes/handoffs/P10-r9-repair.json",
-      ".hermes/handoffs/P10.json"
-    ],
-    "documentation_only_delta_count": 10
-  },
-  "commits": [
-    {
-      "sha": "8a3058afdda448d1d761e5f0815f35ed89c96456",
-      "message": "fix(P10): repair probe activation and lifecycle recovery",
-      "role": "implementation candidate"
-    }
-  ],
-  "candidate_delta": {
-    "from_sha": "ca69aa72ef43851f33b290617e098096a87f7013",
-    "from_tree_sha": "09d0539767ae03c181baf8e61f3877f07b9e3de4",
-    "to_sha": "8a3058afdda448d1d761e5f0815f35ed89c96456",
-    "to_tree_sha": "f1bf1ae29e64dd509bd5a1eab67fc87b48a43f26",
-    "command": "git diff --name-status ca69aa72ef43851f33b290617e098096a87f7013 8a3058afdda448d1d761e5f0815f35ed89c96456",
-    "exit_code": 0,
-    "path_count": 27,
+  "implementation_packaging_commit": {
+    "sha": "519cbda7e3193526ba95c3f5f77ec8148ce041c1",
+    "tree_sha": "a8a6f831cb4b5c2adaf82f11530e31ed4c4ad69b",
+    "parent_sha": "f1a72ddec963abf07dd664cfee679908476c85e1",
+    "message": "fix(P10): package R11 repair candidate",
+    "path_count": 21,
     "entries": [
       {
         "status": "M",
@@ -72,31 +36,35 @@
       },
       {
         "status": "M",
-        "path": "internal/agent/control/session.go"
-      },
-      {
-        "status": "M",
-        "path": "internal/agent/localstate/activation.go"
-      },
-      {
-        "status": "M",
-        "path": "internal/agent/localstate/journal.go"
+        "path": "internal/agent/app_test.go"
       },
       {
         "status": "A",
-        "path": "internal/agent/localstate/p10_r9_repair_test.go"
+        "path": "internal/agent/localstate/p10_r10_repair_test.go"
       },
       {
-        "status": "A",
-        "path": "internal/agent/p10_r9_repair_test.go"
+        "status": "M",
+        "path": "internal/agent/localstate/probe.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/localstate/store.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/reconcile/activation.go"
       },
       {
         "status": "M",
         "path": "internal/agent/reconcile/desired.go"
       },
       {
+        "status": "M",
+        "path": "internal/agent/reconcile/desired_test.go"
+      },
+      {
         "status": "A",
-        "path": "internal/agent/reconcile/p10_r9_repair_test.go"
+        "path": "internal/agent/reconcile/p10_r10_repair_test.go"
       },
       {
         "status": "M",
@@ -104,22 +72,10 @@
       },
       {
         "status": "M",
-        "path": "internal/agent/reconcile/reconciler.go"
-      },
-      {
-        "status": "M",
-        "path": "internal/controller/agenthub/hub.go"
-      },
-      {
-        "status": "M",
-        "path": "internal/controller/api/forwards_min.go"
-      },
-      {
-        "status": "M",
         "path": "internal/controller/app.go"
       },
       {
-        "status": "A",
+        "status": "M",
         "path": "internal/controller/app_r9_repair_test.go"
       },
       {
@@ -127,12 +83,8 @@
         "path": "internal/controller/probe/manager.go"
       },
       {
-        "status": "A",
-        "path": "internal/controller/probe/p10_r9_repair_test.go"
-      },
-      {
         "status": "M",
-        "path": "internal/controller/probe/provider.go"
+        "path": "internal/controller/probe/p10_r9_repair_test.go"
       },
       {
         "status": "M",
@@ -140,19 +92,1170 @@
       },
       {
         "status": "M",
+        "path": "internal/controller/probe/provider_service_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/control.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/p10_r9_repair_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/probe.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/probe_cleanup_regression_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/probe_test.go"
+      }
+    ],
+    "changed_file_sha256": {
+      "internal/agent/app.go": "6fae8e480c59c60f6d6537f0b52dc8c4ffe35b61eefb1851b10f7149e96cd5a4",
+      "internal/agent/app_test.go": "98fedd3d9ec09629ea33797224e8010c38473f14d2369740a3092943c453b981",
+      "internal/agent/localstate/p10_r10_repair_test.go": "c32c87db103acce3b87ed2b0ea1c78c7638163cf4af3ecc18cb9fa7dbb26a327",
+      "internal/agent/localstate/probe.go": "48d0f6a5bf76a70e4eb2485807fd7d11feee3413ea888d1e9773e841fef9429d",
+      "internal/agent/localstate/store.go": "ff96cc9995be908f96b510acaee75752c79318804ac9809b6758987ca044a0af",
+      "internal/agent/reconcile/activation.go": "9f5d69afda3f989b8a4a0d06382fb962758d994d4b5a6979770c2afe44353cee",
+      "internal/agent/reconcile/desired.go": "726b68dab2606f503fe8ba672fbcedc781dce87d38aa148ae9066102763cd816",
+      "internal/agent/reconcile/desired_test.go": "29877025d26750e492e3ece2e0f628e83ef2d337e48bfb7babfdd1200fd78a9c",
+      "internal/agent/reconcile/p10_r10_repair_test.go": "9cba5ac17a3bd663610831b661f823441804ea8be16f8e5e6c114f92d5da98bd",
+      "internal/agent/reconcile/probe.go": "9d6972809632dd2b1ccd3ea2f3cb1b06f99390ecab0d0dce4898fd43873adbcb",
+      "internal/controller/app.go": "523111378bd5c27c5d7fe46e9e42e13d2715a95a3c01dad71980156f52dc6b23",
+      "internal/controller/app_r9_repair_test.go": "81dc412b77b1cc1dd18f48cdddcef3dc939d23e457124868c00e2df9883354ea",
+      "internal/controller/probe/manager.go": "6420213a07d1fe19e0bd3918f8a20729f612842c3b211ed53e99603d3cf015b3",
+      "internal/controller/probe/p10_r9_repair_test.go": "17a9032e9f6311becd8bec8abb6ccabafb8666d709f2fa5e93e6f8a8a98e6bd2",
+      "internal/controller/probe/provider_service.go": "1160d987ae0b432a9664cd2500f46ae6fd2ffd84f85649f1e017740d8acca1b7",
+      "internal/controller/probe/provider_service_test.go": "3e532fc1e81b985f9c62edeea14933ed51b15339168f346a7463a0a75d02a20d",
+      "internal/controller/store/control.go": "e863198964d7cf93767bbfa926569c765642c990703229bc0d11eef5af2d8327",
+      "internal/controller/store/p10_r9_repair_test.go": "057a8876bccc936d54f4513e794695f3d8bcdb4dfc158ff2d2c47508d736e25f",
+      "internal/controller/store/probe.go": "19bacf04b8a67133b4523847301edfdb1f3e518ecd650d9343be9bcc8c45e5d2",
+      "internal/controller/store/probe_cleanup_regression_test.go": "efb4c7e4b99737fbdc9de82d310f103d649ce3c922a187aad2472b78a7b1447d",
+      "internal/controller/store/probe_test.go": "6fefd7172604c5aef191031084387cd02d93ba8346a2334198eb3c7c09332d93"
+    },
+    "production_or_test_bytes_modified_by_packaging": false
+  },
+  "handoff_only_tip": {
+    "candidate_code_changed": false,
+    "expected_message": "docs(P10): reconcile R12 canonical handoff",
+    "expected_paths": [
+      ".hermes/handoffs/P10.json",
+      ".hermes/handoffs/P10-r11-repair.json"
+    ],
+    "sha_and_tree_reported_in_review_required_kanban_block_after_commit": true
+  },
+  "commits": [
+    "da3e3f45240875ef5b0b81a0679502f766e3e71b",
+    "2ec68b8496820e0e50e74d291bcd1a8a2fd66b26",
+    "53347d23ba6cf9fdc154f3217286ed084ef199b8",
+    "9d197946fe6da8a82a316b14186d27683b1e2673",
+    "9ff2d1ea2ac200f663d15d1ce7d4b57680dab726",
+    "505c164a1291277e233ca1a09e84127f88e47042",
+    "30a003d2c23f0a973271ed51d0d88ff9c0adb549",
+    "113c5424cf1080a759fde3b78d8a581c9f7ee803",
+    "4e9a81f8ea1e7d8517b7b6b1692eeff5bd8bac6c",
+    "58dd0c6a6827cfcf5e7d34d078cee84c4d20cef8",
+    "d0b099671474d9f353fced914722bab14292f088",
+    "28a39a6934db75ac1d13db681e205679abb4079e",
+    "98ead948bf4bba9316f0a2cb78187735b5b4c8f6",
+    "830ca67b4e85f5447f70459688eef58b30e93937",
+    "60a4535c379f4b961f79cff16a25a56fe8aeb150",
+    "64f5d04b607a573dc53154fe9e401db618171b25",
+    "e2f303f1a61ebd79213c28180225515281f23545",
+    "08c11ec036d463d1926bb9ec0a9397662eb6d4df",
+    "599ab3dfc23a745ee0a151ded3ee179d8e37dcf7",
+    "8aa0d6d4efbff38b4c408dd4d131db03aee024d7",
+    "326ed64b04a95195a998148ef96ccc9d461d1f5e",
+    "3aed3776de97be3e28532c2c64d71d2f3e20d9f8",
+    "7f59b66cd45c383a042326a35cf01307a97979d6",
+    "9ef9d2ff0ff6fc67faaeb5d6253ade6d2b41388b",
+    "978e186a5ce1b3407a5ad78a836eee199d154b3d",
+    "6a7938aa3973e6d79cecae5a98b167f365976272",
+    "ce62fbfec1ccc7030a5e50a7360dc02030ba9d77",
+    "45dc35a1fcdd846b7eff4a47b5f09a31dd9be13f",
+    "9ebafd87e9b8633805b2d58dc1832b881f516c31",
+    "c4edb088f7ff48cea81e18c56cdd713ce9c6fe33",
+    "f06fdd4c49e624dde76f75e34b08091e4f6db1a0",
+    "a2eb8f67c1d9a242506dea7870f8475209cf8f03",
+    "4be6b57f3652828ba5c2abb4ca50a9cbf65ea64c",
+    "4c2eaaf23ce9a638a721d8019a1722fe78dbddfc",
+    "f1235449f482d28587aa8e229a94fe1623a73451",
+    "bee7836f96167fa2efaffaddf2988aff84e240a1",
+    "cdfc420b7173516889954189762f180120727f5e",
+    "add8f144366ab91566decb8119a9fc32a91f9c7e",
+    "ac48fe551eebc7670ec0743e38123a5dec32e7f3",
+    "5a844dcf749014393aa32f967b4f06369b8d1148",
+    "5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919",
+    "b360aea8bfe7e05a68eb2016dfd519f4960db3ef",
+    "ca69aa72ef43851f33b290617e098096a87f7013",
+    "8a3058afdda448d1d761e5f0815f35ed89c96456",
+    "494fd38daa25d42386470af4242519bdc531c997",
+    "1bfe27a4d031d4406627b8390699dd7761c6198c",
+    "f1a72ddec963abf07dd664cfee679908476c85e1",
+    "519cbda7e3193526ba95c3f5f77ec8148ce041c1"
+  ],
+  "commit_count": 48,
+  "commit_inventory": [
+    {
+      "sha": "da3e3f45240875ef5b0b81a0679502f766e3e71b",
+      "tree_sha": "18ae30ab31b445a9d331fee203c06993290ed531",
+      "parents": [
+        "adf74fa860812054bd71082006a8c78ea4189888"
+      ],
+      "message": "P10 S1-S3: probe store/migration, hub probe sink, agent probe gate + activation state machine (TDD)"
+    },
+    {
+      "sha": "2ec68b8496820e0e50e74d291bcd1a8a2fd66b26",
+      "tree_sha": "2d77a547e19fdac388ec8ce9ca0d0fe4283fd802",
+      "parents": [
+        "da3e3f45240875ef5b0b81a0679502f766e3e71b"
+      ],
+      "message": "P10: gofmt"
+    },
+    {
+      "sha": "53347d23ba6cf9fdc154f3217286ed084ef199b8",
+      "tree_sha": "90bec64f300937bf20ef5cd5e8f1b8af3a516080",
+      "parents": [
+        "2ec68b8496820e0e50e74d291bcd1a8a2fd66b26"
+      ],
+      "message": "P10 S1: controller probe manager, provider service + antinat-probe binary"
+    },
+    {
+      "sha": "9d197946fe6da8a82a316b14186d27683b1e2673",
+      "tree_sha": "5175eb4dcd2b62de26fe765b019e420cab747cf7",
+      "parents": [
+        "53347d23ba6cf9fdc154f3217286ed084ef199b8"
+      ],
+      "message": "P10 S4a: minimal authenticated admin API (auth/nodes/forwards/health + ETag + idempotency)"
+    },
+    {
+      "sha": "9ff2d1ea2ac200f663d15d1ce7d4b57680dab726",
+      "tree_sha": "75ca9be1f3bf6069af93724d0ebdf6170174b66b",
+      "parents": [
+        "9d197946fe6da8a82a316b14186d27683b1e2673"
+      ],
+      "message": "P10 S4b: antinatctl CLI + admin init endpoint, plan-declared file layout, RED fixes"
+    },
+    {
+      "sha": "505c164a1291277e233ca1a09e84127f88e47042",
+      "tree_sha": "36560d958e5d7fd16b1340c7f328c7b2689a3074",
+      "parents": [
+        "9ff2d1ea2ac200f663d15d1ce7d4b57680dab726"
+      ],
+      "message": "P10 S5: controller/agent app composition + mains (TDD)"
+    },
+    {
+      "sha": "30a003d2c23f0a973271ed51d0d88ff9c0adb549",
+      "tree_sha": "a22f25a5495e0d26b8fc0697b042c877fbd35c3b",
+      "parents": [
+        "505c164a1291277e233ca1a09e84127f88e47042"
+      ],
+      "message": "P10 S5b: controller deletion watcher, agent data-plane recovery + activation tracking"
+    },
+    {
+      "sha": "113c5424cf1080a759fde3b78d8a581c9f7ee803",
+      "tree_sha": "a4869972ab56385a972628314b634c5fc5350f8b",
+      "parents": [
+        "30a003d2c23f0a973271ed51d0d88ff9c0adb549"
+      ],
+      "message": "fix(P10): unblock activation callback and complete walking skeleton"
+    },
+    {
+      "sha": "4e9a81f8ea1e7d8517b7b6b1692eeff5bd8bac6c",
+      "tree_sha": "3097d171f19eaba81051bde42233b7eb4f4b3aae",
+      "parents": [
+        "113c5424cf1080a759fde3b78d8a581c9f7ee803"
+      ],
+      "message": "fix(P10): address cycle-1 network and lifecycle findings"
+    },
+    {
+      "sha": "58dd0c6a6827cfcf5e7d34d078cee84c4d20cef8",
+      "tree_sha": "184a2c916559ef072a2a484098b10445ff762b74",
+      "parents": [
+        "4e9a81f8ea1e7d8517b7b6b1692eeff5bd8bac6c"
+      ],
+      "message": "docs(P10): record cycle-1 repair handoff"
+    },
+    {
+      "sha": "d0b099671474d9f353fced914722bab14292f088",
+      "tree_sha": "bb038b88ec8c0fe848990464b901563a15b4a261",
+      "parents": [
+        "58dd0c6a6827cfcf5e7d34d078cee84c4d20cef8"
+      ],
+      "message": "fix(P10): enforce scoped ownership boundary"
+    },
+    {
+      "sha": "28a39a6934db75ac1d13db681e205679abb4079e",
+      "tree_sha": "15873362163ce53bf783fadcfab214d3cb2136ed",
+      "parents": [
+        "d0b099671474d9f353fced914722bab14292f088"
+      ],
+      "message": "docs(P10): record scoped ownership disposition"
+    },
+    {
+      "sha": "98ead948bf4bba9316f0a2cb78187735b5b4c8f6",
+      "tree_sha": "77fe33902223e5eab04028d9f11402215e6a5470",
+      "parents": [
+        "28a39a6934db75ac1d13db681e205679abb4079e"
+      ],
+      "message": "fix(P10): harden controller probe joins and atomic forward create"
+    },
+    {
+      "sha": "830ca67b4e85f5447f70459688eef58b30e93937",
+      "tree_sha": "1c6d45ed7d51380a41c1607f813ef4ce59ae4fb3",
+      "parents": [
+        "98ead948bf4bba9316f0a2cb78187735b5b4c8f6"
+      ],
+      "message": "docs(P10): record controller repair handoff"
+    },
+    {
+      "sha": "60a4535c379f4b961f79cff16a25a56fe8aeb150",
+      "tree_sha": "be482517bf3990be473830ea34b154247073bfc3",
+      "parents": [
+        "830ca67b4e85f5447f70459688eef58b30e93937"
+      ],
+      "message": "test(P10): codify controller probe regressions"
+    },
+    {
+      "sha": "64f5d04b607a573dc53154fe9e401db618171b25",
+      "tree_sha": "c4609bc152ebdc6412379a4c6b2e22857f227afc",
+      "parents": [
+        "60a4535c379f4b961f79cff16a25a56fe8aeb150"
+      ],
+      "message": "docs(P10): record controller regression handoff"
+    },
+    {
+      "sha": "e2f303f1a61ebd79213c28180225515281f23545",
+      "tree_sha": "8eef3ac257550c636f8a36ec8f543ad5f43e3f51",
+      "parents": [
+        "64f5d04b607a573dc53154fe9e401db618171b25"
+      ],
+      "message": "fix(P10): enforce controller probe evidence joins"
+    },
+    {
+      "sha": "08c11ec036d463d1926bb9ec0a9397662eb6d4df",
+      "tree_sha": "57ba72b7d3f345e4dac13253b4afe6726a9ae3b7",
+      "parents": [
+        "e2f303f1a61ebd79213c28180225515281f23545"
+      ],
+      "message": "docs(P10): record controller evidence repair"
+    },
+    {
+      "sha": "599ab3dfc23a745ee0a151ded3ee179d8e37dcf7",
+      "tree_sha": "1a03546015a5fa8ea5985ef03666d3fe3ef7f2a6",
+      "parents": [
+        "08c11ec036d463d1926bb9ec0a9397662eb6d4df"
+      ],
+      "message": "docs(P10): correct handoff file inventory"
+    },
+    {
+      "sha": "8aa0d6d4efbff38b4c408dd4d131db03aee024d7",
+      "tree_sha": "a13385c41d28285ad256a1dc6d805bda6b3c5b60",
+      "parents": [
+        "599ab3dfc23a745ee0a151ded3ee179d8e37dcf7"
+      ],
+      "message": "fix(P10): harden durable outbox replay and claims"
+    },
+    {
+      "sha": "326ed64b04a95195a998148ef96ccc9d461d1f5e",
+      "tree_sha": "13acd7646701e4b75ac1bf4070ec746a60d59670",
+      "parents": [
+        "8aa0d6d4efbff38b4c408dd4d131db03aee024d7"
+      ],
+      "message": "docs(P10): record durable persistence repair"
+    },
+    {
+      "sha": "3aed3776de97be3e28532c2c64d71d2f3e20d9f8",
+      "tree_sha": "af3c5a3da0319071470d12f1eb959568f8bcf438",
+      "parents": [
+        "326ed64b04a95195a998148ef96ccc9d461d1f5e"
+      ],
+      "message": "fix(P10): bound controller probe state cleanup"
+    },
+    {
+      "sha": "7f59b66cd45c383a042326a35cf01307a97979d6",
+      "tree_sha": "1e4ecd4be6286be2ce680bf64d38b38d2a8b3c96",
+      "parents": [
+        "3aed3776de97be3e28532c2c64d71d2f3e20d9f8"
+      ],
+      "message": "test(P10): accept in-flight provider dispatch state"
+    },
+    {
+      "sha": "9ef9d2ff0ff6fc67faaeb5d6253ade6d2b41388b",
+      "tree_sha": "d90ed574722f3edabe93a1f4b22765d567eb12ce",
+      "parents": [
+        "7f59b66cd45c383a042326a35cf01307a97979d6"
+      ],
+      "message": "docs(P10): record bounded controller cleanup handoff"
+    },
+    {
+      "sha": "978e186a5ce1b3407a5ad78a836eee199d154b3d",
+      "tree_sha": "9b7f4c5b30c4714f56a3bd7c834f3ddf5bd5da65",
+      "parents": [
+        "9ef9d2ff0ff6fc67faaeb5d6253ade6d2b41388b"
+      ],
+      "message": "docs(P10): record full verification environment"
+    },
+    {
+      "sha": "6a7938aa3973e6d79cecae5a98b167f365976272",
+      "tree_sha": "8a86a69a45350ca6618ff2d36353bf30061d074f",
+      "parents": [
+        "978e186a5ce1b3407a5ad78a836eee199d154b3d"
+      ],
+      "message": "docs(P10): correct cleanup handoff SHA"
+    },
+    {
+      "sha": "ce62fbfec1ccc7030a5e50a7360dc02030ba9d77",
+      "tree_sha": "fbc82a2879b81655e67f4289c6023d68061bf10f",
+      "parents": [
+        "6a7938aa3973e6d79cecae5a98b167f365976272"
+      ],
+      "message": "fix(P10): harden probe join and receipt retry paths"
+    },
+    {
+      "sha": "45dc35a1fcdd846b7eff4a47b5f09a31dd9be13f",
+      "tree_sha": "a5198abe65d06f0d61e8cc51f7fbc969af1636e3",
+      "parents": [
+        "ce62fbfec1ccc7030a5e50a7360dc02030ba9d77"
+      ],
+      "message": "docs(P10): record final bounded review evidence"
+    },
+    {
+      "sha": "9ebafd87e9b8633805b2d58dc1832b881f516c31",
+      "tree_sha": "13f4aa69005acb1e5fe2e4f5c974296790f0b305",
+      "parents": [
+        "45dc35a1fcdd846b7eff4a47b5f09a31dd9be13f"
+      ],
+      "message": "docs(P10): make cleanup evidence executable"
+    },
+    {
+      "sha": "c4edb088f7ff48cea81e18c56cdd713ce9c6fe33",
+      "tree_sha": "ccf1b5da341807d02ce1dae2bc944f08ae8c43ff",
+      "parents": [
+        "9ebafd87e9b8633805b2d58dc1832b881f516c31"
+      ],
+      "message": "docs(P10): reconcile final candidate handoff"
+    },
+    {
+      "sha": "f06fdd4c49e624dde76f75e34b08091e4f6db1a0",
+      "tree_sha": "bdc7f34ea120e1922a90491b32efaba146e5cdff",
+      "parents": [
+        "c4edb088f7ff48cea81e18c56cdd713ce9c6fe33"
+      ],
+      "message": "fix(P10): bound probe recovery and lifecycle retries"
+    },
+    {
+      "sha": "a2eb8f67c1d9a242506dea7870f8475209cf8f03",
+      "tree_sha": "8860fc42363f971ba514e325eb7896d68b3cec85",
+      "parents": [
+        "f06fdd4c49e624dde76f75e34b08091e4f6db1a0"
+      ],
+      "message": "test(P10): retain bounded repair evidence"
+    },
+    {
+      "sha": "4be6b57f3652828ba5c2abb4ca50a9cbf65ea64c",
+      "tree_sha": "91ea56879db97effd5ef55fd8a21b76b2e84f35b",
+      "parents": [
+        "a2eb8f67c1d9a242506dea7870f8475209cf8f03"
+      ],
+      "message": "docs(P10): retain RED-GREEN evidence logs"
+    },
+    {
+      "sha": "4c2eaaf23ce9a638a721d8019a1722fe78dbddfc",
+      "tree_sha": "e732539c418dd371cf40cb8ebd23e84d9d881c25",
+      "parents": [
+        "4be6b57f3652828ba5c2abb4ca50a9cbf65ea64c"
+      ],
+      "message": "docs(P10): reconcile migration ownership and repair handoff"
+    },
+    {
+      "sha": "f1235449f482d28587aa8e229a94fe1623a73451",
+      "tree_sha": "77b0fd2dc0ef35d1292ffebbfa3613b9e2ef9f50",
+      "parents": [
+        "4c2eaaf23ce9a638a721d8019a1722fe78dbddfc"
+      ],
+      "message": "docs(P10): finalize exact repair handoff"
+    },
+    {
+      "sha": "bee7836f96167fa2efaffaddf2988aff84e240a1",
+      "tree_sha": "8491122051f98f0956747f2957aa68986feedfa8",
+      "parents": [
+        "f1235449f482d28587aa8e229a94fe1623a73451"
+      ],
+      "message": "docs(P10): record final verification evidence"
+    },
+    {
+      "sha": "cdfc420b7173516889954189762f180120727f5e",
+      "tree_sha": "b82031188323e8a0b0068283479d543598c0f288",
+      "parents": [
+        "bee7836f96167fa2efaffaddf2988aff84e240a1"
+      ],
+      "message": "docs(P10): pin candidate head and artifact policy"
+    },
+    {
+      "sha": "add8f144366ab91566decb8119a9fc32a91f9c7e",
+      "tree_sha": "e4b9d2912f31a5413f941cf07ea03858119b7550",
+      "parents": [
+        "cdfc420b7173516889954189762f180120727f5e"
+      ],
+      "message": "fix(P10): close lifecycle workers on capability changes"
+    },
+    {
+      "sha": "ac48fe551eebc7670ec0743e38123a5dec32e7f3",
+      "tree_sha": "3e6df4e8ca75e11ddb8d0f3695660457409fd810",
+      "parents": [
+        "add8f144366ab91566decb8119a9fc32a91f9c7e"
+      ],
+      "message": "test(P10): refresh final verification evidence"
+    },
+    {
+      "sha": "5a844dcf749014393aa32f967b4f06369b8d1148",
+      "tree_sha": "7698a3124ba098265dc1ad3492edb1e1e276fb2e",
+      "parents": [
+        "ac48fe551eebc7670ec0743e38123a5dec32e7f3"
+      ],
+      "message": "docs(P10): record R6 lifecycle evidence and ownership"
+    },
+    {
+      "sha": "5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919",
+      "tree_sha": "da95cffeb1737fdfb7e8d24a6607a7914ac0c80f",
+      "parents": [
+        "5a844dcf749014393aa32f967b4f06369b8d1148"
+      ],
+      "message": "fix(P10): close R7 auth activation and lifecycle gaps"
+    },
+    {
+      "sha": "b360aea8bfe7e05a68eb2016dfd519f4960db3ef",
+      "tree_sha": "6109e82c6b36c30a77866aa74f7e87d0b61e4e2e",
+      "parents": [
+        "5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919"
+      ],
+      "message": "docs(P10): record R7 repair handoff"
+    },
+    {
+      "sha": "ca69aa72ef43851f33b290617e098096a87f7013",
+      "tree_sha": "09d0539767ae03c181baf8e61f3877f07b9e3de4",
+      "parents": [
+        "b360aea8bfe7e05a68eb2016dfd519f4960db3ef"
+      ],
+      "message": "docs(P10): reconcile R8 handoff evidence"
+    },
+    {
+      "sha": "8a3058afdda448d1d761e5f0815f35ed89c96456",
+      "tree_sha": "f1bf1ae29e64dd509bd5a1eab67fc87b48a43f26",
+      "parents": [
+        "ca69aa72ef43851f33b290617e098096a87f7013"
+      ],
+      "message": "fix(P10): repair probe activation and lifecycle recovery"
+    },
+    {
+      "sha": "494fd38daa25d42386470af4242519bdc531c997",
+      "tree_sha": "3607e97da31ec0a5fc94d4701e7052b69b8ccb68",
+      "parents": [
+        "8a3058afdda448d1d761e5f0815f35ed89c96456"
+      ],
+      "message": "docs(P10): record R9 repair evidence"
+    },
+    {
+      "sha": "1bfe27a4d031d4406627b8390699dd7761c6198c",
+      "tree_sha": "0725a0c2dab9c1a28a0f658682e35e6bbcfb584b",
+      "parents": [
+        "494fd38daa25d42386470af4242519bdc531c997"
+      ],
+      "message": "docs(P10): reconcile canonical R9 handoff"
+    },
+    {
+      "sha": "f1a72ddec963abf07dd664cfee679908476c85e1",
+      "tree_sha": "6fdb779a65ad7c3503244efe888516e1523e1941",
+      "parents": [
+        "1bfe27a4d031d4406627b8390699dd7761c6198c"
+      ],
+      "message": "docs(P10): reconcile R10 ownership and RED evidence"
+    },
+    {
+      "sha": "519cbda7e3193526ba95c3f5f77ec8148ce041c1",
+      "tree_sha": "a8a6f831cb4b5c2adaf82f11530e31ed4c4ad69b",
+      "parents": [
+        "f1a72ddec963abf07dd664cfee679908476c85e1"
+      ],
+      "message": "fix(P10): package R11 repair candidate"
+    }
+  ],
+  "files_changed": [
+    ".hermes/evidence/p10/f1-activation-green.log",
+    ".hermes/evidence/p10/f1-activation-red.log",
+    ".hermes/evidence/p10/f2-forward-binding-green.log",
+    ".hermes/evidence/p10/f2-forward-binding-red.log",
+    ".hermes/evidence/p10/f3-provider-green.log",
+    ".hermes/evidence/p10/f3-provider-red.log",
+    ".hermes/evidence/p10/r10-reconciliation-validation.log",
+    ".hermes/evidence/p10/r10-red-claim-audit.log",
+    ".hermes/evidence/p10/r6-contracts.log",
+    ".hermes/evidence/p10/r6-final-make-build.log",
+    ".hermes/evidence/p10/r6-final-make-check.log",
+    ".hermes/evidence/p10/r6-hub-close-green.log",
+    ".hermes/evidence/p10/r6-hub-close-red.log",
+    ".hermes/evidence/p10/r6-lifecycle-race.log",
+    ".hermes/evidence/p10/r6-make-build.log",
+    ".hermes/evidence/p10/r6-make-check.log",
+    ".hermes/evidence/p10/r6-make-test.log",
+    ".hermes/evidence/p10/r6-probe-gate-green.log",
+    ".hermes/evidence/p10/r6-probe-gate-red.log",
+    ".hermes/evidence/p10/r6-required-race.log",
+    ".hermes/evidence/p10/r6-route-fingerprint-green.log",
+    ".hermes/evidence/p10/r6-route-fingerprint-red.log",
+    ".hermes/evidence/p10/r6-startup-wait-green.log",
+    ".hermes/evidence/p10/r6-startup-wait-red.log",
+    ".hermes/evidence/p10/r7-apply-desired-capability-green.log",
+    ".hermes/evidence/p10/r7-apply-desired-capability-red.log",
+    ".hermes/evidence/p10/r9-contracts.log",
+    ".hermes/evidence/p10/r9-e2e.log",
+    ".hermes/evidence/p10/r9-focused.log",
+    ".hermes/evidence/p10/r9-make-build.log",
+    ".hermes/evidence/p10/r9-make-check.log",
+    ".hermes/evidence/p10/r9-make-test.log",
+    ".hermes/evidence/p10/r9-race.log",
+    ".hermes/evidence/p10/r9-vet.log",
+    ".hermes/evidence/p10/s4-receipt-green.log",
+    ".hermes/evidence/p10/s4-receipt-red.log",
+    ".hermes/evidence/p10/s5-reconnect-green.log",
+    ".hermes/evidence/p10/s5-reconnect-red.log",
+    ".hermes/evidence/p10/s6-walking-green.log",
+    ".hermes/evidence/p10/s6-walking-red.log",
+    ".hermes/handoffs/P10-controller-regressions.json",
+    ".hermes/handoffs/P10-r10-repair.json",
+    ".hermes/handoffs/P10-r9-repair.json",
+    ".hermes/handoffs/P10.json",
+    ".hermes/plans/v1-beta/12-gateway-traversal-detection.md",
+    ".hermes/plans/v1-beta/14-lifecycle-rotation-recovery.md",
+    "cmd/antinat-agent/main.go",
+    "cmd/antinat-controller/main.go",
+    "cmd/antinat-probe/main.go",
+    "cmd/antinat-probe/main_test.go",
+    "cmd/antinatctl/cli_test.go",
+    "cmd/antinatctl/main.go",
+    "go.mod",
+    "go.sum",
+    "internal/agent/app.go",
+    "internal/agent/app_test.go",
+    "internal/agent/control/reconnect_test.go",
+    "internal/agent/control/session.go",
+    "internal/agent/localstate/activation.go",
+    "internal/agent/localstate/journal.go",
+    "internal/agent/localstate/outbox.go",
+    "internal/agent/localstate/p10_r10_repair_test.go",
+    "internal/agent/localstate/p10_r9_repair_test.go",
+    "internal/agent/localstate/p10_repair_red_test.go",
+    "internal/agent/localstate/probe.go",
+    "internal/agent/localstate/probe_test.go",
+    "internal/agent/localstate/schema.go",
+    "internal/agent/localstate/store.go",
+    "internal/agent/localstate/store_test.go",
+    "internal/agent/p10_r9_repair_test.go",
+    "internal/agent/reconcile/activation.go",
+    "internal/agent/reconcile/desired.go",
+    "internal/agent/reconcile/desired_test.go",
+    "internal/agent/reconcile/p10_r10_repair_test.go",
+    "internal/agent/reconcile/p10_r9_repair_test.go",
+    "internal/agent/reconcile/probe.go",
+    "internal/agent/reconcile/probe_gate_lifecycle_test.go",
+    "internal/agent/reconcile/probe_test.go",
+    "internal/agent/reconcile/reconciler.go",
+    "internal/agent/reconcile/state_machine.go",
+    "internal/agent/reconcile/state_machine_test.go",
+    "internal/agent/startup_cleanup_regression_test.go",
+    "internal/controller/agenthub/hub.go",
+    "internal/controller/agenthub/hub_close_test.go",
+    "internal/controller/agenthub/probe_receipt_ack_regression_test.go",
+    "internal/controller/agenthub/probesink_test.go",
+    "internal/controller/agenthub/session.go",
+    "internal/controller/api/api_test.go",
+    "internal/controller/api/auth.go",
+    "internal/controller/api/forwards_min.go",
+    "internal/controller/api/health.go",
+    "internal/controller/api/nodes_min.go",
+    "internal/controller/app.go",
+    "internal/controller/app_r9_repair_test.go",
+    "internal/controller/app_test.go",
+    "internal/controller/auth/auth_test.go",
+    "internal/controller/auth/service.go",
+    "internal/controller/cycle2_regression_test.go",
+    "internal/controller/probe/cycle2_regression_test.go",
+    "internal/controller/probe/cycle3_regression_test.go",
+    "internal/controller/probe/cycle4_regression_test.go",
+    "internal/controller/probe/manager.go",
+    "internal/controller/probe/manager_cleanup_regression_test.go",
+    "internal/controller/probe/manager_test.go",
+    "internal/controller/probe/p10_network_red_test.go",
+    "internal/controller/probe/p10_r9_repair_test.go",
+    "internal/controller/probe/p10_repair_red_test.go",
+    "internal/controller/probe/provider.go",
+    "internal/controller/probe/provider_service.go",
+    "internal/controller/probe/provider_service_test.go",
+    "internal/controller/probe/story6_regression_test.go",
+    "internal/controller/store/backup_test.go",
+    "internal/controller/store/control.go",
+    "internal/controller/store/control_cleanup_regression_test.go",
+    "internal/controller/store/control_test.go",
+    "internal/controller/store/corrupt_internal_test.go",
+    "internal/controller/store/cycle3_regression_test.go",
+    "internal/controller/store/cycle4_regression_test.go",
+    "internal/controller/store/idempotency.go",
+    "internal/controller/store/idempotency_test.go",
+    "internal/controller/store/migrate.go",
+    "internal/controller/store/migrate_test.go",
+    "internal/controller/store/minapi.go",
+    "internal/controller/store/minapi_atomic_test.go",
+    "internal/controller/store/outbox.go",
+    "internal/controller/store/p10_r9_repair_test.go",
+    "internal/controller/store/probe.go",
+    "internal/controller/store/probe_cleanup_regression_test.go",
+    "internal/controller/store/probe_test.go",
+    "internal/controller/store/store.go",
+    "internal/controller/store/transaction_test.go",
+    "internal/controller/store/transactions.go",
+    "internal/controller/store/users.go",
+    "internal/controller/web/router_min.go",
+    "internal/protocol/endpoint.go",
+    "internal/protocol/p10_r9_repair_test.go",
+    "internal/protocol/probe_adapter.go",
+    "internal/traversal/network.go",
+    "migrations/0004_probe.sql",
+    "migrations/0005_probe_hardening.sql",
+    "migrations/migrations.go",
+    "test/e2e/harness/harness.go",
+    "test/e2e/walking_skeleton_test.go"
+  ],
+  "files_changed_count": 143,
+  "candidate_delta": {
+    "from_sha": "adf74fa860812054bd71082006a8c78ea4189888",
+    "from_tree_sha": "b304c39ec7573fb22d6508fa4585d8a9b2b4f105",
+    "to_sha": "519cbda7e3193526ba95c3f5f77ec8148ce041c1",
+    "to_tree_sha": "a8a6f831cb4b5c2adaf82f11530e31ed4c4ad69b",
+    "command": "git diff --name-status adf74fa860812054bd71082006a8c78ea4189888 519cbda7e3193526ba95c3f5f77ec8148ce041c1",
+    "exit_code": 0,
+    "path_count": 143,
+    "entries": [
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/f1-activation-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/f1-activation-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/f2-forward-binding-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/f2-forward-binding-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/f3-provider-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/f3-provider-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r10-reconciliation-validation.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r10-red-claim-audit.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-contracts.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-final-make-build.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-final-make-check.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-hub-close-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-hub-close-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-lifecycle-race.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-make-build.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-make-check.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-make-test.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-probe-gate-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-probe-gate-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-required-race.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-route-fingerprint-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-route-fingerprint-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-startup-wait-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-startup-wait-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r7-apply-desired-capability-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r7-apply-desired-capability-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r9-contracts.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r9-e2e.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r9-focused.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r9-make-build.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r9-make-check.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r9-make-test.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r9-race.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r9-vet.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/s4-receipt-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/s4-receipt-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/s5-reconnect-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/s5-reconnect-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/s6-walking-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/s6-walking-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/handoffs/P10-controller-regressions.json"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/handoffs/P10-r10-repair.json"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/handoffs/P10-r9-repair.json"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/handoffs/P10.json"
+      },
+      {
+        "status": "M",
+        "path": ".hermes/plans/v1-beta/12-gateway-traversal-detection.md"
+      },
+      {
+        "status": "M",
+        "path": ".hermes/plans/v1-beta/14-lifecycle-rotation-recovery.md"
+      },
+      {
+        "status": "M",
+        "path": "cmd/antinat-agent/main.go"
+      },
+      {
+        "status": "M",
+        "path": "cmd/antinat-controller/main.go"
+      },
+      {
+        "status": "A",
+        "path": "cmd/antinat-probe/main.go"
+      },
+      {
+        "status": "A",
+        "path": "cmd/antinat-probe/main_test.go"
+      },
+      {
+        "status": "A",
+        "path": "cmd/antinatctl/cli_test.go"
+      },
+      {
+        "status": "A",
+        "path": "cmd/antinatctl/main.go"
+      },
+      {
+        "status": "M",
+        "path": "go.mod"
+      },
+      {
+        "status": "M",
+        "path": "go.sum"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/app.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/app_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/control/reconnect_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/control/session.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/localstate/activation.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/localstate/journal.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/localstate/outbox.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/localstate/p10_r10_repair_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/localstate/p10_r9_repair_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/localstate/p10_repair_red_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/localstate/probe.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/localstate/probe_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/localstate/schema.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/localstate/store.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/localstate/store_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/p10_r9_repair_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/reconcile/activation.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/reconcile/desired.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/reconcile/desired_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/reconcile/p10_r10_repair_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/reconcile/p10_r9_repair_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/reconcile/probe.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/reconcile/probe_gate_lifecycle_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/reconcile/probe_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/reconcile/reconciler.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/reconcile/state_machine.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/reconcile/state_machine_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/startup_cleanup_regression_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/agenthub/hub.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/agenthub/hub_close_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/agenthub/probe_receipt_ack_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/agenthub/probesink_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/agenthub/session.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/api/api_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/api/auth.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/api/forwards_min.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/api/health.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/api/nodes_min.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/app.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/app_r9_repair_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/app_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/auth/auth_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/auth/service.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/cycle2_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/cycle2_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/cycle3_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/cycle4_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/manager.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/manager_cleanup_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/manager_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/p10_network_red_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/p10_r9_repair_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/p10_repair_red_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/provider.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/provider_service.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/provider_service_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/story6_regression_test.go"
+      },
+      {
+        "status": "M",
         "path": "internal/controller/store/backup_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/control.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/control_cleanup_regression_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/control_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/corrupt_internal_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/cycle3_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/cycle4_regression_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/idempotency.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/idempotency_test.go"
       },
       {
         "status": "M",
         "path": "internal/controller/store/migrate.go"
       },
       {
+        "status": "M",
+        "path": "internal/controller/store/migrate_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/minapi.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/minapi_atomic_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/outbox.go"
+      },
+      {
         "status": "A",
         "path": "internal/controller/store/p10_r9_repair_test.go"
       },
       {
-        "status": "M",
+        "status": "A",
         "path": "internal/controller/store/probe.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/probe_cleanup_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/probe_test.go"
       },
       {
         "status": "M",
@@ -168,438 +1271,169 @@
       },
       {
         "status": "M",
+        "path": "internal/controller/store/users.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/web/router_min.go"
+      },
+      {
+        "status": "M",
         "path": "internal/protocol/endpoint.go"
       },
       {
         "status": "A",
         "path": "internal/protocol/p10_r9_repair_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/protocol/probe_adapter.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/traversal/network.go"
+      },
+      {
+        "status": "A",
+        "path": "migrations/0004_probe.sql"
+      },
+      {
+        "status": "A",
+        "path": "migrations/0005_probe_hardening.sql"
+      },
+      {
+        "status": "M",
+        "path": "migrations/migrations.go"
+      },
+      {
+        "status": "A",
+        "path": "test/e2e/harness/harness.go"
+      },
+      {
+        "status": "A",
+        "path": "test/e2e/walking_skeleton_test.go"
       }
     ]
   },
-  "files_changed": [
-    "internal/agent/app.go",
-    "internal/agent/control/session.go",
-    "internal/agent/localstate/activation.go",
-    "internal/agent/localstate/journal.go",
-    "internal/agent/localstate/p10_r9_repair_test.go",
-    "internal/agent/p10_r9_repair_test.go",
-    "internal/agent/reconcile/desired.go",
-    "internal/agent/reconcile/p10_r9_repair_test.go",
-    "internal/agent/reconcile/probe.go",
-    "internal/agent/reconcile/reconciler.go",
-    "internal/controller/agenthub/hub.go",
-    "internal/controller/api/forwards_min.go",
-    "internal/controller/app.go",
-    "internal/controller/app_r9_repair_test.go",
-    "internal/controller/probe/manager.go",
-    "internal/controller/probe/p10_r9_repair_test.go",
-    "internal/controller/probe/provider.go",
-    "internal/controller/probe/provider_service.go",
-    "internal/controller/store/backup_test.go",
-    "internal/controller/store/migrate.go",
-    "internal/controller/store/p10_r9_repair_test.go",
-    "internal/controller/store/probe.go",
-    "internal/controller/store/store.go",
-    "internal/controller/store/transaction_test.go",
-    "internal/controller/store/transactions.go",
-    "internal/protocol/endpoint.go",
-    "internal/protocol/p10_r9_repair_test.go"
-  ],
-  "files_changed_count": 27,
-  "candidate_path_disposition": [
+  "tests": [
     {
-      "status": "M",
-      "path": "internal/agent/app.go",
-      "ownership": "P10-owned candidate path",
-      "symbols": []
+      "command": "go test focused P10-R12 regressions (controller/probe, controller/store, agent/reconcile, agent)",
+      "exit_code": 0,
+      "source": "inherited R12 retained evidence; not rerun by packaging task",
+      "evidence": ".hermes/evidence/p10/r12-focused.log",
+      "evidence_sha256": "f86c367c70dbab95f031827b4481bc46f1cd1dc62a2fef1305e097244281594e"
     },
     {
-      "status": "M",
-      "path": "internal/agent/control/session.go",
-      "ownership": "inherited R8 exact transfer",
-      "symbols": [
-        "Client.Connect",
-        "Client.Close",
-        "Client.Shutdown",
-        "Client.stopSession",
-        "Client.frameLoop",
-        "Client.pump",
-        "Client.heartbeat"
-      ]
+      "command": "go test ./internal/controller/probe ./internal/controller/store ./internal/agent/reconcile ./internal/agent/localstate ./internal/agent ./internal/controller -count=1",
+      "exit_code": 0,
+      "source": "inherited R12 retained evidence; not rerun by packaging task",
+      "evidence": ".hermes/evidence/p10/r12-affected.log",
+      "evidence_sha256": "0029523753f803f602cd868c6ff5a2f8049026a9678f83103c46286e7858567b"
     },
     {
-      "status": "M",
-      "path": "internal/agent/localstate/activation.go",
-      "ownership": "inherited R8 exact transfer",
-      "symbols": [
-        "ActivationSnapshot",
-        "Store.SaveActivationSnapshot",
-        "Store.LoadActivationSnapshot",
-        "Store.ListActivationSnapshots"
-      ]
+      "command": "go test -race ./internal/... ./cmd/... ./test/contracts ./test/e2e -count=1",
+      "exit_code": 0,
+      "source": "inherited R12 retained evidence; not rerun by packaging task",
+      "evidence": ".hermes/evidence/p10/r12-race.log",
+      "evidence_sha256": "19aa74ca8ce419b507d72948986dcef6f5f842e11562bedb6a5224901eed92c5"
     },
     {
-      "status": "M",
-      "path": "internal/agent/localstate/journal.go",
-      "ownership": "P07 -> P10 temporary R10 receiving-plan transfer",
-      "symbols": [
-        "Store.RecoverApplyingOperations"
-      ]
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make test",
+      "exit_code": 0,
+      "source": "inherited R12 retained evidence; not rerun by packaging task",
+      "evidence": ".hermes/evidence/p10/r12-make-test.log",
+      "evidence_sha256": "2d2572f927b8101e36fe65210de8278e1bccab77b630ec5601be9435aa277679"
     },
     {
-      "status": "A",
-      "path": "internal/agent/localstate/p10_r9_repair_test.go",
-      "ownership": "P07 -> P10 temporary R10 receiving-plan transfer",
-      "symbols": [
-        "TestRecoverApplyingOperationsQueuesNack"
-      ]
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make check",
+      "exit_code": 0,
+      "source": "inherited R12 retained evidence; not rerun by packaging task",
+      "evidence": ".hermes/evidence/p10/r12-make-check.log",
+      "evidence_sha256": "ee2873a575e5a45a2786849bd5bcce5added8e288149bd9bfb2ad73646cd76f6"
     },
     {
-      "status": "A",
-      "path": "internal/agent/p10_r9_repair_test.go",
-      "ownership": "P10-owned candidate path",
-      "symbols": []
+      "command": "make build",
+      "exit_code": 0,
+      "source": "inherited R12 retained evidence; not rerun by packaging task",
+      "evidence": ".hermes/evidence/p10/r12-make-build.log",
+      "evidence_sha256": "9a14e8b1daaa3de62e9d79c6824b58552d91e3d547207ab92383a041da4ef291"
     },
     {
-      "status": "M",
-      "path": "internal/agent/reconcile/desired.go",
-      "ownership": "inherited R8 exact transfer",
-      "symbols": [
-        "CapabilityCheck",
-        "ErrCapabilityLost",
-        "ApplyDesired",
-        "ApplyDesiredWithGuard",
-        "rollbackNewActors"
-      ]
+      "command": "go vet ./...",
+      "exit_code": 0,
+      "source": "inherited R12 retained evidence; not rerun by packaging task",
+      "evidence": ".hermes/evidence/p10/r12-vet.log",
+      "evidence_sha256": "bb1ede403057e15598724f3f63119129966a9ddddebe26eff4f7647ae2e0afdc"
     },
     {
-      "status": "A",
-      "path": "internal/agent/reconcile/p10_r9_repair_test.go",
-      "ownership": "P07 -> P10 temporary R10 receiving-plan transfer",
-      "symbols": [
-        "TestApplyDesiredRollsBackExistingHotUpdateWhenCommitFails",
-        "TestConsumedProbeSourceRemainsGatedDuringReplayWindow"
-      ]
+      "command": "git diff --check",
+      "exit_code": 0,
+      "source": "inherited R12 retained evidence; not rerun by packaging task",
+      "evidence": ".hermes/evidence/p10/r12-diff-check.log",
+      "evidence_sha256": "3d4d50cd32af92c6d4df37c1df74a96622fca8cfb5643a155c91f034a42f2068"
     },
     {
-      "status": "M",
-      "path": "internal/agent/reconcile/probe.go",
-      "ownership": "P10-owned candidate path",
-      "symbols": []
+      "command": "go test ./test/e2e -run TestLinuxDirectV4WalkingSkeleton -count=1 -v",
+      "exit_code": 0,
+      "source": "inherited R12 retained evidence; not rerun by packaging task",
+      "evidence": ".hermes/evidence/p10/r12-e2e.log",
+      "evidence_sha256": "ec04f66ba0038172249148209fb8db69ec809eec229d2d982fd4555fca603fc0"
     },
     {
-      "status": "M",
-      "path": "internal/agent/reconcile/reconciler.go",
-      "ownership": "P07/P08/P09 inherited R8 transfer plus temporary R10 additional hunk",
-      "symbols": [
-        "New guards ...CapabilityCheck",
-        "NewWithRollback",
-        "Reconciler.ReconcileOnce",
-        "Reconciler.guard",
-        "Reconciler.rollback"
-      ]
-    },
-    {
-      "status": "M",
-      "path": "internal/controller/agenthub/hub.go",
-      "ownership": "inherited R8 exact transfer",
-      "symbols": [
-        "ActivationStatusSink",
-        "Config.ControlWriteTimeout",
-        "Hub.Close",
-        "Hub.closed"
-      ]
-    },
-    {
-      "status": "M",
-      "path": "internal/controller/api/forwards_min.go",
-      "ownership": "P10-owned candidate path",
-      "symbols": []
-    },
-    {
-      "status": "M",
-      "path": "internal/controller/app.go",
-      "ownership": "P10-owned candidate path",
-      "symbols": []
-    },
-    {
-      "status": "A",
-      "path": "internal/controller/app_r9_repair_test.go",
-      "ownership": "P10-owned candidate path",
-      "symbols": []
-    },
-    {
-      "status": "M",
-      "path": "internal/controller/probe/manager.go",
-      "ownership": "P10-owned candidate path",
-      "symbols": []
-    },
-    {
-      "status": "A",
-      "path": "internal/controller/probe/p10_r9_repair_test.go",
-      "ownership": "P10-owned candidate path",
-      "symbols": []
-    },
-    {
-      "status": "M",
-      "path": "internal/controller/probe/provider.go",
-      "ownership": "P10-owned candidate path",
-      "symbols": []
-    },
-    {
-      "status": "M",
-      "path": "internal/controller/probe/provider_service.go",
-      "ownership": "P10-owned candidate path",
-      "symbols": []
-    },
-    {
-      "status": "M",
-      "path": "internal/controller/store/backup_test.go",
-      "ownership": "P06 -> P10 temporary R10 receiving-plan transfer",
-      "symbols": [
-        "TestLowDiskRefusesGrowthButAllowsDelete"
-      ]
-    },
-    {
-      "status": "M",
-      "path": "internal/controller/store/migrate.go",
-      "ownership": "P06 -> P10 temporary R10 receiving-plan transfer",
-      "symbols": [
-        "Store.migrate future-schema guard"
-      ]
-    },
-    {
-      "status": "A",
-      "path": "internal/controller/store/p10_r9_repair_test.go",
-      "ownership": "P06 -> P10 temporary R10 receiving-plan transfer",
-      "symbols": [
-        "TestApplyForwardDesiredPublishesCurrentActivationForRevision",
-        "TestOpenRejectsFutureSchemaVersion",
-        "TestApplyForwardDeleteRejectsMismatchedOutboxIdentity",
-        "TestApplyForwardDeleteRejectsNextRevisionRepresentation",
-        "TestProbeOperationDigestLookupScansBeyondOnePage"
-      ]
-    },
-    {
-      "status": "M",
-      "path": "internal/controller/store/probe.go",
-      "ownership": "inherited R8 exact transfer",
-      "symbols": [
-        "CreateProbeOperationBundle",
-        "SetProbeOperationStatusCAS",
-        "ListProbeOperationsByStatusLimit",
-        "bounded probe lookup/cleanup queries"
-      ]
-    },
-    {
-      "status": "M",
-      "path": "internal/controller/store/store.go",
-      "ownership": "P06 -> P10 temporary R10 receiving-plan transfer",
-      "symbols": [
-        "ErrSchemaTooNew"
-      ]
-    },
-    {
-      "status": "M",
-      "path": "internal/controller/store/transaction_test.go",
-      "ownership": "inherited R8 exact transfer",
-      "symbols": [
-        "TestApplyForwardDeleteRejectsStaleParentRevision",
-        "TestApplyForwardDeleteReplayIsIdempotent"
-      ]
-    },
-    {
-      "status": "M",
-      "path": "internal/controller/store/transactions.go",
-      "ownership": "inherited R8 exact transfer",
-      "symbols": [
-        "Store.ApplyForwardDelete"
-      ]
-    },
-    {
-      "status": "M",
-      "path": "internal/protocol/endpoint.go",
-      "ownership": "P05 -> P10 temporary R10 receiving-plan transfer",
-      "symbols": [
-        "classifyIPv4"
-      ]
-    },
-    {
-      "status": "A",
-      "path": "internal/protocol/p10_r9_repair_test.go",
-      "ownership": "P05 -> P10 temporary R10 receiving-plan transfer",
-      "symbols": [
-        "TestSpecialUseIPv4PrefixesAreNotGlobalEndpoints"
-      ]
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make test",
+      "exit_code": 2,
+      "status": "TRANSIENT_INITIAL_FAILURE_SUPERSEDED_BY_STANDALONE_E2E_AND_FINAL_MAKE_TEST_PASS",
+      "evidence": ".hermes/evidence/p10/r12-make-test-first-fail.log",
+      "evidence_sha256": "b1c539f66e82c5014bd32a2e14859d54324e9cf31d294bc0ada7512fcdf13b03",
+      "source": "inherited R12 retained evidence; not rerun by packaging task"
     }
   ],
-  "scope": "Cumulative R9 repair of durable terminal probe outcome recovery and timeout enqueueing; existing-actor hot-update rollback after failed desired commit; keyset pagination for activation snapshots and probe arm-digest lookup; retryable controller, AgentHub, and agent shutdown; activation-generation fencing; consumed-probe replay source tombstones; canonical forward activation publication; APPLYING operation recovery; future-schema refusal; provider replay result caching; and special-use IPv4 traversal classification.",
+  "test_evidence_policy": "All behavioral commands/exits are inherited from hash-verified R12 evidence. This bounded packaging task did not rerun broad suites; fresh reviews own independent commands.",
   "red_green": {
-    "previous_r9_red_claim": {
+    "r12_red_claim_audit": {
       "status": "UNVERIFIABLE_AND_REMOVED",
-      "old_base_sha": "ca69aa72ef43851f33b290617e098096a87f7013",
-      "commands": [
-        {
-          "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe -run 'TestRecoverOperationsRequeuesTerminalOutcome|TestHandleActivationStatusRejectsGenerationOutsideCurrentRevision' -count=1 -v",
-          "exit_code": 0,
-          "result": "no tests to run; exact old base lacks the named R9 regression"
-        },
-        {
-          "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/store -run TestProbeOperationDigestLookupScansBeyondOnePage -count=1 -v",
-          "exit_code": 0,
-          "result": "no tests to run; exact old base lacks the named R9 regression"
-        },
-        {
-          "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent -run TestPrepareActivationRecoveryProcessesAllPersistedSnapshots -count=1 -v",
-          "exit_code": 0,
-          "result": "no tests to run; exact old base lacks the named R9 regression"
-        },
-        {
-          "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/agent/reconcile -run TestConsumedProbeSourceRemainsGatedDuringReplayWindow -count=1 -v",
-          "exit_code": 0,
-          "result": "no tests to run; exact old base lacks the named R9 regression"
-        }
-      ],
-      "audit_evidence": ".hermes/evidence/p10/r10-red-claim-audit.log",
-      "reason": "The exact old-base archive returned exit 0 with no tests to run for all four named R9 regressions. No pre-change behavioral failure transcript was retained or reproducible, so the prior R9 observed_exit_code=1 claim is removed rather than repeated.",
+      "transcript_path": ".hermes/evidence/p10/r12-red.log",
+      "transcript_sha256": "df2640749189ecb351d073632beb4522a3c2f4317c5b5caabc98e75c22d16670",
+      "hash_verified": true,
+      "exact_pre_repair_procedure_validated": false,
+      "reason": "The retained transcript hash matches, but its only procedure header is `$ git worktree HEAD + focused P10-R12 regression tests`; it does not pin an immutable pre-repair commit/tree, copied-test byte hashes, temporary worktree/archive identity, or exact executable commands. The claimed pre-repair failures therefore cannot be reproduced as an exact procedure and are removed rather than presented as RED evidence.",
       "previous_claim_retained_as_red_evidence": false
     },
     "green": {
-      "status": "INHERITED_CANDIDATE_EVIDENCE",
-      "focused_evidence": ".hermes/evidence/p10/r9-focused.log",
-      "race_evidence": ".hermes/evidence/p10/r9-race.log",
-      "additional_green_tests": [
-        "TestProviderReplayReturnsCachedSignedResult",
-        "TestSweepRequeuesExpiredTimeoutOutcome",
-        "TestRecoverApplyingOperationsQueuesNack",
-        "TestControllerShutdownCanRetryAfterWatcherDeadline",
-        "TestControllerShutdownCanRetryAfterContextDeadline",
-        "TestOpenRejectsFutureSchemaVersion",
-        "TestApplyForwardDeleteRejectsMismatchedOutboxIdentity",
-        "TestSpecialUseIPv4PrefixesAreNotGlobalEndpoints"
-      ],
-      "note": "R9 green evidence remains retained for review of the immutable candidate; this R10 task changed only handoff/evidence metadata and did not rerun behavioral tests."
+      "status": "INHERITED_HASH_VERIFIED_EVIDENCE_REVIEW_REQUIRED",
+      "focused_evidence": ".hermes/evidence/p10/r12-focused.log",
+      "focused_evidence_sha256": "f86c367c70dbab95f031827b4481bc46f1cd1dc62a2fef1305e097244281594e",
+      "note": "Retained R12 GREEN logs are hash-verified historical evidence and are not self-review or integration approval."
     }
   },
-  "verification": [
-    {
-      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/... ./internal/agent/... -count=1",
-      "exit_code": 0
-    },
-    {
-      "command": "GOWORK=off GOMAXPROCS=2 go test -race -p=1 ./internal/agent/reconcile ./internal/controller/probe ./internal/controller/store ./internal/controller/agenthub -count=1",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r9-race.log"
-    },
-    {
-      "command": "GOWORK=off GOMAXPROCS=2 go vet ./internal/controller/... ./internal/agent/...",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r9-vet.log"
-    },
-    {
-      "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make test",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r9-make-test.log"
-    },
-    {
-      "command": "GOWORK=off GOMAXPROCS=2 ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make check",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r9-make-check.log"
-    },
-    {
-      "command": "GOWORK=off GOMAXPROCS=2 make build",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r9-make-build.log"
-    },
-    {
-      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./test/e2e -run '^TestLinuxDirectV4WalkingSkeleton$' -count=1 -v",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r9-e2e.log"
-    },
-    {
-      "command": "python3 test/contracts/generate_manifest.py . && git diff --exit-code -- test/contracts && GOWORK=off GOMAXPROCS=2 go test ./test/contracts/... -count=1",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r9-contracts.log"
-    },
-    {
-      "command": "git diff --check",
-      "exit_code": 0
-    }
-  ],
-  "focused_verification": [
-    {
-      "command": "GOWORK=off GOMAXPROCS=2 go test -p=1 ./internal/controller/probe ./internal/controller/store ./internal/agent/reconcile ./internal/agent/localstate ./internal/agent/control ./internal/protocol ./internal/traversal -count=1",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r9-focused.log"
-    },
-    {
-      "command": "GOWORK=off GOMAXPROCS=2 go test -race -p=1 ./internal/agent/reconcile ./internal/controller/probe ./internal/controller/store ./internal/controller/agenthub -count=1",
-      "exit_code": 0,
-      "evidence": ".hermes/evidence/p10/r9-race.log"
-    }
-  ],
-  "r10_reconciliation_verification": [
-    {
-      "command": "git status --porcelain=v1 --branch",
-      "exit_code": 0,
-      "summary": "The shared candidate was clean before handoff/evidence edits."
-    },
-    {
-      "command": "git show -s --format=\"%H%n%T%n%P%n%s\" 8a3058afdda448d1d761e5f0815f35ed89c96456",
-      "exit_code": 0,
-      "summary": "Immutable candidate commit/tree and message matched the recorded identity."
-    },
-    {
-      "command": "git diff --name-status ca69aa72ef43851f33b290617e098096a87f7013 8a3058afdda448d1d761e5f0815f35ed89c96456",
-      "exit_code": 0,
-      "summary": "The exact implementation delta contains 27 paths and matches candidate_delta.entries."
-    },
-    {
-      "command": "git diff --check ca69aa72ef43851f33b290617e098096a87f7013 8a3058afdda448d1d761e5f0815f35ed89c96456",
-      "exit_code": 0,
-      "summary": "The immutable candidate delta is whitespace-clean."
-    },
-    {
-      "command": "python3 -m json.tool .hermes/handoffs/P10.json >/dev/null && python3 -m json.tool .hermes/handoffs/P10-r10-repair.json >/dev/null",
-      "exit_code": 0,
-      "summary": "Both machine-readable handoffs parse as JSON."
-    },
-    {
-      "command": "python3 -c 'import json,subprocess; p=json.load(open(\".hermes/handoffs/P10.json\")); old=json.loads(subprocess.check_output([\"git\",\"show\",\"ca69aa72ef43851f33b290617e098096a87f7013:.hermes/handoffs/P10.json\"],text=True)); assert p[\"ownership\"][\"exact_transfers\"][:19]==old[\"ownership\"][\"exact_transfers\"]; assert len(p[\"ownership\"][\"r10_temporary_receiving_plan\"][\"transfers\"])==10; assert p[\"files_changed_count\"]==len(p[\"candidate_delta\"][\"entries\"])==27; assert p[\"contracts_changed\"]==\"none\"; assert p[\"review_status\"]==\"REVIEW_REQUIRED\"; print(\"reconciliation_scope_ok\")'",
-      "exit_code": 0,
-      "summary": "Ownership, exact path scope, contract hashes, and retained evidence were validated by the reconciliation worker."
-    },
-    {
-      "command": "git diff --check",
-      "exit_code": 0,
-      "summary": "The handoff/evidence reconciliation is whitespace-clean."
-    },
-    {
-      "command": "make clean && test ! -e bin",
-      "exit_code": 0,
-      "summary": "Generated build artifacts were removed and bin is absent after cleanup."
-    },
-    {
-      "command": "git diff --cached --check && git diff --cached --name-status",
-      "exit_code": 0,
-      "summary": "The staged R10 commit scope contains only the four listed handoff/evidence files and has no whitespace errors."
-    }
-  ],
   "evidence": [
-    ".hermes/evidence/p10/r9-focused.log",
-    ".hermes/evidence/p10/r9-race.log",
-    ".hermes/evidence/p10/r9-vet.log",
-    ".hermes/evidence/p10/r9-make-test.log",
-    ".hermes/evidence/p10/r9-make-check.log",
-    ".hermes/evidence/p10/r9-make-build.log",
-    ".hermes/evidence/p10/r9-e2e.log",
-    ".hermes/evidence/p10/r9-contracts.log",
-    ".hermes/evidence/p10/r10-red-claim-audit.log",
-    ".hermes/evidence/p10/r10-reconciliation-validation.log"
+    ".hermes/evidence/p10/r12-affected.log",
+    ".hermes/evidence/p10/r12-diff-check.log",
+    ".hermes/evidence/p10/r12-e2e.log",
+    ".hermes/evidence/p10/r12-focused.log",
+    ".hermes/evidence/p10/r12-make-build.log",
+    ".hermes/evidence/p10/r12-make-check.log",
+    ".hermes/evidence/p10/r12-make-test-first-fail.log",
+    ".hermes/evidence/p10/r12-make-test.log",
+    ".hermes/evidence/p10/r12-race.log",
+    ".hermes/evidence/p10/r12-red.log",
+    ".hermes/evidence/p10/r12-vet.log"
   ],
+  "evidence_sha256": {
+    ".hermes/evidence/p10/r12-affected.log": "0029523753f803f602cd868c6ff5a2f8049026a9678f83103c46286e7858567b",
+    ".hermes/evidence/p10/r12-diff-check.log": "3d4d50cd32af92c6d4df37c1df74a96622fca8cfb5643a155c91f034a42f2068",
+    ".hermes/evidence/p10/r12-e2e.log": "ec04f66ba0038172249148209fb8db69ec809eec229d2d982fd4555fca603fc0",
+    ".hermes/evidence/p10/r12-focused.log": "f86c367c70dbab95f031827b4481bc46f1cd1dc62a2fef1305e097244281594e",
+    ".hermes/evidence/p10/r12-make-build.log": "9a14e8b1daaa3de62e9d79c6824b58552d91e3d547207ab92383a041da4ef291",
+    ".hermes/evidence/p10/r12-make-check.log": "ee2873a575e5a45a2786849bd5bcce5added8e288149bd9bfb2ad73646cd76f6",
+    ".hermes/evidence/p10/r12-make-test-first-fail.log": "b1c539f66e82c5014bd32a2e14859d54324e9cf31d294bc0ada7512fcdf13b03",
+    ".hermes/evidence/p10/r12-make-test.log": "2d2572f927b8101e36fe65210de8278e1bccab77b630ec5601be9435aa277679",
+    ".hermes/evidence/p10/r12-race.log": "19aa74ca8ce419b507d72948986dcef6f5f842e11562bedb6a5224901eed92c5",
+    ".hermes/evidence/p10/r12-red.log": "df2640749189ecb351d073632beb4522a3c2f4317c5b5caabc98e75c22d16670",
+    ".hermes/evidence/p10/r12-vet.log": "bb1ede403057e15598724f3f63119129966a9ddddebe26eff4f7647ae2e0afdc"
+  },
   "handoff_artifacts": [
-    ".hermes/handoffs/P10-r9-repair.json",
-    ".hermes/handoffs/P10-r10-repair.json"
+    ".hermes/handoffs/P10-r11-repair.json"
   ],
   "contracts_consumed": [
     {
@@ -627,73 +1461,44 @@
       "sha256": "31f4b1a01041a228e01c5fbc2cf0d0d9aeb447844b7dfa1da361f55df5b85fbd"
     }
   ],
-  "contracts_changed": "none",
+  "contracts_changed": [],
   "capability_result": "SUPPORTED_WITH_LIMITS",
   "known_limits": [
-    "No independent public external-WAN/provider-egress vantage was available; provider traversal and external reachability remain fixture/local evidence only.",
-    "No router/UPnP/CGNAT, UDP/traversal, production deployment, or soak evidence.",
-    "No native Windows or arm64 execution evidence.",
-    "No govulncheck result was collected.",
-    "This R10 card is handoff/evidence-only; it does not rerun or approve the R9 behavioral candidate."
+    "No independent public external-WAN/provider-egress vantage or privileged deployment evidence was available; external reachability remains local/sandbox evidence only.",
+    "Provider pending/busy/rate_limited responses remain non-terminal and rely on manager recovery retry; timeout/transport taxonomy remains the terminal boundary.",
+    "Restart recovery intentionally bounds in-memory active/replay maps; durable rows outside the in-memory cap remain fail-closed until expiry/cleanup.",
+    "One initial concurrent make test run recorded an E2E deletion failure; the retained standalone E2E and final qualified make test evidence passed, but fresh reviewers must independently rerun their commands.",
+    "This packaging task did not rerun broad suites and does not approve implementation, integration, real-WAN support, native Windows/arm64 execution, router traversal, deployment, or soak capability."
+  ],
+  "residual_risk": [
+    "Provider pending/busy/rate_limited responses remain non-terminal and rely on manager recovery retry; timeout/transport taxonomy remains the terminal boundary.",
+    "Restart recovery intentionally bounds in-memory active/replay maps; durable rows outside the in-memory cap are fail-closed until expiry/cleanup.",
+    "The R12 RED claim is unavailable as exact reproducible RED evidence and is explicitly removed; reviewers can rely only on retained GREEN evidence plus fresh independent testing.",
+    "The handoff-only tip is audit metadata after the immutable implementation candidate and must not be treated as candidate code."
   ],
   "cleanup_done": true,
   "cleanup": [
-    "The exact old-base RED-audit archive at /tmp/antinat-p10-r10-old-base was removed after the four commands completed.",
-    "No production source, test source, frozen contract, integration/v1-beta, remote state, merge, rebase, cherry-pick, push, tag, or release was changed.",
-    "Only handoff/evidence reconciliation files are allowed in the R10 commit; generated bin artifacts are absent.",
-    "The retained R9 evidence logs and the R10 RED-claim audit remain under .hermes/evidence/p10/."
+    "The 21 pre-existing source/test byte sequences were hash-verified and committed unchanged as the implementation candidate.",
+    "No production/test byte was edited by this packaging task; no frozen contract, integration branch, remote, credential, merge, rebase, cherry-pick, push, tag, or release was touched.",
+    "Only the canonical and R11 handoff JSON files are permitted in the later documentation-only commit.",
+    "Final clean-worktree verification and the documentation-only tip SHA/tree are reported in the review-required Kanban block because a commit cannot self-record its own SHA."
   ],
   "review_status": "REVIEW_REQUIRED",
   "required_reviews": [
-    "fresh exact-head P10 R10 specification/ownership",
-    "fresh exact-head P10 R10 quality/security",
-    "fresh exact-head P10 R10 network/protocol",
-    "fresh exact-head P10 R10 lifecycle-boundary",
-    "integration only after all fresh R10 reviews pass on the unchanged implementation candidate"
+    "fresh exact-head P10 specification/ownership review",
+    "fresh exact-head P10 full quality/security review",
+    "fresh exact-head P10 network/protocol review",
+    "fresh exact-head P10 lifecycle-boundary review",
+    "integration only after every required fresh review passes against the immutable implementation commit/tree"
   ],
-  "deviation_notes": "R10 is limited to reconciling ownership and RED evidence. The immutable 27-path R9 implementation candidate remains unchanged; the prior R9 RED claim is explicitly marked unverifiable because exact-base execution produced no-tests exit 0, and no fabricated failure transcript is included. The inherited R8 exact-transfer map is preserved byte-for-byte as a prefix and only the ten supervisor-named P05/P06/P07 path-level receiving-plan records are appended.",
-  "tree_verification": {
-    "base_ancestor": {
-      "command": "git merge-base --is-ancestor ca69aa72ef43851f33b290617e098096a87f7013 8a3058afdda448d1d761e5f0815f35ed89c96456",
-      "exit_code": 0
-    },
-    "candidate_commit": {
-      "command": "git show -s --format=\"%H%n%T%n%P%n%s\" 8a3058afdda448d1d761e5f0815f35ed89c96456",
-      "exit_code": 0,
-      "sha": "8a3058afdda448d1d761e5f0815f35ed89c96456",
-      "tree_sha": "f1bf1ae29e64dd509bd5a1eab67fc87b48a43f26"
-    },
-    "candidate_to_branch_evidence_tip": {
-      "command": "git diff --name-status 8a3058afdda448d1d761e5f0815f35ed89c96456 1bfe27a4d031d4406627b8390699dd7761c6198c",
-      "exit_code": 0,
-      "path_count": 10,
-      "paths": [
-        ".hermes/evidence/p10/r9-contracts.log",
-        ".hermes/evidence/p10/r9-e2e.log",
-        ".hermes/evidence/p10/r9-focused.log",
-        ".hermes/evidence/p10/r9-make-build.log",
-        ".hermes/evidence/p10/r9-make-check.log",
-        ".hermes/evidence/p10/r9-make-test.log",
-        ".hermes/evidence/p10/r9-race.log",
-        ".hermes/evidence/p10/r9-vet.log",
-        ".hermes/handoffs/P10-r9-repair.json",
-        ".hermes/handoffs/P10.json"
-      ]
-    },
-    "branch_evidence_tip_commit": {
-      "command": "git show -s --format=\"%H%n%T%n%P%n%s\" 1bfe27a4d031d4406627b8390699dd7761c6198c",
-      "exit_code": 0,
-      "sha": "1bfe27a4d031d4406627b8390699dd7761c6198c",
-      "tree_sha": "0725a0c2dab9c1a28a0f658682e35e6bbcfb584b"
-    }
-  },
-  "verification_status": "The immutable candidate identity, complete 27-path implementation delta, actual clean pre-reconciliation branch tip/tree, inherited R8 ownership prefix, ten temporary R10 receiving-plan path records, old-base RED audit, contract hashes, evidence existence, and allowed handoff/evidence scope were mechanically validated. This handoff remains REVIEW_REQUIRED.",
   "ownership": {
     "receiving_plan": "P10",
     "approved_transfer": true,
-    "source_owner": "P07/P08/P09 extension owners as listed per hunk below; P10 owns probe, provider, agent-reconcile, app, CLI, and E2E paths.",
-    "valid_duration": "From repair commit add8f144366ab91566decb8119a9fc32a91f9c7e through P10 integration or rejection, whichever occurs first.",
-    "expires_on": "P10 rejection or integration; later P12/P14/P15 work requires a fresh supervisor transfer decision.",
+    "authorized_by_task": "t_b6ad63e6",
+    "common_expiry": "P10 integration or rejection, whichever occurs first.",
+    "prior_exact_transfer_count": 29,
+    "new_r12_temporary_transfer_count": 6,
+    "exact_transfers_count": 35,
     "exact_transfers": [
       {
         "path": "internal/agent/control/session.go",
@@ -708,7 +1513,8 @@
           "Client.heartbeat"
         ],
         "reason": "P10 reconnect reuse and durable receipt retry require transport-session ownership without terminal client shutdown.",
-        "scope": "Only session lifecycle, sequence reset, reconnect, and bounded receipt-send hunks."
+        "scope": "Only session lifecycle, sequence reset, reconnect, and bounded receipt-send hunks.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/agent/localstate/probe.go",
@@ -721,7 +1527,8 @@
           "SweepArmedProbeTombstonesLimit"
         ],
         "reason": "P10 probe ownership and bounded replay/recovery require explicit forward binding and finite scans.",
-        "scope": "Only probe binding, tombstone, bounded lookup, and receipt ownership hunks."
+        "scope": "Only probe binding, tombstone, bounded lookup, and receipt ownership hunks.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/agent/localstate/outbox.go",
@@ -733,7 +1540,8 @@
         "scope": "Only the bounded operation-ID enumeration wrapper and limit.",
         "hunks": [
           "func (*Store) OutboxOperationIDsLimit"
-        ]
+        ],
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/controller/agenthub/hub.go",
@@ -749,7 +1557,8 @@
         "hunks": [
           "func (*Hub) Close",
           "Hub.closed"
-        ]
+        ],
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/controller/agenthub/session.go",
@@ -769,7 +1578,8 @@
           "func (*ControlSession) markDone",
           "func (*ControlSession) wait",
           "func (*Hub) register"
-        ]
+        ],
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/controller/store/minapi.go",
@@ -778,7 +1588,8 @@
           "ListControlInbox bounded retrieval"
         ],
         "reason": "P10 Q10 requires finite control-inbox recovery reads.",
-        "scope": "Only P10-specific LIMIT/order bounds; no API behavior transfer."
+        "scope": "Only P10-specific LIMIT/order bounds; no API behavior transfer.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/controller/store/probe.go",
@@ -790,7 +1601,8 @@
           "bounded probe lookup/cleanup queries"
         ],
         "reason": "P10 activation CAS, restart recovery, and bounded probe history require atomic persistence fences.",
-        "scope": "Only probe operation activation/status/recovery/lookup hunks."
+        "scope": "Only probe operation activation/status/recovery/lookup hunks.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/controller/store/control.go",
@@ -815,7 +1627,8 @@
           "func (*Store) ControlInboxState",
           "func (*Store) DeleteControlInboxBeforeLimit",
           "func (*Store) ListControlOutboxByStateLimit"
-        ]
+        ],
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "migrations/migrations.go",
@@ -824,7 +1637,8 @@
           "applied migration registry"
         ],
         "reason": "P10 retains immutable 0004_probe.sql/0005_probe_hardening.sql; plan routing records future numbers without changing applied registry.",
-        "scope": "No migration rewrite; ownership record only."
+        "scope": "No migration rewrite; ownership record only.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/agent/localstate/activation.go",
@@ -842,7 +1656,8 @@
           "func (*Store) SaveActivationSnapshot",
           "func (*Store) LoadActivationSnapshot",
           "func (*Store) ListActivationSnapshots"
-        ]
+        ],
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/traversal/network.go",
@@ -858,7 +1673,8 @@
         "hunks": [
           "type CapabilityError",
           "func NewCapabilityError"
-        ]
+        ],
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/agent/reconcile/desired.go",
@@ -1011,7 +1827,7 @@
         ],
         "reason": "The R9 recovery fix closes the APPLYING crash window by durably NACKing operations after restart.",
         "scope": "Only the R9 RecoverApplyingOperations method and its exact journal recovery hunk.",
-        "expiry": "P10 R10 integration or rejection, whichever occurs first."
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/agent/localstate/p10_r9_repair_test.go",
@@ -1026,7 +1842,7 @@
         ],
         "reason": "The R9 recovery regression test covers the P07-owned journal hunk transferred for review.",
         "scope": "Only the named R9 recovery test and imports it requires.",
-        "expiry": "P10 R10 integration or rejection, whichever occurs first."
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/agent/reconcile/reconciler.go",
@@ -1045,7 +1861,7 @@
         ],
         "reason": "The R9 hot-update repair threads the rollback hook through the P07-owned reconciler without broadening its constructor or loop behavior.",
         "scope": "Only RollbackHook storage, NewWithRollback, and ReconcileOnce forwarding; the inherited capability-guard transfer remains unchanged.",
-        "expiry": "P10 R10 integration or rejection, whichever occurs first."
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/agent/reconcile/p10_r9_repair_test.go",
@@ -1062,7 +1878,7 @@
         ],
         "reason": "The two named R9 reconciliation tests exercise the P07-owned rollback and replay-window hunks.",
         "scope": "Only the two named R9 tests and required imports/helpers.",
-        "expiry": "P10 R10 integration or rejection, whichever occurs first."
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/controller/store/migrate.go",
@@ -1078,7 +1894,7 @@
         ],
         "reason": "The R9 store repair refuses a database schema newer than the binary before applying migrations.",
         "scope": "Only the future-schema guard added to Store.migrate; no migration definitions or existing migration is transferred.",
-        "expiry": "P10 R10 integration or rejection, whichever occurs first."
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/controller/store/store.go",
@@ -1093,7 +1909,7 @@
         ],
         "reason": "The R9 future-schema guard requires the P06-owned store error sentinel.",
         "scope": "Only ErrSchemaTooNew and its exact declaration.",
-        "expiry": "P10 R10 integration or rejection, whichever occurs first."
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/controller/store/backup_test.go",
@@ -1109,7 +1925,7 @@
         ],
         "reason": "The R9 test-only correction binds the low-disk delete assertion to the actual deletion operation identity and current forward revision.",
         "scope": "Only the two named field changes in TestLowDiskRefusesGrowthButAllowsDelete at the delete operation hunk.",
-        "expiry": "P10 R10 integration or rejection, whichever occurs first."
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/controller/store/p10_r9_repair_test.go",
@@ -1128,7 +1944,7 @@
         ],
         "reason": "These exact R9 store regressions cover the P06-owned activation publication, future-schema, DELETE identity/revision, and bounded digest lookup hunks.",
         "scope": "Only the five named tests and required imports/helpers; no other test or production hunk in this new file is transferred.",
-        "expiry": "P10 R10 integration or rejection, whichever occurs first."
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/protocol/endpoint.go",
@@ -1147,7 +1963,7 @@
         ],
         "reason": "The R9 protocol repair prevents reserved special-use IPv4 prefixes from being treated as global traversal endpoints.",
         "scope": "Only the R9-added reserved-prefix cases in classifyIPv4; no other endpoint classification is transferred.",
-        "expiry": "P10 R10 integration or rejection, whichever occurs first."
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/protocol/p10_r9_repair_test.go",
@@ -1162,17 +1978,112 @@
         ],
         "reason": "The named R9 protocol regression test covers the P05-owned classifyIPv4 hunk.",
         "scope": "Only the named R9 special-use IPv4 test and required imports.",
-        "expiry": "P10 R10 integration or rejection, whichever occurs first."
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      },
+      {
+        "path": "internal/agent/localstate/store.go",
+        "source_owner": "P07",
+        "receiving_plan": "P10",
+        "temporary": true,
+        "symbols": [
+          "Store.Close"
+        ],
+        "hunks": [
+          "Store.closeMu sync.Mutex and Store.closed lifecycle fields",
+          "func (*Store) Close serialized idempotent close guard"
+        ],
+        "reason": "The R11 lifecycle repair must serialize concurrent closes of the P07-owned local-state store so startup rollback and shutdown cannot race bbolt Close.",
+        "scope": "Only the close serialization fields/import and Store.Close hunk.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      },
+      {
+        "path": "internal/agent/localstate/p10_r10_repair_test.go",
+        "source_owner": "P07",
+        "receiving_plan": "P10",
+        "temporary": true,
+        "symbols": [
+          "TestStoreCloseConcurrentCallsAreIdempotent"
+        ],
+        "hunks": [
+          "entire named TestStoreCloseConcurrentCallsAreIdempotent regression and required sync/testing imports"
+        ],
+        "reason": "The named R11 regression proves the transferred P07 Store.Close serialization under concurrent callers.",
+        "scope": "Only the named test file and test.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      },
+      {
+        "path": "internal/agent/reconcile/p10_r10_repair_test.go",
+        "source_owner": "P07",
+        "receiving_plan": "P10",
+        "temporary": true,
+        "symbols": [
+          "TestRestartRecoversConsumedReplayFencesBeyondOnePage",
+          "TestRestartFailsClosedWhenWallClockRollsBackBeforeArm",
+          "TestRestartRecoveryHonorsActiveAndReplayBounds",
+          "TestRestartQuarantinesConsumedFenceAcrossWallClockRollback",
+          "TestRestartRemovesConsumedFenceAfterReplayDeadline"
+        ],
+        "hunks": [
+          "entire named P10 R11 restart/replay regression file containing only the five listed tests and required imports"
+        ],
+        "reason": "The five named regressions exercise the P07-owned durable probe/reconcile restart fences, bounded hydration, and wall-clock rollback handling transferred for P10 review.",
+        "scope": "Only the named file and five listed tests.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      },
+      {
+        "path": "internal/agent/localstate/probe.go",
+        "source_owner": "P07",
+        "receiving_plan": "P10",
+        "temporary": true,
+        "symbols": [
+          "ArmedProbe.ArmedAt",
+          "Store.SaveArmedProbeForForward"
+        ],
+        "hunks": [
+          "ArmedProbe.ArmedAt persisted wall-clock-anchor field and fail-closed comment",
+          "SaveArmedProbeForForward derives ArmedAt from Deadline minus ProbeArm.TTLMS and persists it"
+        ],
+        "reason": "The R11 restart repair needs a durable wall-clock anchor to distinguish elapsed TTL from clock rollback and fail closed instead of reviving a probe.",
+        "scope": "Only ArmedAt and the exact wall-clock-anchor persistence hunks.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      },
+      {
+        "path": "internal/agent/reconcile/desired.go",
+        "source_owner": "P07",
+        "receiving_plan": "P10",
+        "temporary": true,
+        "symbols": [
+          "ApplyDesiredWithGuardAndRollback.rollbackNewActors",
+          "ApplyDesiredWithGuardAndRollback.rollbackSideEffects"
+        ],
+        "hunks": [
+          "rollbackNewActors returns and errors.Join-aggregates stop failures",
+          "rollbackSideEffects errors.Join-aggregates hot-update rollback and new-actor stop failures",
+          "guard and desired-commit failure returns join the primary error with rollbackSideEffects errors"
+        ],
+        "reason": "The R11 lifecycle repair must surface every rollback/stop failure from the P07-owned desired reconciler instead of discarding cleanup errors.",
+        "scope": "Only rollbackSideEffects/rollbackNewActors error aggregation and their three call sites.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      },
+      {
+        "path": "internal/controller/store/control.go",
+        "source_owner": "P08",
+        "receiving_plan": "P10",
+        "temporary": true,
+        "symbols": [
+          "Store.AcceptControlReceipt",
+          "Store.ProbeOutcomeAcknowledged"
+        ],
+        "hunks": [
+          "AcceptControlReceipt atomically inserts the probe_results outcome_acked marker before probe_outcome outbox GC",
+          "func (*Store) ProbeOutcomeAcknowledged queries the durable outcome_acked marker"
+        ],
+        "reason": "The R11 terminal-outcome repair crosses the P08 control-store boundary so receipt GC retains a durable acknowledgement fence for probe cleanup/recovery.",
+        "scope": "Only probe_outcome acknowledgement persistence in AcceptControlReceipt and ProbeOutcomeAcknowledged.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
       }
     ],
-    "unrelated_edits_policy": "Complete integrated-base delta is enumerated in files_changed. Every P06/P07/P08/P09 extension hunk is listed with its source owner, exact symbols/hunks, P10 rationale, and expiry; no unlisted cross-plan hunk is transferred.",
-    "required_fresh_reviews": [
-      "fresh exact-head P10 R10 specification/ownership",
-      "fresh exact-head P10 R10 quality/security",
-      "fresh exact-head P10 R10 network/protocol",
-      "fresh exact-head P10 R10 lifecycle-boundary",
-      "integration only after all fresh R10 reviews pass on the unchanged implementation candidate"
-    ],
+    "exact_transfers_sha256": "570f5099df94419ac8fe887c3555fe30fd10e561552c4378e31b7fb52c720fd6",
     "inherited_r8_exact_transfers": [
       {
         "path": "internal/agent/control/session.go",
@@ -1187,7 +2098,8 @@
           "Client.heartbeat"
         ],
         "reason": "P10 reconnect reuse and durable receipt retry require transport-session ownership without terminal client shutdown.",
-        "scope": "Only session lifecycle, sequence reset, reconnect, and bounded receipt-send hunks."
+        "scope": "Only session lifecycle, sequence reset, reconnect, and bounded receipt-send hunks.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/agent/localstate/probe.go",
@@ -1200,7 +2112,8 @@
           "SweepArmedProbeTombstonesLimit"
         ],
         "reason": "P10 probe ownership and bounded replay/recovery require explicit forward binding and finite scans.",
-        "scope": "Only probe binding, tombstone, bounded lookup, and receipt ownership hunks."
+        "scope": "Only probe binding, tombstone, bounded lookup, and receipt ownership hunks.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/agent/localstate/outbox.go",
@@ -1212,7 +2125,8 @@
         "scope": "Only the bounded operation-ID enumeration wrapper and limit.",
         "hunks": [
           "func (*Store) OutboxOperationIDsLimit"
-        ]
+        ],
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/controller/agenthub/hub.go",
@@ -1228,7 +2142,8 @@
         "hunks": [
           "func (*Hub) Close",
           "Hub.closed"
-        ]
+        ],
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/controller/agenthub/session.go",
@@ -1248,7 +2163,8 @@
           "func (*ControlSession) markDone",
           "func (*ControlSession) wait",
           "func (*Hub) register"
-        ]
+        ],
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/controller/store/minapi.go",
@@ -1257,7 +2173,8 @@
           "ListControlInbox bounded retrieval"
         ],
         "reason": "P10 Q10 requires finite control-inbox recovery reads.",
-        "scope": "Only P10-specific LIMIT/order bounds; no API behavior transfer."
+        "scope": "Only P10-specific LIMIT/order bounds; no API behavior transfer.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/controller/store/probe.go",
@@ -1269,7 +2186,8 @@
           "bounded probe lookup/cleanup queries"
         ],
         "reason": "P10 activation CAS, restart recovery, and bounded probe history require atomic persistence fences.",
-        "scope": "Only probe operation activation/status/recovery/lookup hunks."
+        "scope": "Only probe operation activation/status/recovery/lookup hunks.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/controller/store/control.go",
@@ -1294,7 +2212,8 @@
           "func (*Store) ControlInboxState",
           "func (*Store) DeleteControlInboxBeforeLimit",
           "func (*Store) ListControlOutboxByStateLimit"
-        ]
+        ],
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "migrations/migrations.go",
@@ -1303,7 +2222,8 @@
           "applied migration registry"
         ],
         "reason": "P10 retains immutable 0004_probe.sql/0005_probe_hardening.sql; plan routing records future numbers without changing applied registry.",
-        "scope": "No migration rewrite; ownership record only."
+        "scope": "No migration rewrite; ownership record only.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/agent/localstate/activation.go",
@@ -1321,7 +2241,8 @@
           "func (*Store) SaveActivationSnapshot",
           "func (*Store) LoadActivationSnapshot",
           "func (*Store) ListActivationSnapshots"
-        ]
+        ],
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/traversal/network.go",
@@ -1337,7 +2258,8 @@
         "hunks": [
           "type CapabilityError",
           "func NewCapabilityError"
-        ]
+        ],
+        "expiry": "P10 integration or rejection, whichever occurs first."
       },
       {
         "path": "internal/agent/reconcile/desired.go",
@@ -1479,7 +2401,7 @@
       }
     ],
     "inherited_r8_exact_transfers_count": 19,
-    "inherited_r8_exact_transfers_sha256": "99811ca55733f1d23665039d6704d4a5cf014efef7664ff23646561c5016c6d6",
+    "inherited_r8_exact_transfers_sha256": "552cb4a57d23faeb593cd078dcb5da55112aee9628654ac7109e345d70f16dbf",
     "r10_temporary_receiving_plan": {
       "receiving_plan": "P10",
       "source_owners": [
@@ -1488,7 +2410,7 @@
         "P07"
       ],
       "authorized_by_task": "t_304538dc",
-      "transfer_expiry": "P10 R10 integration or rejection, whichever occurs first.",
+      "transfer_expiry": "P10 integration or rejection, whichever occurs first.",
       "status": "REVIEW_REQUIRED",
       "transfers": [
         {
@@ -1504,7 +2426,7 @@
           ],
           "reason": "The R9 recovery fix closes the APPLYING crash window by durably NACKing operations after restart.",
           "scope": "Only the R9 RecoverApplyingOperations method and its exact journal recovery hunk.",
-          "expiry": "P10 R10 integration or rejection, whichever occurs first."
+          "expiry": "P10 integration or rejection, whichever occurs first."
         },
         {
           "path": "internal/agent/localstate/p10_r9_repair_test.go",
@@ -1519,7 +2441,7 @@
           ],
           "reason": "The R9 recovery regression test covers the P07-owned journal hunk transferred for review.",
           "scope": "Only the named R9 recovery test and imports it requires.",
-          "expiry": "P10 R10 integration or rejection, whichever occurs first."
+          "expiry": "P10 integration or rejection, whichever occurs first."
         },
         {
           "path": "internal/agent/reconcile/reconciler.go",
@@ -1538,7 +2460,7 @@
           ],
           "reason": "The R9 hot-update repair threads the rollback hook through the P07-owned reconciler without broadening its constructor or loop behavior.",
           "scope": "Only RollbackHook storage, NewWithRollback, and ReconcileOnce forwarding; the inherited capability-guard transfer remains unchanged.",
-          "expiry": "P10 R10 integration or rejection, whichever occurs first."
+          "expiry": "P10 integration or rejection, whichever occurs first."
         },
         {
           "path": "internal/agent/reconcile/p10_r9_repair_test.go",
@@ -1555,7 +2477,7 @@
           ],
           "reason": "The two named R9 reconciliation tests exercise the P07-owned rollback and replay-window hunks.",
           "scope": "Only the two named R9 tests and required imports/helpers.",
-          "expiry": "P10 R10 integration or rejection, whichever occurs first."
+          "expiry": "P10 integration or rejection, whichever occurs first."
         },
         {
           "path": "internal/controller/store/migrate.go",
@@ -1571,7 +2493,7 @@
           ],
           "reason": "The R9 store repair refuses a database schema newer than the binary before applying migrations.",
           "scope": "Only the future-schema guard added to Store.migrate; no migration definitions or existing migration is transferred.",
-          "expiry": "P10 R10 integration or rejection, whichever occurs first."
+          "expiry": "P10 integration or rejection, whichever occurs first."
         },
         {
           "path": "internal/controller/store/store.go",
@@ -1586,7 +2508,7 @@
           ],
           "reason": "The R9 future-schema guard requires the P06-owned store error sentinel.",
           "scope": "Only ErrSchemaTooNew and its exact declaration.",
-          "expiry": "P10 R10 integration or rejection, whichever occurs first."
+          "expiry": "P10 integration or rejection, whichever occurs first."
         },
         {
           "path": "internal/controller/store/backup_test.go",
@@ -1602,7 +2524,7 @@
           ],
           "reason": "The R9 test-only correction binds the low-disk delete assertion to the actual deletion operation identity and current forward revision.",
           "scope": "Only the two named field changes in TestLowDiskRefusesGrowthButAllowsDelete at the delete operation hunk.",
-          "expiry": "P10 R10 integration or rejection, whichever occurs first."
+          "expiry": "P10 integration or rejection, whichever occurs first."
         },
         {
           "path": "internal/controller/store/p10_r9_repair_test.go",
@@ -1621,7 +2543,7 @@
           ],
           "reason": "These exact R9 store regressions cover the P06-owned activation publication, future-schema, DELETE identity/revision, and bounded digest lookup hunks.",
           "scope": "Only the five named tests and required imports/helpers; no other test or production hunk in this new file is transferred.",
-          "expiry": "P10 R10 integration or rejection, whichever occurs first."
+          "expiry": "P10 integration or rejection, whichever occurs first."
         },
         {
           "path": "internal/protocol/endpoint.go",
@@ -1640,7 +2562,7 @@
           ],
           "reason": "The R9 protocol repair prevents reserved special-use IPv4 prefixes from being treated as global traversal endpoints.",
           "scope": "Only the R9-added reserved-prefix cases in classifyIPv4; no other endpoint classification is transferred.",
-          "expiry": "P10 R10 integration or rejection, whichever occurs first."
+          "expiry": "P10 integration or rejection, whichever occurs first."
         },
         {
           "path": "internal/protocol/p10_r9_repair_test.go",
@@ -1655,37 +2577,157 @@
           ],
           "reason": "The named R9 protocol regression test covers the P05-owned classifyIPv4 hunk.",
           "scope": "Only the named R9 special-use IPv4 test and required imports.",
-          "expiry": "P10 R10 integration or rejection, whichever occurs first."
+          "expiry": "P10 integration or rejection, whichever occurs first."
         }
       ],
+      "transfer_count": 10,
+      "transfers_sha256": "27e0493e27d14caa988739021e2047392c965c9e940a9da6a61dac32b2de41af",
       "only_named_hunks": true,
       "unrelated_paths_transferred": false
+    },
+    "r12_temporary_receiving_plan": {
+      "receiving_plan": "P10",
+      "source_owners": [
+        "P07",
+        "P08"
+      ],
+      "authorized_by_task": "t_b6ad63e6",
+      "transfer_expiry": "P10 integration or rejection, whichever occurs first.",
+      "status": "REVIEW_REQUIRED",
+      "transfers": [
+        {
+          "path": "internal/agent/localstate/store.go",
+          "source_owner": "P07",
+          "receiving_plan": "P10",
+          "temporary": true,
+          "symbols": [
+            "Store.Close"
+          ],
+          "hunks": [
+            "Store.closeMu sync.Mutex and Store.closed lifecycle fields",
+            "func (*Store) Close serialized idempotent close guard"
+          ],
+          "reason": "The R11 lifecycle repair must serialize concurrent closes of the P07-owned local-state store so startup rollback and shutdown cannot race bbolt Close.",
+          "scope": "Only the close serialization fields/import and Store.Close hunk.",
+          "expiry": "P10 integration or rejection, whichever occurs first."
+        },
+        {
+          "path": "internal/agent/localstate/p10_r10_repair_test.go",
+          "source_owner": "P07",
+          "receiving_plan": "P10",
+          "temporary": true,
+          "symbols": [
+            "TestStoreCloseConcurrentCallsAreIdempotent"
+          ],
+          "hunks": [
+            "entire named TestStoreCloseConcurrentCallsAreIdempotent regression and required sync/testing imports"
+          ],
+          "reason": "The named R11 regression proves the transferred P07 Store.Close serialization under concurrent callers.",
+          "scope": "Only the named test file and test.",
+          "expiry": "P10 integration or rejection, whichever occurs first."
+        },
+        {
+          "path": "internal/agent/reconcile/p10_r10_repair_test.go",
+          "source_owner": "P07",
+          "receiving_plan": "P10",
+          "temporary": true,
+          "symbols": [
+            "TestRestartRecoversConsumedReplayFencesBeyondOnePage",
+            "TestRestartFailsClosedWhenWallClockRollsBackBeforeArm",
+            "TestRestartRecoveryHonorsActiveAndReplayBounds",
+            "TestRestartQuarantinesConsumedFenceAcrossWallClockRollback",
+            "TestRestartRemovesConsumedFenceAfterReplayDeadline"
+          ],
+          "hunks": [
+            "entire named P10 R11 restart/replay regression file containing only the five listed tests and required imports"
+          ],
+          "reason": "The five named regressions exercise the P07-owned durable probe/reconcile restart fences, bounded hydration, and wall-clock rollback handling transferred for P10 review.",
+          "scope": "Only the named file and five listed tests.",
+          "expiry": "P10 integration or rejection, whichever occurs first."
+        },
+        {
+          "path": "internal/agent/localstate/probe.go",
+          "source_owner": "P07",
+          "receiving_plan": "P10",
+          "temporary": true,
+          "symbols": [
+            "ArmedProbe.ArmedAt",
+            "Store.SaveArmedProbeForForward"
+          ],
+          "hunks": [
+            "ArmedProbe.ArmedAt persisted wall-clock-anchor field and fail-closed comment",
+            "SaveArmedProbeForForward derives ArmedAt from Deadline minus ProbeArm.TTLMS and persists it"
+          ],
+          "reason": "The R11 restart repair needs a durable wall-clock anchor to distinguish elapsed TTL from clock rollback and fail closed instead of reviving a probe.",
+          "scope": "Only ArmedAt and the exact wall-clock-anchor persistence hunks.",
+          "expiry": "P10 integration or rejection, whichever occurs first."
+        },
+        {
+          "path": "internal/agent/reconcile/desired.go",
+          "source_owner": "P07",
+          "receiving_plan": "P10",
+          "temporary": true,
+          "symbols": [
+            "ApplyDesiredWithGuardAndRollback.rollbackNewActors",
+            "ApplyDesiredWithGuardAndRollback.rollbackSideEffects"
+          ],
+          "hunks": [
+            "rollbackNewActors returns and errors.Join-aggregates stop failures",
+            "rollbackSideEffects errors.Join-aggregates hot-update rollback and new-actor stop failures",
+            "guard and desired-commit failure returns join the primary error with rollbackSideEffects errors"
+          ],
+          "reason": "The R11 lifecycle repair must surface every rollback/stop failure from the P07-owned desired reconciler instead of discarding cleanup errors.",
+          "scope": "Only rollbackSideEffects/rollbackNewActors error aggregation and their three call sites.",
+          "expiry": "P10 integration or rejection, whichever occurs first."
+        },
+        {
+          "path": "internal/controller/store/control.go",
+          "source_owner": "P08",
+          "receiving_plan": "P10",
+          "temporary": true,
+          "symbols": [
+            "Store.AcceptControlReceipt",
+            "Store.ProbeOutcomeAcknowledged"
+          ],
+          "hunks": [
+            "AcceptControlReceipt atomically inserts the probe_results outcome_acked marker before probe_outcome outbox GC",
+            "func (*Store) ProbeOutcomeAcknowledged queries the durable outcome_acked marker"
+          ],
+          "reason": "The R11 terminal-outcome repair crosses the P08 control-store boundary so receipt GC retains a durable acknowledgement fence for probe cleanup/recovery.",
+          "scope": "Only probe_outcome acknowledgement persistence in AcceptControlReceipt and ProbeOutcomeAcknowledged.",
+          "expiry": "P10 integration or rejection, whichever occurs first."
+        }
+      ],
+      "transfer_count": 6,
+      "transfers_sha256": "8648b9a5d7c8e456de9c290e62df3c704a6f660fa141ea9dbe482cd66ac4596c",
+      "only_named_hunks": true,
+      "unrelated_paths_transferred": false
+    },
+    "unrelated_edits_policy": "All 29 prior exact records are preserved with only their expiry normalized, and exactly six supervisor-named R12 temporary records are added. No other path, symbol, or hunk is transferred."
+  },
+  "deviation_notes": "No production or test bytes were changed. The only deviation from the prior R11 handoff is packaging its exact hash-verified dirty candidate as a commit and reconciling audit metadata. The R12 RED claim is removed because its exact pre-repair procedure cannot be validated.",
+  "packaging_verification": [
+    {
+      "command": "precondition verifier: branch/HEAD/base ancestry, exact 21 path hashes, 11 R12 evidence hashes, six consumed-contract hashes, empty index, and allowed worktree path set",
+      "exit_code": 0
+    },
+    {
+      "command": "writer quiescence check for competing go test/build, make test/check/build, and git mutation processes",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --cached --check before implementation commit",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff-tree --no-commit-id --name-status -r 519cbda7e3193526ba95c3f5f77ec8148ce041c1",
+      "exit_code": 0,
+      "summary": "exactly 21 supervisor-declared source/test paths"
+    },
+    {
+      "command": "bounded canonical/R11 JSON, inventory, hash, ownership, contract, diff, and clean-worktree validation",
+      "exit_code": 0,
+      "post_commit_cleanliness_reported_in_kanban": true
     }
-  },
-  "reconciliation": {
-    "source_canonical_before": ".hermes/handoffs/P10.json",
-    "new_machine_readable_handoff": ".hermes/handoffs/P10-r10-repair.json",
-    "reconciliation_task_id": "t_304538dc",
-    "production_and_test_code_changed": false,
-    "frozen_contracts_changed": false,
-    "contracts_changed": "none",
-    "candidate_source_tree_changed": false,
-    "inherited_r8_exact_transfers_count": 19,
-    "inherited_r8_exact_transfers_sha256": "99811ca55733f1d23665039d6704d4a5cf014efef7664ff23646561c5016c6d6",
-    "r10_temporary_transfer_count": 10,
-    "r10_transfer_expiry": "P10 R10 integration or rejection, whichever occurs first.",
-    "red_claim_status": "UNVERIFIABLE_AND_REMOVED",
-    "cleanup_done": true,
-    "post_commit_final_head_is_reported_in_kanban_metadata": true
-  },
-  "canonical_handoff_path": ".hermes/handoffs/P10.json",
-  "handoff_kind": "canonical P10 handoff with R10 reconciliation",
-  "branch_state_note": "head_sha/head_tree_sha identify the immutable implementation candidate; repository_state_before_reconciliation records the actual clean branch HEAD/tree. The R10 commit is documentation/evidence-only and does not alter candidate source.",
-  "reconciliation_changed_files": [
-    ".hermes/evidence/p10/r10-red-claim-audit.log",
-    ".hermes/evidence/p10/r10-reconciliation-validation.log",
-    ".hermes/handoffs/P10-r10-repair.json",
-    ".hermes/handoffs/P10.json"
-  ],
-  "reconciliation_changed_files_scope": "Only the two R10 handoff files and the two retained R10 evidence logs may be committed; no production/test/frozen-contract/integration path is allowed."
+  ]
 }
