@@ -1,0 +1,18 @@
+P10 R13 RED evidence — immutable pre-repair baseline
+
+worktree: /root/AntiNAT/.worktrees/t_44815fe0
+branch: ai/P10-wan-probe-activation-cli-e2e
+pre_repair_commit: 8abaf028c0a7579c8281f2dcfe64f2a0444351d4
+pre_repair_tree: d2a5a4dc1dffedf4dc0ba818a9b9c0b70b8c15b7
+
+Commands and exit codes:
+1. go test ./internal/protocol -run 'TestDecodeStrictJSONIntoEnforcesFrozenIngressRules' -count=1 -v
+   exit=1; compile failure: undefined DecodeStrictJSONInto at strictjson_test.go:162,189.
+2. go test ./internal/agent/control ./internal/agent ./internal/agent/reconcile -run 'TestR13' -count=1 -v
+   exit=1; signed receipt and probe outcome accepted ambiguous JSON; restart/replay overflow reached business path or ACKed; read/write deadline installation failures continued I/O.
+3. go test ./internal/controller/agenthub ./internal/controller/api ./internal/controller/probe ./internal/controller/store -run 'TestR13' -count=1 -v
+   exit=1; result/receipt correlation missed row 257; receipt/bootstrap accepted duplicate/trailing/oversize JSON; WAN join rewrote independent axes; provider budget/seam APIs absent; node/idempotency and terminal-delivery APIs absent; stale runtime insert was accepted.
+4. git diff --check
+   exit=0.
+
+This file records only observed output/classifications; no production changes existed at capture time. The RED tests are committed separately before GREEN implementation.

@@ -6,6 +6,16 @@ import (
 	"testing"
 )
 
+type strictJSONNestedFixture struct {
+	Value int64 `json:"value"`
+}
+
+type strictJSONMessageFixture struct {
+	OperationID string                  `json:"operation_id"`
+	Nested      strictJSONNestedFixture `json:"nested"`
+	Values      []int64                 `json:"values"`
+}
+
 // Story 2 RED: duplicate keys, unknown fields, deep nesting, oversized
 // values, and numeric overflow must all fail with stable error codes; the
 // frozen valid baseline must pass.
@@ -140,5 +150,45 @@ func TestStrictJSONDecode(t *testing.T) {
 	}
 	if !errors.Is(ValidateStrictJSON([]byte(`{"a":1} extra`), nil), ErrTrailingGarbage) {
 		t.Fatal("trailing-garbage error must be errors.Is-compatible")
+	}
+}
+
+// R13 RED: semantic ingress must use one schema-aware decoder rather than a
+// shape-only validation followed by json.Unmarshal. The shared entry point
+// applies the frozen payload cap, duplicate/unknown/trailing/depth/integer
+// rules recursively, including objects nested inside the message schema.
+func TestDecodeStrictJSONIntoEnforcesFrozenIngressRules(t *testing.T) {
+	var valid strictJSONMessageFixture
+	if err := DecodeStrictJSONInto([]byte(`{"operation_id":"op-1","nested":{"value":7},"values":[1,2]}`), &valid); err != nil {
+		t.Fatalf("valid semantic message rejected: %v", err)
+	}
+	if valid.OperationID != "op-1" || valid.Nested.Value != 7 || len(valid.Values) != 2 {
+		t.Fatalf("decoded semantic message = %+v", valid)
+	}
+
+	deep := `{"operation_id":"op","nested":{"value":1},"values":` + strings.Repeat("[", MaxJSONDepth+1) + `1` + strings.Repeat("]", MaxJSONDepth+1) + `}`
+	oversize := `{"operation_id":"` + strings.Repeat("x", MaxPayloadBytes) + `","nested":{"value":1},"values":[]}`
+	cases := []struct {
+		name string
+		raw  string
+	}{
+		{"duplicate-top-level", `{"operation_id":"a","operation_id":"b","nested":{"value":1},"values":[]}`},
+		{"duplicate-nested", `{"operation_id":"a","nested":{"value":1,"value":2},"values":[]}`},
+		{"unknown-top-level", `{"operation_id":"a","nested":{"value":1},"values":[],"extra":true}`},
+		{"unknown-nested", `{"operation_id":"a","nested":{"value":1,"extra":true},"values":[]}`},
+		{"trailing-object", `{"operation_id":"a","nested":{"value":1},"values":[]} {}`},
+		{"fractional-integer", `{"operation_id":"a","nested":{"value":1.5},"values":[]}`},
+		{"exponential-integer", `{"operation_id":"a","nested":{"value":1e3},"values":[]}`},
+		{"int64-min", `{"operation_id":"a","nested":{"value":-9223372036854775808},"values":[]}`},
+		{"depth", deep},
+		{"oversize", oversize},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var dst strictJSONMessageFixture
+			if err := DecodeStrictJSONInto([]byte(tc.raw), &dst); err == nil {
+				t.Fatalf("ambiguous semantic payload accepted: %s", tc.raw)
+			}
+		})
 	}
 }
