@@ -76,6 +76,27 @@ func TestR13ReceiptCorrelationBeyond256Rows(t *testing.T) {
 	}
 }
 
+func TestR13CorrelationMissFailsClosedWithoutPrefixScan(t *testing.T) {
+	session, st := r13CorrelationSession(t)
+	const target = "aa-000"
+	if err := st.EnqueueControlOutbox(store.ControlOutboxItem{
+		OperationID: target, MessageType: "desired", NodeID: "node-r13", SemanticPayload: `{}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i < 256; i++ {
+		if err := st.EnqueueControlOutbox(store.ControlOutboxItem{
+			OperationID: fmt.Sprintf("aa-%03d", i), MessageType: "desired", NodeID: "node-r13", SemanticPayload: `{}`,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resultID := security.MessageID(target, "unexpected_result")
+	if _, _, err := session.hub.matchOutboxRow(session, resultID, "unexpected_result"); err == nil {
+		t.Fatal("correlation used bounded prefix scan instead of failing closed")
+	}
+}
+
 // R13 RED: a signed message_receipt payload still needs schema-aware semantic
 // JSON validation. Signature/framing validity cannot make duplicate or unknown
 // fields unambiguous.

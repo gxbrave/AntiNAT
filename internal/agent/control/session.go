@@ -459,7 +459,7 @@ func (c *Client) handleReceipt(ctx context.Context, env protocol.Envelope) error
 	var v struct {
 		OperationID string `json:"operation_id"`
 	}
-	if err := json.Unmarshal(env.Payload, &v); err != nil || v.OperationID == "" {
+	if err := protocol.DecodeStrictJSONInto(env.Payload, &v); err != nil || v.OperationID == "" {
 		return errors.New("control: malformed receipt payload")
 	}
 	op := v.OperationID

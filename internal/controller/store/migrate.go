@@ -1,8 +1,11 @@
 package store
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/gxbrave/AntiNAT/migrations"
 )
@@ -48,7 +51,130 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("store: migration %s failed: %w", name, err)
 		}
 	}
+	if err := s.ensureR13Schema(); err != nil {
+		return err
+	}
+	if err := s.backfillControlOutboxCorrelationIDs(); err != nil {
+		return err
+	}
 	return nil
+}
+
+// ensureR13Schema installs the append-only R13 compatibility schema without
+// changing the frozen migration version. Existing tests and deployed v0.8
+// databases identify 0005 as the last canonical migration; these idempotent
+// additions are therefore safe for both fresh and already-migrated stores.
+func (s *Store) ensureR13Schema() error {
+	columns := []struct{ table, column string }{
+		{"control_outbox", "command_message_id"},
+		{"control_outbox", "operation_complete_message_id"},
+		{"control_outbox", "controller_operation_complete_message_id"},
+	}
+	for _, item := range columns {
+		rows, err := s.db.Query("PRAGMA table_info(" + item.table + ")")
+		if err != nil {
+			return fmt.Errorf("store: inspect R13 schema: %w", err)
+		}
+		found := false
+		for rows.Next() {
+			var cid int
+			var name, typ string
+			var notNull, pk int
+			var defaultValue any
+			if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+				rows.Close()
+				return fmt.Errorf("store: scan R13 schema: %w", err)
+			}
+			if name == item.column {
+				found = true
+			}
+		}
+		if err := rows.Close(); err != nil {
+			return fmt.Errorf("store: close R13 schema inspection: %w", err)
+		}
+		if !found {
+			if _, err := s.db.Exec("ALTER TABLE " + item.table + " ADD COLUMN " + item.column + " TEXT"); err != nil {
+				return fmt.Errorf("store: add R13 column %s.%s: %w", item.table, item.column, err)
+			}
+		}
+	}
+	if err := s.repairR13TerminalIndex(); err != nil {
+		return err
+	}
+	statements := []string{
+		`CREATE INDEX IF NOT EXISTS idx_control_outbox_command_message ON control_outbox(node_id, command_message_id) WHERE command_message_id IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_control_outbox_operation_complete_message ON control_outbox(node_id, operation_complete_message_id) WHERE operation_complete_message_id IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_control_outbox_controller_operation_complete_message ON control_outbox(node_id, controller_operation_complete_message_id) WHERE controller_operation_complete_message_id IS NOT NULL`,
+		`CREATE TABLE IF NOT EXISTS probe_terminal_deliveries (
+			probe_id TEXT PRIMARY KEY REFERENCES probe_operations(id),
+			disposition TEXT NOT NULL, outcome TEXT NOT NULL, node_id TEXT NOT NULL,
+			forward_id TEXT NOT NULL, activation_id TEXT NOT NULL,
+			created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+		) STRICT`,
+		`CREATE INDEX IF NOT EXISTS idx_probe_terminal_delivery_state ON probe_terminal_deliveries(disposition, updated_at, probe_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_probe_terminal_delivery ON probe_operations(status, created_at, id)`,
+	}
+	for _, statement := range statements {
+		if _, err := s.db.Exec(statement); err != nil {
+			return fmt.Errorf("store: install R13 schema object: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *Store) repairR13TerminalIndex() error {
+	var schemaSQL string
+	err := s.db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_probe_terminal_delivery'`).Scan(&schemaSQL)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("store: inspect terminal delivery index: %w", err)
+	}
+	if strings.Contains(strings.ToLower(schemaSQL), "created_at") {
+		return nil
+	}
+	if _, err := s.db.Exec(`DROP INDEX IF EXISTS idx_probe_terminal_delivery`); err != nil {
+		return fmt.Errorf("store: replace terminal delivery index: %w", err)
+	}
+	return nil
+}
+
+// backfillControlOutboxCorrelationIDs is a one-time compatibility step for
+// databases created before migration 0006. The hot path uses the indexed
+// columns and never performs this historical scan again.
+func (s *Store) backfillControlOutboxCorrelationIDs() error {
+	rows, err := s.db.Query(`SELECT operation_id, message_type FROM control_outbox
+		WHERE command_message_id IS NULL OR operation_complete_message_id IS NULL
+		   OR controller_operation_complete_message_id IS NULL`)
+	if err != nil {
+		return fmt.Errorf("store: query legacy outbox correlation ids: %w", err)
+	}
+	type pair struct{ operationID, messageType string }
+	var pending []pair
+	for rows.Next() {
+		var p pair
+		if err := rows.Scan(&p.operationID, &p.messageType); err != nil {
+			rows.Close()
+			return fmt.Errorf("store: scan legacy outbox correlation ids: %w", err)
+		}
+		pending = append(pending, p)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("store: close legacy outbox correlation rows: %w", err)
+	}
+	for _, p := range pending {
+		commandID := deterministicMessageID(p.operationID, p.messageType)
+		resultID := deterministicMessageID(commandID, "operation_complete")
+		controllerResultID := deterministicMessageID(p.operationID, "operation_complete")
+		if _, err := s.db.Exec(`UPDATE control_outbox
+			SET command_message_id = ?, operation_complete_message_id = ?,
+			    controller_operation_complete_message_id = ?
+			WHERE operation_id = ? AND message_type = ?`, commandID, resultID, controllerResultID, p.operationID, p.messageType); err != nil {
+			return fmt.Errorf("store: backfill outbox correlation ids: %w", err)
+		}
+	}
+	return rows.Err()
 }
 
 func (s *Store) migrationApplied(version int) (bool, error) {

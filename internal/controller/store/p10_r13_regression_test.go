@@ -181,6 +181,40 @@ func TestR13RuntimeStatusInsertCASUsesCurrentActivation(t *testing.T) {
 	}
 }
 
+// R13 recovery RED: a mirror that still names the previous activation must
+// not make another previous-activation update legal after the forward advances.
+// The write predicate itself, not a preceding read, owns this fence.
+func TestR13RuntimeStatusExistingRowCASUsesCurrentActivation(t *testing.T) {
+	s := openTestStore(t)
+	if err := s.CreateNode(Node{ID: "node-runtime-existing-r13", Name: "node-runtime-existing-r13"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateForward(Forward{
+		ID: "forward-runtime-existing-r13", NodeID: "node-runtime-existing-r13", Name: "runtime-existing",
+		Protocol: "tcp", CurrentActivationID: "activation-old", Revision: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	oldSnapshot := `{"control_state":"ONLINE","listener_state":"READY","mapping_state":"PUBLIC_CANDIDATE","keepalive_state":"NOT_REQUIRED","wan_reachability_state":"NOT_TESTED","return_path_state":"NOT_TESTED","target_health_state":"UNKNOWN","publication_state":"NONE","data_plane_state":"READY"}`
+	if err := s.SetForwardRuntimeStatus("forward-runtime-existing-r13", "activation-old", oldSnapshot); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CASForwardActivation("forward-runtime-existing-r13", 1, "activation-new"); err != nil {
+		t.Fatal(err)
+	}
+	staleSnapshot := `{"control_state":"OFFLINE","listener_state":"ERROR","mapping_state":"ERROR","keepalive_state":"LOST","wan_reachability_state":"REJECTED","return_path_state":"FAILED","target_health_state":"FAIL","publication_state":"UNPUBLISHED","data_plane_state":"DEGRADED"}`
+	if err := s.SetForwardRuntimeStatus("forward-runtime-existing-r13", "activation-old", staleSnapshot); !errors.Is(err, ErrCASConflict) {
+		t.Fatalf("same-old-activation update after forward advance = %v, want ErrCASConflict", err)
+	}
+	got, err := s.GetForwardRuntimeStatus("forward-runtime-existing-r13")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ActivationID != "activation-old" || got.SnapshotJSON != oldSnapshot {
+		t.Fatalf("stale update mutated mirror: %+v", got)
+	}
+}
+
 func createR13TerminalProbe(t *testing.T, s *Store, id, forwardID, activationID string, updatedAt int64) {
 	t.Helper()
 	if _, err := s.CreateProbeOperation(ProbeOperation{
@@ -228,6 +262,17 @@ func TestR13TerminalProbeDispositionIsDurable(t *testing.T) {
 	if _, err := s.ControlOutboxItemByOperation("probe-current", "probe_outcome"); err != nil {
 		t.Fatalf("current activation outcome was not queued: %v", err)
 	}
+	if _, err := s.db.Exec(`UPDATE probe_operations SET updated_at = 1 WHERE id IN ('probe-stale', 'probe-missing')`); err != nil {
+		t.Fatal(err)
+	}
+	if removed, err := s.DeleteTerminalProbeOperationsBeforeLimit(2, 10); err != nil || removed != 2 {
+		t.Fatalf("stale/missing terminal retention cleanup = %d, %v; want 2", removed, err)
+	}
+	for _, id := range []string{"probe-stale", "probe-missing"} {
+		if _, err := delivery.ProbeOutcomeDisposition(id); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("disposed terminal %s survived retention cleanup: %v", id, err)
+		}
+	}
 }
 
 // R13 RED: terminal recovery selects only eligible rows in an indexed,
@@ -252,8 +297,29 @@ func TestR13TerminalProbeSelectionIsIndexedAndBounded(t *testing.T) {
 		t.Fatalf("first bounded delivery page = %+v", page)
 	}
 	var schemaSQL string
-	if err := s.db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_probe_terminal_delivery'`).Scan(&schemaSQL); err != nil || !strings.Contains(schemaSQL, "probe_operations") {
+	if err := s.db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_probe_terminal_delivery'`).Scan(&schemaSQL); err != nil ||
+		!strings.Contains(schemaSQL, "probe_operations") || !strings.Contains(schemaSQL, "created_at") {
 		t.Fatalf("terminal delivery index missing: sql=%q err=%v", schemaSQL, err)
+	}
+}
+
+func TestR13TerminalSelectionRepairsLegacyIndexDefinition(t *testing.T) {
+	s := openTestStore(t)
+	if _, err := s.db.Exec(`DROP INDEX idx_probe_terminal_delivery`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`CREATE INDEX idx_probe_terminal_delivery ON probe_operations(status, updated_at, id)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ensureR13Schema(); err != nil {
+		t.Fatal(err)
+	}
+	var schemaSQL string
+	if err := s.db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_probe_terminal_delivery'`).Scan(&schemaSQL); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(schemaSQL, "created_at") {
+		t.Fatalf("legacy terminal delivery index was not repaired: %q", schemaSQL)
 	}
 }
 

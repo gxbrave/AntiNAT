@@ -12,7 +12,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
-	"encoding/json"
+
 	"errors"
 	"fmt"
 	"net"
@@ -233,7 +233,7 @@ func (a *App) completeFinishedDeletions() {
 			DeletionOperationID string `json:"deletion_operation_id"`
 			Deleted             bool   `json:"deleted"`
 		}
-		if err := json.Unmarshal([]byte(row.SemanticPayload), &res); err != nil {
+		if err := protocol.DecodeStrictJSONInto([]byte(row.SemanticPayload), &res); err != nil {
 			continue
 		}
 		if !res.Deleted || res.DeletionOperationID == "" {
@@ -268,7 +268,7 @@ func (a *App) ArmProbe(ctx context.Context, nodeID, forwardID, endpoint string) 
 		return store.ProbeOperation{}, fmt.Errorf("controller: arm probe: %w", err)
 	}
 	var spec protocol.ForwardSpec
-	if err := json.Unmarshal([]byte(row.SpecJSON), &spec); err != nil {
+	if err := protocol.DecodeStrictJSONInto([]byte(row.SpecJSON), &spec); err != nil {
 		return store.ProbeOperation{}, fmt.Errorf("controller: arm probe spec: %w", err)
 	}
 	aid := protocol.ActivationID(forwardID, spec.DesiredRevision)

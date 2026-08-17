@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+
 	"errors"
 	"fmt"
 	"strings"
@@ -418,10 +419,7 @@ var activationSnapshotJSONSchema = map[string]protocol.FieldKind{
 
 func decodeActivationSnapshot(snapshotJSON string) (protocol.ActivationStates, error) {
 	var snapshot protocol.ActivationStates
-	if err := protocol.ValidateStrictJSON([]byte(snapshotJSON), activationSnapshotJSONSchema); err != nil {
-		return snapshot, err
-	}
-	if err := json.Unmarshal([]byte(snapshotJSON), &snapshot); err != nil {
+	if err := protocol.DecodeStrictJSONInto([]byte(snapshotJSON), &snapshot); err != nil {
 		return snapshot, err
 	}
 	if err := snapshot.Validate(); err != nil {
@@ -456,10 +454,7 @@ var storedProviderResultJSONSchema = map[string]protocol.FieldKind{
 
 func decodeStoredProviderResult(payload string) (storedProviderResult, error) {
 	var result storedProviderResult
-	if err := protocol.ValidateStrictJSON([]byte(payload), storedProviderResultJSONSchema); err != nil {
-		return result, err
-	}
-	if err := json.Unmarshal([]byte(payload), &result); err != nil {
+	if err := protocol.DecodeStrictJSONInto([]byte(payload), &result); err != nil {
 		return result, err
 	}
 	if result.Schema != "antinat.provider-result/v1" || result.ProbeID == "" || !result.Accepted ||
@@ -674,12 +669,41 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 	} else if n != 1 {
 		return ErrProbeTerminal
 	}
+	// WAN verification owns only reachability, return-path, and publication.
+	// Merge those fields into the persisted mirror instead of replacing the
+	// orthogonal control/listener/mapping/keepalive/target/data-plane axes.
+	mergedSnapshot, err := decodeActivationSnapshot(snapshotJSON)
+	if err != nil {
+		return fmt.Errorf("%w: illegal activation snapshot: %v", ErrProbeJoinIncomplete, err)
+	}
+	var previousJSON string
+	if err := tx.QueryRow(`SELECT snapshot_json FROM forward_runtime_status WHERE forward_id = ?`, forwardID).Scan(&previousJSON); errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: runtime mirror is missing", ErrProbeJoinIncomplete)
+	} else if err != nil {
+		return fmt.Errorf("store: read persisted activation snapshot: %w", err)
+	} else {
+		previous, decodeErr := decodeActivationSnapshot(previousJSON)
+		if decodeErr != nil {
+			return fmt.Errorf("%w: persisted activation snapshot is invalid", ErrProbeJoinIncomplete)
+		}
+		mergedSnapshot.ControlState = previous.ControlState
+		mergedSnapshot.ListenerState = previous.ListenerState
+		mergedSnapshot.MappingState = previous.MappingState
+		mergedSnapshot.KeepaliveState = previous.KeepaliveState
+		mergedSnapshot.TargetHealthState = previous.TargetHealthState
+		mergedSnapshot.DataPlaneState = previous.DataPlaneState
+	}
+	mergedJSONBytes, err := json.Marshal(mergedSnapshot)
+	if err != nil {
+		return fmt.Errorf("%w: marshal merged activation snapshot: %v", ErrProbeJoinIncomplete, err)
+	}
+	mergedJSON := string(mergedJSONBytes)
 	statusRes, err := tx.Exec(`INSERT INTO forward_runtime_status (forward_id, activation_id, snapshot_json, updated_at)
 		VALUES (?, ?, ?, ?)
 		ON CONFLICT(forward_id) DO UPDATE SET activation_id = excluded.activation_id,
 		 snapshot_json = excluded.snapshot_json, updated_at = excluded.updated_at
 		 WHERE forward_runtime_status.activation_id = excluded.activation_id
-		 OR excluded.activation_id = (SELECT current_activation_id FROM forwards WHERE id = excluded.forward_id)`, forwardID, activationID, snapshotJSON, nowUnix)
+		 OR excluded.activation_id = (SELECT current_activation_id FROM forwards WHERE id = excluded.forward_id)`, forwardID, activationID, mergedJSON, nowUnix)
 	if err != nil {
 		return fmt.Errorf("store: publish probe snapshot: %w", err)
 	}
@@ -846,6 +870,188 @@ func (s *Store) ListProbeOperationsByStatusLimit(limit int, statuses ...string) 
 		out = append(out, op)
 	}
 	return out, rows.Err()
+}
+
+// QueueProbeOutcome durably records the terminal disposition before any
+// controller outbox delivery. STALE and MISSING are terminal local decisions;
+// only the current activation obtains a probe_outcome command.
+func (s *Store) QueueProbeOutcome(probeID string, outcome protocol.ProbeOutcome) (string, error) {
+	if probeID == "" {
+		return "", ErrNotFound
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", fmt.Errorf("store: begin probe outcome delivery: %w", err)
+	}
+	defer tx.Rollback()
+	nowUnix := s.currentUnix()
+	var nodeID, forwardID, activationID, status string
+	var operationUpdatedAt int64
+	err = tx.QueryRow(`SELECT node_id, forward_id, activation_id, status, updated_at FROM probe_operations WHERE id = ?`, probeID).
+		Scan(&nodeID, &forwardID, &activationID, &status, &operationUpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("store: read probe outcome operation: %w", err)
+	}
+	if !probeTerminal(status) {
+		return "", fmt.Errorf("store: probe outcome is not terminal")
+	}
+
+	var existing string
+	if err := tx.QueryRow(`SELECT disposition FROM probe_terminal_deliveries WHERE probe_id = ?`, probeID).Scan(&existing); err == nil {
+		if err := tx.Commit(); err != nil {
+			return "", fmt.Errorf("store: commit existing probe outcome delivery: %w", err)
+		}
+		return existing, nil
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("store: read probe outcome disposition: %w", err)
+	}
+
+	disposition := "ENQUEUED"
+	var currentActivation sql.NullString
+	var forwardRevision uint64
+	if err := tx.QueryRow(`SELECT current_activation_id, revision FROM forwards WHERE id = ?`, forwardID).Scan(&currentActivation, &forwardRevision); errors.Is(err, sql.ErrNoRows) {
+		disposition = "MISSING"
+	} else if err != nil {
+		return "", fmt.Errorf("store: read probe outcome forward: %w", err)
+	} else if !currentActivation.Valid || currentActivation.String != activationID {
+		disposition = "STALE"
+	}
+	if operationUpdatedAt == 0 {
+		operationUpdatedAt = nowUnix
+	}
+	result, err := tx.Exec(`INSERT INTO probe_terminal_deliveries
+		(probe_id, disposition, outcome, node_id, forward_id, activation_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(probe_id) DO NOTHING`, probeID, disposition, string(outcome), nodeID, forwardID, activationID, operationUpdatedAt, operationUpdatedAt)
+	if err != nil {
+		return "", fmt.Errorf("store: insert probe outcome disposition: %w", err)
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return "", fmt.Errorf("store: probe outcome disposition rows: %w", err)
+	} else if affected == 0 {
+		var winner string
+		if err := tx.QueryRow(`SELECT disposition FROM probe_terminal_deliveries WHERE probe_id = ?`, probeID).Scan(&winner); err != nil {
+			return "", fmt.Errorf("store: read winning probe outcome disposition: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return "", fmt.Errorf("store: commit winning probe outcome disposition: %w", err)
+		}
+		return winner, nil
+	}
+	if disposition == "ENQUEUED" {
+		payload, err := json.Marshal(struct {
+			ForwardID  string `json:"forward_id"`
+			Activation string `json:"activation"`
+			Generation uint64 `json:"generation"`
+			Outcome    string `json:"outcome"`
+		}{forwardID, activationID, forwardRevision, string(outcome)})
+		if err != nil {
+			return "", fmt.Errorf("store: marshal probe outcome: %w", err)
+		}
+		item := ControlOutboxItem{OperationID: probeID, MessageType: "probe_outcome", NodeID: nodeID, SemanticPayload: string(payload)}
+		commandID := deterministicMessageID(item.OperationID, item.MessageType)
+		resultID := deterministicMessageID(commandID, "operation_complete")
+		controllerResultID := deterministicMessageID(item.OperationID, "operation_complete")
+		if _, err := tx.Exec(`INSERT INTO control_outbox
+			(operation_id, message_type, node_id, semantic_payload, state, attempt_count,
+			 created_at, updated_at, command_message_id, operation_complete_message_id,
+			 controller_operation_complete_message_id)
+			VALUES (?, ?, ?, ?, 'PENDING', 0, ?, ?, ?, ?, ?)`, item.OperationID, item.MessageType,
+			item.NodeID, item.SemanticPayload, nowUnix, nowUnix, commandID, resultID, controllerResultID); err != nil {
+			return "", fmt.Errorf("store: enqueue probe outcome: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("store: commit probe outcome delivery: %w", err)
+	}
+	return disposition, nil
+}
+
+// ProbeOutcomeDisposition returns the durable local delivery decision.
+func (s *Store) ProbeOutcomeDisposition(probeID string) (string, error) {
+	var disposition string
+	err := s.db.QueryRow(`SELECT disposition FROM probe_terminal_deliveries WHERE probe_id = ?`, probeID).Scan(&disposition)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("store: get probe outcome disposition: %w", err)
+	}
+	return disposition, nil
+}
+
+// ListUndeliveredTerminalProbeOperationsPage returns a caller-budgeted keyset
+// page. Rows without a delivery decision and ENQUEUED rows are eligible;
+// terminal local dispositions are not retried as if they were deliverable.
+func (s *Store) ListUndeliveredTerminalProbeOperationsPage(limit int, afterCreated int64, afterID string) ([]ProbeOperation, error) {
+	if limit <= 0 {
+		limit = defaultProbeLookupLimit
+	}
+	rows, err := s.db.Query(`SELECT o.id, o.node_id, o.forward_id, o.activation_id, o.provider_id, o.status, o.endpoint,
+		o.arm_hex, o.challenge_hash, o.ttl_ms, o.expiry_opaque, o.expires_at, o.created_at, o.updated_at
+		FROM probe_operations o
+		WHERE `+probeTerminalSQL+` AND (o.created_at > ? OR (o.created_at = ? AND o.id > ?))
+		  AND NOT EXISTS (SELECT 1 FROM probe_terminal_deliveries d
+		                  WHERE d.probe_id = o.id AND d.disposition IN ('STALE','MISSING','EXPIRED','DELIVERED'))
+		ORDER BY o.created_at, o.id LIMIT ?`, afterCreated, afterCreated, afterID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: list undelivered terminal probe operations: %w", err)
+	}
+	defer rows.Close()
+	var out []ProbeOperation
+	for rows.Next() {
+		var op ProbeOperation
+		if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ProviderID, &op.Status,
+			&op.Endpoint, &op.ArmHex, &op.ChallengeHash, &op.TTLMS, &op.ExpiryOpaque,
+			&op.ExpiresAt, &op.CreatedAt, &op.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("store: scan undelivered terminal probe operation: %w", err)
+		}
+		out = append(out, op)
+	}
+	return out, rows.Err()
+}
+
+// ExpireTerminalProbeDeliveriesBeforeLimit marks offline ENQUEUED deliveries
+// expired and removes their unsent outbox commands in one bounded transaction.
+func (s *Store) ExpireTerminalProbeDeliveriesBeforeLimit(cutoff int64, limit int) (int, error) {
+	limit = probeCleanupLimit(limit)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("store: begin terminal delivery expiry: %w", err)
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(`SELECT probe_id FROM probe_terminal_deliveries
+		WHERE disposition = 'ENQUEUED' AND updated_at < ? ORDER BY updated_at, probe_id LIMIT ?`, cutoff, limit)
+	if err != nil {
+		return 0, fmt.Errorf("store: query terminal deliveries: %w", err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("store: scan terminal delivery: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, fmt.Errorf("store: close terminal deliveries: %w", err)
+	}
+	for _, id := range ids {
+		if _, err := tx.Exec(`UPDATE probe_terminal_deliveries SET disposition = 'EXPIRED', updated_at = ? WHERE probe_id = ? AND disposition = 'ENQUEUED'`, cutoff, id); err != nil {
+			return 0, fmt.Errorf("store: expire terminal delivery: %w", err)
+		}
+		if _, err := tx.Exec(`DELETE FROM control_outbox WHERE operation_id = ? AND message_type = 'probe_outcome'`, id); err != nil {
+			return 0, fmt.Errorf("store: delete expired probe outcome outbox: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("store: commit terminal delivery expiry: %w", err)
+	}
+	return len(ids), nil
 }
 
 // ListTerminalProbeOperationsPage returns one deterministic page of terminal
@@ -1022,7 +1228,9 @@ func (s *Store) DeleteTerminalProbeOperationsBeforeLimit(cutoff int64, limit int
 	}
 	defer tx.Rollback()
 	query := `SELECT id FROM probe_operations WHERE ` + probeTerminalSQL + ` AND updated_at < ?
-		AND EXISTS (SELECT 1 FROM probe_results ack WHERE ack.probe_id = probe_operations.id AND ack.kind = 'outcome_acked')
+		AND (EXISTS (SELECT 1 FROM probe_results ack WHERE ack.probe_id = probe_operations.id AND ack.kind = 'outcome_acked')
+		     OR EXISTS (SELECT 1 FROM probe_terminal_deliveries d WHERE d.probe_id = probe_operations.id
+		              AND d.disposition IN ('EXPIRED', 'STALE', 'MISSING', 'DELIVERED')))
 		ORDER BY updated_at, id LIMIT ?`
 	args := []any{cutoff, limit}
 	rows, err := tx.Query(query, args...)
@@ -1046,6 +1254,9 @@ func (s *Store) DeleteTerminalProbeOperationsBeforeLimit(cutoff int64, limit int
 	for _, id := range ids {
 		if _, err := tx.Exec(`DELETE FROM probe_results WHERE probe_id = ?`, id); err != nil {
 			return 0, fmt.Errorf("store: delete probe tombstone evidence: %w", err)
+		}
+		if _, err := tx.Exec(`DELETE FROM probe_terminal_deliveries WHERE probe_id = ?`, id); err != nil {
+			return 0, fmt.Errorf("store: delete probe terminal delivery: %w", err)
 		}
 		if _, err := tx.Exec(`DELETE FROM probe_operations WHERE id = ? AND `+probeTerminalSQL+` AND updated_at < ?`, id, cutoff); err != nil {
 			return 0, fmt.Errorf("store: delete probe tombstone %s: %w", id, err)
@@ -1200,26 +1411,41 @@ type ForwardRuntimeStatus struct {
 	UpdatedAt    int64
 }
 
-// SetForwardRuntimeStatus upserts the orthogonal snapshot under an
-// activation CAS. The write is accepted only when the mirror row is absent,
-// already bound to the same activation, or the event's activation is the
-// forward's CURRENT activation (the replacement path when the activation
-// advances). Any other write — a stale event from an older activation — is
-// rejected with ErrCASConflict and leaves the row untouched.
+// SetForwardRuntimeStatus upserts the orthogonal snapshot only when the event
+// names forwards.current_activation_id. Before a current activation exists,
+// the one recorded forward_activations row may initialize/update its mirror.
+// Both predicates are part of the write statement, so an existing same-old-
+// activation row cannot create a TOCTOU bypass after the forward advances.
 func (s *Store) SetForwardRuntimeStatus(forwardID, activationID, snapshotJSON string) error {
 	if _, err := decodeActivationSnapshot(snapshotJSON); err != nil {
 		return fmt.Errorf("store: invalid forward runtime snapshot: %w", err)
 	}
 	res, err := s.db.Exec(
 		`INSERT INTO forward_runtime_status (forward_id, activation_id, snapshot_json, updated_at)
-		 VALUES (?, ?, ?, ?)
+		 SELECT ?, ?, ?, ?
+		  WHERE EXISTS (
+		        SELECT 1 FROM forwards f
+		         WHERE f.id = ? AND (
+		               f.current_activation_id = ?
+		               OR (COALESCE(f.current_activation_id, '') = '' AND EXISTS (
+		                     SELECT 1 FROM forward_activations a
+		                      WHERE a.forward_id = f.id AND a.activation_id = ?
+		               ))
+		         )
+		  )
 		 ON CONFLICT(forward_id) DO UPDATE SET
 		    activation_id = excluded.activation_id,
 		    snapshot_json = excluded.snapshot_json,
 		    updated_at = excluded.updated_at
-		  WHERE forward_runtime_status.activation_id = excluded.activation_id
-		     OR excluded.activation_id = (SELECT current_activation_id FROM forwards WHERE id = excluded.forward_id)`,
-		forwardID, activationID, snapshotJSON, now(),
+		  WHERE excluded.activation_id = (
+		        SELECT current_activation_id FROM forwards
+		         WHERE id = excluded.forward_id
+		  ) OR (
+		        COALESCE((SELECT current_activation_id FROM forwards
+		                   WHERE id = excluded.forward_id), '') = ''
+		        AND forward_runtime_status.activation_id = excluded.activation_id
+		  )`,
+		forwardID, activationID, snapshotJSON, now(), forwardID, activationID, activationID,
 	)
 	if err != nil {
 		return fmt.Errorf("store: set forward runtime status: %w", err)
@@ -1227,6 +1453,13 @@ func (s *Store) SetForwardRuntimeStatus(forwardID, activationID, snapshotJSON st
 	if n, err := res.RowsAffected(); err != nil {
 		return fmt.Errorf("store: set forward runtime status rows: %w", err)
 	} else if n == 0 {
+		var exists int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM forwards WHERE id = ?`, forwardID).Scan(&exists); err != nil {
+			return fmt.Errorf("store: classify forward runtime status conflict: %w", err)
+		}
+		if exists == 0 {
+			return ErrNotFound
+		}
 		return ErrCASConflict
 	}
 	return nil

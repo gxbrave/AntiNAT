@@ -518,7 +518,7 @@ func (a *App) applyProbeOutcome(op control.Operation) ([]byte, error) {
 		Generation uint64 `json:"generation"`
 		Outcome    string `json:"outcome"`
 	}
-	if err := json.Unmarshal(op.Payload, &v); err != nil {
+	if err := protocol.DecodeStrictJSONInto(op.Payload, &v); err != nil {
 		return nil, fmt.Errorf("agent: probe outcome decode: %w", err)
 	}
 	if v.ForwardID == "" || v.Activation == "" || v.Generation == 0 || v.Outcome == "" {
@@ -559,7 +559,7 @@ func (a *App) applyProbeOutcome(op control.Operation) ([]byte, error) {
 // returns the durable apply report as the command result.
 func (a *App) applyDesired(ctx context.Context, op control.Operation) ([]byte, error) {
 	var d protocol.DesiredState
-	if err := json.Unmarshal(op.Payload, &d); err != nil {
+	if err := protocol.DecodeStrictJSONInto(op.Payload, &d); err != nil {
 		return nil, fmt.Errorf("agent: desired decode: %w", err)
 	}
 	epoch, session, err := a.store.CurrentSession()

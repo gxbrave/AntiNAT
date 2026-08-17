@@ -157,13 +157,17 @@ func (s *Store) ApplyNodeDelete(op NodeDeletionOperation, outbox ControlOutboxIt
 
 func insertOutboxTx(tx *sql.Tx, item ControlOutboxItem) error {
 	ts := now()
+	commandID := deterministicMessageID(item.OperationID, item.MessageType)
+	resultID := deterministicMessageID(commandID, "operation_complete")
+	controllerResultID := deterministicMessageID(item.OperationID, "operation_complete")
 	if _, err := tx.Exec(
 		`INSERT INTO control_outbox
 		    (operation_id, message_type, node_id, semantic_payload, state,
-		     attempt_count, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, 'PENDING', 0, ?, ?)`,
+		     attempt_count, created_at, updated_at, command_message_id,
+		     operation_complete_message_id, controller_operation_complete_message_id)
+		 VALUES (?, ?, ?, ?, 'PENDING', 0, ?, ?, ?, ?, ?)`,
 		item.OperationID, item.MessageType, item.NodeID, item.SemanticPayload,
-		ts, ts,
+		ts, ts, commandID, resultID, controllerResultID,
 	); err != nil {
 		return fmt.Errorf("store: outbox insert: %w", err)
 	}

@@ -18,14 +18,14 @@ import (
 )
 
 type r13StaticConn struct {
-	mu               sync.Mutex
-	reader           *bytes.Reader
-	remote           net.Addr
-	readCalled       bool
-	writeCalled      bool
-	failReadDeadline bool
+	mu                sync.Mutex
+	reader            *bytes.Reader
+	remote            net.Addr
+	readCalled        bool
+	writeCalled       bool
+	failReadDeadline  bool
 	failWriteDeadline bool
-	writes           bytes.Buffer
+	writes            bytes.Buffer
 }
 
 func (c *r13StaticConn) Read(p []byte) (int, error) {
@@ -43,9 +43,9 @@ func (c *r13StaticConn) Write(p []byte) (int, error) {
 	c.writeCalled = true
 	return c.writes.Write(p)
 }
-func (c *r13StaticConn) Close() error         { return nil }
-func (c *r13StaticConn) LocalAddr() net.Addr  { return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)} }
-func (c *r13StaticConn) RemoteAddr() net.Addr { return c.remote }
+func (c *r13StaticConn) Close() error                { return nil }
+func (c *r13StaticConn) LocalAddr() net.Addr         { return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)} }
+func (c *r13StaticConn) RemoteAddr() net.Addr        { return c.remote }
 func (c *r13StaticConn) SetDeadline(time.Time) error { return nil }
 func (c *r13StaticConn) SetReadDeadline(time.Time) error {
 	if c.failReadDeadline {
@@ -183,6 +183,34 @@ func TestR13RestartOverflowQuarantinesProbeGate(t *testing.T) {
 			_ = got.Close()
 		}
 		t.Fatalf("overflow candidate reached business path: conn=%v err=%v", got, err)
+	}
+}
+
+func TestR13RestartUnknownConsumedDeadlineQuarantinesProbeGate(t *testing.T) {
+	st, err := localstate.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	now := time.Unix(71_000, 0)
+	arm := protocol.ProbeArm{Endpoint: "198.51.100.7:8080", TTLMS: 60_000}
+	arm.ProbeID[15] = 9
+	arm.ExpectedSourceIP = [4]byte{198, 51, 100, 9}
+	if err := st.SaveArmedProbeForForward(arm, "forward-r13", now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkArmedProbeConsumedWithReceipt(arm.ProbeID, []byte("receipt"), "receipt-r13", time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewProbeManager(ProbeManagerOptions{Store: st, Clock: func() time.Time { return now }, MaxReplayEntries: 1, MaxActiveOperations: 1})
+	businessCandidate := &r13StaticConn{remote: &net.TCPAddr{IP: net.IPv4(198, 51, 100, 9), Port: 1234}}
+	gate := NewProbeGate(&r13OneConnListener{conn: businessCandidate}, manager, ProbeGateOptions{ForwardID: "forward-r13", ReadTimeout: time.Second})
+	got, err := gate.Accept()
+	if err == nil || got != nil {
+		if got != nil {
+			_ = got.Close()
+		}
+		t.Fatalf("unknown-deadline consumed fence reached business path: conn=%v err=%v", got, err)
 	}
 }
 

@@ -1,8 +1,9 @@
 package api
 
 import (
-	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
@@ -60,17 +61,6 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		requestHash := requestHashOf(body)
-		// Check for an existing idempotency record first (replay or conflict).
-		if existing, err := s.store.GetIdempotency(key); err == nil {
-			if existing.RequestHash != requestHash {
-				writeError(w, http.StatusConflict, "IDEMPOTENCY_CONFLICT", "Idempotency-Key reused with a different request")
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(existing.ResponseStatus)
-			_, _ = w.Write([]byte(existing.ResponseBody))
-			return
-		}
 		id, err := randomNodeID()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "id generation failed")
@@ -80,22 +70,25 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 		if name == "" {
 			name = "node-" + id[:8]
 		}
-		if err := s.store.CreateNode(store.Node{ID: id, Name: name}); err != nil {
-			writeError(w, http.StatusConflict, "CONFLICT", "node name already exists")
-			return
-		}
-		n, err := s.store.GetNode(id)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "node readback failed")
-			return
-		}
-		view := s.nodeView(n)
-		raw, _ := json.Marshal(view)
-		_, _, _ = s.store.StoreIdempotency(store.IdempotencyRecord{
+		rec, _, err := s.store.CreateNodeBundle(r.Context(), store.Node{ID: id, Name: name}, store.IdempotencyRecord{
 			Key: key, Route: "/api/v1/nodes", Principal: "admin",
-			RequestHash: requestHash, ResponseStatus: http.StatusCreated, ResponseBody: string(raw),
+			RequestHash: requestHash, ResponseStatus: http.StatusCreated,
 		})
-		writeJSON(w, http.StatusCreated, view)
+		if errors.Is(err, store.ErrIdempotencyConflict) {
+			writeError(w, http.StatusConflict, "IDEMPOTENCY_CONFLICT", "Idempotency-Key reused with a different request")
+			return
+		}
+		if err != nil {
+			if strings.Contains(err.Error(), "UNIQUE constraint failed: nodes.name") {
+				writeError(w, http.StatusConflict, "CONFLICT", "node name already exists")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "node create failed")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(rec.ResponseStatus)
+		_, _ = w.Write([]byte(rec.ResponseBody))
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "BAD_REQUEST", "method not allowed")
 	}

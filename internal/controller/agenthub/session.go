@@ -6,10 +6,11 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -694,27 +695,24 @@ func randomHexID() string {
 	return hex.EncodeToString(b)
 }
 
-// matchOutboxRow correlates an agent result envelope to an in-flight outbox
-// row and returns the row plus the agent-side operation id used. Candidate A:
-// the agent used hex(command message id) as its operation id (inbox FSM).
-// Candidate B: the agent used the controller's operation id directly
-// (QueueResult path, e.g. deletion results keyed by deletion op id).
+// matchOutboxRow correlates an agent result envelope to an indexed in-flight
+// outbox row and returns the row plus the agent-side operation id used.
 // PENDING rows are included so a result that beats the reconnect pump can
-// still be correlated (the handler advances the FSM legally).
+// still be correlated (the handler advances the FSM legally). A miss is
+// fail-closed; scanning a bounded prefix can never be a correctness fallback.
 func (h *Hub) matchOutboxRow(s *ControlSession, resultMsgID [16]byte, resultType string) (store.ControlOutboxItem, string, error) {
-	rows, err := h.store.ListControlOutboxByState(s.nodeID, "PENDING", "CLAIMED", "SENT", "SEMANTIC_ACKED")
-	if err != nil {
-		return store.ControlOutboxItem{}, "", err
-	}
-	for _, row := range rows {
-		cmdMsgID := security.MessageID(row.OperationID, row.MessageType)
-		agentOpA := hex.EncodeToString(cmdMsgID[:])
-		if security.MessageID(agentOpA, resultType) == resultMsgID {
-			return row, agentOpA, nil
+	states := []string{"PENDING", "CLAIMED", "SENT", "SEMANTIC_ACKED"}
+	resultHex := hex.EncodeToString(resultMsgID[:])
+	if resultType == "operation_complete" {
+		if row, err := h.store.ControlOutboxItemByCorrelation(s.nodeID, resultHex, "operation_complete", states...); err == nil {
+			cmdMsgID := security.MessageID(row.OperationID, row.MessageType)
+			return row, hex.EncodeToString(cmdMsgID[:]), nil
 		}
-		if security.MessageID(row.OperationID, resultType) == resultMsgID {
+		if row, err := h.store.ControlOutboxItemByCorrelation(s.nodeID, resultHex, "controller_operation_complete", states...); err == nil {
 			return row, row.OperationID, nil
 		}
+	} else if row, err := h.store.ControlOutboxItemByCorrelation(s.nodeID, resultHex, "command", states...); err == nil {
+		return row, row.OperationID, nil
 	}
 	return store.ControlOutboxItem{}, "", errors.New("agent result does not match any in-flight outbox row")
 }
@@ -723,15 +721,8 @@ func (h *Hub) matchOutboxRow(s *ControlSession, resultMsgID [16]byte, resultType
 // command message id) to an in-flight row. PENDING rows are included for the
 // reconnect race (result/receipt beating the pump).
 func (h *Hub) matchOutboxRowByCommandMessageID(s *ControlSession, commandMsgIDHex string) (store.ControlOutboxItem, string, error) {
-	rows, err := h.store.ListControlOutboxByState(s.nodeID, "PENDING", "CLAIMED", "SENT", "SEMANTIC_ACKED")
-	if err != nil {
-		return store.ControlOutboxItem{}, "", err
-	}
-	for _, row := range rows {
-		cmdMsgID := security.MessageID(row.OperationID, row.MessageType)
-		if hex.EncodeToString(cmdMsgID[:]) == commandMsgIDHex {
-			return row, row.OperationID, nil
-		}
+	if row, err := h.store.ControlOutboxItemByCorrelation(s.nodeID, strings.ToLower(commandMsgIDHex), "command", "PENDING", "CLAIMED", "SENT", "SEMANTIC_ACKED"); err == nil {
+		return row, row.OperationID, nil
 	}
 	return store.ControlOutboxItem{}, "", errors.New("receipt does not match any in-flight outbox row")
 }
@@ -742,7 +733,7 @@ func operationIDFromReceipt(payload []byte) (string, error) {
 	var v struct {
 		OperationID string `json:"operation_id"`
 	}
-	if err := json.Unmarshal(payload, &v); err != nil {
+	if err := protocol.DecodeStrictJSONInto(payload, &v); err != nil {
 		return "", errors.New("malformed receipt payload")
 	}
 	if v.OperationID == "" {

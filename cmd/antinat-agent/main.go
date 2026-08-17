@@ -22,7 +22,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -39,6 +38,7 @@ func main() {
 	endpoint := flag.String("endpoint", envOr("ANTINAT_ENDPOINT", ""), "controller base URL")
 	nodeID := flag.String("node", envOr("ANTINAT_NODE", ""), "node id")
 	tokenFile := flag.String("token-file", envOr("ANTINAT_TOKEN_FILE", ""), "one-time enrollment token file (0600)")
+	tokenFD := flag.Int("token-fd", -1, "protected one-time enrollment token file descriptor")
 	pinHex := flag.String("pin", envOr("ANTINAT_PIN", ""), "pinned controller public key (hex)")
 	flag.Parse()
 
@@ -52,13 +52,16 @@ func main() {
 		NodeID:    *nodeID,
 		Heartbeat: 30 * time.Second,
 	}
-	if *tokenFile != "" {
-		raw, err := os.ReadFile(*tokenFile)
+	var tokenInputValue *tokenInput
+	if *tokenFile != "" || *tokenFD >= 0 {
+		input, err := openTokenInput(*tokenFD, *tokenFile)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "antinat-agent: token file: %v\n", err)
+			fmt.Fprintf(os.Stderr, "antinat-agent: token input rejected: %v\n", err)
 			os.Exit(1)
 		}
-		cfg.Token = strings.TrimSpace(string(raw))
+		tokenInputValue = input
+		defer input.close()
+		cfg.Token = input.token
 		if *pinHex != "" {
 			pin, err := hex.DecodeString(*pinHex)
 			if err != nil || len(pin) != ed25519.PublicKeySize {
@@ -69,9 +72,17 @@ func main() {
 		}
 	}
 
-	app, err := agent.New(cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "antinat-agent: %v\n", err)
+	app, enrollmentErr := agent.New(cfg)
+	tokenErr := finalizeEnrollmentToken(tokenInputValue, enrollmentErr)
+	if enrollmentErr != nil {
+		fmt.Fprintf(os.Stderr, "antinat-agent: %v\n", enrollmentErr)
+		os.Exit(1)
+	}
+	if tokenErr != nil {
+		fmt.Fprintf(os.Stderr, "antinat-agent: token cleanup failed: %v\n", tokenErr)
+		if app != nil {
+			_ = app.Shutdown(context.Background())
+		}
 		os.Exit(1)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -89,6 +100,20 @@ func main() {
 		fmt.Fprintf(os.Stderr, "antinat-agent: shutdown: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// finalizeEnrollmentToken couples path cleanup to the enrollment transaction:
+// a failed agent.New leaves the original file available for retry, while a
+// successful enrollment consumes it before any later session-start failure.
+func finalizeEnrollmentToken(input *tokenInput, enrollmentErr error) error {
+	if input == nil {
+		return enrollmentErr
+	}
+	if enrollmentErr != nil {
+		_ = input.abort()
+		return enrollmentErr
+	}
+	return input.commit()
 }
 
 func envOr(key, def string) string {

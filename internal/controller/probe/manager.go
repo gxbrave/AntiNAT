@@ -74,6 +74,9 @@ type Manager struct {
 	mu              sync.Mutex
 	active          map[string]struct{}
 	armMu           sync.Mutex
+	terminalMu      sync.Mutex
+	terminalAfter   int64
+	terminalAfterID string
 	ctx             context.Context
 	cancel          context.CancelFunc
 	wg              sync.WaitGroup
@@ -199,6 +202,9 @@ func (m *Manager) sweepOnce(at time.Time) error {
 		_ = m.enqueueActivationOutcome(op.ID, protocol.OutcomeTimeout)
 	}
 	cutoff := at.Add(-m.resultRetention).Unix()
+	if _, err := m.store.ExpireTerminalProbeDeliveriesBeforeLimit(cutoff, m.cleanupBatch); err != nil {
+		return err
+	}
 	if _, err := m.store.DeleteProbeResultsBeforeLimit(cutoff, m.cleanupBatch); err != nil {
 		return err
 	}
@@ -299,34 +305,32 @@ func (m *Manager) recoverOperations() {
 	}
 }
 
-// recoverTerminalOutcomes repairs the crash boundary between the operation
-// status transaction and the control-outbox transaction. A terminal status is
-// durable evidence that must eventually have a matching probe_outcome command;
-// enqueueActivationOutcome is idempotent when the command already exists.
+// recoverTerminalOutcomes repairs at most one caller-budgeted page per sweep.
+// The cursor is manager-owned and serialized so concurrent reconnect/sweeper
+// calls cannot turn a bounded page into duplicate full-history walks.
 func (m *Manager) recoverTerminalOutcomes() {
-	var afterCreated int64
-	var afterID string
-	for {
-		ops, err := m.store.ListTerminalProbeOperationsPage(m.cleanupBatch, afterCreated, afterID)
+	m.terminalMu.Lock()
+	defer m.terminalMu.Unlock()
+	ops, err := m.store.ListUndeliveredTerminalProbeOperationsPage(m.cleanupBatch, m.terminalAfter, m.terminalAfterID)
+	if err != nil {
+		return
+	}
+	if len(ops) == 0 {
+		m.terminalAfter, m.terminalAfterID = 0, ""
+		return
+	}
+	for _, op := range ops {
+		acked, err := m.store.ProbeOutcomeAcknowledged(op.ID)
 		if err != nil {
 			return
 		}
-		if len(ops) == 0 {
-			return
+		if !acked {
+			_ = m.enqueueActivationOutcome(op.ID, protocol.ProbeOutcome(op.Status))
 		}
-		for _, op := range ops {
-			acked, err := m.store.ProbeOutcomeAcknowledged(op.ID)
-			if err != nil {
-				return
-			}
-			if !acked {
-				_ = m.enqueueActivationOutcome(op.ID, protocol.ProbeOutcome(op.Status))
-			}
-			afterCreated, afterID = op.CreatedAt, op.ID
-		}
-		if len(ops) < m.cleanupBatch {
-			return
-		}
+		m.terminalAfter, m.terminalAfterID = op.CreatedAt, op.ID
+	}
+	if len(ops) < m.cleanupBatch {
+		m.terminalAfter, m.terminalAfterID = 0, ""
 	}
 }
 
@@ -384,6 +388,26 @@ func (m *Manager) Arm(ctx context.Context, nodeID, forwardID, activationID, endp
 	}
 	if provider == nil {
 		return store.ProbeOperation{}, errors.New("probe: no enabled provider registered")
+	}
+	// A probe join is allowed to mutate only an already-persisted activation
+	// mirror. Initialize the legal pre-probe baseline at arm time rather than
+	// fabricating unrelated axes from WAN evidence during the join transaction.
+	if _, err := m.store.GetForwardRuntimeStatus(forwardID); errors.Is(err, store.ErrNotFound) {
+		baseline := protocol.ActivationStates{
+			ControlState: "ONLINE", ListenerState: "READY", MappingState: "PUBLIC_CANDIDATE",
+			KeepaliveState: "NOT_REQUIRED", WanReachabilityState: "NOT_TESTED",
+			ReturnPathState: "NOT_TESTED", TargetHealthState: "UNKNOWN",
+			PublicationState: "NONE", DataPlaneState: "READY",
+		}
+		rawBaseline, marshalErr := json.Marshal(baseline)
+		if marshalErr != nil {
+			return store.ProbeOperation{}, marshalErr
+		}
+		if err := m.store.SetForwardRuntimeStatus(forwardID, activationID, string(rawBaseline)); err != nil {
+			return store.ProbeOperation{}, fmt.Errorf("probe: initialize runtime mirror: %w", err)
+		}
+	} else if err != nil {
+		return store.ProbeOperation{}, fmt.Errorf("probe: read runtime mirror: %w", err)
 	}
 
 	probeID, err := randomID()
@@ -477,7 +501,7 @@ func (m *Manager) HandleActivationStatus(nodeID string, payload []byte) error {
 		Generation uint64                    `json:"generation"`
 		Snapshot   protocol.ActivationStates `json:"snapshot"`
 	}
-	if err := json.Unmarshal(payload, &v); err != nil || v.ForwardID == "" || v.Activation == "" {
+	if err := protocol.DecodeStrictJSONInto(payload, &v); err != nil || v.ForwardID == "" || v.Activation == "" {
 		return errors.New("probe: malformed activation status")
 	}
 	if err := v.Snapshot.Validate(); err != nil {
@@ -615,7 +639,7 @@ func providerFailureOutcome(reason string) (string, bool) {
 		return "", false
 	case "timeout":
 		return string(protocol.OutcomeTimeout), true
-	case "unreachable", "no_ack", "send_failed", "challenge_unavailable", "invalid_source":
+	case "unreachable", "no_ack", "send_failed", "challenge_unavailable", "invalid_source", "deadline_failed":
 		return string(protocol.OutcomeProbeInfraUnavailable), true
 	default:
 		return string(protocol.OutcomeRejected), true
@@ -704,7 +728,7 @@ func (m *Manager) requestProvider(requestCtx context.Context, op store.ProbeOper
 		m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
 		return
 	}
-	const maxProviderResponseBytes = 128 << 10
+	const maxProviderResponseBytes = int64(protocol.MaxPayloadBytes)
 	if resp.ContentLength > maxProviderResponseBytes {
 		m.failOperation(op.ID, string(protocol.OutcomeProbeInfraUnavailable))
 		return
@@ -921,42 +945,8 @@ func (m *Manager) tryJoin(op store.ProbeOperation) error {
 // agent's current activation. Reusing the same operation is idempotent, while
 // a mismatched activation is rejected by the forward CAS fence.
 func (m *Manager) enqueueActivationOutcome(operationID string, outcome protocol.ProbeOutcome) error {
-	op, err := m.store.GetProbeOperation(operationID)
-	if err != nil {
-		return err
-	}
-	forward, err := m.store.GetForward(op.ForwardID)
-	if err != nil {
-		return err
-	}
-	if forward.CurrentActivationID != op.ActivationID {
-		return store.ErrCASConflict
-	}
-	payload, err := json.Marshal(struct {
-		ForwardID  string `json:"forward_id"`
-		Activation string `json:"activation"`
-		Generation uint64 `json:"generation"`
-		Outcome    string `json:"outcome"`
-	}{op.ForwardID, op.ActivationID, forward.Revision, string(outcome)})
-	if err != nil {
-		return err
-	}
-	item := store.ControlOutboxItem{
-		OperationID:     operationID,
-		MessageType:     "probe_outcome",
-		NodeID:          op.NodeID,
-		SemanticPayload: string(payload),
-	}
-	if err := m.store.EnqueueControlOutbox(item); err != nil {
-		// The operation id/message type pair is unique. A retry after a crash
-		// may observe the already durable command; verify it is the same join.
-		existing, getErr := m.store.ControlOutboxItemByOperation(operationID, "probe_outcome")
-		if getErr == nil && existing.SemanticPayload == item.SemanticPayload {
-			return nil
-		}
-		return err
-	}
-	return nil
+	_, err := m.store.QueueProbeOutcome(operationID, outcome)
+	return err
 }
 
 // setTerminalOutcome advances a terminal probe result and queues the matching

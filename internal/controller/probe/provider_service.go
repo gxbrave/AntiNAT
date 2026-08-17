@@ -55,6 +55,15 @@ type ProviderConfig struct {
 	// RateWindow and MaxRequests bound HTTP work before execution.
 	RateWindow  time.Duration
 	MaxRequests int
+	// Authenticated admission axes. Limits are checked and charged as one
+	// transaction only when a fresh request obtains an outbound-execution slot.
+	ControllerMinuteLimit int
+	NodeMinuteLimit       int
+	EndpointMinuteLimit   int
+	DailyBudget           int
+	// DialContext is an injectable TCP dial seam. Production uses net.Dialer;
+	// tests use it to prove deadline-install failure performs no I/O.
+	DialContext func(context.Context, string, string) (net.Conn, error)
 }
 
 // Provider is the bounded antinat-probe service.
@@ -69,6 +78,11 @@ type Provider struct {
 	maxReplay   int
 	rateStart   time.Time
 	rateCount   int
+	controllers map[string]int
+	nodes       map[string]int
+	endpoints   map[string]int
+	dailyDate   string
+	dailyCount  int
 	sweepCancel context.CancelFunc
 	sweepWG     sync.WaitGroup
 }
@@ -112,7 +126,7 @@ func NewProvider(cfg ProviderConfig) (*Provider, error) {
 		}
 	}
 	if cfg.MaxRequestBytes <= 0 {
-		cfg.MaxRequestBytes = 8192
+		cfg.MaxRequestBytes = protocol.MaxPayloadBytes
 	}
 	if cfg.RateWindow <= 0 {
 		cfg.RateWindow = time.Minute
@@ -120,14 +134,31 @@ func NewProvider(cfg ProviderConfig) (*Provider, error) {
 	if cfg.MaxRequests <= 0 {
 		cfg.MaxRequests = 120
 	}
+	if cfg.ControllerMinuteLimit <= 0 {
+		cfg.ControllerMinuteLimit = cfg.MaxRequests
+	}
+	if cfg.NodeMinuteLimit <= 0 {
+		cfg.NodeMinuteLimit = cfg.MaxRequests
+	}
+	if cfg.EndpointMinuteLimit <= 0 {
+		cfg.EndpointMinuteLimit = cfg.MaxRequests
+	}
+	if cfg.DailyBudget <= 0 {
+		cfg.DailyBudget = cfg.MaxRequests * 24 * 60
+	}
+	now := cfg.Clock()
 	return &Provider{
-		cfg:       cfg,
-		slots:     make(chan struct{}, cfg.MaxConcurrent),
-		inbound:   make(chan struct{}, cfg.MaxConcurrent*2),
-		replay:    map[string]replayEntry{},
-		started:   cfg.Clock(),
-		maxReplay: cfg.MaxReplayEntries,
-		rateStart: cfg.Clock(),
+		cfg:         cfg,
+		slots:       make(chan struct{}, cfg.MaxConcurrent),
+		inbound:     make(chan struct{}, cfg.MaxConcurrent*2),
+		replay:      map[string]replayEntry{},
+		started:     now,
+		maxReplay:   cfg.MaxReplayEntries,
+		rateStart:   now,
+		controllers: make(map[string]int),
+		nodes:       make(map[string]int),
+		endpoints:   make(map[string]int),
+		dailyDate:   now.UTC().Format("2006-01-02"),
 	}, nil
 }
 
@@ -213,46 +244,59 @@ func (p *Provider) handleRequest(w http.ResponseWriter, r *http.Request) {
 	p.mu.Lock()
 	p.requests++
 	now := p.cfg.Clock()
-	if now.Sub(p.rateStart) >= p.cfg.RateWindow {
-		p.rateStart, p.rateCount = now, 0
-	}
+	p.resetAdmissionWindowLocked(now)
 	p.rateCount++
 	rateLimited := p.rateCount > p.cfg.MaxRequests
 	p.mu.Unlock()
 
-	// Read the bounded body once before admission gates so resource-pressure
-	// responses can still correlate to the signed request's probe id. The hint
-	// is untrusted until decodeProviderRequestAt verifies the full request.
-	raw, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, p.cfg.MaxRequestBytes))
-	var hint struct {
-		ProbeID string `json:"probe_id"`
-	}
-	_ = json.Unmarshal(raw, &hint)
+	// Read the protocol-sized body once. No field is used for correlation until
+	// the complete signed request has passed strict decoding and verification.
+	raw, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, protocol.MaxPayloadBytes+1))
 	if readErr != nil {
-		p.writeResult(w, providerResult{ProbeID: hint.ProbeID, Accepted: false, Reason: "bad_request"})
+		p.writeResult(w, providerResult{Accepted: false, Reason: "bad_request"})
+		return
+	}
+	req, err := decodeProviderRequestAt(bytes.NewReader(raw), p.cfg.ControllerPublicKey, now)
+	if err != nil {
+		// A request returned alongside a semantic error has already passed
+		// signature verification, so its id is safe to correlate. Malformed or
+		// unsigned input never contributes attacker-controlled identifiers.
+		probeID := ""
+		if req != nil {
+			probeID = req.ProbeID
+		}
+		if rateLimited {
+			p.writeResult(w, providerResult{ProbeID: probeID, Accepted: false, Reason: "rate_limited"})
+			return
+		}
+		if req != nil {
+			// Semantic validation errors still belong to an authenticated
+			// request. Preserve the legacy bounded replay fence, but do not
+			// charge any outbound identity budget because no dial can occur.
+			select {
+			case p.inbound <- struct{}{}:
+				defer func() { <-p.inbound }()
+			default:
+				p.writeResult(w, providerResult{ProbeID: probeID, Accepted: false, Reason: "busy"})
+				return
+			}
+			if reason := p.admitReplay(req, now); reason != "" {
+				p.writeResult(w, providerResult{ProbeID: probeID, Accepted: false, Reason: reason})
+				return
+			}
+		}
+		p.writeResult(w, providerResult{ProbeID: probeID, Accepted: false, Reason: providerRequestReason(err)})
 		return
 	}
 	if rateLimited {
-		p.writeResult(w, providerResult{ProbeID: hint.ProbeID, Accepted: false, Reason: "rate_limited"})
+		p.writeResult(w, providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "rate_limited"})
 		return
 	}
 	select {
 	case p.inbound <- struct{}{}:
 		defer func() { <-p.inbound }()
 	default:
-		p.writeResult(w, providerResult{ProbeID: hint.ProbeID, Accepted: false, Reason: "busy"})
-		return
-	}
-
-	req, err := decodeProviderRequestAt(bytes.NewReader(raw), p.cfg.ControllerPublicKey, p.cfg.Clock())
-	if err != nil {
-		if req != nil {
-			if reason := p.admitReplay(req, p.cfg.Clock()); reason != "" {
-				p.writeResult(w, providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: reason})
-				return
-			}
-		}
-		p.writeResult(w, providerResult{ProbeID: hint.ProbeID, Accepted: false, Reason: providerRequestReason(err)})
+		p.writeResult(w, providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "busy"})
 		return
 	}
 
@@ -265,9 +309,9 @@ func (p *Provider) handleRequest(w http.ResponseWriter, r *http.Request) {
 		p.writeResult(w, providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "busy"})
 		return
 	}
-	if reason := p.admitReplay(req, p.cfg.Clock()); reason != "" {
+	if reason := p.admitExecution(req, now); reason != "" {
 		if reason == "replay" {
-			if cached, ok := p.cachedReplayResult(req, p.cfg.Clock()); ok {
+			if cached, ok := p.cachedReplayResult(req, now); ok {
 				p.writeCachedResult(w, cached)
 				return
 			}
@@ -280,6 +324,72 @@ func (p *Provider) handleRequest(w http.ResponseWriter, r *http.Request) {
 	res := p.execute(r.Context(), req)
 	res.cacheKey = replayKey(req)
 	p.writeResult(w, res)
+}
+
+// resetAdmissionWindowLocked advances all minute buckets together. Keeping a
+// single epoch for every identity axis prevents an old controller bucket from
+// surviving a node/endpoint rollover and gives the maps a bounded lifetime.
+func (p *Provider) resetAdmissionWindowLocked(now time.Time) {
+	if !now.Before(p.rateStart.Add(p.cfg.RateWindow)) {
+		p.rateStart = now
+		p.rateCount = 0
+		clear(p.controllers)
+		clear(p.nodes)
+		clear(p.endpoints)
+	}
+	date := now.UTC().Format("2006-01-02")
+	if p.dailyDate == "" {
+		p.dailyDate = date
+	}
+	if date > p.dailyDate {
+		p.dailyDate = date
+		p.dailyCount = 0
+	}
+}
+
+// admitExecution authenticates one fresh outbound execution under one mutex.
+// Replay/cached requests return before any budget mutation; a denied axis also
+// leaves every other axis untouched.
+func (p *Provider) admitExecution(req *providerRequest, now time.Time) string {
+	canonical, err := req.canonical()
+	if err != nil {
+		return "bad_request"
+	}
+	material := sha256.Sum256(canonical)
+	endpoint, err := protocol.ValidateEndpoint(req.Endpoint)
+	if err != nil {
+		return "invalid_endpoint"
+	}
+	controllerKey := req.ControllerInstance + "\x00" + req.ControllerKeyID
+	nodeKey := strings.ToLower(req.NodePublicKeyHash)
+	endpointKey := endpoint.String()
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.resetAdmissionWindowLocked(now)
+	p.sweepReplayLocked(now)
+	replayID := strings.ToLower(req.ProbeID)
+	if entry, ok := p.replay[replayID]; ok && now.Before(entry.expires) {
+		if entry.material == material {
+			return "replay"
+		}
+		return "conflict"
+	}
+	if len(p.replay) >= p.maxReplay {
+		return "busy"
+	}
+	if p.controllers[controllerKey] >= p.cfg.ControllerMinuteLimit ||
+		p.nodes[nodeKey] >= p.cfg.NodeMinuteLimit ||
+		p.endpoints[endpointKey] >= p.cfg.EndpointMinuteLimit ||
+		p.dailyCount >= p.cfg.DailyBudget {
+		return "rate_limited"
+	}
+	p.controllers[controllerKey]++
+	p.nodes[nodeKey]++
+	p.endpoints[endpointKey]++
+	p.dailyCount++
+	p.replay[replayID] = replayEntry{expires: now.Add(p.cfg.ReplayWindow), material: material}
+	return ""
 }
 
 // admitReplay consumes a signed request's probe id in the bounded replay
@@ -400,13 +510,21 @@ func (p *Provider) execute(ctx context.Context, req *providerRequest) providerRe
 	}
 	ctx, cancel := context.WithTimeout(ctx, p.cfg.DialTimeout)
 	defer cancel()
-	dialer := net.Dialer{Timeout: p.cfg.DialTimeout, LocalAddr: &net.TCPAddr{IP: net.IP(sourceBytes)}}
-	conn, err := dialer.DialContext(ctx, "tcp4", req.Endpoint)
+	// The source bind is part of the provider policy. The default seam uses a
+	// net.Dialer with this LocalAddr; injected test dialers own that detail.
+	dialContext := p.cfg.DialContext
+	if p.cfg.DialContext == nil {
+		dialer := net.Dialer{Timeout: p.cfg.DialTimeout, LocalAddr: &net.TCPAddr{IP: net.IP(sourceBytes)}}
+		dialContext = dialer.DialContext
+	}
+	conn, err := dialContext(ctx, "tcp4", req.Endpoint)
 	if err != nil {
 		return providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "unreachable"}
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(p.cfg.ExchangeTimeout))
+	if err := conn.SetDeadline(p.cfg.Clock().Add(p.cfg.ExchangeTimeout)); err != nil {
+		return providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "deadline_failed"}
+	}
 
 	wan1 := append(frame.Canonical(), frame.Signature...)
 	if _, err := conn.Write(wan1); err != nil {

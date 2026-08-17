@@ -106,10 +106,7 @@ func providerRequestReason(err error) string {
 
 func decodeProviderResultJSON(raw []byte) (providerResult, error) {
 	var result providerResult
-	if err := protocol.ValidateStrictJSON(raw, providerResultJSONSchema); err != nil {
-		return result, err
-	}
-	if err := json.Unmarshal(raw, &result); err != nil {
+	if err := protocol.DecodeStrictJSONInto(raw, &result); err != nil {
 		return result, err
 	}
 	return result, nil
@@ -123,10 +120,7 @@ func decodeProbeResultJSON(raw []byte) (struct {
 		ProbeID string `json:"probe_id"`
 		Outcome string `json:"outcome"`
 	}
-	if err := protocol.ValidateStrictJSON(raw, probeResultJSONSchema); err != nil {
-		return result, err
-	}
-	if err := json.Unmarshal(raw, &result); err != nil {
+	if err := protocol.DecodeStrictJSONInto(raw, &result); err != nil {
 		return result, err
 	}
 	return result, nil
@@ -159,11 +153,8 @@ func decodeProviderRequestAt(body io.Reader, controllerPub ed25519.PublicKey, no
 	if err != nil {
 		return nil, err
 	}
-	if err := protocol.ValidateStrictJSON(raw, providerRequestJSONSchema); err != nil {
-		return nil, err
-	}
 	var req providerRequest
-	if err := json.Unmarshal(raw, &req); err != nil {
+	if err := protocol.DecodeStrictJSONInto(raw, &req); err != nil {
 		return nil, err
 	}
 	if req.Schema != providerRequestSchema {

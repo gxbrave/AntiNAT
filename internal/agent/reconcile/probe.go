@@ -32,6 +32,11 @@ import (
 // ErrProbeArmRejected is the generic arm rejection (no detail leak).
 var ErrProbeArmRejected = errors.New("reconcile: probe arm rejected")
 
+// ErrProbeRecoveryOverflow is returned when durable replay/active fences do
+// not fit in the configured recovery bounds. The listener must quarantine
+// rather than route an unknown source to the business data plane.
+var ErrProbeRecoveryOverflow = errors.New("reconcile: probe recovery capacity overflow")
+
 // SendControlFunc pushes an A2C control message (probe_ingress_receipt).
 type SendControlFunc func(ctx context.Context, messageType string, payload []byte) error
 
@@ -84,6 +89,7 @@ type ProbeManager struct {
 	replaySource  map[[16]byte]replaySource
 	maxReplay     int
 	maxActive     int
+	recoveryErr   error
 	sendTimeout   time.Duration
 	sweepInterval time.Duration
 	sweepAfter    []byte
@@ -130,34 +136,41 @@ func NewProbeManager(opts ProbeManagerOptions) *ProbeManager {
 		for {
 			probes, next, done, err := m.store.ListArmedProbesPage(m.maxActive, after)
 			if err != nil {
+				m.recoveryErr = err
 				break
 			}
 			for _, p := range probes {
 				now := m.clock()
 				if p.Consumed {
-					// A consumed row is a replay fence, not an active arm. Once
-					// its receipt window has elapsed, remove the fence so the id
-					// can be reused; a clock rollback before ArmedAt remains
-					// fail-closed and retains the durable row.
-					if !p.ReceiptDeadline.IsZero() && !p.ReceiptDeadline.After(now) &&
-						(p.ArmedAt.IsZero() || !now.Before(p.ArmedAt)) {
+					// A consumed row is a replay fence, not an active arm. Missing
+					// receipt timing or a wall-clock rollback makes expiry
+					// unknowable; retain it and quarantine rather than reopening
+					// the source to the business path.
+					if p.ReceiptDeadline.IsZero() || (!p.ArmedAt.IsZero() && now.Before(p.ArmedAt)) {
+						m.recoveryErr = ErrProbeRecoveryOverflow
+						continue
+					}
+					if !p.ReceiptDeadline.After(now) {
 						_ = m.store.DeleteArmedProbe(p.Arm.ProbeID)
 						continue
 					}
-					if !p.ReceiptDeadline.IsZero() && p.ReceiptDeadline.After(now) && len(m.replay) < m.maxReplay {
+					if len(m.replay) < m.maxReplay {
 						m.replay[p.Arm.ProbeID] = p.ReceiptDeadline
 						m.replaySource[p.Arm.ProbeID] = replaySource{source: p.Arm.ExpectedSourceIP, forwardID: p.ForwardID}
+					} else {
+						m.recoveryErr = ErrProbeRecoveryOverflow
 					}
 					continue
 				}
-				if !p.ArmedAt.IsZero() && now.Before(p.ArmedAt) {
-					// A wall-clock rollback makes elapsed TTL unknowable. Delete
-					// an unconsumed row rather than reviving it after restart.
-					_ = m.store.DeleteArmedProbe(p.Arm.ProbeID)
+				if p.Deadline.IsZero() || (!p.ArmedAt.IsZero() && now.Before(p.ArmedAt)) {
+					// A malformed deadline or wall-clock rollback makes elapsed
+					// TTL unknowable. Retain the row and fail closed.
+					m.recoveryErr = ErrProbeRecoveryOverflow
 					continue
 				}
 				if p.Deadline.After(now) {
 					if len(m.ops) >= m.maxActive {
+						m.recoveryErr = ErrProbeRecoveryOverflow
 						continue
 					}
 					m.ops[p.Arm.ProbeID] = &armedOp{arm: p.Arm, forwardID: p.ForwardID, digest: p.Digest, deadline: p.Deadline}
@@ -172,6 +185,15 @@ func NewProbeManager(opts ProbeManagerOptions) *ProbeManager {
 		}
 	}
 	return m
+}
+
+// Quarantined reports whether restart recovery could not account for every
+// durable fence. It intentionally has no automatic clearing path: an operator
+// must raise the configured capacity or explicitly restart after inspection.
+func (m *ProbeManager) Quarantined() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.recoveryErr != nil
 }
 
 // Start launches the cancellable probe retention sweeper. It is separate from
@@ -409,7 +431,9 @@ func (m *ProbeManager) hasArmedBySource(ip [4]byte, forwardIDs ...string) bool {
 func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout time.Duration, forwardIDs ...string) {
 	defer conn.Close()
 	deadline := time.Now().Add(readTimeout)
-	conn.SetReadDeadline(deadline)
+	if err := conn.SetReadDeadline(deadline); err != nil {
+		return
+	}
 
 	// Two-phase bounded read: fixed header (magic + digest + ids +
 	// activation + 1-byte endpoint length), then the endpoint + trailer.
@@ -443,6 +467,10 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 	}
 	m.mu.Lock()
 	m.sweep(now)
+	if m.recoveryErr != nil {
+		m.mu.Unlock()
+		return
+	}
 	if _, replayed := m.replay[frame.ProbeID]; replayed {
 		m.mu.Unlock()
 		return
@@ -468,20 +496,11 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 		m.mu.Unlock()
 		return // generic REJECTED/DROPPED
 	}
-	op.used = true
 	if len(m.replay) >= m.maxReplay {
-		var oldestID [16]byte
-		var oldest time.Time
-		for id, expires := range m.replay {
-			if oldest.IsZero() || expires.Before(oldest) {
-				oldestID, oldest = id, expires
-			}
-		}
-		if !oldest.IsZero() {
-			delete(m.replay, oldestID)
-			delete(m.replaySource, oldestID)
-		}
+		m.mu.Unlock()
+		return
 	}
+	op.used = true
 	m.replay[frame.ProbeID] = now.Add(protocol.ProbeReplayWindow)
 	m.replaySource[frame.ProbeID] = replaySource{source: source, forwardID: op.forwardID}
 	m.mu.Unlock()
@@ -512,6 +531,17 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 	}
 	rct.Write(rsig)
 	receiptOperationID := probeReceiptOperationID(rct.Bytes())
+	// Install the write deadline before consuming durable state. A connection
+	// whose deadline cannot be installed must not receive an ACK or create a
+	// receipt that the controller could mistake for successful delivery.
+	if err := conn.SetWriteDeadline(time.Now().Add(readTimeout)); err != nil {
+		m.mu.Lock()
+		op.used = false
+		delete(m.replay, frame.ProbeID)
+		delete(m.replaySource, frame.ProbeID)
+		m.mu.Unlock()
+		return
+	}
 	if m.store == nil {
 		m.mu.Lock()
 		op.used = false
@@ -529,7 +559,6 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 		return
 	}
 
-	conn.SetWriteDeadline(time.Now().Add(readTimeout))
 	if _, err := writeFull(conn, ack.Bytes()); err != nil {
 		return
 	}
@@ -596,6 +625,9 @@ func NewProbeGate(inner net.Listener, mgr *ProbeManager, opts ProbeGateOptions) 
 // armed provider source are consumed internally and never returned.
 func (g *ProbeGate) Accept() (net.Conn, error) {
 	for {
+		if g.mgr != nil && g.mgr.Quarantined() {
+			return nil, ErrProbeRecoveryOverflow
+		}
 		conn, err := g.inner.Accept()
 		if err != nil {
 			return nil, err

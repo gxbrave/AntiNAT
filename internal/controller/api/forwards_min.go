@@ -363,7 +363,7 @@ func (s *Server) latestSpec(forwardID string) (protocol.ForwardSpec, error) {
 		return protocol.ForwardSpec{}, err
 	}
 	var spec protocol.ForwardSpec
-	if err := json.Unmarshal([]byte(row.SpecJSON), &spec); err != nil {
+	if err := protocol.DecodeStrictJSONInto([]byte(row.SpecJSON), &spec); err != nil {
 		return protocol.ForwardSpec{}, err
 	}
 	return spec, nil

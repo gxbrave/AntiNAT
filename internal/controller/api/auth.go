@@ -15,12 +15,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gxbrave/AntiNAT/internal/controller/auth"
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
+	"github.com/gxbrave/AntiNAT/internal/protocol"
 )
 
 // RouterConfig wires the minimal API.
@@ -53,9 +55,12 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 // decodeJSON decodes a strict JSON object body into v.
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(v); err != nil {
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, protocol.MaxPayloadBytes+1))
+	if err != nil || len(raw) > protocol.MaxPayloadBytes {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "malformed request body")
+		return false
+	}
+	if err := protocol.DecodeStrictJSONInto(raw, v); err != nil {
 		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "malformed request body")
 		return false
 	}

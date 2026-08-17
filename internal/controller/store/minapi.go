@@ -106,13 +106,17 @@ func (s *Store) CreateForwardBundle(ctx context.Context, f Forward, spec Forward
 		spec.ID, spec.ForwardID, spec.Revision, spec.SpecJSON, ts); err != nil {
 		return IdempotencyRecord{}, false, fmt.Errorf("store: forward bundle spec insert: %w", err)
 	}
+	commandID := deterministicMessageID(outbox.OperationID, outbox.MessageType)
+	resultID := deterministicMessageID(commandID, "operation_complete")
+	controllerResultID := deterministicMessageID(outbox.OperationID, "operation_complete")
 	if _, err := conn.ExecContext(ctx,
 		`INSERT INTO control_outbox
 		    (operation_id, message_type, node_id, semantic_payload, state,
-		     attempt_count, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, 'PENDING', 0, ?, ?)`,
+		     attempt_count, created_at, updated_at, command_message_id,
+		     operation_complete_message_id, controller_operation_complete_message_id)
+		 VALUES (?, ?, ?, ?, 'PENDING', 0, ?, ?, ?, ?, ?)`,
 		outbox.OperationID, outbox.MessageType, outbox.NodeID, outbox.SemanticPayload,
-		ts, ts); err != nil {
+		ts, ts, commandID, resultID, controllerResultID); err != nil {
 		return IdempotencyRecord{}, false, fmt.Errorf("store: forward bundle outbox insert: %w", err)
 	}
 	if _, err := conn.ExecContext(ctx,

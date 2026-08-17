@@ -10,6 +10,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestR13TokenInputRejectsAmbiguousSources(t *testing.T) {
@@ -47,6 +49,37 @@ func TestR13ProtectedFDReadsBoundedTokenWithoutPathCleanup(t *testing.T) {
 	_ = input.close()
 }
 
+func TestR13ProtectedFDIsMarkedCloseOnExec(t *testing.T) {
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readEnd.Close()
+	flags, err := unix.FcntlInt(readEnd.Fd(), unix.F_GETFD, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := unix.FcntlInt(readEnd.Fd(), unix.F_SETFD, flags&^unix.FD_CLOEXEC); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(writeEnd, "fd-token"); err != nil {
+		t.Fatal(err)
+	}
+	_ = writeEnd.Close()
+	input, err := openTokenInput(int(readEnd.Fd()), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer input.close()
+	got, err := unix.FcntlInt(input.file.Fd(), unix.F_GETFD, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got&unix.FD_CLOEXEC == 0 {
+		t.Fatal("protected token fd remains inheritable across exec")
+	}
+}
+
 func TestR13TokenFileRequiresOwnerOnlyRegular0600(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "token")
@@ -55,6 +88,15 @@ func TestR13TokenFileRequiresOwnerOnlyRegular0600(t *testing.T) {
 	}
 	if _, err := openTokenInput(-1, path); err == nil {
 		t.Fatal("0644 token file accepted")
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Chmod(path, 0o4600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := openTokenInput(-1, path); err == nil {
+		t.Fatal("setuid 0600 token file accepted")
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
 		t.Fatal(err)
@@ -84,6 +126,42 @@ func TestR13TokenFileRequiresOwnerOnlyRegular0600(t *testing.T) {
 	}
 }
 
+func TestR13EnrollmentCompletionDeletesOnlyAfterSuccessfulNew(t *testing.T) {
+	dir := t.TempDir()
+	failurePath := filepath.Join(dir, "failure-token")
+	if err := os.WriteFile(failurePath, []byte("failure-token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	failureInput, err := openTokenInput(-1, failurePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enrollmentErr := errors.New("enrollment failed")
+	if err := finalizeEnrollmentToken(failureInput, enrollmentErr); !errors.Is(err, enrollmentErr) {
+		t.Fatalf("failed enrollment result = %v, want original error", err)
+	}
+	if _, err := os.Stat(failurePath); err != nil {
+		t.Fatalf("failed enrollment removed retry token: %v", err)
+	}
+	_ = failureInput.close()
+
+	successPath := filepath.Join(dir, "success-token")
+	if err := os.WriteFile(successPath, []byte("success-token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	successInput, err := openTokenInput(-1, successPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := finalizeEnrollmentToken(successInput, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(successPath); !os.IsNotExist(err) {
+		t.Fatalf("successful enrollment left consumed token: %v", err)
+	}
+	_ = successInput.close()
+}
+
 func TestR13TokenFileRejectsSymlinkDirectoryAndFIFO(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "target")
@@ -106,6 +184,28 @@ func TestR13TokenFileRejectsSymlinkDirectoryAndFIFO(t *testing.T) {
 	}
 	if _, err := openTokenInput(-1, fifo); err == nil {
 		t.Fatal("FIFO token accepted")
+	}
+}
+
+func TestR13TokenFileRejectsSymlinkedParent(t *testing.T) {
+	root := t.TempDir()
+	realParent := filepath.Join(root, "real-parent")
+	if err := os.Mkdir(realParent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(realParent, "token"), []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "parent-alias")
+	if err := os.Symlink(realParent, alias); err != nil {
+		t.Fatal(err)
+	}
+	input, err := openTokenInput(-1, filepath.Join(alias, "token"))
+	if input != nil {
+		_ = input.close()
+	}
+	if err == nil {
+		t.Fatal("token file beneath symlinked parent was accepted")
 	}
 }
 
