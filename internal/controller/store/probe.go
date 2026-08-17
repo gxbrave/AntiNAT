@@ -1080,8 +1080,11 @@ func (s *Store) ExpireTerminalProbeDeliveriesBeforeLimit(cutoff int64, limit int
 		return 0, fmt.Errorf("store: begin terminal delivery expiry: %w", err)
 	}
 	defer tx.Rollback()
-	rows, err := tx.Query(`SELECT probe_id FROM probe_terminal_deliveries
-		WHERE disposition = 'ENQUEUED' AND updated_at < ? ORDER BY updated_at, probe_id LIMIT ?`, cutoff, limit)
+	rows, err := tx.Query(`SELECT d.probe_id FROM probe_terminal_deliveries d
+		JOIN control_outbox o ON o.operation_id = d.probe_id AND o.message_type = 'probe_outcome'
+		WHERE d.disposition = 'ENQUEUED' AND d.updated_at < ? AND o.state = 'PENDING'
+		  AND NOT EXISTS (SELECT 1 FROM probe_results ack WHERE ack.probe_id = d.probe_id AND ack.kind = 'outcome_acked')
+		ORDER BY d.updated_at, d.probe_id LIMIT ?`, cutoff, limit)
 	if err != nil {
 		return 0, fmt.Errorf("store: query terminal deliveries: %w", err)
 	}
@@ -1097,18 +1100,33 @@ func (s *Store) ExpireTerminalProbeDeliveriesBeforeLimit(cutoff int64, limit int
 	if err := rows.Close(); err != nil {
 		return 0, fmt.Errorf("store: close terminal deliveries: %w", err)
 	}
+	expired := 0
 	for _, id := range ids {
-		if _, err := tx.Exec(`UPDATE probe_terminal_deliveries SET disposition = 'EXPIRED', updated_at = ? WHERE probe_id = ? AND disposition = 'ENQUEUED'`, cutoff, id); err != nil {
+		res, err := tx.Exec(`UPDATE probe_terminal_deliveries SET disposition = 'EXPIRED', updated_at = ?
+			WHERE probe_id = ? AND disposition = 'ENQUEUED'
+			  AND EXISTS (SELECT 1 FROM control_outbox o WHERE o.operation_id = probe_terminal_deliveries.probe_id
+			              AND o.message_type = 'probe_outcome' AND o.state = 'PENDING')
+			  AND NOT EXISTS (SELECT 1 FROM probe_results ack WHERE ack.probe_id = probe_terminal_deliveries.probe_id
+			                  AND ack.kind = 'outcome_acked')`, cutoff, id)
+		if err != nil {
 			return 0, fmt.Errorf("store: expire terminal delivery: %w", err)
 		}
-		if _, err := tx.Exec(`DELETE FROM control_outbox WHERE operation_id = ? AND message_type = 'probe_outcome'`, id); err != nil {
+		n, err := res.RowsAffected()
+		if err != nil {
+			return 0, fmt.Errorf("store: expire terminal delivery rows: %w", err)
+		}
+		if n == 0 {
+			continue
+		}
+		if _, err := tx.Exec(`DELETE FROM control_outbox WHERE operation_id = ? AND message_type = 'probe_outcome' AND state = 'PENDING'`, id); err != nil {
 			return 0, fmt.Errorf("store: delete expired probe outcome outbox: %w", err)
 		}
+		expired++
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("store: commit terminal delivery expiry: %w", err)
 	}
-	return len(ids), nil
+	return expired, nil
 }
 
 // ListTerminalProbeOperationsPage returns one deterministic page of terminal

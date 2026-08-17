@@ -1,0 +1,8 @@
+--- FAIL: TestR16TerminalDeliveryExpiryPreservesSentWork (0.06s)
+    --- FAIL: TestR16TerminalDeliveryExpiryPreservesSentWork/SENT (0.03s)
+        p10_r16_regression_test.go:158: expired 1 SENT deliveries, want 0
+    --- FAIL: TestR16TerminalDeliveryExpiryPreservesSentWork/SEMANTIC_ACKED (0.03s)
+        p10_r16_regression_test.go:158: expired 1 SEMANTIC_ACKED deliveries, want 0
+FAIL
+FAIL	github.com/gxbrave/AntiNAT/internal/controller/store	0.062s
+FAIL

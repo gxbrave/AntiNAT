@@ -120,3 +120,90 @@ func TestR16ProbeOutcomeRejectsDeletionRevisionAdvance(t *testing.T) {
 		t.Fatalf("post-delete outcome was enqueued: %v", err)
 	}
 }
+
+func TestR16TerminalDeliveryExpiryPreservesSentWork(t *testing.T) {
+	for _, state := range []string{"SENT", "SEMANTIC_ACKED"} {
+		t.Run(state, func(t *testing.T) {
+			s := openTestStore(t)
+			withStoreNow(t, 82_000)
+			if err := s.CreateNode(Node{ID: "node-delivery-r13", Name: "r16-delivery-node"}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.CreateForward(Forward{
+				ID: "r16-delivery-forward", NodeID: "node-delivery-r13", Name: "r16-delivery-forward",
+				Protocol: "tcp", CurrentActivationID: "r16-delivery-activation", Revision: 1,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			createR13TerminalProbe(t, s, "r16-delivery-probe", "r16-delivery-forward", "r16-delivery-activation", 1)
+			if got, err := s.QueueProbeOutcome("r16-delivery-probe", protocol.OutcomeRejected); err != nil || got != "ENQUEUED" {
+				t.Fatalf("QueueProbeOutcome = %q, %v", got, err)
+			}
+			if err := s.ClaimControlOutboxOperation("r16-delivery-probe", "probe_outcome", "r16-session"); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.MarkControlOutboxSent("r16-delivery-probe", "probe_outcome", "r16-session"); err != nil {
+				t.Fatal(err)
+			}
+			if state == "SEMANTIC_ACKED" {
+				if err := s.AcceptControlSemanticACK("r16-delivery-probe", "probe_outcome", "r16-session"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			expired, err := s.ExpireTerminalProbeDeliveriesBeforeLimit(100, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if expired != 0 {
+				t.Fatalf("expired %d %s deliveries, want 0", expired, state)
+			}
+			outbox, err := s.ControlOutboxItemByOperation("r16-delivery-probe", "probe_outcome")
+			if err != nil {
+				t.Fatalf("%s outbox was deleted: %v", state, err)
+			}
+			if outbox.State != state {
+				t.Fatalf("outbox state = %q, want %q", outbox.State, state)
+			}
+		})
+	}
+}
+
+func TestR16TerminalDeliveryReceiptMarksDeliveredAtomically(t *testing.T) {
+	s := openTestStore(t)
+	withStoreNow(t, 83_000)
+	if err := s.CreateNode(Node{ID: "node-delivery-r13", Name: "r16-receipt-node"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateForward(Forward{
+		ID: "r16-receipt-forward", NodeID: "node-delivery-r13", Name: "r16-receipt-forward",
+		Protocol: "tcp", CurrentActivationID: "r16-receipt-activation", Revision: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	createR13TerminalProbe(t, s, "r16-receipt-probe", "r16-receipt-forward", "r16-receipt-activation", 1)
+	if got, err := s.QueueProbeOutcome("r16-receipt-probe", protocol.OutcomeRejected); err != nil || got != "ENQUEUED" {
+		t.Fatalf("QueueProbeOutcome = %q, %v", got, err)
+	}
+	if err := s.ClaimControlOutboxOperation("r16-receipt-probe", "probe_outcome", "r16-session"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkControlOutboxSent("r16-receipt-probe", "probe_outcome", "r16-session"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AcceptControlSemanticACK("r16-receipt-probe", "probe_outcome", "r16-session"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AcceptControlReceipt("r16-receipt-probe", "probe_outcome", "r16-session"); err != nil {
+		t.Fatal(err)
+	}
+	disposition, err := s.ProbeOutcomeDisposition("r16-receipt-probe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disposition != "DELIVERED" {
+		t.Fatalf("receipt disposition = %q, want DELIVERED", disposition)
+	}
+	if _, err := s.ControlOutboxItemByOperation("r16-receipt-probe", "probe_outcome"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("receipted outbox survived: %v", err)
+	}
+}

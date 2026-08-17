@@ -225,6 +225,19 @@ func (s *Store) AcceptControlReceipt(operationID, messageType, sessionID string)
 		); err != nil {
 			return fmt.Errorf("store: record probe outcome acknowledgement: %w", err)
 		}
+		res, err := tx.Exec(
+			`UPDATE probe_terminal_deliveries SET disposition = 'DELIVERED', updated_at = ?
+			 WHERE probe_id = ? AND disposition = 'ENQUEUED'`,
+			now(), operationID,
+		)
+		if err != nil {
+			return fmt.Errorf("store: mark probe outcome delivered: %w", err)
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return fmt.Errorf("store: mark probe outcome delivered rows: %w", err)
+		} else if n != 1 {
+			return fmt.Errorf("%w: probe outcome %q delivery is not ENQUEUED", ErrIllegalPhase, operationID)
+		}
 	}
 	// GC: the outbox row is removed; the durable record lives in control_inbox.
 	if _, err := tx.Exec(

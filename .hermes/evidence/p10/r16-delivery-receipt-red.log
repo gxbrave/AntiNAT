@@ -1,0 +1,5 @@
+--- FAIL: TestR16TerminalDeliveryReceiptMarksDeliveredAtomically (0.03s)
+    p10_r16_regression_test.go:204: receipt disposition = "ENQUEUED", want DELIVERED
+FAIL
+FAIL	github.com/gxbrave/AntiNAT/internal/controller/store	0.032s
+FAIL
