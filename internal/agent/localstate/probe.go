@@ -24,7 +24,8 @@ import (
 
 // ArmedProbe is one durable armed probe operation. Deadline is the
 // monotonic-clock deadline derived from the arm's ttl_ms. Consumed rows are
-// retained as durable replay fences until their control receipt is accepted.
+// retained as durable replay fences through ReceiptDeadline, independent of
+// whether the control receipt has been sent or semantically acknowledged.
 type ArmedProbe struct {
 	Arm protocol.ProbeArm
 	// ForwardID binds ingress admission to the listener that received the
@@ -40,6 +41,10 @@ type ArmedProbe struct {
 	Consumed    bool
 	Receipt     []byte
 	ReceiptSent bool
+	// ReceiptAcknowledged records semantic Controller acknowledgement separately
+	// from transport delivery. The consumed row remains a replay fence until
+	// ReceiptDeadline even after this flag is set.
+	ReceiptAcknowledged bool
 	// ReceiptMessageID retains the historical field name but stores the
 	// semantic operation id expected from the controller's receipt payload.
 	ReceiptMessageID string
@@ -218,15 +223,17 @@ func (s *Store) MarkArmedProbeReceiptSent(probeID [16]byte) error {
 	})
 }
 
-// AcknowledgeArmedProbeReceipt deletes the consumed tombstone identified by
-// the controller's deterministic receipt operation id. Missing rows are
-// idempotent: a redelivered receipt after GC is harmless. Rows written by the
-// previous envelope-id implementation are accepted once, but only when their
-// stored receipt bytes derive the same semantic operation id.
+// AcknowledgeArmedProbeReceipt records semantic acknowledgement for the
+// consumed tombstone identified by the controller's deterministic receipt
+// operation id. It intentionally does not delete the row: the consumed
+// probe/source/digest fence remains active through ReceiptDeadline. Missing
+// rows are idempotent (a redelivered receipt after GC is harmless). Rows
+// written by the previous envelope-id implementation are accepted once, but
+// only when their stored receipt bytes derive the same semantic operation id.
 func (s *Store) AcknowledgeArmedProbeReceipt(operationID string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(bucketProbeOps))
-		deleteMatch := func(probeID []byte, raw []byte) (bool, error) {
+		acknowledgeMatch := func(probeID []byte, raw []byte) (bool, error) {
 			var rec ArmedProbe
 			if err := json.Unmarshal(raw, &rec); err != nil {
 				return false, err
@@ -241,13 +248,13 @@ func (s *Store) AcknowledgeArmedProbeReceipt(operationID string) error {
 			if !matches {
 				return false, nil
 			}
-			if err := bucket.Delete(probeID); err != nil {
-				return false, err
+			rec.ReceiptAcknowledged = true
+			updated, err := json.Marshal(rec)
+			if err != nil {
+				return false, fmt.Errorf("localstate: encode acknowledged probe: %w", err)
 			}
-			if rec.ReceiptMessageID != "" {
-				if err := bucket.Delete(probeReceiptIndexKey(rec.ReceiptMessageID)); err != nil {
-					return false, err
-				}
+			if err := bucket.Put(probeID, updated); err != nil {
+				return false, err
 			}
 			return true, nil
 		}
@@ -258,7 +265,7 @@ func (s *Store) AcknowledgeArmedProbeReceipt(operationID string) error {
 		if probeID := bucket.Get(probeReceiptIndexKey(operationID)); len(probeID) == 16 {
 			raw := bucket.Get(probeID)
 			if raw != nil {
-				matched, err := deleteMatch(append([]byte(nil), probeID...), raw)
+				matched, err := acknowledgeMatch(append([]byte(nil), probeID...), raw)
 				if err != nil {
 					return err
 				}
@@ -276,7 +283,7 @@ func (s *Store) AcknowledgeArmedProbeReceipt(operationID string) error {
 				return nil
 			}
 			scanned++
-			_, err := deleteMatch(append([]byte(nil), k...), raw)
+			_, err := acknowledgeMatch(append([]byte(nil), k...), raw)
 			return err
 		})
 	})

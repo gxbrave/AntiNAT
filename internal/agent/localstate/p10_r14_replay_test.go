@@ -32,7 +32,7 @@ func TestR14SemanticAckRetainsProbeFenceUntilReceiptDeadline(t *testing.T) {
 		t.Fatalf("load acknowledged replay fence: found=%v err=%v", found, err)
 	}
 	if !recovered.Consumed || recovered.ForwardID != forwardID || recovered.Digest != arm.Digest() ||
-		recovered.ReceiptDeadline != receiptDeadline {
+		!recovered.ReceiptDeadline.Equal(receiptDeadline) {
 		t.Fatalf("acknowledged replay fence lost durable binding: %+v", recovered)
 	}
 	if err := st.SweepArmedProbeTombstones(now.Add(30 * time.Minute)); err != nil {

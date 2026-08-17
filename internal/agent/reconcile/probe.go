@@ -74,6 +74,7 @@ type armedOp struct {
 type replaySource struct {
 	source    [4]byte
 	forwardID string
+	digest    [32]byte
 }
 
 // ProbeManager implements the agent-side probe plane.
@@ -156,7 +157,9 @@ func NewProbeManager(opts ProbeManagerOptions) *ProbeManager {
 					}
 					if len(m.replay) < m.maxReplay {
 						m.replay[p.Arm.ProbeID] = p.ReceiptDeadline
-						m.replaySource[p.Arm.ProbeID] = replaySource{source: p.Arm.ExpectedSourceIP, forwardID: p.ForwardID}
+						m.replaySource[p.Arm.ProbeID] = replaySource{
+							source: p.Arm.ExpectedSourceIP, forwardID: p.ForwardID, digest: p.Digest,
+						}
 					} else {
 						m.recoveryErr = ErrProbeRecoveryOverflow
 					}
@@ -334,7 +337,7 @@ func (m *ProbeManager) RetryPendingReceipts(ctx context.Context) error {
 			return err
 		}
 		for _, probe := range probes {
-			if !probe.Consumed || len(probe.Receipt) == 0 {
+			if !probe.Consumed || probe.ReceiptAcknowledged || len(probe.Receipt) == 0 {
 				continue
 			}
 			messageID := probe.ReceiptMessageID
@@ -362,8 +365,9 @@ func (m *ProbeManager) RetryPendingReceipts(ctx context.Context) error {
 	}
 }
 
-// AcknowledgeReceipt consumes the controller semantic receipt for a probe
-// ingress message and removes only the matching durable tombstone.
+// AcknowledgeReceipt records the controller semantic receipt for a probe
+// ingress message while retaining the matching durable replay tombstone until
+// its ReceiptDeadline.
 func (m *ProbeManager) AcknowledgeReceipt(operationID string) error {
 	if m.store == nil {
 		return nil
@@ -472,6 +476,14 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 		return
 	}
 	if _, replayed := m.replay[frame.ProbeID]; replayed {
+		// Keep the durable digest binding explicit on the restart path. Any
+		// frame for a fenced probe id is rejected, including one that presents
+		// a different arm digest; the comparison prevents a future caller from
+		// accidentally treating the source fence as a probe-id-only allowlist.
+		if binding, ok := m.replaySource[frame.ProbeID]; ok && binding.digest != frame.ArmDigest {
+			m.mu.Unlock()
+			return
+		}
 		m.mu.Unlock()
 		return
 	}
@@ -502,7 +514,9 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 	}
 	op.used = true
 	m.replay[frame.ProbeID] = now.Add(protocol.ProbeReplayWindow)
-	m.replaySource[frame.ProbeID] = replaySource{source: source, forwardID: op.forwardID}
+	m.replaySource[frame.ProbeID] = replaySource{
+		source: source, forwardID: op.forwardID, digest: op.digest,
+	}
 	m.mu.Unlock()
 
 	// ACK1 on the same connection.
