@@ -1,0 +1,35 @@
+red_commit: 3092ac0
+command: go test ./internal/controller/store -run "TestR14|TestOpenAppliesAllMigrations|TestOpenIsIdempotentAcrossReopen|TestProbeMigrationVersion|TestMigrationFailureRollsBackLeavingOldDB" -count=1 -v
+workdir: <scratch-worktree>
+worktree_add_exit_code: 0
+
+=== RUN   TestMigrationFailureRollsBackLeavingOldDB
+    corrupt_internal_test.go:23: precondition: schema version = 5, want 6
+--- FAIL: TestMigrationFailureRollsBackLeavingOldDB (0.03s)
+=== RUN   TestR14PublishProbeJoinRejectsInvalidMergedActivationSnapshot
+--- PASS: TestR14PublishProbeJoinRejectsInvalidMergedActivationSnapshot (0.04s)
+=== RUN   TestR14FreshStoreRecordsHardeningMigration
+    p10_r14_migration_test.go:52: SchemaVersion = 5, want 6 (append-only 0006_r13_hardening)
+--- FAIL: TestR14FreshStoreRecordsHardeningMigration (0.02s)
+=== RUN   TestR14UpgradeBackfillsLegacyOutboxCorrelationIDs
+    p10_r14_migration_test.go:92: upgraded schema version = 5 (err <nil>), want 6
+--- FAIL: TestR14UpgradeBackfillsLegacyOutboxCorrelationIDs (0.03s)
+=== RUN   TestR14HardeningMigrationIsIdempotentAcrossReopen
+    p10_r14_migration_test.go:125: migration 0006 ledger rows = 0, want 1
+--- FAIL: TestR14HardeningMigrationIsIdempotentAcrossReopen (0.02s)
+=== RUN   TestR14HardeningMigrationRollbackLeavesV5DatabaseIntact
+--- PASS: TestR14HardeningMigrationRollbackLeavesV5DatabaseIntact (0.02s)
+=== RUN   TestProbeMigrationVersion
+    probe_test.go:330: SchemaVersion = 5, want 6 (0001_core + 0002_control + 0003_enrollment + 0004_probe + 0005_probe_hardening + 0006_r13_hardening)
+--- FAIL: TestProbeMigrationVersion (0.02s)
+=== RUN   TestOpenAppliesAllMigrations
+    migrate_test.go:26: SchemaVersion = 5, want 6 (0001_core + 0002_control + 0003_enrollment + 0004_probe + 0005_probe_hardening + 0006_r13_hardening)
+--- FAIL: TestOpenAppliesAllMigrations (0.02s)
+=== RUN   TestOpenIsIdempotentAcrossReopen
+    migrate_test.go:53: SchemaVersion after reopen = 5, want 6
+--- FAIL: TestOpenIsIdempotentAcrossReopen (0.02s)
+FAIL
+FAIL	github.com/gxbrave/AntiNAT/internal/controller/store	0.233s
+FAIL
+
+exit_code: 1

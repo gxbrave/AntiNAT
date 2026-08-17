@@ -1,0 +1,10 @@
+command: go test ./internal/controller/store ./internal/agent/localstate ./internal/agent/reconcile -count=1
+workdir: <candidate-worktree>
+started_utc: 2026-08-17T03:50:45Z
+
+ok  	github.com/gxbrave/AntiNAT/internal/controller/store	4.305s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/localstate	0.972s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	3.013s
+
+exit_code: 0
+finished_utc: 2026-08-17T03:50:50Z

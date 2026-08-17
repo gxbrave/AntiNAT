@@ -1,0 +1,26 @@
+{
+  "artifact_role": "P10 rejected-candidate identity archive",
+  "plan": "P10",
+  "integrated_base": {
+    "sha": "adf74fa860812054bd71082006a8c78ea4189888",
+    "tree_sha": "b304c39ec7573fb22d6508fa4585d8a9b2b4f105"
+  },
+  "rejected_r13_implementation_candidate": {
+    "head_sha": "3d01b8d887c484d9f926a8e4e5e667ec89562f40",
+    "tree_sha": "1accf2062250f33b121ce10d5af1fe86228abcb5",
+    "handoff_sha256": "a57f618515fa15faacf22cefbac555c9f2ba8d759f00bdb155ed5431bc47a966",
+    "recovery_handoff_sha256": "de206ef1a33932f704c04f4f94653566d6837de6c94c5a7082e1bbe3f36aed3f"
+  },
+  "rejected_audit_metadata_tip": {
+    "head_sha": "afbbc2223e8f8938e04c49e15713382abb9345fd",
+    "tree_sha": "ac3da63de845dfe472ed8d08992e0d8a0c0abc1e",
+    "handoff_paths": [
+      ".hermes/handoffs/P10.json",
+      ".hermes/handoffs/P10-r13-recovery.json"
+    ]
+  },
+  "preservation": "The rejected implementation and audit tip remain immutable ancestors of the R14 repair branch. This compact record preserves their exact identities before the canonical handoff files are refreshed.",
+  "repair_base_sha": "afbbc2223e8f8938e04c49e15713382abb9345fd",
+  "remote_push": false,
+  "release_performed": false
+}

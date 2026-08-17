@@ -1,0 +1,16 @@
+red_commit: 270c4ec
+command: go test ./internal/agent/reconcile -run "TestControllerReceiptAckRetainsProbeFence|TestR14RestartHydratesAcknowledgedConsumedProbeFence" -count=1 -v
+workdir: <scratch-worktree>
+worktree_add_exit_code: 0
+
+=== RUN   TestR14RestartHydratesAcknowledgedConsumedProbeFence
+    p10_r14_replay_test.go:46: acknowledged consumed source was not retained as a replay fence after restart
+--- FAIL: TestR14RestartHydratesAcknowledgedConsumedProbeFence (0.01s)
+=== RUN   TestControllerReceiptAckRetainsProbeFence
+    probe_test.go:496: probe replay fence was deleted after semantic ack: ok=false err=<nil> rec={Arm:{ProbeID:[0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] ProviderID:[0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] ProviderPublicKey:[0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] ExpectedSourceIP:[0 0 0 0] Activation:[0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] Endpoint: TTLMS:0 ExpiryOpaque:[0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]} ForwardID: Digest:[0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] Deadline:0001-01-01 00:00:00 +0000 UTC ArmedAt:0001-01-01 00:00:00 +0000 UTC Consumed:false Receipt:[] ReceiptSent:false ReceiptMessageID: ReceiptDeadline:0001-01-01 00:00:00 +0000 UTC}
+--- FAIL: TestControllerReceiptAckRetainsProbeFence (0.01s)
+FAIL
+FAIL	github.com/gxbrave/AntiNAT/internal/agent/reconcile	0.021s
+FAIL
+
+exit_code: 1

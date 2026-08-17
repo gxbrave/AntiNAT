@@ -1,0 +1,128 @@
+{
+  "schema_version": "P10-r14-recovery-handoff/v1",
+  "artifact_role": "P10 R14 cumulative implementation repair handoff",
+  "plan": "P10",
+  "task_id": "t_a25eb70e",
+  "repair_cycle": 14,
+  "predecessor_task_id": "t_0e4e9958",
+  "branch": "ai/P10-wan-probe-activation-cli-e2e",
+  "base_sha": "adf74fa860812054bd71082006a8c78ea4189888",
+  "base_tree_sha": "b304c39ec7573fb22d6508fa4585d8a9b2b4f105",
+  "prior_r13_audit_tip_sha": "afbbc2223e8f8938e04c49e15713382abb9345fd",
+  "prior_r13_candidate_sha": "3d01b8d887c484d9f926a8e4e5e667ec89562f40",
+  "candidate_head_sha": "70856cd06e1e6211339694525e36355ada716718",
+  "candidate_tree_sha": "3c0a483e0dd2725f33e30ee262e4ca8ae7c5ae46",
+  "candidate_handoff_path": ".hermes/handoffs/P10.json",
+  "archive_path": ".hermes/handoffs/P10-r13-rejected-archive.json",
+  "implementation_commits": [
+    "cb5e86cdad774703c1ce97feb75b4e61d84dc685",
+    "4ee56cce4cc5650d35ef6fda45401c9ec289ac99",
+    "270c4ecd51048d81fcd69eba1758a5d21a4efbe9",
+    "f89bd21c3147460fbd43e3712f407b793dea22a5",
+    "3092ac022cd394da2852c70350822a8aa4c2297f",
+    "70856cd06e1e6211339694525e36355ada716718"
+  ],
+  "files_changed_count": 17,
+  "contracts_changed": [],
+  "behavioral_repairs": [
+    "Final merged activation snapshot validation is enforced before PublishProbeJoin mutates durable operation/runtime state.",
+    "ReceiptSent and ReceiptAcknowledged are separate from consumed replay retention; consumed probe/source/digest rows remain fenced through ReceiptDeadline and hydrate after restart.",
+    "0006_r13_hardening.sql is the append-only schema ledger entry for R13 columns/index/table and transactional correlation-ID backfill, replacing ensureR13Schema."
+  ],
+  "red_evidence": {
+    "activation": {
+      "commit": "cb5e86cdad774703c1ce97feb75b4e61d84dc685",
+      "exit_code": 1,
+      "path": ".hermes/evidence/p10/red-activation.log"
+    },
+    "replay": {
+      "commit": "270c4ecd51048d81fcd69eba1758a5d21a4efbe9",
+      "exit_code": 1,
+      "paths": [
+        ".hermes/evidence/p10/red-replay.log",
+        ".hermes/evidence/p10/red-reconcile.log"
+      ]
+    },
+    "migration": {
+      "commit": "3092ac022cd394da2852c70350822a8aa4c2297f",
+      "exit_code": 1,
+      "path": ".hermes/evidence/p10/red-migration.log"
+    }
+  },
+  "verification": {
+    "focused_exit_code": 0,
+    "focused_race_exit_code": 0,
+    "cumulative_exit_code_with_provisioned_identity": 0,
+    "cumulative_race_exit_code_with_provisioned_identity": 0,
+    "make_test_exit_code_with_provisioned_identity": 0,
+    "make_check_exit_code_with_provisioned_identity": 0,
+    "vet_exit_code": 0,
+    "contracts_exit_code": 0,
+    "e2e_exit_code": 0,
+    "build_exit_code": 0,
+    "cross_build_exit_code": 0,
+    "diff_check_exit_code": 0,
+    "evidence_validation_exit_code": 0,
+    "evidence_manifest": ".hermes/evidence/p10/r14-evidence-manifest.json"
+  },
+  "evidence": [
+    ".hermes/evidence/p10/red-activation.log",
+    ".hermes/evidence/p10/red-replay.log",
+    ".hermes/evidence/p10/red-reconcile.log",
+    ".hermes/evidence/p10/red-migration.log",
+    ".hermes/evidence/p10/r14-focused.log",
+    ".hermes/evidence/p10/r14-race.log",
+    ".hermes/evidence/p10/r14-required-plan-race.log",
+    ".hermes/evidence/p10/r14-contracts.log",
+    ".hermes/evidence/p10/r14-e2e.log",
+    ".hermes/evidence/p10/r14-provisioned-full.log",
+    ".hermes/evidence/p10/r14-provisioned-race.log",
+    ".hermes/evidence/p10/r14-provisioned-make-test.log",
+    ".hermes/evidence/p10/r14-provisioned-make-check.log",
+    ".hermes/evidence/p10/r14-vet.log",
+    ".hermes/evidence/p10/r14-make-build.log",
+    ".hermes/evidence/p10/r14-cross-build.log",
+    ".hermes/evidence/p10/r14-cross-build-matrix.log",
+    ".hermes/evidence/p10/r14-gofmt.log",
+    ".hermes/evidence/p10/r14-diff-check.log",
+    ".hermes/evidence/p10/r14-evidence-verify.log",
+    ".hermes/evidence/p10/r14-evidence-parity.log",
+    ".hermes/evidence/p10/r14-make-test.log",
+    ".hermes/evidence/p10/r14-make-check.log"
+  ],
+  "contracts_consumed": [
+    {
+      "path": "docs/state-model.md",
+      "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
+    },
+    {
+      "path": "docs/protocol.md",
+      "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"
+    },
+    {
+      "path": "api/openapi.yaml",
+      "sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32"
+    }
+  ],
+  "capability_result": "SUPPORTED_WITH_LIMITS",
+  "known_limits": [
+    "ANTINAT_DEDICATED_UID=12001 and ANTINAT_DEDICATED_GID=12001 are required for the sandbox gate; unset-variable failures are retained as capability evidence, while explicit provisioned runs pass.",
+    "No independent public-WAN vantage or native Windows runtime evidence was available; walking-skeleton and cross-build results do not establish arbitrary-NAT or Windows-GA claims.",
+    "This is a candidate-only handoff. Fresh specification and quality/security review must run at the exact candidate head before integration."
+  ],
+  "review_status": "REVIEW_REQUIRED_NOT_APPROVED",
+  "required_reviews": [
+    "fresh specification/ownership review",
+    "fresh quality/security/race/resource review"
+  ],
+  "cleanup_done": true,
+  "cleanup": [
+    "make clean completed and bin/ is absent",
+    "R14 temporary worktrees removed",
+    "no remote push or release"
+  ],
+  "remote_push": false,
+  "release_performed": false,
+  "integration_status": "CANDIDATE_ONLY",
+  "handoff_note": "See canonical .hermes/handoffs/P10.json for the complete test matrix, contract hashes, changed-file list, residual risks, and exact evidence paths."
+}

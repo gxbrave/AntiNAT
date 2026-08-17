@@ -1,0 +1,51 @@
+command: make test
+workdir: <candidate-worktree>
+started_utc: 2026-08-17T03:51:18Z
+
+go test ./...
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-agent	(cached)
+?   	github.com/gxbrave/AntiNAT/cmd/antinat-controller	[no test files]
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-probe	(cached)
+ok  	github.com/gxbrave/AntiNAT/cmd/antinatctl	1.540s
+ok  	github.com/gxbrave/AntiNAT/internal/agent	1.930s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/control	2.495s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/localstate	2.578s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	5.074s
+ok  	github.com/gxbrave/AntiNAT/internal/buildinfo	1.110s
+ok  	github.com/gxbrave/AntiNAT/internal/config	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/controller	0.878s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/agenthub	5.103s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/api	2.599s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/auth	2.912s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	4.388s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/store	4.713s
+?   	github.com/gxbrave/AntiNAT/internal/controller/web	[no test files]
+ok  	github.com/gxbrave/AntiNAT/internal/forward	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/forward/tcp	1.163s
+ok  	github.com/gxbrave/AntiNAT/internal/protocol	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/security	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/security/framecrypto	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/traversal	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/stun	(cached)
+?   	github.com/gxbrave/AntiNAT/migrations	[no test files]
+ok  	github.com/gxbrave/AntiNAT/scripts	(cached)
+ok  	github.com/gxbrave/AntiNAT/spike/datapath	(cached)
+ok  	github.com/gxbrave/AntiNAT/spike/network	(cached)
+--- FAIL: TestBoundedActionRealCPULimitTermination (0.01s)
+    bounded_linux_test.go:107: real RLIMIT_CPU gate failed: {Pass:false Detail:loop failed unexpectedly: exit status 1: === RUN   TestSandboxChildHelper
+            sandbox_test.go:60: ANTINAT_DEDICATED_UID and ANTINAT_DEDICATED_GID must name a provisioned unique service identity
+        --- FAIL: TestSandboxChildHelper (0.00s)
+        FAIL}
+FAIL
+FAIL	github.com/gxbrave/AntiNAT/spike/sandbox	0.265s
+ok  	github.com/gxbrave/AntiNAT/spike/sqlite	(cached)
+ok  	github.com/gxbrave/AntiNAT/spike/state	(cached)
+ok  	github.com/gxbrave/AntiNAT/spike/windows-identity	(cached)
+ok  	github.com/gxbrave/AntiNAT/test/contracts	0.948s
+ok  	github.com/gxbrave/AntiNAT/test/e2e	1.573s
+?   	github.com/gxbrave/AntiNAT/test/e2e/harness	[no test files]
+FAIL
+make: *** [Makefile:14: test] Error 1
+
+exit_code: 2
+finished_utc: 2026-08-17T03:51:25Z

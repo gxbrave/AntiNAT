@@ -1,0 +1,13 @@
+red_commit: cb5e86c
+command: go test ./internal/controller/store -run ^TestR14PublishProbeJoinRejectsInvalidMergedActivationSnapshot$ -count=1 -v
+workdir: <scratch-worktree>
+worktree_add_exit_code: 0
+
+=== RUN   TestR14PublishProbeJoinRejectsInvalidMergedActivationSnapshot
+    p10_r14_activation_test.go:31: invalid merged FIRST_HOP_MAPPED/PUBLISHED_VERIFIED snapshot was committed
+--- FAIL: TestR14PublishProbeJoinRejectsInvalidMergedActivationSnapshot (0.04s)
+FAIL
+FAIL	github.com/gxbrave/AntiNAT/internal/controller/store	0.043s
+FAIL
+
+exit_code: 1

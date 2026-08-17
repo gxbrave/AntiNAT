@@ -1,0 +1,6 @@
+command: gofmt -l <repair Go files>
+workdir: <candidate-worktree>
+
+
+
+exit_code: 0

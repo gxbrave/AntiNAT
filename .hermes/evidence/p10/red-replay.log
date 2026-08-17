@@ -1,0 +1,16 @@
+red_commit: 270c4ec
+command: go test ./internal/agent/localstate -run "TestReceiptAcknowledgementUsesCompleteIndexAcrossBoundedHistory|TestR14SemanticAckRetainsProbeFenceUntilReceiptDeadline" -count=1 -v
+workdir: <scratch-worktree>
+worktree_add_exit_code: 0
+
+=== RUN   TestR14SemanticAckRetainsProbeFenceUntilReceiptDeadline
+    p10_r14_replay_test.go:32: load acknowledged replay fence: found=false err=<nil>
+--- FAIL: TestR14SemanticAckRetainsProbeFenceUntilReceiptDeadline (0.01s)
+=== RUN   TestReceiptAcknowledgementUsesCompleteIndexAcrossBoundedHistory
+    probe_test.go:119: target replay fence was deleted by semantic ack: ok=false err=<nil> rec={Arm:{ProbeID:[0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] ProviderID:[0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] ProviderPublicKey:[0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] ExpectedSourceIP:[0 0 0 0] Activation:[0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] Endpoint: TTLMS:0 ExpiryOpaque:[0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]} ForwardID: Digest:[0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] Deadline:0001-01-01 00:00:00 +0000 UTC ArmedAt:0001-01-01 00:00:00 +0000 UTC Consumed:false Receipt:[] ReceiptSent:false ReceiptMessageID: ReceiptDeadline:0001-01-01 00:00:00 +0000 UTC}
+--- FAIL: TestReceiptAcknowledgementUsesCompleteIndexAcrossBoundedHistory (0.50s)
+FAIL
+FAIL	github.com/gxbrave/AntiNAT/internal/agent/localstate	0.517s
+FAIL
+
+exit_code: 1

@@ -1,0 +1,9 @@
+command: go test ./internal/controller/probe ./internal/agent/reconcile ./internal/controller/api ./cmd/antinatctl -race -count=1
+workdir: <candidate-worktree>
+
+ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	9.875s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	5.719s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/api	7.146s
+ok  	github.com/gxbrave/AntiNAT/cmd/antinatctl	3.041s
+
+exit_code: 0

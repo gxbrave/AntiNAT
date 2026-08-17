@@ -1,0 +1,8 @@
+command: make cross-build
+workdir: <candidate-worktree>
+started_utc: 2026-08-17T03:51:28Z
+
+GOOS=windows GOARCH=amd64 go build ./cmd/...
+
+exit_code: 0
+finished_utc: 2026-08-17T03:51:29Z

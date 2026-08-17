@@ -1,0 +1,10 @@
+command: make build
+workdir: <candidate-worktree>
+started_utc: 2026-08-17T03:51:27Z
+
+mkdir -p bin
+go build -trimpath -ldflags "-X github.com/gxbrave/AntiNAT/internal/buildinfo.Version=dev -X github.com/gxbrave/AntiNAT/internal/buildinfo.Commit=unknown -X github.com/gxbrave/AntiNAT/internal/buildinfo.Date=unknown" -o bin/antinat-controller ./cmd/antinat-controller
+go build -trimpath -ldflags "-X github.com/gxbrave/AntiNAT/internal/buildinfo.Version=dev -X github.com/gxbrave/AntiNAT/internal/buildinfo.Commit=unknown -X github.com/gxbrave/AntiNAT/internal/buildinfo.Date=unknown" -o bin/antinat-agent ./cmd/antinat-agent
+
+exit_code: 0
+finished_utc: 2026-08-17T03:51:28Z

@@ -1,0 +1,42 @@
+command: ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./... -count=1
+workdir: <candidate-worktree>
+started_utc: 2026-08-17T03:58:35Z
+
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-agent	0.013s
+?   	github.com/gxbrave/AntiNAT/cmd/antinat-controller	[no test files]
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-probe	0.011s
+ok  	github.com/gxbrave/AntiNAT/cmd/antinatctl	1.417s
+ok  	github.com/gxbrave/AntiNAT/internal/agent	1.882s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/control	2.299s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/localstate	2.663s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	5.131s
+ok  	github.com/gxbrave/AntiNAT/internal/buildinfo	1.361s
+ok  	github.com/gxbrave/AntiNAT/internal/config	0.004s
+ok  	github.com/gxbrave/AntiNAT/internal/controller	0.782s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/agenthub	5.081s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/api	2.575s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/auth	2.902s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	4.620s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/store	5.919s
+?   	github.com/gxbrave/AntiNAT/internal/controller/web	[no test files]
+ok  	github.com/gxbrave/AntiNAT/internal/forward	0.004s
+ok  	github.com/gxbrave/AntiNAT/internal/forward/tcp	1.194s
+ok  	github.com/gxbrave/AntiNAT/internal/protocol	1.098s
+ok  	github.com/gxbrave/AntiNAT/internal/security	0.039s
+ok  	github.com/gxbrave/AntiNAT/internal/security/framecrypto	0.004s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal	0.010s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/stun	0.478s
+?   	github.com/gxbrave/AntiNAT/migrations	[no test files]
+ok  	github.com/gxbrave/AntiNAT/scripts	0.009s
+ok  	github.com/gxbrave/AntiNAT/spike/datapath	0.030s
+ok  	github.com/gxbrave/AntiNAT/spike/network	0.075s
+ok  	github.com/gxbrave/AntiNAT/spike/sandbox	2.257s
+ok  	github.com/gxbrave/AntiNAT/spike/sqlite	2.188s
+ok  	github.com/gxbrave/AntiNAT/spike/state	2.445s
+ok  	github.com/gxbrave/AntiNAT/spike/windows-identity	0.326s
+ok  	github.com/gxbrave/AntiNAT/test/contracts	0.979s
+ok  	github.com/gxbrave/AntiNAT/test/e2e	1.704s
+?   	github.com/gxbrave/AntiNAT/test/e2e/harness	[no test files]
+
+exit_code: 0
+finished_utc: 2026-08-17T03:58:43Z

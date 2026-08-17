@@ -1,0 +1,8 @@
+command: go test ./test/contracts -count=1
+workdir: <candidate-worktree>
+started_utc: 2026-08-17T03:51:15Z
+
+ok  	github.com/gxbrave/AntiNAT/test/contracts	0.944s
+
+exit_code: 0
+finished_utc: 2026-08-17T03:51:16Z

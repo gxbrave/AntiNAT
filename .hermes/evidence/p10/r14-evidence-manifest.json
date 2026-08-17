@@ -1,0 +1,168 @@
+{
+  "candidate_head_sha": "70856cd06e1e6211339694525e36355ada716718",
+  "candidate_tree_sha": "3c0a483e0dd2725f33e30ee262e4ca8ae7c5ae46",
+  "entries": [
+    {
+      "bytes": 211,
+      "command": "go test ./test/contracts -count=1",
+      "exit_code": 0,
+      "path": ".hermes/evidence/p10/r14-contracts.log",
+      "sha256": "3da63dc8c9b2733d388bb5740c78a35de74a3b459dcf1caf91d2302dcb8183d1"
+    },
+    {
+      "bytes": 188,
+      "command": "GOOS=windows GOARCH=amd64 go build ./cmd/...; GOOS=linux GOARCH=arm64 go build ./cmd/...; GOOS=darwin GOARCH=amd64 go build ./cmd/...",
+      "exit_code": 0,
+      "path": ".hermes/evidence/p10/r14-cross-build-matrix.log",
+      "sha256": "18be79f79e5a88dc6c01113e6492106932d3b42de93d42712367dd0122b541fb"
+    },
+    {
+      "bytes": 185,
+      "command": "make cross-build",
+      "exit_code": 0,
+      "path": ".hermes/evidence/p10/r14-cross-build.log",
+      "sha256": "16a0b7d0a0b86b06bb1b8455089a5cf7bd84f8c3509870d88944eb4c24dff7ee"
+    },
+    {
+      "bytes": 140,
+      "command": "git diff --check",
+      "exit_code": 0,
+      "path": ".hermes/evidence/p10/r14-diff-check.log",
+      "sha256": "e982f31097fceec0d03d55f5922ebec85aa36ff18f0141c86077e928949e93a7"
+    },
+    {
+      "bytes": 339,
+      "command": "go test ./test/e2e -run TestLinuxDirectV4WalkingSkeleton -count=1 -v",
+      "exit_code": 0,
+      "path": ".hermes/evidence/p10/r14-e2e.log",
+      "sha256": "286803c64419cb969ea59c8c60575d40c2adbfd9e519fe02479f32bbc942cc73"
+    },
+    {
+      "bytes": 1593,
+      "command": "make verify-evidence-parity",
+      "exit_code": 0,
+      "path": ".hermes/evidence/p10/r14-evidence-parity.log",
+      "sha256": "fa8118b4c5b9935033600e2335e44a8157b8b2337d16b671180a047ee6177b77"
+    },
+    {
+      "bytes": 281,
+      "command": "make verify-evidence",
+      "exit_code": 0,
+      "path": ".hermes/evidence/p10/r14-evidence-verify.log",
+      "sha256": "de7b0deb7227a3ab26f403579082491f80e824727ae29003c39afaa33d742077"
+    },
+    {
+      "bytes": 417,
+      "command": "go test ./internal/controller/store ./internal/agent/localstate ./internal/agent/reconcile -count=1",
+      "exit_code": 0,
+      "path": ".hermes/evidence/p10/r14-focused.log",
+      "sha256": "49567d1c0bdbc709ffc608a66a8ff78e440c4a7d674f203212fa8cc323b43486"
+    },
+    {
+      "bytes": 82,
+      "command": "gofmt -l <repair Go files>",
+      "exit_code": 0,
+      "path": ".hermes/evidence/p10/r14-gofmt.log",
+      "sha256": "b81ceb43bbe2ef2b4a82270c375e81c90d2bd6684c76a12e8f0ee41cb5ae1860"
+    },
+    {
+      "bytes": 673,
+      "command": "make build",
+      "exit_code": 0,
+      "path": ".hermes/evidence/p10/r14-make-build.log",
+      "sha256": "84893500743dcb8f67fbdcfe20987b4a26a04183e0042f53555808852cc21257"
+    },
+    {
+      "bytes": 2728,
+      "command": "make check",
+      "exit_code": 2,
+      "path": ".hermes/evidence/p10/r14-make-check.log",
+      "sha256": "afae7e53289f23632c087e84be50f838d19ab1f3d7ac7fbfbdd71a8aab5a4a70"
+    },
+    {
+      "bytes": 2699,
+      "command": "make test",
+      "exit_code": 2,
+      "path": ".hermes/evidence/p10/r14-make-test.log",
+      "sha256": "7a3fc567bb2b572245e99abe0d5e06367c826b1bb76c05084c05f4af0dab04e8"
+    },
+    {
+      "bytes": 2273,
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./... -count=1",
+      "exit_code": 0,
+      "path": ".hermes/evidence/p10/r14-provisioned-full.log",
+      "sha256": "054069839127d71bcf62dcd1bea99dcd8443723fd506f07e8876594b4bd3dfcd"
+    },
+    {
+      "bytes": 2348,
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make check",
+      "exit_code": 0,
+      "path": ".hermes/evidence/p10/r14-provisioned-make-check.log",
+      "sha256": "47997b4afdfdb18a049ad54befa182c37d0efdee4649319e88f277db70bb2527"
+    },
+    {
+      "bytes": 2328,
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make test",
+      "exit_code": 0,
+      "path": ".hermes/evidence/p10/r14-provisioned-make-test.log",
+      "sha256": "38f412db073d1e63646fd062b0ae2a6c23a12be9c03303697779c9023eb85c1d"
+    },
+    {
+      "bytes": 2283,
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -race ./... -count=1",
+      "exit_code": 0,
+      "path": ".hermes/evidence/p10/r14-provisioned-race.log",
+      "sha256": "0a7a32b0928be584b57bcc30312067edc495ce5ab0dad9d2a8c72509c5f0258b"
+    },
+    {
+      "bytes": 424,
+      "command": "go test ./internal/controller/store ./internal/agent/localstate ./internal/agent/reconcile -race -count=1",
+      "exit_code": 0,
+      "path": ".hermes/evidence/p10/r14-race.log",
+      "sha256": "cb874b22183c31c572fb5872adfecfc1e85cd372125c28bedb83e2f70a90b7ae"
+    },
+    {
+      "bytes": 421,
+      "command": "go test ./internal/controller/probe ./internal/agent/reconcile ./internal/controller/api ./cmd/antinatctl -race -count=1",
+      "exit_code": 0,
+      "path": ".hermes/evidence/p10/r14-required-plan-race.log",
+      "sha256": "47dcb22e972491ccb51537d09dcd06331f646eaa1de2278e8bf409d7b668bb3a"
+    },
+    {
+      "bytes": 136,
+      "command": "go vet ./...",
+      "exit_code": 0,
+      "path": ".hermes/evidence/p10/r14-vet.log",
+      "sha256": "9583738ddc46c92e8e44ba8bb75c87af57b39f7a9d73ffc70459ab8eae081d8e"
+    },
+    {
+      "bytes": 551,
+      "command": "go test ./internal/controller/store -run ^TestR14PublishProbeJoinRejectsInvalidMergedActivationSnapshot$ -count=1 -v",
+      "exit_code": 1,
+      "path": ".hermes/evidence/p10/red-activation.log",
+      "sha256": "28a8dd90cb6935410aabbb66a6728f1e22d441e638184c5b64d4f76353314fbe"
+    },
+    {
+      "bytes": 2089,
+      "command": "go test ./internal/controller/store -run \"TestR14|TestOpenAppliesAllMigrations|TestOpenIsIdempotentAcrossReopen|TestProbeMigrationVersion|TestMigrationFailureRollsBackLeavingOldDB\" -count=1 -v",
+      "exit_code": 1,
+      "path": ".hermes/evidence/p10/red-migration.log",
+      "sha256": "b520f3002addee814fb6a7803a41b87b74189b32667d03fcd4fc8eb511618aeb"
+    },
+    {
+      "bytes": 1358,
+      "command": "go test ./internal/agent/reconcile -run \"TestControllerReceiptAckRetainsProbeFence|TestR14RestartHydratesAcknowledgedConsumedProbeFence\" -count=1 -v",
+      "exit_code": 1,
+      "path": ".hermes/evidence/p10/red-reconcile.log",
+      "sha256": "9bc0efc1d347acc9f83ea5e02854e701f14b168427393319b7d8d17c3be25693"
+    },
+    {
+      "bytes": 1409,
+      "command": "go test ./internal/agent/localstate -run \"TestReceiptAcknowledgementUsesCompleteIndexAcrossBoundedHistory|TestR14SemanticAckRetainsProbeFenceUntilReceiptDeadline\" -count=1 -v",
+      "exit_code": 1,
+      "path": ".hermes/evidence/p10/red-replay.log",
+      "sha256": "8cf644319d3d79ff1f6b4da701fd75018dd615921bc41dc577d3a115ec5daf36"
+    }
+  ],
+  "schema_version": "P10-r14-evidence-manifest/v1"
+}

@@ -1,0 +1,7 @@
+command: git diff --check
+workdir: <candidate-worktree>
+started_utc: 2026-08-17T03:51:29Z
+
+
+exit_code: 0
+finished_utc: 2026-08-17T03:51:29Z

@@ -1,0 +1,5 @@
+command: GOOS=windows GOARCH=amd64 go build ./cmd/...; GOOS=linux GOARCH=arm64 go build ./cmd/...; GOOS=darwin GOARCH=amd64 go build ./cmd/...
+workdir: <candidate-worktree>
+
+
+exit_code: 0

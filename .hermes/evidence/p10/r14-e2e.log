@@ -1,0 +1,11 @@
+command: go test ./test/e2e -run TestLinuxDirectV4WalkingSkeleton -count=1 -v
+workdir: <candidate-worktree>
+started_utc: 2026-08-17T03:51:16Z
+
+=== RUN   TestLinuxDirectV4WalkingSkeleton
+--- PASS: TestLinuxDirectV4WalkingSkeleton (1.54s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/test/e2e	1.546s
+
+exit_code: 0
+finished_utc: 2026-08-17T03:51:18Z
