@@ -22,8 +22,8 @@ func TestOpenAppliesAllMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if version != 5 {
-		t.Fatalf("SchemaVersion = %d, want 5 (0001_core + 0002_control + 0003_enrollment + 0004_probe)", version)
+	if version != 6 {
+		t.Fatalf("SchemaVersion = %d, want 6 (0001_core + 0002_control + 0003_enrollment + 0004_probe + 0005_probe_hardening + 0006_r13_hardening)", version)
 	}
 }
 
@@ -49,8 +49,8 @@ func TestOpenIsIdempotentAcrossReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion after reopen: %v", err)
 	}
-	if version != 5 {
-		t.Fatalf("SchemaVersion after reopen = %d, want 5", version)
+	if version != 6 {
+		t.Fatalf("SchemaVersion after reopen = %d, want 6", version)
 	}
 }
 

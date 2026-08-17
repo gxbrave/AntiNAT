@@ -84,8 +84,8 @@ func TestConcurrentWALWritesAndBackupRestore(t *testing.T) {
 		t.Fatalf("OpenBackup: %v", err)
 	}
 	defer bs.Close()
-	if m.SchemaVersion != 5 {
-		t.Fatalf("backup schema version = %d, want 5", m.SchemaVersion)
+	if m.SchemaVersion != 6 {
+		t.Fatalf("backup schema version = %d, want 6", m.SchemaVersion)
 	}
 	if m.ControllerInstanceID == "" {
 		t.Fatal("backup manifest missing controller instance id")
