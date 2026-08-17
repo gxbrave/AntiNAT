@@ -1,5 +1,5 @@
 {
-  "artifact_role": "canonical P10 exact-candidate review handoff",
+  "artifact_role": "P10 R13 interrupted-byte recovery and packaging handoff",
   "base_sha": "adf74fa860812054bd71082006a8c78ea4189888",
   "base_tree_sha": "b304c39ec7573fb22d6508fa4585d8a9b2b4f105",
   "branch": "ai/P10-wan-probe-activation-cli-e2e",
@@ -649,6 +649,7 @@
   },
   "candidate_head_sha": "3d01b8d887c484d9f926a8e4e5e667ec89562f40",
   "candidate_tree_sha": "1accf2062250f33b121ce10d5af1fe86228abcb5",
+  "canonical_handoff": ".hermes/handoffs/P10.json",
   "capability_result": "SUPPORTED_WITH_LIMITS",
   "cleanup": [
     "Fresh make build output was removed with GOWORK=off make clean; bin is absent.",
@@ -3391,7 +3392,6 @@
     "to_sha": "3d01b8d887c484d9f926a8e4e5e667ec89562f40",
     "to_tree_sha": "1accf2062250f33b121ce10d5af1fe86228abcb5"
   },
-  "recovery_handoff": ".hermes/handoffs/P10-r13-recovery.json",
   "red_green": {
     "green": {
       "all_bounded_packaging_gates_exit_code": 0,

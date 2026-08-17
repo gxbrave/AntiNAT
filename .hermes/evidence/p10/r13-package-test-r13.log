@@ -1,0 +1,42 @@
+COMMAND=go test ./... -run '^TestR13' -count=1
+WORKDIR=/root/AntiNAT/.worktrees/t_44815fe0
+STARTED_UTC=2026-08-17T02:09:38.892062+00:00
+ENDED_UTC=2026-08-17T02:09:41.444825+00:00
+PROCESS_EXIT_CODE=0
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-agent	0.012s
+?   	github.com/gxbrave/AntiNAT/cmd/antinat-controller	[no test files]
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-probe	0.005s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/cmd/antinatctl	0.004s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/internal/agent	0.003s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/control	0.022s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/localstate	0.002s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	0.128s
+ok  	github.com/gxbrave/AntiNAT/internal/buildinfo	0.003s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/internal/config	0.003s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/internal/controller	0.007s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/internal/controller/agenthub	1.126s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/api	1.022s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/auth	0.003s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	0.407s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/store	0.552s
+?   	github.com/gxbrave/AntiNAT/internal/controller/web	[no test files]
+ok  	github.com/gxbrave/AntiNAT/internal/forward	0.002s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/internal/forward/tcp	0.006s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/internal/protocol	0.004s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/internal/security	0.003s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/internal/security/framecrypto	0.002s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/internal/traversal	0.002s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/stun	0.003s [no tests to run]
+?   	github.com/gxbrave/AntiNAT/migrations	[no test files]
+ok  	github.com/gxbrave/AntiNAT/scripts	0.002s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/spike/datapath	0.002s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/spike/network	0.004s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/spike/sandbox	0.010s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/spike/sqlite	0.002s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/spike/state	0.002s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/spike/windows-identity	0.002s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/test/contracts	0.002s [no tests to run]
+ok  	github.com/gxbrave/AntiNAT/test/e2e	0.003s [no tests to run]
+?   	github.com/gxbrave/AntiNAT/test/e2e/harness	[no test files]
+
+EXIT_CODE=0

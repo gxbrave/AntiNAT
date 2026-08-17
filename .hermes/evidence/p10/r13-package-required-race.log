@@ -1,0 +1,11 @@
+COMMAND=go test ./internal/controller/probe ./internal/agent/reconcile ./internal/controller/api ./cmd/antinatctl -race -count=1
+WORKDIR=/root/AntiNAT/.worktrees/t_44815fe0
+STARTED_UTC=2026-08-17T02:09:41.445042+00:00
+ENDED_UTC=2026-08-17T02:09:53.143838+00:00
+PROCESS_EXIT_CODE=0
+ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	10.112s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	5.658s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/api	7.205s
+ok  	github.com/gxbrave/AntiNAT/cmd/antinatctl	2.991s
+
+EXIT_CODE=0

@@ -1,0 +1,7 @@
+COMMAND=gofmt -l cmd/antinat-agent/main.go cmd/antinat-agent/tokenfile.go cmd/antinat-agent/tokenfile_test.go cmd/antinat-agent/tokenfile_windows.go internal/agent/app.go internal/agent/control/session.go internal/agent/reconcile/p10_r13_regression_test.go internal/agent/reconcile/probe.go internal/controller/agenthub/p10_r13_regression_test.go internal/controller/agenthub/session.go internal/controller/api/auth.go internal/controller/api/forwards_min.go internal/controller/api/nodes_min.go internal/controller/app.go internal/controller/probe/manager.go internal/controller/probe/p10_r13_regression_test.go internal/controller/probe/provider.go internal/controller/probe/provider_service.go internal/controller/store/migrate.go internal/controller/store/minapi.go internal/controller/store/node_bundle.go internal/controller/store/outbox.go internal/controller/store/p10_r13_regression_test.go internal/controller/store/probe.go internal/controller/store/transactions.go internal/protocol/strictjson.go migrations/migrations.go
+WORKDIR=/root/AntiNAT/.worktrees/t_44815fe0
+STARTED_UTC=2026-08-17T02:09:38.878784+00:00
+ENDED_UTC=2026-08-17T02:09:38.891875+00:00
+PROCESS_EXIT_CODE=0
+
+EXIT_CODE=0

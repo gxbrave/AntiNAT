@@ -1,0 +1,10 @@
+COMMAND=make build
+WORKDIR=/root/AntiNAT/.worktrees/t_44815fe0
+STARTED_UTC=2026-08-17T02:10:04.798584+00:00
+ENDED_UTC=2026-08-17T02:10:06.327780+00:00
+PROCESS_EXIT_CODE=0
+mkdir -p bin
+go build -trimpath -ldflags "-X github.com/gxbrave/AntiNAT/internal/buildinfo.Version=dev -X github.com/gxbrave/AntiNAT/internal/buildinfo.Commit=unknown -X github.com/gxbrave/AntiNAT/internal/buildinfo.Date=unknown" -o bin/antinat-controller ./cmd/antinat-controller
+go build -trimpath -ldflags "-X github.com/gxbrave/AntiNAT/internal/buildinfo.Version=dev -X github.com/gxbrave/AntiNAT/internal/buildinfo.Commit=unknown -X github.com/gxbrave/AntiNAT/internal/buildinfo.Date=unknown" -o bin/antinat-agent ./cmd/antinat-agent
+
+EXIT_CODE=0

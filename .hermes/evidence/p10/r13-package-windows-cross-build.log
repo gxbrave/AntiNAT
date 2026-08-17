@@ -1,0 +1,8 @@
+COMMAND=go test -c ./cmd/antinat-agent -o /tmp/antinat-agent-r13-package-windows.test.exe
+WORKDIR=/root/AntiNAT/.worktrees/t_44815fe0
+STARTED_UTC=2026-08-17T02:10:06.327960+00:00
+ENDED_UTC=2026-08-17T02:10:06.649371+00:00
+PROCESS_EXIT_CODE=0
+?   	github.com/gxbrave/AntiNAT/cmd/antinat-agent	[no test files]
+
+EXIT_CODE=0
