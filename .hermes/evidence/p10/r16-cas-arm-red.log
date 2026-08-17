@@ -1,0 +1,4 @@
+# github.com/gxbrave/AntiNAT/internal/controller/store [github.com/gxbrave/AntiNAT/internal/controller/store.test]
+internal/controller/store/p10_r16_regression_test.go:31:35: unknown field ExpectedForwardRevision in struct literal of type ProbeOperation
+FAIL	github.com/gxbrave/AntiNAT/internal/controller/store [build failed]
+FAIL

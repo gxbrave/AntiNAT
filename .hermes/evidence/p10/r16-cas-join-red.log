@@ -1,0 +1,5 @@
+--- FAIL: TestR16ProbeJoinRejectsDeletionRevisionAdvance (0.03s)
+    p10_r16_regression_test.go:73: stale join error = <nil>, want ErrCASConflict
+FAIL
+FAIL	github.com/gxbrave/AntiNAT/internal/controller/store	0.037s
+FAIL
