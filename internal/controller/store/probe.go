@@ -659,16 +659,6 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 	if operationChallenge == "" || !strings.EqualFold(operationChallenge, providerResult.ChallengeHash) {
 		return fmt.Errorf("%w: challenge hash mismatch", ErrProbeJoinIncomplete)
 	}
-	res, err := tx.Exec(`UPDATE probe_operations SET status = ?, updated_at = ?
-		WHERE id = ? AND status = ? AND expires_at > ?`, string(protocol.OutcomeOpenFromVantage), nowUnix, operationID, expectedStatus, nowUnix)
-	if err != nil {
-		return fmt.Errorf("store: publish probe operation: %w", err)
-	}
-	if n, err := res.RowsAffected(); err != nil {
-		return fmt.Errorf("store: publish probe operation rows: %w", err)
-	} else if n != 1 {
-		return ErrProbeTerminal
-	}
 	// WAN verification owns only reachability, return-path, and publication.
 	// Merge those fields into the persisted mirror instead of replacing the
 	// orthogonal control/listener/mapping/keepalive/target/data-plane axes.
@@ -697,7 +687,23 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 	if err != nil {
 		return fmt.Errorf("%w: marshal merged activation snapshot: %v", ErrProbeJoinIncomplete, err)
 	}
+	// Validate the final merged state, not only the caller-supplied WAN fields.
+	// A prior mapping/listener state can make an otherwise valid probe result
+	// impossible (for example FIRST_HOP_MAPPED plus verified publication).
+	if err := mergedSnapshot.Validate(); err != nil {
+		return fmt.Errorf("%w: merged activation snapshot is invalid: %v", ErrProbeJoinIncomplete, err)
+	}
 	mergedJSON := string(mergedJSONBytes)
+	res, err := tx.Exec(`UPDATE probe_operations SET status = ?, updated_at = ?
+		WHERE id = ? AND status = ? AND expires_at > ?`, string(protocol.OutcomeOpenFromVantage), nowUnix, operationID, expectedStatus, nowUnix)
+	if err != nil {
+		return fmt.Errorf("store: publish probe operation: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return fmt.Errorf("store: publish probe operation rows: %w", err)
+	} else if n != 1 {
+		return ErrProbeTerminal
+	}
 	statusRes, err := tx.Exec(`INSERT INTO forward_runtime_status (forward_id, activation_id, snapshot_json, updated_at)
 		VALUES (?, ?, ?, ?)
 		ON CONFLICT(forward_id) DO UPDATE SET activation_id = excluded.activation_id,
