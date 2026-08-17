@@ -1,207 +1,19 @@
 {
-  "schema_version": "P10-r15-recovery-handoff/v1",
-  "artifact_role": "P10 R14 recovery handoff reconciled for exact R15 review",
+  "schema_version": "P10-r15-reconciliation/v1",
+  "artifact_role": "P10 R15B bounded exact metadata reconciliation handoff",
   "plan": "P10",
   "task_id": "t_d7e72c3b",
   "repair_cycle": 15,
-  "predecessor_task_id": "t_0e4e9958",
+  "stage": "metadata-only-reconciliation-review-required",
   "branch": "ai/P10-wan-probe-activation-cli-e2e",
   "base_sha": "adf74fa860812054bd71082006a8c78ea4189888",
   "base_tree_sha": "b304c39ec7573fb22d6508fa4585d8a9b2b4f105",
-  "prior_r13_audit_tip_sha": "afbbc2223e8f8938e04c49e15713382abb9345fd",
-  "prior_r13_candidate_sha": "3d01b8d887c484d9f926a8e4e5e667ec89562f40",
-  "candidate_head_sha": "70856cd06e1e6211339694525e36355ada716718",
-  "candidate_tree_sha": "3c0a483e0dd2725f33e30ee262e4ca8ae7c5ae46",
-  "candidate_handoff_path": ".hermes/handoffs/P10.json",
-  "archive_path": ".hermes/handoffs/P10-r13-rejected-archive.json",
-  "implementation_commits": [
-    {
-      "sha": "cb5e86cdad774703c1ce97feb75b4e61d84dc685",
-      "tree_sha": "86b808b678b0871bfd2b40a2e7a2df3af67d3e19",
-      "parents": [
-        "afbbc2223e8f8938e04c49e15713382abb9345fd"
-      ],
-      "message": "test(P10-R14): capture merged activation validation RED"
-    },
-    {
-      "sha": "4ee56cce4cc5650d35ef6fda45401c9ec289ac99",
-      "tree_sha": "205b62ec98f87be9c7a96e61c2e93d42c311b06c",
-      "parents": [
-        "cb5e86cdad774703c1ce97feb75b4e61d84dc685"
-      ],
-      "message": "fix(P10-R14): validate merged activation snapshot"
-    },
-    {
-      "sha": "270c4ecd51048d81fcd69eba1758a5d21a4efbe9",
-      "tree_sha": "4ff6a86ae2e2856756272ff560713a1645d053dc",
-      "parents": [
-        "4ee56cce4cc5650d35ef6fda45401c9ec289ac99"
-      ],
-      "message": "test(P10-R14): capture replay fence retention RED"
-    },
-    {
-      "sha": "f89bd21c3147460fbd43e3712f407b793dea22a5",
-      "tree_sha": "885adcdef94ed0099d4f83665fcbb5d69fda004c",
-      "parents": [
-        "270c4ecd51048d81fcd69eba1758a5d21a4efbe9"
-      ],
-      "message": "fix(P10-R14): retain replay fence after receipt acknowledgement"
-    },
-    {
-      "sha": "3092ac022cd394da2852c70350822a8aa4c2297f",
-      "tree_sha": "efb3ee70575b6be537e2ae4ed3371be6ddf70d0d",
-      "parents": [
-        "f89bd21c3147460fbd43e3712f407b793dea22a5"
-      ],
-      "message": "test(P10-R14): capture migration ledger RED"
-    },
-    {
-      "sha": "70856cd06e1e6211339694525e36355ada716718",
-      "tree_sha": "3c0a483e0dd2725f33e30ee262e4ca8ae7c5ae46",
-      "parents": [
-        "3092ac022cd394da2852c70350822a8aa4c2297f"
-      ],
-      "message": "fix(P10-R14): ledger R13 hardening migration"
-    }
-  ],
-  "files_changed_count": 173,
-  "contracts_changed": [],
-  "behavioral_repairs": [
-    "Final merged activation snapshot validation is enforced before PublishProbeJoin mutates durable operation/runtime state.",
-    "ReceiptSent and ReceiptAcknowledged are separate from consumed replay retention; consumed probe/source/digest rows remain fenced through ReceiptDeadline and hydrate after restart.",
-    "0006_r13_hardening.sql is the append-only schema ledger entry for R13 columns/index/table and transactional correlation-ID backfill, replacing ensureR13Schema."
-  ],
-  "red_evidence": {
-    "activation": {
-      "commit": "cb5e86cdad774703c1ce97feb75b4e61d84dc685",
-      "exit_code": 1,
-      "path": ".hermes/evidence/p10/red-activation.log"
-    },
-    "replay": {
-      "commit": "270c4ecd51048d81fcd69eba1758a5d21a4efbe9",
-      "exit_code": 1,
-      "paths": [
-        ".hermes/evidence/p10/red-replay.log",
-        ".hermes/evidence/p10/red-reconcile.log"
-      ]
-    },
-    "migration": {
-      "commit": "3092ac022cd394da2852c70350822a8aa4c2297f",
-      "exit_code": 1,
-      "path": ".hermes/evidence/p10/red-migration.log"
-    }
-  },
-  "verification": {
-    "focused_exit_code": 0,
-    "focused_race_exit_code": 0,
-    "cumulative_exit_code_with_provisioned_identity": 0,
-    "cumulative_race_exit_code_with_provisioned_identity": 0,
-    "make_test_exit_code_with_provisioned_identity": 0,
-    "make_check_exit_code_with_provisioned_identity": 0,
-    "vet_exit_code": 0,
-    "contracts_exit_code": 0,
-    "e2e_exit_code": 0,
-    "build_exit_code": 0,
-    "cross_build_exit_code": 0,
-    "diff_check_exit_code": 0,
-    "evidence_validation_exit_code": 0,
-    "evidence_manifest": ".hermes/evidence/p10/r14-evidence-manifest.json"
-  },
-  "evidence": [
-    ".hermes/evidence/p10/red-activation.log",
-    ".hermes/evidence/p10/red-replay.log",
-    ".hermes/evidence/p10/red-reconcile.log",
-    ".hermes/evidence/p10/red-migration.log",
-    ".hermes/evidence/p10/r14-focused.log",
-    ".hermes/evidence/p10/r14-race.log",
-    ".hermes/evidence/p10/r14-required-plan-race.log",
-    ".hermes/evidence/p10/r14-contracts.log",
-    ".hermes/evidence/p10/r14-e2e.log",
-    ".hermes/evidence/p10/r14-provisioned-full.log",
-    ".hermes/evidence/p10/r14-provisioned-race.log",
-    ".hermes/evidence/p10/r14-provisioned-make-test.log",
-    ".hermes/evidence/p10/r14-provisioned-make-check.log",
-    ".hermes/evidence/p10/r14-vet.log",
-    ".hermes/evidence/p10/r14-make-build.log",
-    ".hermes/evidence/p10/r14-cross-build.log",
-    ".hermes/evidence/p10/r14-cross-build-matrix.log",
-    ".hermes/evidence/p10/r14-gofmt.log",
-    ".hermes/evidence/p10/r14-diff-check.log",
-    ".hermes/evidence/p10/r14-evidence-verify.log",
-    ".hermes/evidence/p10/r14-evidence-parity.log",
-    ".hermes/evidence/p10/r14-make-test.log",
-    ".hermes/evidence/p10/r14-make-check.log"
-  ],
-  "contracts_consumed": [
-    {
-      "path": "docs/state-model.md",
-      "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
-    },
-    {
-      "path": "docs/protocol.md",
-      "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"
-    },
-    {
-      "path": "api/openapi.yaml",
-      "sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32"
-    },
-    {
-      "path": ".hermes/plans/v1-beta/00-master-orchestration.md",
-      "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4"
-    },
-    {
-      "path": ".hermes/plans/v1-beta/10-wan-probe-activation-cli-e2e.md",
-      "sha256": "91c7b8814d969ec9bfbf757a97c9a7aeb865fad7b49b76be826603d693b80ce0"
-    },
-    {
-      "path": "docs/adr/0003-wan-probe-truth.md",
-      "sha256": "31f4b1a01041a228e01c5fbc2cf0d0d9aeb447844b7dfa1da361f55df5b85fbd"
-    },
-    {
-      "path": "docs/installer-contract.md",
-      "sha256": "c7f83ea2fedcf9b1c393dae290ff1168bcd9f495d064a2ea74d386f3d38c630a"
-    },
-    {
-      "path": "docs/error-codes.md",
-      "sha256": "be4f4c22c0cd7a5a04bc9076e14efef7028a4c7634eb926aa675e7f87cbfa3b5"
-    },
-    {
-      "path": "test/contracts/manifest.json",
-      "sha256": "c300e1c883ca9aefd69f054827f9c8279fddeae140d330623d17b8477fe87121"
-    }
-  ],
-  "capability_result": "SUPPORTED_WITH_LIMITS",
-  "known_limits": [
-    "WAN/publication evidence is local/sandbox-only (loopback aliases and in-process/fake provider); no independent public-WAN/provider-egress vantage or arbitrary-NAT reachability claim is made.",
-    "Windows, Linux arm64, and Darwin evidence is cross-build/compile-only; no native runtime gate was exercised for those platforms.",
-    "The cumulative sandbox gate requires ANTINAT_DEDICATED_UID=12001 and ANTINAT_DEDICATED_GID=12001; unset variables fail closed as recorded in R14 evidence.",
-    "No router/UPnP/CGNAT, UDP traversal, production deployment, native runtime, or soak evidence is claimed.",
-    "This metadata-only reconciliation does not rerun or approve behavioral implementation; fresh exact-head reviews remain mandatory."
-  ],
-  "review_status": "REVIEW_REQUIRED_NOT_APPROVED",
-  "required_reviews": [
-    "fresh exact-head specification/ownership review",
-    "fresh exact-head full quality/security review",
-    "fresh exact-head network/protocol review",
-    "fresh exact-head lifecycle/integration-boundary review",
-    "integration only after every required review passes on unchanged 70856cd/tree 3c0a483"
-  ],
-  "cleanup_done": true,
-  "cleanup": [
-    "Pre-write branch/worktree was clean; no competing task writer, PID/index lock, or task-owned temporary worktree was present.",
-    "Implementation head/tree and all source/test bytes remain unchanged; only the three declared handoff metadata paths are in scope.",
-    "R14 packaging evidence records make clean/build cleanup; no bin artifact is retained.",
-    "No merge, rebase, reset, checkout-over, cherry-pick, push, tag, release, or frozen-contract edit was performed."
-  ],
-  "remote_push": false,
-  "release_performed": false,
-  "integration_status": "CANDIDATE_ONLY",
-  "handoff_note": "See canonical .hermes/handoffs/P10.json for the complete test matrix, contract hashes, changed-file list, residual risks, and exact evidence paths.",
   "repair_base_sha": "afbbc2223e8f8938e04c49e15713382abb9345fd",
   "repair_base_tree_sha": "ac3da63de845dfe472ed8d08992e0d8a0c0abc1e",
+  "candidate_head_sha": "70856cd06e1e6211339694525e36355ada716718",
+  "candidate_tree_sha": "3c0a483e0dd2725f33e30ee262e4ca8ae7c5ae46",
   "implementation_head_sha": "70856cd06e1e6211339694525e36355ada716718",
   "implementation_tree_sha": "3c0a483e0dd2725f33e30ee262e4ca8ae7c5ae46",
-  "pre_handoff_candidate_head_sha": "70856cd06e1e6211339694525e36355ada716718",
   "candidate_definition": "The exact implementation candidate is 70856cd06e1e6211339694525e36355ada716718/tree 3c0a483e0dd2725f33e30ee262e4ca8ae7c5ae46. The complete candidate delta is computed from integrated base adf74fa860812054bd71082006a8c78ea4189888 to that implementation head; the separate R14 repair delta is afbbc2223e8f8938e04c49e15713382abb9345fd..70856cd. The current 4c7cd2c packaging tip and this reconciliation are metadata-only history and do not redefine the implementation head.",
   "candidate_delta": {
     "from_sha": "adf74fa860812054bd71082006a8c78ea4189888",
@@ -1555,6 +1367,7 @@
     "test/e2e/harness/harness.go",
     "test/e2e/walking_skeleton_test.go"
   ],
+  "files_changed_count": 173,
   "repair_files_changed": [
     "internal/agent/localstate/p10_r14_replay_test.go",
     "internal/agent/localstate/probe.go",
@@ -2050,6 +1863,56 @@
     }
   ],
   "candidate_commit_count": 59,
+  "implementation_commits": [
+    {
+      "sha": "cb5e86cdad774703c1ce97feb75b4e61d84dc685",
+      "tree_sha": "86b808b678b0871bfd2b40a2e7a2df3af67d3e19",
+      "parents": [
+        "afbbc2223e8f8938e04c49e15713382abb9345fd"
+      ],
+      "message": "test(P10-R14): capture merged activation validation RED"
+    },
+    {
+      "sha": "4ee56cce4cc5650d35ef6fda45401c9ec289ac99",
+      "tree_sha": "205b62ec98f87be9c7a96e61c2e93d42c311b06c",
+      "parents": [
+        "cb5e86cdad774703c1ce97feb75b4e61d84dc685"
+      ],
+      "message": "fix(P10-R14): validate merged activation snapshot"
+    },
+    {
+      "sha": "270c4ecd51048d81fcd69eba1758a5d21a4efbe9",
+      "tree_sha": "4ff6a86ae2e2856756272ff560713a1645d053dc",
+      "parents": [
+        "4ee56cce4cc5650d35ef6fda45401c9ec289ac99"
+      ],
+      "message": "test(P10-R14): capture replay fence retention RED"
+    },
+    {
+      "sha": "f89bd21c3147460fbd43e3712f407b793dea22a5",
+      "tree_sha": "885adcdef94ed0099d4f83665fcbb5d69fda004c",
+      "parents": [
+        "270c4ecd51048d81fcd69eba1758a5d21a4efbe9"
+      ],
+      "message": "fix(P10-R14): retain replay fence after receipt acknowledgement"
+    },
+    {
+      "sha": "3092ac022cd394da2852c70350822a8aa4c2297f",
+      "tree_sha": "efb3ee70575b6be537e2ae4ed3371be6ddf70d0d",
+      "parents": [
+        "f89bd21c3147460fbd43e3712f407b793dea22a5"
+      ],
+      "message": "test(P10-R14): capture migration ledger RED"
+    },
+    {
+      "sha": "70856cd06e1e6211339694525e36355ada716718",
+      "tree_sha": "3c0a483e0dd2725f33e30ee262e4ca8ae7c5ae46",
+      "parents": [
+        "3092ac022cd394da2852c70350822a8aa4c2297f"
+      ],
+      "message": "fix(P10-R14): ledger R13 hardening migration"
+    }
+  ],
   "implementation_commit_count": 6,
   "packaging_tip_before_reconciliation": {
     "sha": "4c7cd2c67bce16afac25276c4d6325034b1ea2a8",
@@ -4958,6 +4821,44 @@
     ],
     "unrelated_edits_policy": "No production/test bytes are changed by this reconciliation. Every inherited and R14 transferred path/hunk is explicitly listed; every temporary transfer expires at P10 integration or rejection."
   },
+  "contracts_consumed": [
+    {
+      "path": "docs/state-model.md",
+      "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
+    },
+    {
+      "path": "docs/protocol.md",
+      "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"
+    },
+    {
+      "path": "api/openapi.yaml",
+      "sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32"
+    },
+    {
+      "path": ".hermes/plans/v1-beta/00-master-orchestration.md",
+      "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4"
+    },
+    {
+      "path": ".hermes/plans/v1-beta/10-wan-probe-activation-cli-e2e.md",
+      "sha256": "91c7b8814d969ec9bfbf757a97c9a7aeb865fad7b49b76be826603d693b80ce0"
+    },
+    {
+      "path": "docs/adr/0003-wan-probe-truth.md",
+      "sha256": "31f4b1a01041a228e01c5fbc2cf0d0d9aeb447844b7dfa1da361f55df5b85fbd"
+    },
+    {
+      "path": "docs/installer-contract.md",
+      "sha256": "c7f83ea2fedcf9b1c393dae290ff1168bcd9f495d064a2ea74d386f3d38c630a"
+    },
+    {
+      "path": "docs/error-codes.md",
+      "sha256": "be4f4c22c0cd7a5a04bc9076e14efef7028a4c7634eb926aa675e7f87cbfa3b5"
+    },
+    {
+      "path": "test/contracts/manifest.json",
+      "sha256": "c300e1c883ca9aefd69f054827f9c8279fddeae140d330623d17b8477fe87121"
+    }
+  ],
   "direct_dependency_artifacts": [
     {
       "path": ".hermes/plans/2026-08-09_055007-antinat-v1-reviewed-execution-plan.md",
@@ -5551,6 +5452,56 @@
     "evidence_sha256_map_sha256": "03518d0e642ac0294409caadb6e98214cf0dac0cd6aaa61dfe37046ef37d3fbf",
     "test_contract_manifest_sha256": "c300e1c883ca9aefd69f054827f9c8279fddeae140d330623d17b8477fe87121"
   },
+  "contracts_changed": [],
+  "capability_result": "SUPPORTED_WITH_LIMITS",
+  "capability_limits": {
+    "wan": "LOCAL_SANDBOX_ONLY_NO_INDEPENDENT_PUBLIC_WAN_VANTAGE",
+    "native_runtime": "CROSS_BUILD_ONLY_NO_NATIVE_WINDOWS_ARM64_DARWIN_NATIVE_RUNTIME"
+  },
+  "known_limits": [
+    "WAN/publication evidence is local/sandbox-only (loopback aliases and in-process/fake provider); no independent public-WAN/provider-egress vantage or arbitrary-NAT reachability claim is made.",
+    "Windows, Linux arm64, and Darwin evidence is cross-build/compile-only; no native runtime gate was exercised for those platforms.",
+    "The cumulative sandbox gate requires ANTINAT_DEDICATED_UID=12001 and ANTINAT_DEDICATED_GID=12001; unset variables fail closed as recorded in R14 evidence.",
+    "No router/UPnP/CGNAT, UDP traversal, production deployment, native runtime, or soak evidence is claimed.",
+    "This metadata-only reconciliation does not rerun or approve behavioral implementation; fresh exact-head reviews remain mandatory."
+  ],
+  "rejected_identities": {
+    "archive_path": ".hermes/handoffs/P10-r13-rejected-archive.json",
+    "archive_sha256": "5f6ec2e172a025a8b9c83081407d5235c38886ecad650b4b243593d050794dcf",
+    "rejected_r13_implementation_candidate": {
+      "head_sha": "3d01b8d887c484d9f926a8e4e5e667ec89562f40",
+      "tree_sha": "1accf2062250f33b121ce10d5af1fe86228abcb5",
+      "handoff_sha256": "a57f618515fa15faacf22cefbac555c9f2ba8d759f00bdb155ed5431bc47a966",
+      "recovery_handoff_sha256": "de206ef1a33932f704c04f4f94653566d6837de6c94c5a7082e1bbe3f36aed3f",
+      "reason": "rejected/superseded after fresh review findings; preserved as immutable historical identity"
+    },
+    "prior_r13_audit_tip": {
+      "head_sha": "afbbc2223e8f8938e04c49e15713382abb9345fd",
+      "tree_sha": "ac3da63de845dfe472ed8d08992e0d8a0c0abc1e",
+      "handoff_sha256": "de206ef1a33932f704c04f4f94653566d6837de6c94c5a7082e1bbe3f36aed3f",
+      "status": "superseded metadata tip, not an implementation approval"
+    }
+  },
+  "cleanup_done": true,
+  "cleanup": [
+    "Pre-write branch/worktree was clean; no competing task writer, PID/index lock, or task-owned temporary worktree was present.",
+    "Implementation head/tree and all source/test bytes remain unchanged; only the three declared handoff metadata paths are in scope.",
+    "R14 packaging evidence records make clean/build cleanup; no bin artifact is retained.",
+    "No merge, rebase, reset, checkout-over, cherry-pick, push, tag, release, or frozen-contract edit was performed."
+  ],
+  "remote_push": false,
+  "release_performed": false,
+  "review_status": "REVIEW_REQUIRED_NOT_APPROVED",
+  "integration_status": "CANDIDATE_ONLY",
+  "integration_approval": false,
+  "required_reviews": [
+    "fresh exact-head specification/ownership review",
+    "fresh exact-head full quality/security review",
+    "fresh exact-head network/protocol review",
+    "fresh exact-head lifecycle/integration-boundary review",
+    "integration only after every required review passes on unchanged 70856cd/tree 3c0a483"
+  ],
+  "source_test_bytes_unchanged": true,
   "evidence_sha256": {
     ".hermes/evidence/p10/red-activation.log": "28a8dd90cb6935410aabbb66a6728f1e22d441e638184c5b64d4f76353314fbe",
     ".hermes/evidence/p10/red-replay.log": "8cf644319d3d79ff1f6b4da701fd75018dd615921bc41dc577d3a115ec5daf36",
@@ -5576,29 +5527,71 @@
     ".hermes/evidence/p10/r14-make-test.log": "7a3fc567bb2b572245e99abe0d5e06367c826b1bb76c05084c05f4af0dab04e8",
     ".hermes/evidence/p10/r14-make-check.log": "afae7e53289f23632c087e84be50f838d19ab1f3d7ac7fbfbdd71a8aab5a4a70"
   },
-  "capability_limits": {
-    "wan": "LOCAL_SANDBOX_ONLY_NO_INDEPENDENT_PUBLIC_WAN_VANTAGE",
-    "native_runtime": "CROSS_BUILD_ONLY_NO_NATIVE_WINDOWS_ARM64_DARWIN_NATIVE_RUNTIME"
-  },
-  "rejected_identities": {
-    "archive_path": ".hermes/handoffs/P10-r13-rejected-archive.json",
-    "archive_sha256": "5f6ec2e172a025a8b9c83081407d5235c38886ecad650b4b243593d050794dcf",
-    "rejected_r13_implementation_candidate": {
-      "head_sha": "3d01b8d887c484d9f926a8e4e5e667ec89562f40",
-      "tree_sha": "1accf2062250f33b121ce10d5af1fe86228abcb5",
-      "handoff_sha256": "a57f618515fa15faacf22cefbac555c9f2ba8d759f00bdb155ed5431bc47a966",
-      "recovery_handoff_sha256": "de206ef1a33932f704c04f4f94653566d6837de6c94c5a7082e1bbe3f36aed3f",
-      "reason": "rejected/superseded after fresh review findings; preserved as immutable historical identity"
+  "verification_commands": [
+    {
+      "command": "test -z \"$(git status --porcelain)\" && git status --porcelain=v1 --branch",
+      "exit_code": 0,
+      "assertion": "final branch/worktree is clean"
     },
-    "prior_r13_audit_tip": {
-      "head_sha": "afbbc2223e8f8938e04c49e15713382abb9345fd",
-      "tree_sha": "ac3da63de845dfe472ed8d08992e0d8a0c0abc1e",
-      "handoff_sha256": "de206ef1a33932f704c04f4f94653566d6837de6c94c5a7082e1bbe3f36aed3f",
-      "status": "superseded metadata tip, not an implementation approval"
+    {
+      "command": "git show -s --format=\"%H%n%T%n%P%n%s\" 70856cd06e1e6211339694525e36355ada716718",
+      "exit_code": 0,
+      "assertion": "implementation head/tree identity"
+    },
+    {
+      "command": "git merge-base --is-ancestor adf74fa860812054bd71082006a8c78ea4189888 70856cd06e1e6211339694525e36355ada716718",
+      "exit_code": 0,
+      "assertion": "integrated base ancestry"
+    },
+    {
+      "command": "python3 -c \"import subprocess; rows=subprocess.check_output(['git','diff','--name-status','--no-renames','adf74fa860812054bd71082006a8c78ea4189888','70856cd06e1e6211339694525e36355ada716718'],text=True).splitlines(); assert len(rows)==173; print('full_candidate_inventory=173')\"",
+      "exit_code": 0,
+      "assertion": "complete base-to-candidate inventory"
+    },
+    {
+      "command": "python3 -c \"import subprocess; rows=subprocess.check_output(['git','diff','--name-status','--no-renames','afbbc2223e8f8938e04c49e15713382abb9345fd','70856cd06e1e6211339694525e36355ada716718'],text=True).splitlines(); assert len(rows)==17; print('r14_repair_inventory=17')\"",
+      "exit_code": 0,
+      "assertion": "separate R14 repair inventory"
+    },
+    {
+      "command": "python3 -m json.tool .hermes/handoffs/P10.json >/dev/null && python3 -m json.tool .hermes/handoffs/P10-r14-recovery.json >/dev/null && python3 -m json.tool .hermes/handoffs/P10-r15-reconciliation.json >/dev/null",
+      "exit_code": 0,
+      "assertion": "all handoffs parse as JSON"
+    },
+    {
+      "command": "python3 -c \"import json; p=[json.load(open(x)) for x in ['.hermes/handoffs/P10.json','.hermes/handoffs/P10-r14-recovery.json','.hermes/handoffs/P10-r15-reconciliation.json']]; assert all(x['contracts_changed']==[] and x['capability_result']=='SUPPORTED_WITH_LIMITS' and x['candidate_delta']['path_count']==173 and x['r14_repair_delta']['path_count']==17 for x in p); print('handoff_schema=valid')\"",
+      "exit_code": 0,
+      "assertion": "required handoff schema/fields"
+    },
+    {
+      "command": "python3 test/contracts/validate_openapi.py",
+      "exit_code": 0,
+      "assertion": "frozen schema validator"
+    },
+    {
+      "command": "python3 -c \"import hashlib,json,pathlib; p=[json.load(open(x)) for x in ['.hermes/handoffs/P10.json','.hermes/handoffs/P10-r14-recovery.json','.hermes/handoffs/P10-r15-reconciliation.json']]; m=json.load(open('test/contracts/manifest.json')); assert all(hashlib.sha256(pathlib.Path(a['path']).read_bytes()).hexdigest()==a['sha256'] for a in m['artifacts']); req=['docs/installer-contract.md','docs/error-codes.md','test/contracts/manifest.json']; assert all(any(x['path']==q and x['sha256']==hashlib.sha256(pathlib.Path(q).read_bytes()).hexdigest() for x in p[0]['contracts_consumed']) for q in req); print('contract_and_manifest_hashes=valid')\"",
+      "exit_code": 0,
+      "assertion": "contract and frozen-manifest hashes"
+    },
+    {
+      "command": "git diff --check adf74fa860812054bd71082006a8c78ea4189888 70856cd06e1e6211339694525e36355ada716718",
+      "exit_code": 0,
+      "assertion": "candidate delta diff check"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "assertion": "metadata diff check"
+    },
+    {
+      "command": "python3 -c \"import subprocess; rows=subprocess.check_output(['git','diff','--name-status','4c7cd2c67bce16afac25276c4d6325034b1ea2a8','HEAD'],text=True).splitlines(); assert len(rows)==3 and {r.split('\\t',1)[-1] for r in rows}=={'.hermes/handoffs/P10.json','.hermes/handoffs/P10-r14-recovery.json','.hermes/handoffs/P10-r15-reconciliation.json'}; print('metadata_only_commit_scope=valid')\"",
+      "exit_code": 0,
+      "assertion": "post-commit three-path scope"
     }
-  },
-  "integration_approval": false,
-  "source_test_bytes_unchanged": true,
+  ],
+  "canonical_handoff_path": ".hermes/handoffs/P10.json",
+  "recovery_handoff_path": ".hermes/handoffs/P10-r14-recovery.json",
+  "reconciliation_path": ".hermes/handoffs/P10-r15-reconciliation.json",
   "r14_repair_record": {
     "source_canonical_sha256": "518c1172213b635d1afaf4d66627f5336bca53067c6acd0120cd8763480ed79d",
     "source_recovery_sha256": "c103d900a3e0555e939fd8b2712de42cafc3507df961fdfba77a192a05204f44",
@@ -5795,89 +5788,30 @@
       "No secrets, credentials, remote push, tag, release, merge, rebase, cherry-pick, or frozen-contract edit was performed."
     ]
   },
-  "verification_commands": [
-    {
-      "command": "test -z \"$(git status --porcelain)\" && git status --porcelain=v1 --branch",
-      "exit_code": 0,
-      "assertion": "final branch/worktree is clean"
+  "metadata_reconciliation": {
+    "scope": "metadata-only exact handoff closure",
+    "changed_paths": [
+      ".hermes/handoffs/P10.json",
+      ".hermes/handoffs/P10-r14-recovery.json",
+      ".hermes/handoffs/P10-r15-reconciliation.json"
+    ],
+    "before": {
+      "head_sha": "4c7cd2c67bce16afac25276c4d6325034b1ea2a8",
+      "tree_sha": "f9ccbfd9f9c54ccdc88636b32b746273f46cbfc7",
+      "P10.json_sha256": "518c1172213b635d1afaf4d66627f5336bca53067c6acd0120cd8763480ed79d",
+      "P10-r14-recovery.json_sha256": "c103d900a3e0555e939fd8b2712de42cafc3507df961fdfba77a192a05204f44",
+      "P10-r15-reconciliation.json": "absent"
     },
-    {
-      "command": "git show -s --format=\"%H%n%T%n%P%n%s\" 70856cd06e1e6211339694525e36355ada716718",
-      "exit_code": 0,
-      "assertion": "implementation head/tree identity"
-    },
-    {
-      "command": "git merge-base --is-ancestor adf74fa860812054bd71082006a8c78ea4189888 70856cd06e1e6211339694525e36355ada716718",
-      "exit_code": 0,
-      "assertion": "integrated base ancestry"
-    },
-    {
-      "command": "python3 -c \"import subprocess; rows=subprocess.check_output(['git','diff','--name-status','--no-renames','adf74fa860812054bd71082006a8c78ea4189888','70856cd06e1e6211339694525e36355ada716718'],text=True).splitlines(); assert len(rows)==173; print('full_candidate_inventory=173')\"",
-      "exit_code": 0,
-      "assertion": "complete base-to-candidate inventory"
-    },
-    {
-      "command": "python3 -c \"import subprocess; rows=subprocess.check_output(['git','diff','--name-status','--no-renames','afbbc2223e8f8938e04c49e15713382abb9345fd','70856cd06e1e6211339694525e36355ada716718'],text=True).splitlines(); assert len(rows)==17; print('r14_repair_inventory=17')\"",
-      "exit_code": 0,
-      "assertion": "separate R14 repair inventory"
-    },
-    {
-      "command": "python3 -m json.tool .hermes/handoffs/P10.json >/dev/null && python3 -m json.tool .hermes/handoffs/P10-r14-recovery.json >/dev/null && python3 -m json.tool .hermes/handoffs/P10-r15-reconciliation.json >/dev/null",
-      "exit_code": 0,
-      "assertion": "all handoffs parse as JSON"
-    },
-    {
-      "command": "python3 -c \"import json; p=[json.load(open(x)) for x in ['.hermes/handoffs/P10.json','.hermes/handoffs/P10-r14-recovery.json','.hermes/handoffs/P10-r15-reconciliation.json']]; assert all(x['contracts_changed']==[] and x['capability_result']=='SUPPORTED_WITH_LIMITS' and x['candidate_delta']['path_count']==173 and x['r14_repair_delta']['path_count']==17 for x in p); print('handoff_schema=valid')\"",
-      "exit_code": 0,
-      "assertion": "required handoff schema/fields"
-    },
-    {
-      "command": "python3 test/contracts/validate_openapi.py",
-      "exit_code": 0,
-      "assertion": "frozen schema validator"
-    },
-    {
-      "command": "python3 -c \"import hashlib,json,pathlib; p=[json.load(open(x)) for x in ['.hermes/handoffs/P10.json','.hermes/handoffs/P10-r14-recovery.json','.hermes/handoffs/P10-r15-reconciliation.json']]; m=json.load(open('test/contracts/manifest.json')); assert all(hashlib.sha256(pathlib.Path(a['path']).read_bytes()).hexdigest()==a['sha256'] for a in m['artifacts']); req=['docs/installer-contract.md','docs/error-codes.md','test/contracts/manifest.json']; assert all(any(x['path']==q and x['sha256']==hashlib.sha256(pathlib.Path(q).read_bytes()).hexdigest() for x in p[0]['contracts_consumed']) for q in req); print('contract_and_manifest_hashes=valid')\"",
-      "exit_code": 0,
-      "assertion": "contract and frozen-manifest hashes"
-    },
-    {
-      "command": "git diff --check adf74fa860812054bd71082006a8c78ea4189888 70856cd06e1e6211339694525e36355ada716718",
-      "exit_code": 0,
-      "assertion": "candidate delta diff check"
-    },
-    {
-      "command": "git diff --check",
-      "exit_code": 0,
-      "assertion": "metadata diff check"
-    },
-    {
-      "command": "python3 -c \"import subprocess; rows=subprocess.check_output(['git','diff','--name-status','4c7cd2c67bce16afac25276c4d6325034b1ea2a8','HEAD'],text=True).splitlines(); assert len(rows)==3 and {r.split('\\t',1)[-1] for r in rows}=={'.hermes/handoffs/P10.json','.hermes/handoffs/P10-r14-recovery.json','.hermes/handoffs/P10-r15-reconciliation.json'}; print('metadata_only_commit_scope=valid')\"",
-      "exit_code": 0,
-      "assertion": "post-commit three-path scope"
+    "after_policy": "Hashes of the two existing handoffs are recorded in the new reconciliation file after generation; the new file self-hash is reported externally because embedding it would be self-referential.",
+    "one_commit_required": true,
+    "source_test_paths_forbidden": true,
+    "after": {
+      "P10.json_sha256": "55375aed08a61bcd054494a950996545c46ac03dc3ed1a4f2caa6339f96d1725",
+      "P10-r14-recovery.json_sha256": "c76ce102f6cb1137ed4aa53a7070c6c3909bc09f05863e8417a9de322366cea8",
+      "P10-r15-reconciliation.json": "reported externally after commit"
     }
-  ],
-  "stage": "metadata-only-reconciliation-review-required",
-  "recovery_handoff_path": ".hermes/handoffs/P10-r14-recovery.json",
-  "reconciliation_path": ".hermes/handoffs/P10-r15-reconciliation.json",
-  "preserved_rejected_candidates": ".hermes/handoffs/P10-r13-rejected-archive.json",
-  "r14_verification": {
-    "focused_exit_code": 0,
-    "focused_race_exit_code": 0,
-    "cumulative_exit_code_with_provisioned_identity": 0,
-    "cumulative_race_exit_code_with_provisioned_identity": 0,
-    "make_test_exit_code_with_provisioned_identity": 0,
-    "make_check_exit_code_with_provisioned_identity": 0,
-    "vet_exit_code": 0,
-    "contracts_exit_code": 0,
-    "e2e_exit_code": 0,
-    "build_exit_code": 0,
-    "cross_build_exit_code": 0,
-    "diff_check_exit_code": 0,
-    "evidence_validation_exit_code": 0,
-    "evidence_manifest": ".hermes/evidence/p10/r14-evidence-manifest.json"
   },
-  "r14_evidence": [
+  "evidence": [
     ".hermes/evidence/p10/red-activation.log",
     ".hermes/evidence/p10/red-replay.log",
     ".hermes/evidence/p10/red-reconcile.log",
@@ -5902,57 +5836,7 @@
     ".hermes/evidence/p10/r14-make-test.log",
     ".hermes/evidence/p10/r14-make-check.log"
   ],
-  "r14_behavioral_summary": [
-    "Final merged activation snapshot validation is enforced before PublishProbeJoin mutates durable operation/runtime state.",
-    "ReceiptSent and ReceiptAcknowledged are separate from consumed replay retention; consumed probe/source/digest rows remain fenced through ReceiptDeadline and hydrate after restart.",
-    "0006_r13_hardening.sql is the append-only schema ledger entry for R13 columns/index/table and transactional correlation-ID backfill, replacing ensureR13Schema."
-  ],
-  "r14_red_evidence": {
-    "activation": {
-      "commit": "cb5e86cdad774703c1ce97feb75b4e61d84dc685",
-      "exit_code": 1,
-      "path": ".hermes/evidence/p10/red-activation.log"
-    },
-    "replay": {
-      "commit": "270c4ecd51048d81fcd69eba1758a5d21a4efbe9",
-      "exit_code": 1,
-      "paths": [
-        ".hermes/evidence/p10/red-replay.log",
-        ".hermes/evidence/p10/red-reconcile.log"
-      ]
-    },
-    "migration": {
-      "commit": "3092ac022cd394da2852c70350822a8aa4c2297f",
-      "exit_code": 1,
-      "path": ".hermes/evidence/p10/red-migration.log"
-    }
-  },
-  "r14_evidence_manifest": ".hermes/evidence/p10/r14-evidence-manifest.json",
-  "handoff_packaging": {
-    "implementation_head_sha": "70856cd06e1e6211339694525e36355ada716718",
-    "implementation_tree_sha": "3c0a483e0dd2725f33e30ee262e4ca8ae7c5ae46",
-    "packaging_tip_before_reconciliation": "4c7cd2c67bce16afac25276c4d6325034b1ea2a8",
-    "reconciliation_path": ".hermes/handoffs/P10-r15-reconciliation.json",
-    "candidate_code_changed_by_reconciliation": false
-  },
-  "metadata_reconciliation": {
-    "scope": "metadata-only exact handoff closure",
-    "changed_paths": [
-      ".hermes/handoffs/P10.json",
-      ".hermes/handoffs/P10-r14-recovery.json",
-      ".hermes/handoffs/P10-r15-reconciliation.json"
-    ],
-    "before": {
-      "head_sha": "4c7cd2c67bce16afac25276c4d6325034b1ea2a8",
-      "tree_sha": "f9ccbfd9f9c54ccdc88636b32b746273f46cbfc7",
-      "P10.json_sha256": "518c1172213b635d1afaf4d66627f5336bca53067c6acd0120cd8763480ed79d",
-      "P10-r14-recovery.json_sha256": "c103d900a3e0555e939fd8b2712de42cafc3507df961fdfba77a192a05204f44",
-      "P10-r15-reconciliation.json": "absent"
-    },
-    "after_policy": "Hashes of the two existing handoffs are recorded in the new reconciliation file after generation; the new file self-hash is reported externally because embedding it would be self-referential.",
-    "one_commit_required": true,
-    "source_test_paths_forbidden": true
-  },
+  "reconciliation_note": "This file is the authoritative R15B metadata-only closure record; no review or integration approval is implied.",
   "base_to_candidate_commits": 59,
   "base_to_candidate_paths": 173,
   "r14_repair_commits": 6,
