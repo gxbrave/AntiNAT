@@ -2,7 +2,6 @@ package store
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -51,130 +50,7 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("store: migration %s failed: %w", name, err)
 		}
 	}
-	if err := s.ensureR13Schema(); err != nil {
-		return err
-	}
-	if err := s.backfillControlOutboxCorrelationIDs(); err != nil {
-		return err
-	}
 	return nil
-}
-
-// ensureR13Schema installs the append-only R13 compatibility schema without
-// changing the frozen migration version. Existing tests and deployed v0.8
-// databases identify 0005 as the last canonical migration; these idempotent
-// additions are therefore safe for both fresh and already-migrated stores.
-func (s *Store) ensureR13Schema() error {
-	columns := []struct{ table, column string }{
-		{"control_outbox", "command_message_id"},
-		{"control_outbox", "operation_complete_message_id"},
-		{"control_outbox", "controller_operation_complete_message_id"},
-	}
-	for _, item := range columns {
-		rows, err := s.db.Query("PRAGMA table_info(" + item.table + ")")
-		if err != nil {
-			return fmt.Errorf("store: inspect R13 schema: %w", err)
-		}
-		found := false
-		for rows.Next() {
-			var cid int
-			var name, typ string
-			var notNull, pk int
-			var defaultValue any
-			if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
-				rows.Close()
-				return fmt.Errorf("store: scan R13 schema: %w", err)
-			}
-			if name == item.column {
-				found = true
-			}
-		}
-		if err := rows.Close(); err != nil {
-			return fmt.Errorf("store: close R13 schema inspection: %w", err)
-		}
-		if !found {
-			if _, err := s.db.Exec("ALTER TABLE " + item.table + " ADD COLUMN " + item.column + " TEXT"); err != nil {
-				return fmt.Errorf("store: add R13 column %s.%s: %w", item.table, item.column, err)
-			}
-		}
-	}
-	if err := s.repairR13TerminalIndex(); err != nil {
-		return err
-	}
-	statements := []string{
-		`CREATE INDEX IF NOT EXISTS idx_control_outbox_command_message ON control_outbox(node_id, command_message_id) WHERE command_message_id IS NOT NULL`,
-		`CREATE INDEX IF NOT EXISTS idx_control_outbox_operation_complete_message ON control_outbox(node_id, operation_complete_message_id) WHERE operation_complete_message_id IS NOT NULL`,
-		`CREATE INDEX IF NOT EXISTS idx_control_outbox_controller_operation_complete_message ON control_outbox(node_id, controller_operation_complete_message_id) WHERE controller_operation_complete_message_id IS NOT NULL`,
-		`CREATE TABLE IF NOT EXISTS probe_terminal_deliveries (
-			probe_id TEXT PRIMARY KEY REFERENCES probe_operations(id),
-			disposition TEXT NOT NULL, outcome TEXT NOT NULL, node_id TEXT NOT NULL,
-			forward_id TEXT NOT NULL, activation_id TEXT NOT NULL,
-			created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-		) STRICT`,
-		`CREATE INDEX IF NOT EXISTS idx_probe_terminal_delivery_state ON probe_terminal_deliveries(disposition, updated_at, probe_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_probe_terminal_delivery ON probe_operations(status, created_at, id)`,
-	}
-	for _, statement := range statements {
-		if _, err := s.db.Exec(statement); err != nil {
-			return fmt.Errorf("store: install R13 schema object: %w", err)
-		}
-	}
-	return nil
-}
-
-func (s *Store) repairR13TerminalIndex() error {
-	var schemaSQL string
-	err := s.db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_probe_terminal_delivery'`).Scan(&schemaSQL)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("store: inspect terminal delivery index: %w", err)
-	}
-	if strings.Contains(strings.ToLower(schemaSQL), "created_at") {
-		return nil
-	}
-	if _, err := s.db.Exec(`DROP INDEX IF EXISTS idx_probe_terminal_delivery`); err != nil {
-		return fmt.Errorf("store: replace terminal delivery index: %w", err)
-	}
-	return nil
-}
-
-// backfillControlOutboxCorrelationIDs is a one-time compatibility step for
-// databases created before migration 0006. The hot path uses the indexed
-// columns and never performs this historical scan again.
-func (s *Store) backfillControlOutboxCorrelationIDs() error {
-	rows, err := s.db.Query(`SELECT operation_id, message_type FROM control_outbox
-		WHERE command_message_id IS NULL OR operation_complete_message_id IS NULL
-		   OR controller_operation_complete_message_id IS NULL`)
-	if err != nil {
-		return fmt.Errorf("store: query legacy outbox correlation ids: %w", err)
-	}
-	type pair struct{ operationID, messageType string }
-	var pending []pair
-	for rows.Next() {
-		var p pair
-		if err := rows.Scan(&p.operationID, &p.messageType); err != nil {
-			rows.Close()
-			return fmt.Errorf("store: scan legacy outbox correlation ids: %w", err)
-		}
-		pending = append(pending, p)
-	}
-	if err := rows.Close(); err != nil {
-		return fmt.Errorf("store: close legacy outbox correlation rows: %w", err)
-	}
-	for _, p := range pending {
-		commandID := deterministicMessageID(p.operationID, p.messageType)
-		resultID := deterministicMessageID(commandID, "operation_complete")
-		controllerResultID := deterministicMessageID(p.operationID, "operation_complete")
-		if _, err := s.db.Exec(`UPDATE control_outbox
-			SET command_message_id = ?, operation_complete_message_id = ?,
-			    controller_operation_complete_message_id = ?
-			WHERE operation_id = ? AND message_type = ?`, commandID, resultID, controllerResultID, p.operationID, p.messageType); err != nil {
-			return fmt.Errorf("store: backfill outbox correlation ids: %w", err)
-		}
-	}
-	return rows.Err()
 }
 
 func (s *Store) migrationApplied(version int) (bool, error) {
@@ -193,9 +69,22 @@ func (s *Store) applyMigration(version int, name, sqlText string) error {
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
 	}
+	if version == 6 {
+		sqlText, err = prepareR13HardeningSQL(tx, sqlText)
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("prepare %s: %w", name, err)
+		}
+	}
 	if _, err := tx.Exec(sqlText); err != nil {
 		tx.Rollback()
 		return fmt.Errorf("apply %s: %w", name, err)
+	}
+	if version == 6 {
+		if err := backfillControlOutboxCorrelationIDsTx(tx); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("backfill %s: %w", name, err)
+		}
 	}
 	if _, err := tx.Exec(
 		"INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
@@ -206,6 +95,111 @@ func (s *Store) applyMigration(version int, name, sqlText string) error {
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit %s: %w", name, err)
+	}
+	return nil
+}
+
+// prepareR13HardeningSQL makes the append-only 0006 file safe for databases
+// created by the rejected R13 candidate. That candidate installed the three
+// outbox columns outside schema_migrations; SQLite has no portable
+// ALTER TABLE ... ADD COLUMN IF NOT EXISTS, so only those already-present
+// ALTER statements are omitted before the canonical SQL runs. All other
+// schema work remains in migrations/0006_r13_hardening.sql and is committed
+// with its ledger row by applyMigration.
+func prepareR13HardeningSQL(tx *sql.Tx, sqlText string) (string, error) {
+	for _, column := range []string{
+		"command_message_id",
+		"operation_complete_message_id",
+		"controller_operation_complete_message_id",
+	} {
+		exists, err := controlOutboxColumnExists(tx, column)
+		if err != nil {
+			return "", err
+		}
+		if exists {
+			statement := "ALTER TABLE control_outbox ADD COLUMN " + column + " TEXT;"
+			sqlText = strings.Replace(sqlText, statement, "", 1)
+		}
+	}
+	return sqlText, nil
+}
+
+func controlOutboxColumnExists(tx *sql.Tx, column string) (bool, error) {
+	rows, err := tx.Query("PRAGMA table_info(control_outbox)")
+	if err != nil {
+		return false, fmt.Errorf("inspect control_outbox schema: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, typ string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return false, fmt.Errorf("scan control_outbox schema: %w", err)
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("read control_outbox schema: %w", err)
+	}
+	return false, nil
+}
+
+// backfillControlOutboxCorrelationIDsTx fills only missing correlation values
+// while the 0006 migration transaction is open. Keeping the backfill inside
+// the same transaction as the schema and ledger row prevents a crash from
+// leaving a partially upgraded outbox.
+func backfillControlOutboxCorrelationIDsTx(tx *sql.Tx) error {
+	rows, err := tx.Query(`SELECT operation_id, message_type,
+		command_message_id, operation_complete_message_id,
+		controller_operation_complete_message_id
+		FROM control_outbox
+		WHERE command_message_id IS NULL OR command_message_id = ''
+		   OR operation_complete_message_id IS NULL OR operation_complete_message_id = ''
+		   OR controller_operation_complete_message_id IS NULL OR controller_operation_complete_message_id = ''`)
+	if err != nil {
+		return fmt.Errorf("query legacy outbox correlation ids: %w", err)
+	}
+	type pendingCorrelation struct {
+		operationID, messageType                string
+		commandID, resultID, controllerResultID sql.NullString
+	}
+	var pending []pendingCorrelation
+	for rows.Next() {
+		var item pendingCorrelation
+		if err := rows.Scan(&item.operationID, &item.messageType, &item.commandID, &item.resultID, &item.controllerResultID); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan legacy outbox correlation ids: %w", err)
+		}
+		pending = append(pending, item)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close legacy outbox correlation rows: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read legacy outbox correlation rows: %w", err)
+	}
+	for _, item := range pending {
+		commandID := item.commandID.String
+		if !item.commandID.Valid || commandID == "" {
+			commandID = deterministicMessageID(item.operationID, item.messageType)
+		}
+		resultID := item.resultID.String
+		if !item.resultID.Valid || resultID == "" {
+			resultID = deterministicMessageID(commandID, "operation_complete")
+		}
+		controllerResultID := item.controllerResultID.String
+		if !item.controllerResultID.Valid || controllerResultID == "" {
+			controllerResultID = deterministicMessageID(item.operationID, "operation_complete")
+		}
+		if _, err := tx.Exec(`UPDATE control_outbox
+			SET command_message_id = ?, operation_complete_message_id = ?,
+			    controller_operation_complete_message_id = ?
+			WHERE operation_id = ? AND message_type = ?`, commandID, resultID, controllerResultID, item.operationID, item.messageType); err != nil {
+			return fmt.Errorf("update outbox correlation ids: %w", err)
+		}
 	}
 	return nil
 }

@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/gxbrave/AntiNAT/internal/protocol"
+	"github.com/gxbrave/AntiNAT/migrations"
 )
 
 type r13NodeBundler interface {
@@ -304,14 +306,16 @@ func TestR13TerminalProbeSelectionIsIndexedAndBounded(t *testing.T) {
 }
 
 func TestR13TerminalSelectionRepairsLegacyIndexDefinition(t *testing.T) {
-	s := openTestStore(t)
-	if _, err := s.db.Exec(`DROP INDEX idx_probe_terminal_delivery`); err != nil {
-		t.Fatal(err)
-	}
+	s := openR14LegacyV5(t, filepath.Join(t.TempDir(), "controller.db"))
+	defer s.Close()
 	if _, err := s.db.Exec(`CREATE INDEX idx_probe_terminal_delivery ON probe_operations(status, updated_at, id)`); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ensureR13Schema(); err != nil {
+	sqlBytes, err := migrations.FS.ReadFile("0006_r13_hardening.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.applyMigration(6, "0006_r13_hardening.sql", string(sqlBytes)); err != nil {
 		t.Fatal(err)
 	}
 	var schemaSQL string

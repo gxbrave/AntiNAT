@@ -63,7 +63,7 @@ func TestConcurrentWALWritesAndBackupRestore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BackupTo: %v", err)
 	}
-	if manifest.ControllerInstanceID == "" || manifest.SchemaVersion != 5 {
+	if manifest.ControllerInstanceID == "" || manifest.SchemaVersion != 6 {
 		t.Fatalf("returned manifest incomplete: %+v", manifest)
 	}
 	wg.Wait()
