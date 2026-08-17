@@ -87,7 +87,8 @@ func TestSaveLoadDeleteArmedProbe(t *testing.T) {
 }
 
 // TestReceiptAcknowledgementUsesCompleteIndexAcrossBoundedHistory ensures a
-// retained tombstone after the first bounded scan batch is still acknowledged.
+// retained tombstone after the first bounded scan batch is still acknowledged
+// without deleting the replay fence before its ReceiptDeadline.
 func TestReceiptAcknowledgementUsesCompleteIndexAcrossBoundedHistory(t *testing.T) {
 	s := openProbeStore(t)
 	for i := 0; i < defaultProbeScanLimit+32; i++ {
@@ -114,8 +115,8 @@ func TestReceiptAcknowledgementUsesCompleteIndexAcrossBoundedHistory(t *testing.
 	if err := s.AcknowledgeArmedProbeReceipt("target-receipt"); err != nil {
 		t.Fatalf("ack target receipt: %v", err)
 	}
-	if _, ok, err := s.LoadArmedProbe(target.ProbeID); err != nil || ok {
-		t.Fatalf("target tombstone remains: ok=%v err=%v", ok, err)
+	if rec, ok, err := s.LoadArmedProbe(target.ProbeID); err != nil || !ok || !rec.Consumed {
+		t.Fatalf("target replay fence was deleted by semantic ack: ok=%v err=%v rec=%+v", ok, err, rec)
 	}
 }
 

@@ -473,9 +473,9 @@ func TestRetryPendingReceiptsResendsAfterTransportWriteUntilSemanticAck(t *testi
 
 // The Controller's semantic receipt operation id is the digest of the exact
 // RCT1 payload. The transport envelope message id is domain-separated from
-// that digest; accepting only the latter would leave the durable tombstone
-// until the fallback deadline.
-func TestControllerReceiptAckRemovesProbeTombstone(t *testing.T) {
+// that digest; acknowledging the semantic id marks delivery but retains the
+// durable replay fence until its explicit fallback deadline.
+func TestControllerReceiptAckRetainsProbeFence(t *testing.T) {
 	e := newProbeTestEnv(t)
 	arm := e.mustArm(t)
 	receipt := []byte("durable-rct1-payload")
@@ -492,8 +492,8 @@ func TestControllerReceiptAckRemovesProbeTombstone(t *testing.T) {
 	if err := e.mgr.AcknowledgeReceipt(operationID); err != nil {
 		t.Fatalf("acknowledge controller receipt: %v", err)
 	}
-	if _, ok, err := e.store.LoadArmedProbe(arm.ProbeID); err != nil || ok {
-		t.Fatalf("probe tombstone remains after semantic ack: ok=%v err=%v", ok, err)
+	if rec, ok, err := e.store.LoadArmedProbe(arm.ProbeID); err != nil || !ok || !rec.Consumed {
+		t.Fatalf("probe replay fence was deleted after semantic ack: ok=%v err=%v rec=%+v", ok, err, rec)
 	}
 }
 
