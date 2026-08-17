@@ -9,6 +9,7 @@
 ALTER TABLE control_outbox ADD COLUMN command_message_id TEXT;
 ALTER TABLE control_outbox ADD COLUMN operation_complete_message_id TEXT;
 ALTER TABLE control_outbox ADD COLUMN controller_operation_complete_message_id TEXT;
+ALTER TABLE probe_operations ADD COLUMN expected_forward_revision INTEGER NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_control_outbox_command_message
     ON control_outbox(node_id, command_message_id)

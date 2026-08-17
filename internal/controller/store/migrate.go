@@ -121,13 +121,24 @@ func prepareR13HardeningSQL(tx *sql.Tx, sqlText string) (string, error) {
 			sqlText = strings.Replace(sqlText, statement, "", 1)
 		}
 	}
+	probeRevisionExists, err := tableColumnExists(tx, "probe_operations", "expected_forward_revision")
+	if err != nil {
+		return "", err
+	}
+	if probeRevisionExists {
+		sqlText = strings.Replace(sqlText, "ALTER TABLE probe_operations ADD COLUMN expected_forward_revision INTEGER NOT NULL DEFAULT 0;", "", 1)
+	}
 	return sqlText, nil
 }
 
 func controlOutboxColumnExists(tx *sql.Tx, column string) (bool, error) {
-	rows, err := tx.Query("PRAGMA table_info(control_outbox)")
+	return tableColumnExists(tx, "control_outbox", column)
+}
+
+func tableColumnExists(tx *sql.Tx, table, column string) (bool, error) {
+	rows, err := tx.Query("PRAGMA table_info(" + table + ")")
 	if err != nil {
-		return false, fmt.Errorf("inspect control_outbox schema: %w", err)
+		return false, fmt.Errorf("inspect %s schema: %w", table, err)
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -135,14 +146,14 @@ func controlOutboxColumnExists(tx *sql.Tx, column string) (bool, error) {
 		var name, typ string
 		var defaultValue any
 		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
-			return false, fmt.Errorf("scan control_outbox schema: %w", err)
+			return false, fmt.Errorf("scan %s schema: %w", table, err)
 		}
 		if name == column {
 			return true, nil
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return false, fmt.Errorf("read control_outbox schema: %w", err)
+		return false, fmt.Errorf("read %s schema: %w", table, err)
 	}
 	return false, nil
 }

@@ -131,6 +131,10 @@ type ProbeOperation struct {
 	NodeID        string
 	ForwardID     string
 	ActivationID  string
+	// ExpectedForwardRevision is the forward generation observed when the
+	// operation was armed. Activation identity alone is not a delete fence:
+	// online deletion advances revision without rotating the activation.
+	ExpectedForwardRevision uint64
 	ProviderID    string
 	Status        string
 	Endpoint      string
@@ -146,12 +150,18 @@ type ProbeOperation struct {
 // CreateProbeOperation inserts a PENDING operation row.
 func (s *Store) CreateProbeOperation(op ProbeOperation) (ProbeOperation, error) {
 	ts := s.currentUnix()
+	if op.ExpectedForwardRevision == 0 {
+		// Legacy/internal fixtures may omit the generation. Recover it only when
+		// the parent still exists; missing-parent tombstone fixtures remain
+		// representable but cannot pass a publication CAS.
+		_ = s.db.QueryRow(`SELECT revision FROM forwards WHERE id = ?`, op.ForwardID).Scan(&op.ExpectedForwardRevision)
+	}
 	_, err := s.db.Exec(
 		`INSERT INTO probe_operations
-		    (id, node_id, forward_id, activation_id, provider_id, status, endpoint,
+		    (id, node_id, forward_id, activation_id, expected_forward_revision, provider_id, status, endpoint,
 		     arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		op.ID, op.NodeID, op.ForwardID, op.ActivationID, op.ProviderID, orDefault(op.Status, "PENDING"),
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		op.ID, op.NodeID, op.ForwardID, op.ActivationID, op.ExpectedForwardRevision, op.ProviderID, orDefault(op.Status, "PENDING"),
 		op.Endpoint, op.ArmHex, op.ChallengeHash, op.TTLMS, op.ExpiryOpaque, op.ExpiresAt, ts, ts,
 	)
 	if err != nil {
@@ -175,8 +185,9 @@ func (s *Store) CreateProbeOperationBundle(op ProbeOperation, outbox ControlOutb
 	// this before provider selection as a fast path, but this CAS is the actual
 	// race fence when an activation changes between those two steps.
 	var forwardNodeID, currentActivationID sql.NullString
-	if err := tx.QueryRow(`SELECT node_id, current_activation_id FROM forwards WHERE id = ?`, op.ForwardID).
-		Scan(&forwardNodeID, &currentActivationID); errors.Is(err, sql.ErrNoRows) {
+	var currentRevision uint64
+	if err := tx.QueryRow(`SELECT node_id, current_activation_id, revision FROM forwards WHERE id = ?`, op.ForwardID).
+		Scan(&forwardNodeID, &currentActivationID, &currentRevision); errors.Is(err, sql.ErrNoRows) {
 		return ProbeOperation{}, ErrForwardNotFound
 	} else if err != nil {
 		return ProbeOperation{}, fmt.Errorf("store: read probe bundle forward: %w", err)
@@ -187,11 +198,21 @@ func (s *Store) CreateProbeOperationBundle(op ProbeOperation, outbox ControlOutb
 	if !currentActivationID.Valid || currentActivationID.String == "" || currentActivationID.String != op.ActivationID {
 		return ProbeOperation{}, ErrCASConflict
 	}
+	if op.ExpectedForwardRevision == 0 || currentRevision != op.ExpectedForwardRevision {
+		return ProbeOperation{}, ErrCASConflict
+	}
+	var deletionIntent int
+	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM forward_deletion_operations WHERE forward_id = ? AND status = 'PENDING')`, op.ForwardID).Scan(&deletionIntent); err != nil {
+		return ProbeOperation{}, fmt.Errorf("store: read probe bundle deletion intent: %w", err)
+	}
+	if deletionIntent != 0 {
+		return ProbeOperation{}, ErrCASConflict
+	}
 	if _, err := tx.Exec(`INSERT INTO probe_operations
-		(id, node_id, forward_id, activation_id, provider_id, status, endpoint,
+		(id, node_id, forward_id, activation_id, expected_forward_revision, provider_id, status, endpoint,
 		 arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		op.ID, op.NodeID, op.ForwardID, op.ActivationID, op.ProviderID, orDefault(op.Status, "PENDING"),
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		op.ID, op.NodeID, op.ForwardID, op.ActivationID, op.ExpectedForwardRevision, op.ProviderID, orDefault(op.Status, "PENDING"),
 		op.Endpoint, op.ArmHex, op.ChallengeHash, op.TTLMS, op.ExpiryOpaque, op.ExpiresAt, ts, ts); err != nil {
 		return ProbeOperation{}, fmt.Errorf("store: probe bundle operation: %w", err)
 	}
@@ -208,10 +229,10 @@ func (s *Store) CreateProbeOperationBundle(op ProbeOperation, outbox ControlOutb
 func (s *Store) GetProbeOperation(id string) (ProbeOperation, error) {
 	var op ProbeOperation
 	err := s.db.QueryRow(
-		`SELECT id, node_id, forward_id, activation_id, provider_id, status, endpoint,
+		`SELECT id, node_id, forward_id, activation_id, expected_forward_revision, provider_id, status, endpoint,
 		        arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
 		   FROM probe_operations WHERE id = ?`, id,
-	).Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ProviderID, &op.Status,
+	).Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ExpectedForwardRevision, &op.ProviderID, &op.Status,
 		&op.Endpoint, &op.ArmHex, &op.ChallengeHash, &op.TTLMS, &op.ExpiryOpaque,
 		&op.ExpiresAt, &op.CreatedAt, &op.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -513,10 +534,10 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 	defer tx.Rollback()
 	var current, storedForwardID, storedActivationID, providerID, providerPublicKey, storedEndpoint, storedExpiryOpaque, operationArmHex string
 	var expiresAt, createdAt int64
-	var storedTTLMS uint64
-	if err := tx.QueryRow(`SELECT status, forward_id, activation_id, expires_at, created_at, provider_id,
+	var storedTTLMS, expectedForwardRevision uint64
+	if err := tx.QueryRow(`SELECT status, forward_id, activation_id, expected_forward_revision, expires_at, created_at, provider_id,
 		endpoint, ttl_ms, expiry_opaque, arm_hex
-		FROM probe_operations WHERE id = ?`, operationID).Scan(&current, &storedForwardID, &storedActivationID, &expiresAt, &createdAt, &providerID,
+		FROM probe_operations WHERE id = ?`, operationID).Scan(&current, &storedForwardID, &storedActivationID, &expectedForwardRevision, &expiresAt, &createdAt, &providerID,
 		&storedEndpoint, &storedTTLMS, &storedExpiryOpaque, &operationArmHex); errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
@@ -544,7 +565,8 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 		return ErrProbeIllegalTransition
 	}
 	var forwardNodeID, currentActivationID sql.NullString
-	if err := tx.QueryRow(`SELECT node_id, current_activation_id FROM forwards WHERE id = ?`, forwardID).Scan(&forwardNodeID, &currentActivationID); errors.Is(err, sql.ErrNoRows) {
+	var currentForwardRevision uint64
+	if err := tx.QueryRow(`SELECT node_id, current_activation_id, revision FROM forwards WHERE id = ?`, forwardID).Scan(&forwardNodeID, &currentActivationID, &currentForwardRevision); errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return fmt.Errorf("store: read probe join forward: %w", err)
@@ -557,6 +579,16 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 		return fmt.Errorf("%w: operation/forward node mismatch", ErrProbeJoinIncomplete)
 	}
 	if !currentActivationID.Valid || currentActivationID.String == "" || currentActivationID.String != activationID {
+		return ErrCASConflict
+	}
+	if expectedForwardRevision == 0 || currentForwardRevision != expectedForwardRevision {
+		return ErrCASConflict
+	}
+	var deletionIntent int
+	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM forward_deletion_operations WHERE forward_id = ? AND status = 'PENDING')`, forwardID).Scan(&deletionIntent); err != nil {
+		return fmt.Errorf("store: read probe join deletion intent: %w", err)
+	}
+	if deletionIntent != 0 {
 		return ErrCASConflict
 	}
 	var providerEnabled, independentVantage int
@@ -695,7 +727,12 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 	}
 	mergedJSON := string(mergedJSONBytes)
 	res, err := tx.Exec(`UPDATE probe_operations SET status = ?, updated_at = ?
-		WHERE id = ? AND status = ? AND expires_at > ?`, string(protocol.OutcomeOpenFromVantage), nowUnix, operationID, expectedStatus, nowUnix)
+		WHERE id = ? AND status = ? AND expires_at > ? AND expected_forward_revision = ?
+		  AND EXISTS (SELECT 1 FROM forwards f WHERE f.id = ? AND f.current_activation_id = ? AND f.revision = ?
+		              AND NOT EXISTS (SELECT 1 FROM forward_deletion_operations d
+		                              WHERE d.forward_id = f.id AND d.status = 'PENDING'))`,
+		string(protocol.OutcomeOpenFromVantage), nowUnix, operationID, expectedStatus, nowUnix,
+		expectedForwardRevision, forwardID, activationID, expectedForwardRevision)
 	if err != nil {
 		return fmt.Errorf("store: publish probe operation: %w", err)
 	}
@@ -705,11 +742,15 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 		return ErrProbeTerminal
 	}
 	statusRes, err := tx.Exec(`INSERT INTO forward_runtime_status (forward_id, activation_id, snapshot_json, updated_at)
-		VALUES (?, ?, ?, ?)
+		SELECT ?, ?, ?, ?
+		WHERE EXISTS (SELECT 1 FROM forwards f WHERE f.id = ? AND f.current_activation_id = ? AND f.revision = ?
+		              AND NOT EXISTS (SELECT 1 FROM forward_deletion_operations d
+		                              WHERE d.forward_id = f.id AND d.status = 'PENDING'))
 		ON CONFLICT(forward_id) DO UPDATE SET activation_id = excluded.activation_id,
 		 snapshot_json = excluded.snapshot_json, updated_at = excluded.updated_at
-		 WHERE forward_runtime_status.activation_id = excluded.activation_id
-		 OR excluded.activation_id = (SELECT current_activation_id FROM forwards WHERE id = excluded.forward_id)`, forwardID, activationID, mergedJSON, nowUnix)
+		 WHERE excluded.activation_id = (SELECT current_activation_id FROM forwards WHERE id = excluded.forward_id)
+		   AND ? = (SELECT revision FROM forwards WHERE id = excluded.forward_id)`,
+		forwardID, activationID, mergedJSON, nowUnix, forwardID, activationID, expectedForwardRevision, expectedForwardRevision)
 	if err != nil {
 		return fmt.Errorf("store: publish probe snapshot: %w", err)
 	}
@@ -892,9 +933,10 @@ func (s *Store) QueueProbeOutcome(probeID string, outcome protocol.ProbeOutcome)
 	defer tx.Rollback()
 	nowUnix := s.currentUnix()
 	var nodeID, forwardID, activationID, status string
+	var expectedForwardRevision uint64
 	var operationUpdatedAt int64
-	err = tx.QueryRow(`SELECT node_id, forward_id, activation_id, status, updated_at FROM probe_operations WHERE id = ?`, probeID).
-		Scan(&nodeID, &forwardID, &activationID, &status, &operationUpdatedAt)
+	err = tx.QueryRow(`SELECT node_id, forward_id, activation_id, expected_forward_revision, status, updated_at FROM probe_operations WHERE id = ?`, probeID).
+		Scan(&nodeID, &forwardID, &activationID, &expectedForwardRevision, &status, &operationUpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrNotFound
 	}
@@ -922,8 +964,17 @@ func (s *Store) QueueProbeOutcome(probeID string, outcome protocol.ProbeOutcome)
 		disposition = "MISSING"
 	} else if err != nil {
 		return "", fmt.Errorf("store: read probe outcome forward: %w", err)
-	} else if !currentActivation.Valid || currentActivation.String != activationID {
+	} else if !currentActivation.Valid || currentActivation.String != activationID ||
+		expectedForwardRevision == 0 || forwardRevision != expectedForwardRevision {
 		disposition = "STALE"
+	} else {
+		var deletionIntent int
+		if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM forward_deletion_operations WHERE forward_id = ? AND status = 'PENDING')`, forwardID).Scan(&deletionIntent); err != nil {
+			return "", fmt.Errorf("store: read probe outcome deletion intent: %w", err)
+		}
+		if deletionIntent != 0 {
+			disposition = "STALE"
+		}
 	}
 	if operationUpdatedAt == 0 {
 		operationUpdatedAt = nowUnix
@@ -953,7 +1004,7 @@ func (s *Store) QueueProbeOutcome(probeID string, outcome protocol.ProbeOutcome)
 			Activation string `json:"activation"`
 			Generation uint64 `json:"generation"`
 			Outcome    string `json:"outcome"`
-		}{forwardID, activationID, forwardRevision, string(outcome)})
+		}{forwardID, activationID, expectedForwardRevision, string(outcome)})
 		if err != nil {
 			return "", fmt.Errorf("store: marshal probe outcome: %w", err)
 		}
