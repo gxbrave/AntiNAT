@@ -1,0 +1,306 @@
+{
+  "schema_version": "P10-r16q-checkpoint/v1",
+  "artifact_role": "exact-byte preservation checkpoint for an unverified rate-limited partial repair",
+  "plan": "P10",
+  "task_id": "t_01d54965",
+  "source_repair_task_id": "t_cb6c1370",
+  "stage": "UNVERIFIED_PARTIAL_CHECKPOINT",
+  "branch": "ai/P10-wan-probe-activation-cli-e2e",
+  "source_history": [
+    {
+      "run_id": 436,
+      "outcome": "rate_limited",
+      "selected_provider_exit_code": 75,
+      "checkpoint_provenance": "Partial worktree bytes remained after this run ended. They are preserved, untrusted, and unreviewed."
+    },
+    {
+      "run_id": 437,
+      "outcome": "blocked",
+      "checkpoint_provenance": "The clean-start invariant rejected the dirty worktree; the run reported no byte changes."
+    }
+  ],
+  "lineage": {
+    "integrated_base": {
+      "head_sha": "adf74fa860812054bd71082006a8c78ea4189888",
+      "tree_sha": "b304c39ec7573fb22d6508fa4585d8a9b2b4f105"
+    },
+    "immutable_prior_implementation": {
+      "head_sha": "dcafa36348a8260a655ecbdf8e8f6e87518f1614",
+      "tree_sha": "f28ffbd16cc793c6c89345bce3f41373f642675b"
+    },
+    "metadata_parent": {
+      "head_sha": "43558ae46c986300c9ed70806bd3c757dd09f052",
+      "tree_sha": "1a6d9383882d826375a20378ea3e0098c96a2d38"
+    },
+    "ancestry_verified": {
+      "integrated_base_is_ancestor_of_prior_implementation": true,
+      "prior_implementation_is_ancestor_of_metadata_parent": true
+    }
+  },
+  "pre_package_audit": {
+    "inventory_observed_at_utc": "2026-08-18T12:21:51Z",
+    "quiescence_rechecked_at_utc": "2026-08-18T12:22:56Z",
+    "workspace_path": "/root/AntiNAT/.worktrees/t_44815fe0",
+    "workspace_path_exact_match": true,
+    "branch_exact_match": true,
+    "head_exact_match": true,
+    "tree_exact_match": true,
+    "git_index_lock": {
+      "path": "/root/AntiNAT/.git/worktrees/t_44815fe0/index.lock",
+      "state": "ABSENT"
+    },
+    "competing_writer_check": {
+      "result": "NONE_OBSERVED",
+      "method": "Scan /proc for non-worker processes whose cwd is inside the exact worktree or whose command line names the exact worktree; exclude the inspection process and its ancestors."
+    },
+    "porcelain_v1": [
+      " M internal/controller/probe/manager.go",
+      " M internal/controller/store/control.go",
+      " M internal/controller/store/forwards.go",
+      "?? internal/controller/probe/p10_r16q_quality_test.go",
+      "?? internal/controller/store/p10_r16q_quality_test.go"
+    ],
+    "tracked_diff_summary": {
+      "files_changed": 3,
+      "insertions": 226,
+      "deletions": 26,
+      "per_path_numstat": [
+        {
+          "path": "internal/controller/probe/manager.go",
+          "insertions": 11,
+          "deletions": 0
+        },
+        {
+          "path": "internal/controller/store/control.go",
+          "insertions": 199,
+          "deletions": 25
+        },
+        {
+          "path": "internal/controller/store/forwards.go",
+          "insertions": 16,
+          "deletions": 1
+        }
+      ]
+    },
+    "git_diff_check_exit_code": 0,
+    "path_attributes": "No attributes reported by git check-attr --all for the five preserved paths.",
+    "raw_and_filtered_blob_ids_match_for_all_preserved_paths": true
+  },
+  "scope_audit": {
+    "source_authority": "t_cb6c1370 ALLOWED PATHS ONLY plus this package card's explicit checkpoint-handoff authorization",
+    "source_repair_allowed_paths": [
+      "internal/controller/probe/manager.go",
+      "internal/controller/probe/manager_test.go",
+      "internal/controller/probe/manager_cleanup_regression_test.go",
+      "internal/controller/probe/p10_r16_regression_test.go",
+      "internal/controller/probe/p10_r16q_quality_test.go",
+      "internal/controller/store/control.go",
+      "internal/controller/store/migrate.go",
+      "internal/controller/store/forwards.go",
+      "internal/controller/store/probe.go",
+      "internal/controller/store/control_cleanup_regression_test.go",
+      "internal/controller/store/p10_r16_regression_test.go",
+      "internal/controller/store/p10_r16_migration_test.go",
+      "internal/controller/store/p10_r16q_quality_test.go",
+      "migrations/0006_r13_hardening.sql",
+      ".hermes/handoffs/P10.json",
+      ".hermes/handoffs/P10-r16q-repair.json",
+      ".hermes/evidence/p10/r16q-probe-red.log",
+      ".hermes/evidence/p10/r16q-probe-green.log",
+      ".hermes/evidence/p10/r16q-store-red.log",
+      ".hermes/evidence/p10/r16q-store-green.log",
+      ".hermes/evidence/p10/r16q-migration-red.log",
+      ".hermes/evidence/p10/r16q-migration-green.log",
+      ".hermes/evidence/p10/r16q-focused-race.log",
+      ".hermes/evidence/p10/r16q-make-check.log",
+      ".hermes/evidence/p10/r16q-make-build.log"
+    ],
+    "preserved_paths": [
+      "internal/controller/probe/manager.go",
+      "internal/controller/store/control.go",
+      "internal/controller/store/forwards.go",
+      "internal/controller/probe/p10_r16q_quality_test.go",
+      "internal/controller/store/p10_r16q_quality_test.go"
+    ],
+    "package_metadata_path": ".hermes/handoffs/P10-r16q-checkpoint.json",
+    "outside_allowed_scope": [],
+    "verdict": "ALL_PRESERVED_PATHS_ARE_DECLARED_BY_THE_SOURCE_REPAIR_CARD",
+    "semantic_or_exact_hunk_compliance_reviewed": false,
+    "note": "This audit establishes path authorization only; it does not establish that partial contents are complete, necessary, correct, or compliant with exact-hunk restrictions."
+  },
+  "preserved_inventory": [
+    {
+      "path": "internal/controller/probe/manager.go",
+      "pre_package_status": " M",
+      "status_name": "tracked_modified_unstaged",
+      "tracked_at_metadata_parent": true,
+      "file_type": "regular",
+      "filesystem_mode_before_package": "0600",
+      "git_mode_at_metadata_parent": "100644",
+      "bytes": 35114,
+      "line_feeds": 1042,
+      "ends_with_newline": true,
+      "sha256": "1df1d1432be2f3f081120813ffddcb783cef5afc8f135bcf87013f086d7cb065",
+      "sha512": "625fb6c860913b6bbbea6c75063005f0c7e4ad03383149d66d55c52446337c2336f27b7777c3a6435af6e509b62ccd11cab9b68d5d31dde208bc4034990e0f2d",
+      "metadata_parent_blob": "0d9e22bc4414746c9818cf182afe73f0c33fbb39",
+      "pre_package_index_blob": "0d9e22bc4414746c9818cf182afe73f0c33fbb39",
+      "preserved_worktree_blob": "0c5fe0b20662858a696bb5a1f4d5bc498455e7a1"
+    },
+    {
+      "path": "internal/controller/store/control.go",
+      "pre_package_status": " M",
+      "status_name": "tracked_modified_unstaged",
+      "tracked_at_metadata_parent": true,
+      "file_type": "regular",
+      "filesystem_mode_before_package": "0644",
+      "git_mode_at_metadata_parent": "100644",
+      "bytes": 28159,
+      "line_feeds": 744,
+      "ends_with_newline": true,
+      "sha256": "4f7a1615d9bd11306671ec690ad2e4ecb8cf8f5a5ce4bbc44e9dee19c8f5a9c5",
+      "sha512": "590d5ad015a6edc225117b144cb6e2daea3448b405809fd0014ccd18d8dd9367a40c48549b36723b70b7f877a94963671f4a12aa33e7875abe73ca74466f5fee",
+      "metadata_parent_blob": "ef6bab829823a5181cf8e5150bbb46e7b90f6709",
+      "pre_package_index_blob": "ef6bab829823a5181cf8e5150bbb46e7b90f6709",
+      "preserved_worktree_blob": "099bd88a3db9a2c1b3ffb531783d71667243d018"
+    },
+    {
+      "path": "internal/controller/store/forwards.go",
+      "pre_package_status": " M",
+      "status_name": "tracked_modified_unstaged",
+      "tracked_at_metadata_parent": true,
+      "file_type": "regular",
+      "filesystem_mode_before_package": "0644",
+      "git_mode_at_metadata_parent": "100644",
+      "bytes": 6875,
+      "line_feeds": 209,
+      "ends_with_newline": true,
+      "sha256": "129bfd862d89264d059e2b3379e47ea61d0d4fa64b617d3873143a004633e090",
+      "sha512": "21af3cb01b2ec19294c130027894f1a78ac119ed3a3c8aee83601c085a4f5e8de08b24253397948bb62f0f7377bd0c2cf04ac5f582a59bac402bc477fe6de7f4",
+      "metadata_parent_blob": "fadba26bc4e13e3106d169a55be0d2c61a8e25f9",
+      "pre_package_index_blob": "fadba26bc4e13e3106d169a55be0d2c61a8e25f9",
+      "preserved_worktree_blob": "1d3936687df08cb8928b7f934e2fbd3f9f9290ea"
+    },
+    {
+      "path": "internal/controller/probe/p10_r16q_quality_test.go",
+      "pre_package_status": "??",
+      "status_name": "untracked",
+      "tracked_at_metadata_parent": false,
+      "file_type": "regular",
+      "filesystem_mode_before_package": "0600",
+      "git_mode_at_metadata_parent": null,
+      "bytes": 3101,
+      "line_feeds": 103,
+      "ends_with_newline": true,
+      "sha256": "34988f1b7c51a8034fdf27e6b12dd104ba97609a489b87d65f650737096f2163",
+      "sha512": "709cd369451bd4c05f8de8eb087a34e724f018d040c49ffca8adcc95a6f8747bf3b9b03ea81ec66e4b7044eddd74c79b10daaca5ff02fe37f0e1e2a9a01d31e6",
+      "metadata_parent_blob": null,
+      "pre_package_index_blob": null,
+      "preserved_worktree_blob": "aa6152c5dc04399bca0dbf142c17118cd6a7c8c7"
+    },
+    {
+      "path": "internal/controller/store/p10_r16q_quality_test.go",
+      "pre_package_status": "??",
+      "status_name": "untracked",
+      "tracked_at_metadata_parent": false,
+      "file_type": "regular",
+      "filesystem_mode_before_package": "0600",
+      "git_mode_at_metadata_parent": null,
+      "bytes": 7382,
+      "line_feeds": 166,
+      "ends_with_newline": true,
+      "sha256": "e52c14e726a88409b0fb6cff328dbe9dc4e970f4788b0ea623b81d79e8ead568",
+      "sha512": "96ce518ef1ceb1ad641a80c2e165f3471be6653f9bc86b3eaaf1ff2eeaa951364d939a197ef1f54ca9aebf87090928ef114df460c81779c975af11c15cd2f24a",
+      "metadata_parent_blob": null,
+      "pre_package_index_blob": null,
+      "preserved_worktree_blob": "d48aea67d9c62a47da09773e9a0265ac6bb6c668"
+    }
+  ],
+  "ownership_and_expiry": {
+    "receiving_plan": "P10",
+    "expires": "P10 integration or rejection, whichever occurs first",
+    "source_owner_after_expiry": "P06 for the temporary extension-point paths; P10 retains its ordinary owned paths",
+    "ordinary_p10_owned_preserved_paths": [
+      "internal/controller/probe/manager.go",
+      "internal/controller/probe/p10_r16q_quality_test.go"
+    ],
+    "temporary_p06_to_p10_extension_paths": [
+      "internal/controller/store/control.go",
+      "internal/controller/store/forwards.go",
+      "internal/controller/store/p10_r16q_quality_test.go"
+    ],
+    "forwards_scope_from_source_card": "Exact forward revision/CAS hunk only if mechanically necessary; this checkpoint does not review whether the partial hunk meets that restriction."
+  },
+  "package_contents": [
+    "internal/controller/probe/manager.go",
+    "internal/controller/store/control.go",
+    "internal/controller/store/forwards.go",
+    "internal/controller/probe/p10_r16q_quality_test.go",
+    "internal/controller/store/p10_r16q_quality_test.go",
+    ".hermes/handoffs/P10-r16q-checkpoint.json"
+  ],
+  "package_commit_identity": {
+    "parent_head_sha": "43558ae46c986300c9ed70806bd3c757dd09f052",
+    "derivation": "The commit containing this handoff and having parent_head_sha as its sole parent is the checkpoint package commit. Its final commit and tree SHA are recorded after commit in Kanban task t_01d54965 completion metadata to avoid an impossible self-referential in-tree hash."
+  },
+  "contracts_changed": [],
+  "capability_result": "UNVERIFIED_PARTIAL_CHECKPOINT",
+  "tests": [],
+  "tests_run": 0,
+  "test_pass_claims": [],
+  "structural_verification": [
+    {
+      "command": "pwd -P; git branch --show-current; git rev-parse HEAD; git rev-parse 'HEAD^{tree}'",
+      "exit_code": 0,
+      "result": "Exact workspace, branch, metadata parent head, and metadata parent tree matched the package card."
+    },
+    {
+      "command": "git status --porcelain=v1 --untracked-files=all; git diff --name-status --; git ls-files --others --exclude-standard",
+      "exit_code": 0,
+      "result": "The dirty inventory matched exactly three tracked modifications and two untracked repair tests."
+    },
+    {
+      "command": "git diff --check --",
+      "exit_code": 0
+    },
+    {
+      "command": "git hash-object --no-filters -- <each-preserved-path>; git hash-object --path=<path> -- <path>; sha256/sha512 byte inventory",
+      "exit_code": 0,
+      "result": "All five files were hashable; raw and filtered Git blob IDs matched."
+    },
+    {
+      "command": "git merge-base --is-ancestor adf74fa860812054bd71082006a8c78ea4189888 dcafa36348a8260a655ecbdf8e8f6e87518f1614; git merge-base --is-ancestor dcafa36348a8260a655ecbdf8e8f6e87518f1614 43558ae46c986300c9ed70806bd3c757dd09f052",
+      "exit_code": 0
+    }
+  ],
+  "cleanup_and_quiescence": {
+    "destructive_cleanup_performed": false,
+    "reset_performed": false,
+    "clean_performed": false,
+    "discard_performed": false,
+    "checkout_performed": false,
+    "rebase_performed": false,
+    "merge_performed": false,
+    "cherry_pick_performed": false,
+    "source_or_test_contents_edited_by_package_task": false,
+    "pre_package_worktree_intentionally_dirty": true,
+    "pre_package_index_lock_absent": true,
+    "pre_package_competing_writer_observed": false,
+    "post_commit_status_and_quiescence": "Recorded after commit in Kanban task t_01d54965 completion metadata."
+  },
+  "review_status": "NOT_REVIEWED",
+  "review_required": true,
+  "review_approval": false,
+  "integration_status": "NOT_AUTHORIZED",
+  "integration_approval": false,
+  "push_performed": false,
+  "tag_performed": false,
+  "release_performed": false,
+  "known_limits": [
+    "The preserved production and test bytes are incomplete or potentially incomplete work from a rate-limited run and have not been semantically inspected by this package task.",
+    "No Go test, race test, linter, build, migration, network, platform, or E2E command was run by this package task; there are no test PASS claims.",
+    "Path-scope membership and exact-byte hashes do not establish exact-hunk necessity, correctness, security, lifecycle safety, migration safety, or completion of any R16Q finding.",
+    "A fresh continuation repair card must inspect this exact packaged head, complete or redo the bounded repair, run required evidence commands, and then obtain all fresh independent reviews.",
+    "Existing capability remains SUPPORTED_WITH_LIMITS only as established by prior evidence; this checkpoint makes no new capability claim and is classified UNVERIFIED_PARTIAL_CHECKPOINT."
+  ],
+  "deviations": []
+}

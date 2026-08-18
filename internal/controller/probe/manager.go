@@ -71,6 +71,7 @@ type Manager struct {
 	sweepInterval   time.Duration
 	resultRetention time.Duration
 	cleanupBatch    int
+	lifecycleMu     sync.Mutex
 	mu              sync.Mutex
 	active          map[string]struct{}
 	armMu           sync.Mutex
@@ -135,6 +136,11 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 // Start launches the cancellable expiry/result sweeper. It is safe to omit
 // Start in focused unit tests; request paths then use a per-operation context.
 func (m *Manager) Start(parent context.Context) error {
+	// Serialize the complete Start/Close lifecycle, including the WaitGroup
+	// joins in Close. A lock held only around the state mutation would allow a
+	// concurrent Start to add a new sweeper after Close began waiting.
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
 	m.mu.Lock()
 	if m.cancel != nil {
 		m.mu.Unlock()
@@ -155,6 +161,11 @@ func (m *Manager) Start(parent context.Context) error {
 
 // Close cancels the sweeper and waits for all manager-owned work to finish.
 func (m *Manager) Close() error {
+	// Keep Start from installing a new sweeper until both manager wait groups
+	// have joined. The manager mutex cannot be held across these waits because
+	// worker cleanup takes it, so lifecycleMu is the outer serialization gate.
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
 	m.mu.Lock()
 	cancel := m.cancel
 	m.cancel = nil
