@@ -6066,5 +6066,59 @@
     "candidate_diff_check": 0,
     "working_tree_diff_check": 0,
     "post_commit_metadata_scope": 0
+  },
+  "r16q_repair_continuation": {
+    "schema_version": "P10-r16q-reconciliation/v1",
+    "task_id": "t_3fac2a26",
+    "stage": "REPAIR_IMPLEMENTATION_REVIEW_REQUIRED",
+    "checkpoint_head_sha": "09b394db1c2169c6ffc9538ca03847d3d274acfc",
+    "checkpoint_tree_sha": "6ce3ce8f05ed02e32131a5b7c3bc6b366b8e1bf4",
+    "implementation_head_sha": "59c0c7d364c0d4caf7f5cd5f34f50c4d4d26f86b",
+    "implementation_tree_sha": "040630aed29d19b0ece7275a1c48fba57c68b722",
+    "implementation_parent_sha": "09b394db1c2169c6ffc9538ca03847d3d274acfc",
+    "implementation_commit_count": 1,
+    "checkpoint_to_implementation_path_count": 18,
+    "repair_handoff": ".hermes/handoffs/P10-r16q-repair.json",
+    "repair_handoff_sha256_before_P10_reconciliation": "c8d2faa8e5450d4324170ba19f63f98fb5483d88b6f9d09f1d2863ff717dc8f3",
+    "behavioral_summary": [
+      "Manager Start/Close lifecycle serialization was retained from the checkpoint only after real parent-archive RED, candidate GREEN, and focused-race verification.",
+      "Runtime mirrors now persist and enforce exact forward generation for Arm and PublishProbeJoin, including same-activation revision advances, while caller-visible ActivationStates JSON remains unchanged.",
+      "Processed control-inbox tombstones are reclaimed in capped high-water batches while durable outbox, deletion, probe, terminal-delivery, and signed-receipt fences remain live.",
+      "Every required R13 index is validated by table, ordered columns, and partial predicate; wrong same-named indexes fail closed with transactional migration rollback preserved."
+    ],
+    "files_changed_count": 18,
+    "evidence": [
+      ".hermes/evidence/p10/r16q-probe-red.log",
+      ".hermes/evidence/p10/r16q-probe-green.log",
+      ".hermes/evidence/p10/r16q-store-red.log",
+      ".hermes/evidence/p10/r16q-store-green.log",
+      ".hermes/evidence/p10/r16q-migration-red.log",
+      ".hermes/evidence/p10/r16q-migration-green.log",
+      ".hermes/evidence/p10/r16q-focused-race.log",
+      ".hermes/evidence/p10/r16q-make-check.log",
+      ".hermes/evidence/p10/r16q-make-build.log"
+    ],
+    "verification": {
+      "focused_red_exit_code": 1,
+      "focused_green_exit_code": 0,
+      "affected_packages_exit_code": 0,
+      "focused_race_exit_code": 0,
+      "make_test_without_required_identity_exit_code": 2,
+      "make_test_with_provisioned_identity_exit_code": 0,
+      "make_check_with_provisioned_identity_exit_code": 0,
+      "make_build_exit_code": 0,
+      "gofmt_exit_code": 0,
+      "diff_check_exit_code": 0,
+      "static_security_scan_exit_code": 0
+    },
+    "contracts_changed": [],
+    "capability_result": "SUPPORTED_WITH_LIMITS",
+    "review_status": "REVIEW_REQUIRED_NOT_APPROVED",
+    "integration_status": "CANDIDATE_ONLY",
+    "ownership_expiry": "P10 integration or rejection, whichever occurs first",
+    "cleanup_done": true,
+    "remote_push": false,
+    "release_performed": false,
+    "candidate_code_changed_by_metadata_packaging": false
   }
 }

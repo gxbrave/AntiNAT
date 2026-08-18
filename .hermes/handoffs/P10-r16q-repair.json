@@ -1,0 +1,410 @@
+{
+  "schema_version": "P10-r16q-repair/v1",
+  "artifact_role": "bounded P10 R16Q continuation repair implementation handoff",
+  "plan": "P10",
+  "task_id": "t_3fac2a26",
+  "stage": "REPAIR_IMPLEMENTATION_REVIEW_REQUIRED",
+  "recorded_at_utc": "2026-08-18T13:11:04Z",
+  "branch": "ai/P10-wan-probe-activation-cli-e2e",
+  "workspace_path": "/root/AntiNAT/.worktrees/t_44815fe0",
+  "lineage": {
+    "integrated_base": {
+      "head_sha": "adf74fa860812054bd71082006a8c78ea4189888",
+      "tree_sha": "b304c39ec7573fb22d6508fa4585d8a9b2b4f105"
+    },
+    "immutable_prior_implementation": {
+      "head_sha": "dcafa36348a8260a655ecbdf8e8f6e87518f1614",
+      "tree_sha": "f28ffbd16cc793c6c89345bce3f41373f642675b"
+    },
+    "metadata_parent": {
+      "head_sha": "43558ae46c986300c9ed70806bd3c757dd09f052",
+      "tree_sha": "1a6d9383882d826375a20378ea3e0098c96a2d38"
+    },
+    "unverified_partial_checkpoint": {
+      "head_sha": "09b394db1c2169c6ffc9538ca03847d3d274acfc",
+      "tree_sha": "6ce3ce8f05ed02e32131a5b7c3bc6b366b8e1bf4",
+      "handoff": ".hermes/handoffs/P10-r16q-checkpoint.json"
+    },
+    "new_implementation": {
+      "head_sha": "59c0c7d364c0d4caf7f5cd5f34f50c4d4d26f86b",
+      "tree_sha": "040630aed29d19b0ece7275a1c48fba57c68b722",
+      "parent_sha": "09b394db1c2169c6ffc9538ca03847d3d274acfc"
+    },
+    "ancestry_verified": {
+      "integrated_base_to_prior_implementation": true,
+      "prior_implementation_to_metadata_parent": true,
+      "metadata_parent_to_checkpoint": true,
+      "checkpoint_to_new_implementation": true
+    }
+  },
+  "candidate_definition": "The exact R16Q repair implementation candidate is 59c0c7d364c0d4caf7f5cd5f34f50c4d4d26f86b/tree 040630aed29d19b0ece7275a1c48fba57c68b722. This handoff and the P10.json reconciliation are metadata-only packaging after that implementation and do not redefine the candidate.",
+  "implementation_commits": [
+    {
+      "sha": "59c0c7d364c0d4caf7f5cd5f34f50c4d4d26f86b",
+      "tree_sha": "040630aed29d19b0ece7275a1c48fba57c68b722",
+      "parent_sha": "09b394db1c2169c6ffc9538ca03847d3d274acfc",
+      "message": "fix(P10-R16Q): complete probe and store invariant repair"
+    }
+  ],
+  "deltas": {
+    "checkpoint_to_candidate": {
+      "from_sha": "09b394db1c2169c6ffc9538ca03847d3d274acfc",
+      "from_tree_sha": "6ce3ce8f05ed02e32131a5b7c3bc6b366b8e1bf4",
+      "to_sha": "59c0c7d364c0d4caf7f5cd5f34f50c4d4d26f86b",
+      "to_tree_sha": "040630aed29d19b0ece7275a1c48fba57c68b722",
+      "commit_count": 1,
+      "path_count": 18,
+      "diff_check_exit_code": 0
+    },
+    "integrated_base_to_candidate": {
+      "from_sha": "adf74fa860812054bd71082006a8c78ea4189888",
+      "from_tree_sha": "b304c39ec7573fb22d6508fa4585d8a9b2b4f105",
+      "to_sha": "59c0c7d364c0d4caf7f5cd5f34f50c4d4d26f86b",
+      "to_tree_sha": "040630aed29d19b0ece7275a1c48fba57c68b722",
+      "commit_count": 72,
+      "path_count": 251
+    },
+    "prior_implementation_to_candidate": {
+      "from_sha": "dcafa36348a8260a655ecbdf8e8f6e87518f1614",
+      "from_tree_sha": "f28ffbd16cc793c6c89345bce3f41373f642675b",
+      "to_sha": "59c0c7d364c0d4caf7f5cd5f34f50c4d4d26f86b",
+      "to_tree_sha": "040630aed29d19b0ece7275a1c48fba57c68b722",
+      "commit_count": 5,
+      "path_count": 24
+    }
+  },
+  "behavioral_summary": [
+    "Manager Start and Close retain the checkpoint lifecycle mutex across registration/cancellation/join, and a deterministic concurrent shutdown regression plus focused race run verify that a new sweeper cannot register while Close is joining.",
+    "Forward runtime mirrors durably envelope the exact forwards.revision generation without changing the frozen API snapshot JSON. Arm and PublishProbeJoin reject missing, legacy-unbound, stale-activation, and same-activation stale-generation mirrors; stale writes remain SQL-CAS fenced.",
+    "Processed control-inbox rows are reclaimed in bounded high-water batches across result/receipt classes while live outbox, pending deletion, live probe, terminal-delivery, and signed RCT1 digest dependencies remain protected.",
+    "Migration validation compares every required R13 index table, ordered columns, and partial predicate. A wrong same-named index now fails both transactional v5-to-v6 migration and recorded-v6 validation without weakening rollback/backfill budgets.",
+    "No frozen contract, public API document, migration SQL, or schema version was changed."
+  ],
+  "group_a_probe_lifecycle_generation": {
+    "symbols_and_hunks": [
+      "probe.Manager.lifecycleMu, Manager.Start, and Manager.Close: packaged lifecycle serialization retained after source inspection and RED/GREEN/race verification",
+      "probe.Manager.Arm: exact ForwardRuntimeStatus generation-bound check",
+      "store.ForwardRuntimeStatus: Generation and GenerationBound metadata",
+      "store.encodePersistedForwardRuntimeStatus and store.decodePersistedForwardRuntimeStatus: durable generation envelope in existing snapshot_json storage",
+      "store.SetForwardRuntimeStatus and store.GetForwardRuntimeStatus: write/read exact generation while preserving caller-visible ActivationStates JSON",
+      "store.PublishProbeJoin: previous mirror activation+generation validation and generation-preserving merged snapshot write",
+      "store.Store.CASForwardActivation: checkpoint deletion hunk removed; original atomic revision CAS restored because durable mirror generation is now enforced without destroying R13-compatible stale evidence"
+    ],
+    "red_green": [
+      {
+        "behavior": "concurrent Manager Close/Start serialization and same-activation stale-generation Arm rejection",
+        "red_base_sha": "43558ae46c986300c9ed70806bd3c757dd09f052",
+        "red_exit_code": 1,
+        "red_evidence": ".hermes/evidence/p10/r16q-probe-red.log",
+        "green_candidate_sha": "59c0c7d364c0d4caf7f5cd5f34f50c4d4d26f86b",
+        "green_exit_code": 0,
+        "green_evidence": ".hermes/evidence/p10/r16q-probe-green.log"
+      },
+      {
+        "behavior": "same-activation stale-generation PublishProbeJoin fails atomically",
+        "green_candidate_sha": "59c0c7d364c0d4caf7f5cd5f34f50c4d4d26f86b",
+        "green_exit_code": 0,
+        "green_evidence": ".hermes/evidence/p10/r16q-store-green.log"
+      }
+    ]
+  },
+  "group_b_store_migration_durability": {
+    "symbols_and_hunks": [
+      "store.DeleteControlInboxBeforeLimit: capped delete/scan budgets and transaction-local high-water",
+      "store.controlInboxRetentionProtected, controlInboxOutboxFence, controlInboxPendingDeletionFence, controlInboxLiveProbeFenceByID, and controlInboxLiveProbeReceiptFence: durable resend/replay dependency fences",
+      "store.requiredR13Indexes and validateR13IndexDefinition: exact table/ordered-column/partial-predicate validation",
+      "store.validateR13HardeningObjects: deterministic required-object and exact-definition validation"
+    ],
+    "red_green": [
+      {
+        "behavior": "bounded control-inbox cleanup with live resend and replay dependency retention",
+        "red_base_sha": "43558ae46c986300c9ed70806bd3c757dd09f052",
+        "red_exit_code": 1,
+        "red_evidence": ".hermes/evidence/p10/r16q-store-red.log",
+        "green_candidate_sha": "59c0c7d364c0d4caf7f5cd5f34f50c4d4d26f86b",
+        "green_exit_code": 0,
+        "green_evidence": ".hermes/evidence/p10/r16q-store-green.log"
+      },
+      {
+        "behavior": "wrong same-named R13 index columns/predicate rejected with transactional rollback preserved",
+        "red_base_sha": "43558ae46c986300c9ed70806bd3c757dd09f052",
+        "red_exit_code": 1,
+        "red_evidence": ".hermes/evidence/p10/r16q-migration-red.log",
+        "green_candidate_sha": "59c0c7d364c0d4caf7f5cd5f34f50c4d4d26f86b",
+        "green_exit_code": 0,
+        "green_evidence": ".hermes/evidence/p10/r16q-migration-green.log"
+      }
+    ]
+  },
+  "files_changed": [
+    ".hermes/evidence/p10/r16q-focused-race.log",
+    ".hermes/evidence/p10/r16q-make-build.log",
+    ".hermes/evidence/p10/r16q-make-check.log",
+    ".hermes/evidence/p10/r16q-migration-green.log",
+    ".hermes/evidence/p10/r16q-migration-red.log",
+    ".hermes/evidence/p10/r16q-probe-green.log",
+    ".hermes/evidence/p10/r16q-probe-red.log",
+    ".hermes/evidence/p10/r16q-store-green.log",
+    ".hermes/evidence/p10/r16q-store-red.log",
+    "internal/controller/probe/manager.go",
+    "internal/controller/probe/p10_r16q_quality_test.go",
+    "internal/controller/store/control.go",
+    "internal/controller/store/forwards.go",
+    "internal/controller/store/migrate.go",
+    "internal/controller/store/p10_r16_migration_test.go",
+    "internal/controller/store/p10_r16_regression_test.go",
+    "internal/controller/store/p10_r16q_quality_test.go",
+    "internal/controller/store/probe.go"
+  ],
+  "source_test_sha256": {
+    "internal/controller/probe/manager.go": "1f1cf6d3dae4f71124acc0e08c9fa0ab91993780a460c6d013f69c31157a7b74",
+    "internal/controller/probe/p10_r16q_quality_test.go": "204863e0ff746acb73fe555736282b3757c2e927f583c1ece103c97edd8da983",
+    "internal/controller/store/control.go": "a6ed81e878bc7a5dda5ba1f86e3cda6a9e634dd9ed25e2daf11f85c0ecc8bf63",
+    "internal/controller/store/forwards.go": "2bfb25b7516b4e38481936c6ffb785e479f59356339f0cd03de59f24dc005b6b",
+    "internal/controller/store/migrate.go": "ba0ba836a918f6dff8dd8699d3f2dabbc6d81d200d7845b6354b0a94d8d5863f",
+    "internal/controller/store/probe.go": "1aaf9006a051921386235e744c77320cb6ec7afbcfcbc5554cb5fa61cb957b58",
+    "internal/controller/store/p10_r16_migration_test.go": "c53990c2d321004d77e7fe8c5649df0103264f49529d341c04e1decf6c563807",
+    "internal/controller/store/p10_r16_regression_test.go": "689a82bc034a5461deef670c4a22aba0f7d1e4e483bbab122c6134680f0ff0d2",
+    "internal/controller/store/p10_r16q_quality_test.go": "f13233cc4db451f02934d2cc1b34b5dc4747ccfb02de00915ca510875d5b175a"
+  },
+  "evidence_sha256": {
+    ".hermes/evidence/p10/r16q-focused-race.log": "4b7a54d671fb8aa8db3c3ace54fc70693f7e46ead0ecdc67a9d8a5cc4dfc6d68",
+    ".hermes/evidence/p10/r16q-make-build.log": "291ed59627e796ac3f653f45720c04aeaffd6c872524912905e1e7eb3e04e687",
+    ".hermes/evidence/p10/r16q-make-check.log": "ec344867b0bfc1df5fb8aaeb37462596fc5cc95d6f5e81dd140d7d307960e489",
+    ".hermes/evidence/p10/r16q-migration-green.log": "f9dcb4484f6ee7c78554250d071c92e4cbc6b7b28fa5f0c6d6d82a2363e0288b",
+    ".hermes/evidence/p10/r16q-migration-red.log": "0cc81b5c77dc8604d4eb9367d8186444d57a6693aa9dc00a4b682f131285d7af",
+    ".hermes/evidence/p10/r16q-probe-green.log": "c61ec12a9fc7f4ddaf3cf08845c8459ff92d613c61e9f2343d363b5034d5fe3b",
+    ".hermes/evidence/p10/r16q-probe-red.log": "1c05fee1c66e77dbe2e6d9dd009d790d6be62eb0135267a7d45b9ca50bb365ae",
+    ".hermes/evidence/p10/r16q-store-green.log": "80fd5a281dcff877ec379093b723b518af1c1d09ffab1e8b22b6a8e1eb2b3585",
+    ".hermes/evidence/p10/r16q-store-red.log": "3511458876f868a944a5a3750e22fee799b49127d101e5869d93ad652c53374f"
+  },
+  "ownership_and_expiry": {
+    "receiving_plan": "P10",
+    "expires": "P10 integration or rejection, whichever occurs first",
+    "ordinary_p10_owned_paths": [
+      "internal/controller/probe/manager.go",
+      "internal/controller/probe/p10_r16q_quality_test.go"
+    ],
+    "temporary_p06_to_p10_extension_hunks": [
+      {
+        "path": "internal/controller/store/control.go",
+        "scope": "DeleteControlInboxBeforeLimit and controlInbox* retention helpers only"
+      },
+      {
+        "path": "internal/controller/store/migrate.go",
+        "scope": "R13 required-index definition validation only"
+      },
+      {
+        "path": "internal/controller/store/forwards.go",
+        "scope": "CASForwardActivation exact generation/revision hunk only"
+      },
+      {
+        "path": "internal/controller/store/probe.go",
+        "scope": "ForwardRuntimeStatus generation envelope, Set/Get runtime status, and PublishProbeJoin exact generation fence only"
+      },
+      {
+        "path": "internal/controller/store/p10_r16_migration_test.go",
+        "scope": "R16 exact index regression only"
+      },
+      {
+        "path": "internal/controller/store/p10_r16_regression_test.go",
+        "scope": "R16 generation and control-inbox regressions only"
+      },
+      {
+        "path": "internal/controller/store/p10_r16q_quality_test.go",
+        "scope": "R16Q high-water/retention/index regressions only"
+      }
+    ],
+    "source_owner_after_expiry": "P06 for temporary store/migration extension paths; P10 retains ordinary probe paths"
+  },
+  "scope_audit": {
+    "allowed_path_count": 18,
+    "candidate_path_count": 18,
+    "outside_allowed_scope": [],
+    "all_changed_paths_allowed": true,
+    "migrations_0006_changed": false,
+    "contracts_changed": [],
+    "declarations": [
+      "forwards.go differs from the checkpoint only by removing the unverified runtime-row deletion and restoring the pre-checkpoint atomic revision CAS; durable generation enforcement is localized to the authorized probe.go generation hunk",
+      "probe.go changes are limited to runtime generation persistence/enforcement and PublishProbeJoin generation validation",
+      "control.go and migrate.go changes are limited to the temporary P06-to-P10 symbols listed above"
+    ]
+  },
+  "tests": [
+    {
+      "phase": "probe-red-parent-archive",
+      "command": "go test ./internal/controller/probe -run 'TestR16QManagerCloseSerializesConcurrentStart|TestR16QArmRejectsSameActivationAfterForwardRevisionAdvance' -count=1 -v",
+      "exit_code": 1,
+      "evidence": ".hermes/evidence/p10/r16q-probe-red.log"
+    },
+    {
+      "phase": "probe-green",
+      "command": "go test ./internal/controller/probe -run 'TestR16QManagerCloseSerializesConcurrentStart|TestR16QArmRejectsSameActivationAfterForwardRevisionAdvance' -count=1 -v",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16q-probe-green.log"
+    },
+    {
+      "phase": "store-red-parent-archive",
+      "command": "go test ./internal/controller/store -run 'TestR16QControlInboxCleanup|TestR16QMigrationRejectsWrong' -count=1 -v",
+      "exit_code": 1,
+      "evidence": ".hermes/evidence/p10/r16q-store-red.log"
+    },
+    {
+      "phase": "store-green",
+      "command": "go test ./internal/controller/store -run 'TestR16QControlInboxCleanupUsesBoundedHighWater|TestR16QControlInboxCleanupRetainsLiveResendDependencies|TestR16InboxCleanupReclaimsExpiredReplayTombstones|TestR16ProbeJoinRejectsSameActivationGenerationAdvance|TestR16RuntimeStatusRejectsSameActivationAtAdvancedRevision|TestR16CleanupIndexesExposeOrderedKeys|TestR16QMigrationRejectsWrongSameNamedIndexDefinition|TestR16QMigrationRejectsWrongIndexPredicateAfterLedger|TestR16MigrationRejectsRecordedV6WithMissingObject|TestR16MigrationBackfillHardBudgetRollsBack' -count=1 -v",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16q-store-green.log"
+    },
+    {
+      "phase": "migration-red-parent-archive",
+      "command": "go test ./internal/controller/store -run 'TestR16QMigrationRejectsWrongSameNamedIndexDefinition|TestR16QMigrationRejectsWrongIndexPredicateAfterLedger' -count=1 -v",
+      "exit_code": 1,
+      "evidence": ".hermes/evidence/p10/r16q-migration-red.log"
+    },
+    {
+      "phase": "migration-green",
+      "command": "go test ./internal/controller/store -run 'TestR16QMigrationRejectsWrongSameNamedIndexDefinition|TestR16QMigrationRejectsWrongIndexPredicateAfterLedger|TestR16CleanupIndexesExposeOrderedKeys|TestR16MigrationRejectsRecordedV6WithMissingObject|TestR16MigrationBackfillHardBudgetRollsBack' -count=1 -v",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16q-migration-green.log"
+    },
+    {
+      "phase": "affected-packages",
+      "command": "go test ./internal/controller/probe ./internal/controller/store -count=1",
+      "exit_code": 0
+    },
+    {
+      "phase": "focused-race",
+      "command": "go test -race ./internal/controller/probe ./internal/controller/store -run 'TestR16Q|TestR16.*(Runtime|ProbeJoin|InboxCleanup)|TestManagerClose' -count=1 -v",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16q-focused-race.log"
+    },
+    {
+      "phase": "make-test-unprovisioned-capability-check",
+      "command": "make test",
+      "exit_code": 2,
+      "expected_environment_limit": "ANTINAT_DEDICATED_UID/GID unset; spike/sandbox fails closed"
+    },
+    {
+      "phase": "make-test-provisioned",
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make test",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16q-make-check.log"
+    },
+    {
+      "phase": "make-check-provisioned-final",
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make check",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16q-make-check.log"
+    },
+    {
+      "phase": "make-build",
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make build",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16q-make-build.log"
+    },
+    {
+      "phase": "gofmt",
+      "command": "gofmt -l <all changed Go paths>",
+      "exit_code": 0,
+      "stdout": ""
+    },
+    {
+      "phase": "static-security-scan-added-lines",
+      "command": "baseline-aware Python regex scan over git diff --cached added lines",
+      "exit_code": 0,
+      "findings": []
+    }
+  ],
+  "contracts_changed": [],
+  "contracts_consumed": [
+    {
+      "path": "docs/state-model.md",
+      "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
+    },
+    {
+      "path": "docs/protocol.md",
+      "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"
+    },
+    {
+      "path": "api/openapi.yaml",
+      "sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32"
+    },
+    {
+      "path": ".hermes/plans/v1-beta/00-master-orchestration.md",
+      "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4"
+    },
+    {
+      "path": ".hermes/plans/v1-beta/10-wan-probe-activation-cli-e2e.md",
+      "sha256": "91c7b8814d969ec9bfbf757a97c9a7aeb865fad7b49b76be826603d693b80ce0"
+    },
+    {
+      "path": "docs/adr/0003-wan-probe-truth.md",
+      "sha256": "31f4b1a01041a228e01c5fbc2cf0d0d9aeb447844b7dfa1da361f55df5b85fbd"
+    },
+    {
+      "path": "docs/installer-contract.md",
+      "sha256": "c7f83ea2fedcf9b1c393dae290ff1168bcd9f495d064a2ea74d386f3d38c630a"
+    },
+    {
+      "path": "docs/error-codes.md",
+      "sha256": "be4f4c22c0cd7a5a04bc9076e14efef7028a4c7634eb926aa675e7f87cbfa3b5"
+    },
+    {
+      "path": "test/contracts/manifest.json",
+      "sha256": "c300e1c883ca9aefd69f054827f9c8279fddeae140d330623d17b8477fe87121"
+    }
+  ],
+  "capability_result": "SUPPORTED_WITH_LIMITS",
+  "known_limits": [
+    "WAN/publication evidence remains local/sandbox-only with in-process or fake providers; no independent public-WAN/provider-egress vantage or arbitrary-NAT reachability claim is made.",
+    "No native Windows, Linux arm64, Darwin, router/UPnP/CGNAT, UDP traversal, production deployment, or soak runtime evidence was produced by this continuation.",
+    "The cumulative sandbox suite requires the documented provisioned identity ANTINAT_DEDICATED_UID=12001 and ANTINAT_DEDICATED_GID=12001. Unset variables fail closed; the provisioned reruns passed.",
+    "The focused race suite covers the repaired probe/store invariants; a new full-repository race run was not claimed by this continuation.",
+    "Legacy raw runtime rows are readable for display but GenerationBound=false and fail closed for Arm/PublishProbeJoin until a fresh exact-generation activation status arrives."
+  ],
+  "residual_risk": [
+    "Fresh reviewers must validate the generation envelope compatibility and every runtime/publication call path on the unchanged exact candidate.",
+    "Fresh reviewers must validate control-inbox retention classification against all signed result/receipt forms and concurrent SQLite writer schedules.",
+    "Fresh reviewers must validate exact-index normalization against supported SQLite versions and deployed v5/v6 databases."
+  ],
+  "required_reviews": [
+    "fresh exact-head specification/ownership review",
+    "fresh exact-head full quality/security review",
+    "fresh exact-head network/protocol review",
+    "fresh exact-head lifecycle/integration-boundary review",
+    "integration only after every required review passes on unchanged 59c0c7d364c0d4caf7f5cd5f34f50c4d4d26f86b/tree 040630aed29d19b0ece7275a1c48fba57c68b722"
+  ],
+  "review_status": "REVIEW_REQUIRED_NOT_APPROVED",
+  "integration_status": "CANDIDATE_ONLY",
+  "cleanup_done": true,
+  "cleanup": [
+    "Removed task-created bin/antinat-controller and bin/antinat-agent build outputs and removed the now-empty bin directory.",
+    "Removed all task-created /tmp/antinat-r16q-* RED archive directories after preserving command output in declared evidence logs.",
+    "Post-implementation commit working tree was clean; the worktree index lock was absent.",
+    "No merge, rebase, reset, checkout-over, cherry-pick, clean, push, tag, release, integration, or contract edit was performed."
+  ],
+  "quiescence": {
+    "git_index_lock": "ABSENT",
+    "competing_writer_observed": false,
+    "method": "ps scan for git/go/make writers plus exact worktree status/branch/HEAD checks",
+    "recheck_required_after_metadata_commit": true
+  },
+  "deviations": [
+    "The unverified checkpoint invalidated forward_runtime_status on every CASForwardActivation. The completed repair instead durably stores/enforces the mirror generation in the existing snapshot_json column and restores the original forward CAS-only hunk. This is an implementation choice within the authorized exact generation fence, preserves the existing R13 stale-mirror compatibility regression, and changes no frozen contract or schema.",
+    "No migrations/0006 SQL correction was necessary: exact validation proved the existing canonical SQL definitions and rejects conflicting same-named objects."
+  ],
+  "remote_push": false,
+  "release_performed": false,
+  "integration_performed": false,
+  "self_approval": false,
+  "metadata_packaging": {
+    "handoff_paths": [
+      ".hermes/handoffs/P10-r16q-repair.json",
+      ".hermes/handoffs/P10.json"
+    ],
+    "implementation_head_sha": "59c0c7d364c0d4caf7f5cd5f34f50c4d4d26f86b",
+    "implementation_tree_sha": "040630aed29d19b0ece7275a1c48fba57c68b722",
+    "candidate_code_changed_by_metadata_packaging": false,
+    "self_hash_policy": "The handoff file hash and metadata commit identity are reported externally after commit because embedding either would be self-referential."
+  }
+}
