@@ -17,10 +17,14 @@
 ## Owned files
 
 - Create/own: `internal/controller/api/**`, `internal/controller/web/{router.go,middleware.go,sse.go}`
-- Create/own: `internal/metrics/**`, `internal/forward/limiter.go`, `internal/controller/store/traffic.go`, `migrations/0006_api_metrics.sql`
+- Create/own: `internal/metrics/**`, `internal/forward/limiter.go`, `internal/controller/store/traffic.go`, `migrations/0009_api_metrics.sql`
 - Modify transferred minimal P10 API/router/app files
 
 ## Ownership transfer / integration notes
+
+Migration numbering follows P10 `0006_r13_hardening.sql`, P12
+`0007_traversal.sql`, and P14 `0008_lifecycle.sql`; P15 owns
+`0009_api_metrics.sql` and must not reuse an earlier number.
 
 P16 adds hook-specific handler files serially. P17 consumes APIs and owns UI. Do not modify frozen OpenAPI without approved contract revision.
 

@@ -18,13 +18,13 @@
 
 - Create/own: `internal/traversal/{strategy.go,detection.go,profile.go,mapping_journal.go,manager.go}`
 - Create/own: `internal/traversal/{pcp,natpmp,upnp,direct,manual}/**`
-- Create/own: `migrations/0006_traversal.sql`, `test/integration/traversal_tcp_test.go`, `test/netns/**`
+- Create/own: `migrations/0007_traversal.sql`, `test/integration/traversal_tcp_test.go`, `test/netns/**`
 
 ## Ownership transfer / integration notes
 
-- P10 owns `migrations/0004_probe.sql` and `migrations/0005_probe_hardening.sql`.
-  Traversal schema work starts at `0006_traversal.sql`; do not rename, edit, or
-  reuse P10 migration numbers.
+- P10 owns `migrations/0004_probe.sql`, `migrations/0005_probe_hardening.sql`, and
+  `migrations/0006_r13_hardening.sql`. Traversal schema work starts at
+  `0007_traversal.sql`; do not rename, edit, or reuse prior migration numbers.
 
 P13 adds UDP protocol use through interfaces. P14 consumes mapping cleanup/recovery. Applied migrations are immutable.
 

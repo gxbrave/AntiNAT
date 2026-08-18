@@ -16,11 +16,14 @@
 
 ## Owned files
 
-- Create/own: `internal/hook/**`, `cmd/antinat-hook-runner/**`, `internal/controller/api/hooks.go`, `migrations/0007_hooks.sql`
+- Create/own: `internal/hook/**`, `cmd/antinat-hook-runner/**`, `internal/controller/api/hooks.go`, `migrations/0010_hooks.sql`
 - Modify P15 router only to register the isolated hook handler after serial ownership transfer
 - Create hook fixtures/tests
 
 ## Ownership transfer / integration notes
+
+P16 migration numbering follows P15 `0009_api_metrics.sql`; P16 owns
+`0010_hooks.sql` and must not reuse an earlier number.
 
 If P03 sandbox gate is not PASS on a platform, expose webhook-only and mark JS unsupported. P17 renders capability; no local shell hook.
 
