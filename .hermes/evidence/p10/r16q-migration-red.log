@@ -1,0 +1,15 @@
+P10-R16Q migration RED evidence
+Base archive commit: 43558ae46c986300c9ed70806bd3c757dd09f052
+Command: go test ./internal/controller/store -run 'TestR16QMigrationRejectsWrongSameNamedIndexDefinition|TestR16QMigrationRejectsWrongIndexPredicateAfterLedger' -count=1 -v
+Exit: 1
+
+=== RUN   TestR16QMigrationRejectsWrongSameNamedIndexDefinition
+    p10_r16q_quality_test.go:137: migration accepted a wrong same-named index definition
+--- FAIL: TestR16QMigrationRejectsWrongSameNamedIndexDefinition (0.03s)
+=== RUN   TestR16QMigrationRejectsWrongIndexPredicateAfterLedger
+    p10_r16q_quality_test.go:162: migrate accepted a recorded index with a missing partial predicate
+--- FAIL: TestR16QMigrationRejectsWrongIndexPredicateAfterLedger (0.02s)
+FAIL
+FAIL github.com/gxbrave/AntiNAT/internal/controller/store 0.055s
+FAIL
+EXIT=1

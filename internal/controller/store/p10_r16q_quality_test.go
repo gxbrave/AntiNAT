@@ -25,23 +25,27 @@ func recordProcessedInboxForQuality(t *testing.T, s *Store, item ControlInboxIte
 func TestR16QControlInboxCleanupUsesBoundedHighWater(t *testing.T) {
 	s := openTestStore(t)
 	withStoreNow(t, 10_000)
-	for i, messageType := range []string{"operation_complete", "message_receipt", "probe_ingress_receipt", "probe_result"} {
+	for i, messageType := range []string{"operation_complete", "message_receipt", "probe_result", "desired_result"} {
 		recordProcessedInboxForQuality(t, s, ControlInboxItem{
 			MessageID:       fmt.Sprintf("r16q-old-%d", i),
 			NodeID:          "r16q-node",
 			MessageType:     messageType,
 			OperationID:     fmt.Sprintf("r16q-op-%d", i),
-			SemanticPayload: fmt.Sprintf("payload-%d", i),
+			SemanticPayload: fmt.Sprintf(`{"probe_id":"r16q-op-%d"}`, i),
 		})
 	}
 	if _, err := s.db.Exec(`UPDATE control_inbox SET created_at = 1, updated_at = 1`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`INSERT INTO control_inbox
-		(message_id, node_id, message_type, semantic_payload, state, operation_id, created_at, updated_at)
-		VALUES ('r16q-new', 'r16q-node', 'message_receipt', 'new', 'PROCESSED', 'new-op', 10_000, 10_000)`); err != nil {
+	if _, err := s.db.Exec(`CREATE TRIGGER r16q_inbox_high_water AFTER DELETE ON control_inbox
+		BEGIN
+			INSERT OR IGNORE INTO control_inbox
+			(message_id, node_id, message_type, semantic_payload, state, operation_id, created_at, updated_at)
+			VALUES ('r16q-during', 'r16q-node', 'message_receipt', 'during', 'PROCESSED', 'during-op', 10_000, 10_000);
+		END`); err != nil {
 		t.Fatal(err)
 	}
+	defer s.db.Exec(`DROP TRIGGER r16q_inbox_high_water`)
 
 	removed, err := s.DeleteControlInboxBeforeLimit(10_000, 2)
 	if err != nil {
@@ -57,11 +61,17 @@ func TestR16QControlInboxCleanupUsesBoundedHighWater(t *testing.T) {
 	if remainingOld != 2 {
 		t.Fatalf("old inbox high-water rows remaining = %d, want 2", remainingOld)
 	}
+	if got, err := countRows(t, s, `SELECT COUNT(*) FROM control_inbox WHERE message_id = 'r16q-during'`); err != nil || got != 1 {
+		t.Fatalf("row inserted during cleanup count = %d (err %v), want 1", got, err)
+	}
+	if _, err := s.db.Exec(`DROP TRIGGER r16q_inbox_high_water`); err != nil {
+		t.Fatal(err)
+	}
 	if removed, err = s.DeleteControlInboxBeforeLimit(10_000, 2); err != nil || removed != 2 {
 		t.Fatalf("second inbox cleanup removed %d rows (err %v), want 2", removed, err)
 	}
-	if got, err := countRows(t, s, `SELECT COUNT(*) FROM control_inbox WHERE message_id = 'r16q-new'`); err != nil || got != 1 {
-		t.Fatalf("new high-water row count = %d (err %v), want 1", got, err)
+	if got, err := countRows(t, s, `SELECT COUNT(*) FROM control_inbox WHERE message_id = 'r16q-during'`); err != nil || got != 1 {
+		t.Fatalf("row inserted during cleanup count after second pass = %d (err %v), want 1", got, err)
 	}
 }
 
@@ -89,7 +99,7 @@ func TestR16QControlInboxCleanupRetainsLiveResendDependencies(t *testing.T) {
 
 	recordProcessedInboxForQuality(t, s, ControlInboxItem{MessageID: "r16q-receipt", NodeID: "r16q-node", MessageType: "message_receipt", OperationID: deterministicMessageID("r16q-command", "desired"), SemanticPayload: `{"operation_id":"r16q-command"}`})
 	recordProcessedInboxForQuality(t, s, ControlInboxItem{MessageID: deterministicMessageID("r16q-delete", "operation_complete"), NodeID: "r16q-node", MessageType: "operation_complete", OperationID: "r16q-delete", SemanticPayload: `{"deletion_operation_id":"r16q-delete"}`})
-	recordProcessedInboxForQuality(t, s, ControlInboxItem{MessageID: "r16q-probe-receipt", NodeID: "r16q-node", MessageType: "probe_ingress_receipt", OperationID: "r16q-probe-binding", SemanticPayload: "receipt"})
+	recordProcessedInboxForQuality(t, s, ControlInboxItem{MessageID: "r16q-probe-result", NodeID: "r16q-node", MessageType: "probe_result", OperationID: "r16q-probe", SemanticPayload: `{"probe_id":"r16q-probe","outcome":"REJECTED"}`})
 	if _, err := s.db.Exec(`UPDATE control_inbox SET created_at = 1, updated_at = 1`); err != nil {
 		t.Fatal(err)
 	}
@@ -99,6 +109,9 @@ func TestR16QControlInboxCleanupRetainsLiveResendDependencies(t *testing.T) {
 	}
 
 	if _, err := s.db.Exec(`DELETE FROM control_outbox WHERE operation_id = 'r16q-command'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM control_outbox WHERE operation_id = 'r16q-delete'`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.db.Exec(`UPDATE forward_deletion_operations SET status = 'COMPLETED' WHERE id = 'r16q-delete'`); err != nil {

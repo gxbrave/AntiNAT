@@ -93,6 +93,11 @@ func TestR16MigrationBackfillHardBudgetRollsBack(t *testing.T) {
 
 func TestR16CleanupIndexesExposeOrderedKeys(t *testing.T) {
 	s := openTestStore(t)
+	for _, definition := range requiredR13Indexes {
+		if err := validateR13IndexDefinition(s.db, definition); err != nil {
+			t.Fatalf("index %s definition validation: %v", definition.name, err)
+		}
+	}
 	for _, name := range []string{"idx_control_inbox_replay_gc", "idx_control_inbox_state_page", "idx_probe_terminal_expiry", "idx_probe_live_expiry", "idx_probe_terminal_created", "idx_probe_terminal_updated"} {
 		var sqlText string
 		err := s.db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?`, name).Scan(&sqlText)

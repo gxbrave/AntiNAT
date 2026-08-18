@@ -1,0 +1,11 @@
+P10-R16Q GREEN evidence
+Candidate worktree base: 09b394db1c2169c6ffc9538ca03847d3d274acfc; repair changes were present in the worktree.
+Command: go test ./internal/controller/probe -run 'TestR16QManagerCloseSerializesConcurrentStart|TestR16QArmRejectsSameActivationAfterForwardRevisionAdvance' -count=1 -v
+Exit: 0
+
+=== RUN   TestR16QManagerCloseSerializesConcurrentStart
+--- PASS: TestR16QManagerCloseSerializesConcurrentStart (0.13s)
+=== RUN   TestR16QArmRejectsSameActivationAfterForwardRevisionAdvance
+--- PASS: TestR16QArmRejectsSameActivationAfterForwardRevisionAdvance (0.03s)
+PASS
+ok  github.com/gxbrave/AntiNAT/internal/controller/probe 0.170s

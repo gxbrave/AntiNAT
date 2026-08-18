@@ -1,0 +1,13 @@
+P10-R16Q full check evidence
+Environment: ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 (documented local capability variable; provisioned antinat-sandbox identity verified with getent/id).
+Commands and exits:
+- ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make test (exit 0)
+- ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make check (exit 0)
+
+make check output tail:
+go test ./...
+[all repository packages: ok; spike/sandbox ok]
+go vet ./...
+(exit 0)
+
+A no-variable make test was also run before the documented capability variables: exit 2, failing only spike/sandbox TestBoundedActionRealCPULimitTermination because the required dedicated identity variables were unset. This is recorded as an environment capability limitation, not presented as a code failure.

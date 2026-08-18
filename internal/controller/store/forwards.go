@@ -61,12 +61,7 @@ func (s *Store) GetForward(id string) (Forward, error) {
 // revision, but only when the expected revision is current. It returns
 // ErrCASConflict on a stale write, leaving the row untouched.
 func (s *Store) CASForwardActivation(id string, expectedRevision uint64, newActivationID string) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("store: begin CAS forward activation: %w", err)
-	}
-	defer tx.Rollback()
-	res, err := tx.Exec(
+	res, err := s.db.Exec(
 		`UPDATE forwards
 		    SET current_activation_id = ?, revision = revision + 1, updated_at = ?
 		  WHERE id = ? AND revision = ?`,
@@ -81,16 +76,6 @@ func (s *Store) CASForwardActivation(id string, expectedRevision uint64, newActi
 	}
 	if n != 1 {
 		return ErrCASConflict
-	}
-	// The frozen runtime mirror has no generation column. Invalidate it in the
-	// same transaction as every revision advance, including an advance that
-	// keeps the same activation identifier, so Arm cannot reuse a prior-
-	// generation snapshot as current evidence.
-	if _, err := tx.Exec(`DELETE FROM forward_runtime_status WHERE forward_id = ?`, id); err != nil {
-		return fmt.Errorf("store: invalidate forward runtime status: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("store: commit CAS forward activation: %w", err)
 	}
 	return nil
 }

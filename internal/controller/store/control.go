@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -456,6 +457,11 @@ func (s *Store) ControlInboxState(messageID string) (string, error) {
 	return state, nil
 }
 
+const (
+	maxControlInboxCleanupBatch = 1024
+	maxControlInboxCleanupScan  = 4096
+)
+
 // DeleteControlInboxBeforeLimit reclaims processed control-inbox tombstones
 // older than the replay cutoff in bounded, high-water passes. A high-water ID
 // is captured before selecting candidates, so rows arriving during cleanup are
@@ -463,9 +469,14 @@ func (s *Store) ControlInboxState(messageID string) (string, error) {
 // outbox/deletion/probe replay fence are retained even when they are old.
 func (s *Store) DeleteControlInboxBeforeLimit(cutoff int64, limit int) (int, error) {
 	limit = probeCleanupLimit(limit)
-	scanLimit := limit * 4
-	if scanLimit < limit || scanLimit > 4096 {
-		scanLimit = 4096
+	if limit > maxControlInboxCleanupBatch {
+		limit = maxControlInboxCleanupBatch
+	}
+	scanLimit := limit
+	if scanLimit <= maxControlInboxCleanupScan/4 {
+		scanLimit *= 4
+	} else {
+		scanLimit = maxControlInboxCleanupScan
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -486,11 +497,7 @@ func (s *Store) DeleteControlInboxBeforeLimit(cutoff int64, limit int) (int, err
 		COALESCE(operation_id, ''), semantic_payload, state
 		FROM control_inbox
 		WHERE id <= ? AND state = 'PROCESSED' AND updated_at < ?
-		  AND message_type IN (
-			'operation_complete', 'desired_result', 'forward_delete_ack',
-			'node_decommission_ack', 'probe_armed', 'probe_ingress_receipt',
-			'probe_result', 'message_receipt')
-		ORDER BY updated_at, id LIMIT ?`, highWater, cutoff, scanLimit)
+		ORDER BY id LIMIT ?`, highWater, cutoff, scanLimit)
 	if err != nil {
 		return 0, fmt.Errorf("store: select control inbox cleanup candidates: %w", err)
 	}
@@ -512,7 +519,7 @@ func (s *Store) DeleteControlInboxBeforeLimit(cutoff int64, limit int) (int, err
 	}
 	removed := 0
 	for _, item := range candidates {
-		protected, err := controlInboxRetentionProtected(tx, item, cutoff)
+		protected, err := controlInboxRetentionProtected(tx, item)
 		if err != nil {
 			return 0, err
 		}
@@ -543,123 +550,171 @@ func (s *Store) DeleteControlInboxBeforeLimit(cutoff int64, limit int) (int, err
 // controlInboxRetentionProtected keeps a processed tombstone while a later
 // reconnect/result path still needs it. All checks run on the cleanup
 // transaction so the dependency decision and delete share one SQLite snapshot.
-func controlInboxRetentionProtected(tx *sql.Tx, item ControlInboxItem, cutoff int64) (bool, error) {
-	var outboxLive int
-	if err := tx.QueryRow(`SELECT EXISTS(
-		SELECT 1 FROM control_outbox o
-		 WHERE o.node_id = ? AND (
-			(o.operation_id <> '' AND o.operation_id = ?)
-			OR (o.command_message_id <> '' AND o.command_message_id = ?)
-			OR (o.operation_complete_message_id <> '' AND o.operation_complete_message_id = ?)
-			OR (o.controller_operation_complete_message_id <> '' AND o.controller_operation_complete_message_id = ?)
-			OR o.operation_complete_message_id = ?
-			OR o.controller_operation_complete_message_id = ?
-		 )
-	)`, item.NodeID, item.OperationID, item.OperationID, item.OperationID,
-		item.OperationID, item.MessageID, item.MessageID).Scan(&outboxLive); err != nil {
-		return false, fmt.Errorf("store: check control inbox outbox fence: %w", err)
+func controlInboxRetentionProtected(tx *sql.Tx, item ControlInboxItem) (bool, error) {
+	operationID, deletionID, probeID := controlInboxPayloadIDs(item.SemanticPayload)
+	if item.OperationID != "" {
+		if operationID == "" {
+			operationID = item.OperationID
+		}
+		if probeID == "" && item.MessageType == "probe_result" {
+			probeID = item.OperationID
+		}
 	}
-	if outboxLive != 0 {
+	outboxFence, err := controlInboxOutboxFence(tx, item.NodeID, item.OperationID, operationID, item.MessageID)
+	if err != nil {
+		return false, err
+	}
+	if outboxFence {
 		return true, nil
 	}
 
 	switch item.MessageType {
 	case "operation_complete":
-		protected, err := controlInboxPendingDeletionFence(tx, item)
-		if err != nil {
-			return false, err
-		}
-		if protected {
-			return true, nil
-		}
-	case "probe_ingress_receipt":
-		protected, err := controlInboxLiveProbeFence(tx, item, cutoff)
-		if err != nil {
-			return false, err
-		}
-		if protected {
-			return true, nil
-		}
+		return controlInboxPendingDeletionFence(tx, item, deletionID)
 	case "probe_result":
-		if item.OperationID == "" {
+		if probeID == "" {
+			// A processed result without a durable operation discriminator cannot
+			// be proven safe to discard; retain it fail-closed.
 			return true, nil
 		}
-		var pending int
-		if err := tx.QueryRow(`SELECT EXISTS(
-			SELECT 1 FROM probe_terminal_deliveries d
-			 WHERE d.probe_id = ?
-			   AND d.disposition NOT IN ('DELIVERED', 'STALE', 'MISSING', 'EXPIRED')
-		)`, item.OperationID).Scan(&pending); err != nil {
-			return false, fmt.Errorf("store: check probe inbox delivery fence: %w", err)
+		return controlInboxLiveProbeFenceByID(tx, probeID)
+	case "probe_ingress_receipt":
+		return controlInboxLiveProbeReceiptFence(tx, item)
+	default:
+		return false, nil
+	}
+}
+
+// controlInboxOutboxFence protects command/result/receipt tombstones while
+// their semantic outbox row is still resendable. Correlation IDs are compared
+// against both the transport operation discriminator and the deterministic
+// message IDs; no payload-derived value is used to authorize a new operation.
+func controlInboxOutboxFence(tx *sql.Tx, nodeID string, operationID ...string) (bool, error) {
+	ids := make([]string, 3)
+	for i := range ids {
+		if i < len(operationID) {
+			ids[i] = operationID[i]
 		}
-		if pending != 0 {
+	}
+	if ids[0] == "" && ids[1] == "" && ids[2] == "" {
+		return false, nil
+	}
+	var live int
+	err := tx.QueryRow(`SELECT EXISTS(
+		SELECT 1 FROM control_outbox o
+		 WHERE o.node_id = ? AND (
+			o.operation_id IN (?, ?, ?)
+			OR o.command_message_id IN (?, ?, ?)
+			OR o.operation_complete_message_id IN (?, ?, ?)
+			OR o.controller_operation_complete_message_id IN (?, ?, ?)
+		 )
+	)`, nodeID,
+		ids[0], ids[1], ids[2], ids[0], ids[1], ids[2], ids[0], ids[1], ids[2], ids[0], ids[1], ids[2]).Scan(&live)
+	if err != nil {
+		return false, fmt.Errorf("store: check control inbox outbox fence: %w", err)
+	}
+	return live != 0, nil
+}
+
+func controlInboxPayloadIDs(payload string) (operationID, deletionID, probeID string) {
+	var v struct {
+		OperationID         string `json:"operation_id"`
+		DeletionOperationID string `json:"deletion_operation_id"`
+		ProbeID             string `json:"probe_id"`
+	}
+	if len(payload) == 0 || json.Unmarshal([]byte(payload), &v) != nil {
+		return "", "", ""
+	}
+	return v.OperationID, v.DeletionOperationID, v.ProbeID
+}
+
+func controlInboxPendingDeletionFence(tx *sql.Tx, item ControlInboxItem, deletionID string) (bool, error) {
+	ids := []string{item.OperationID, deletionID, item.MessageID}
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		var status string
+		err := tx.QueryRow(`SELECT status FROM forward_deletion_operations WHERE id = ?`, id).Scan(&status)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return false, fmt.Errorf("store: check pending deletion fence: %w", err)
+		}
+		if status != "COMPLETED" {
 			return true, nil
 		}
 	}
 	return false, nil
 }
 
-func controlInboxPendingDeletionFence(tx *sql.Tx, item ControlInboxItem) (bool, error) {
-	// The originating outbox row is normally enough, but a completed result can
-	// arrive after that row was GC'd. Compare the durable message IDs against a
-	// bounded page of pending deletion operations before allowing cleanup.
-	rows, err := tx.Query(`SELECT id FROM forward_deletion_operations
-		WHERE status = 'PENDING' ORDER BY id LIMIT 1025`)
+func controlInboxLiveProbeFenceByID(tx *sql.Tx, probeID string) (bool, error) {
+	var live int
+	if err := tx.QueryRow(`SELECT EXISTS(
+		SELECT 1 FROM probe_operations o
+		 LEFT JOIN probe_terminal_deliveries d ON d.probe_id = o.id
+		 WHERE o.id = ? AND (
+			o.status IN ('PENDING', 'ARMED', 'IN_FLIGHT')
+			OR (d.probe_id IS NOT NULL AND d.disposition NOT IN ('DELIVERED', 'STALE', 'MISSING', 'EXPIRED'))
+		 )
+	)`, probeID).Scan(&live); err != nil {
+		return false, fmt.Errorf("store: check probe inbox replay fence: %w", err)
+	}
+	return live != 0, nil
+}
+
+func controlInboxLiveProbeReceiptFence(tx *sql.Tx, item ControlInboxItem) (bool, error) {
+	payload := []byte(item.SemanticPayload)
+	if len(payload) < 4+32 || string(payload[:4]) != "RCT1" {
+		return true, nil
+	}
+	var want [32]byte
+	copy(want[:], payload[4:4+32])
+	// Probe operations are capped by the manager's active budget. Include one
+	// extra row so a full bounded page fails closed instead of silently dropping
+	// a receipt fence that may be just beyond the page.
+	const pageLimit = maxControlInboxCleanupBatch + 1
+	rows, err := tx.Query(`SELECT o.arm_hex
+		FROM probe_operations o
+		LEFT JOIN probe_terminal_deliveries d ON d.probe_id = o.id
+		WHERE o.node_id = ? AND (
+			o.status IN ('PENDING', 'ARMED', 'IN_FLIGHT')
+			OR (d.probe_id IS NOT NULL AND d.disposition NOT IN ('DELIVERED', 'STALE', 'MISSING', 'EXPIRED'))
+		)
+		ORDER BY o.updated_at, o.id LIMIT ?`, item.NodeID, pageLimit)
 	if err != nil {
-		return false, fmt.Errorf("store: list pending deletion fences: %w", err)
+		return false, fmt.Errorf("store: list live probe receipt fences: %w", err)
 	}
 	defer rows.Close()
 	seen := 0
 	for rows.Next() {
-		var deletionID string
-		if err := rows.Scan(&deletionID); err != nil {
-			return false, fmt.Errorf("store: scan pending deletion fence: %w", err)
+		var armHex string
+		if err := rows.Scan(&armHex); err != nil {
+			return false, fmt.Errorf("store: scan live probe receipt fence: %w", err)
 		}
 		seen++
-		if controlInboxMatchesDeletion(item, deletionID) {
+		armBytes, err := hex.DecodeString(armHex)
+		if err != nil {
+			continue
+		}
+		digest, err := ParseProbeArmLite(armBytes)
+		if err == nil && digest == want {
 			return true, nil
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return false, fmt.Errorf("store: read pending deletion fences: %w", err)
+		return false, fmt.Errorf("store: read live probe receipt fences: %w", err)
 	}
-	// If the bounded fence page was full, fail closed rather than deleting a
-	// result whose matching operation may be outside the scan page.
-	return seen > 1024, nil
-}
-
-func controlInboxMatchesDeletion(item ControlInboxItem, deletionID string) bool {
-	if item.OperationID == deletionID || item.MessageID == deletionID {
-		return true
-	}
-	for _, messageType := range []string{"desired", "forward_delete", "C2A_FORWARD_DELETE"} {
-		commandID := deterministicMessageID(deletionID, messageType)
-		if item.OperationID == commandID || item.MessageID == commandID ||
-			item.MessageID == deterministicMessageID(commandID, "operation_complete") {
-			return true
-		}
-	}
-	return item.MessageID == deterministicMessageID(deletionID, "operation_complete")
-}
-
-func controlInboxLiveProbeFence(tx *sql.Tx, item ControlInboxItem, cutoff int64) (bool, error) {
-	payload := []byte(item.SemanticPayload)
-	if len(payload) < 4+32 || string(payload[:4]) != "RCT1" {
-		// A processed row should normally be a valid RCT1 frame. Retain an
-		// unparseable row fail-closed rather than discarding an unknown replay
-		// fence.
+	if seen == pageLimit {
 		return true, nil
 	}
-	digest := hex.EncodeToString(payload[4 : 4+32])
-	var live int
-	if err := tx.QueryRow(`SELECT EXISTS(
-		SELECT 1 FROM probe_operations
-		 WHERE node_id = ? AND lower(substr(arm_hex, 9, 64)) = lower(?)
-		   AND (status IN ('PENDING', 'ARMED', 'IN_FLIGHT') OR expires_at > ?)
-	)`, item.NodeID, digest, cutoff).Scan(&live); err != nil {
-		return false, fmt.Errorf("store: check probe inbox replay fence: %w", err)
-	}
-	return live != 0, nil
+	return false, nil
 }
 
 // ClaimControlOutboxOperation claims ONE pending row for a session (used when

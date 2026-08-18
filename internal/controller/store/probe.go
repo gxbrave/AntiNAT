@@ -698,12 +698,20 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 	if err != nil {
 		return fmt.Errorf("%w: illegal activation snapshot: %v", ErrProbeJoinIncomplete, err)
 	}
-	var previousJSON string
-	if err := tx.QueryRow(`SELECT snapshot_json FROM forward_runtime_status WHERE forward_id = ?`, forwardID).Scan(&previousJSON); errors.Is(err, sql.ErrNoRows) {
+	var previousActivationID, previousJSON string
+	if err := tx.QueryRow(`SELECT activation_id, snapshot_json FROM forward_runtime_status WHERE forward_id = ?`, forwardID).
+		Scan(&previousActivationID, &previousJSON); errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%w: runtime mirror is missing", ErrProbeJoinIncomplete)
 	} else if err != nil {
 		return fmt.Errorf("store: read persisted activation snapshot: %w", err)
 	} else {
+		previousJSON, previousGeneration, generationBound, decodeErr := decodePersistedForwardRuntimeStatus(previousJSON)
+		if decodeErr != nil {
+			return fmt.Errorf("%w: persisted activation snapshot is invalid", ErrProbeJoinIncomplete)
+		}
+		if previousActivationID != activationID || !generationBound || previousGeneration != expectedForwardRevision {
+			return ErrCASConflict
+		}
 		previous, decodeErr := decodeActivationSnapshot(previousJSON)
 		if decodeErr != nil {
 			return fmt.Errorf("%w: persisted activation snapshot is invalid", ErrProbeJoinIncomplete)
@@ -726,6 +734,10 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 		return fmt.Errorf("%w: merged activation snapshot is invalid: %v", ErrProbeJoinIncomplete, err)
 	}
 	mergedJSON := string(mergedJSONBytes)
+	persistedMergedJSON, err := encodePersistedForwardRuntimeStatus(mergedJSON, expectedForwardRevision)
+	if err != nil {
+		return fmt.Errorf("%w: persist merged activation snapshot: %v", ErrProbeJoinIncomplete, err)
+	}
 	res, err := tx.Exec(`UPDATE probe_operations SET status = ?, updated_at = ?
 		WHERE id = ? AND status = ? AND expires_at > ? AND expected_forward_revision = ?
 		  AND EXISTS (SELECT 1 FROM forwards f WHERE f.id = ? AND f.current_activation_id = ? AND f.revision = ?
@@ -750,7 +762,7 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 		 snapshot_json = excluded.snapshot_json, updated_at = excluded.updated_at
 		 WHERE excluded.activation_id = (SELECT current_activation_id FROM forwards WHERE id = excluded.forward_id)
 		   AND ? = (SELECT revision FROM forwards WHERE id = excluded.forward_id)`,
-		forwardID, activationID, mergedJSON, nowUnix, forwardID, activationID, expectedForwardRevision, expectedForwardRevision)
+		forwardID, activationID, persistedMergedJSON, nowUnix, forwardID, activationID, expectedForwardRevision, expectedForwardRevision)
 	if err != nil {
 		return fmt.Errorf("store: publish probe snapshot: %w", err)
 	}
@@ -1484,6 +1496,61 @@ type ForwardRuntimeStatus struct {
 	ActivationID string
 	SnapshotJSON string
 	UpdatedAt    int64
+	// Generation is the exact forwards.revision observed by the Agent when
+	// this mirror was written. GenerationBound is false for legacy rows that
+	// predate the durable generation envelope; callers must fail closed rather
+	// than treating such a row as current evidence.
+	Generation      uint64
+	GenerationBound bool
+}
+
+// persistedForwardRuntimeStatus is an internal envelope for the existing
+// snapshot_json column. Keeping the generation beside the snapshot avoids a
+// schema rewrite while making same-activation revision advances durable across
+// restart. GetForwardRuntimeStatus unwraps it so API callers continue to see
+// the frozen ActivationStates JSON rather than storage metadata.
+type persistedForwardRuntimeStatus struct {
+	Generation uint64          `json:"generation"`
+	Snapshot   json.RawMessage `json:"snapshot"`
+}
+
+func encodePersistedForwardRuntimeStatus(snapshotJSON string, generation uint64) (string, error) {
+	if _, err := decodeActivationSnapshot(snapshotJSON); err != nil {
+		return "", err
+	}
+	envelope, err := json.Marshal(persistedForwardRuntimeStatus{
+		Generation: generation,
+		Snapshot:   json.RawMessage([]byte(snapshotJSON)),
+	})
+	if err != nil {
+		return "", fmt.Errorf("marshal runtime status envelope: %w", err)
+	}
+	return string(envelope), nil
+}
+
+func decodePersistedForwardRuntimeStatus(raw string) (snapshotJSON string, generation uint64, bound bool, err error) {
+	var fields map[string]json.RawMessage
+	if unmarshalErr := json.Unmarshal([]byte(raw), &fields); unmarshalErr == nil {
+		if snapshotRaw, ok := fields["snapshot"]; ok {
+			generationRaw, generationOK := fields["generation"]
+			if !generationOK {
+				return "", 0, false, errors.New("runtime status envelope has no generation")
+			}
+			if err := json.Unmarshal(generationRaw, &generation); err != nil {
+				return "", 0, false, fmt.Errorf("runtime status envelope generation: %w", err)
+			}
+			if _, err := decodeActivationSnapshot(string(snapshotRaw)); err != nil {
+				return "", 0, false, fmt.Errorf("runtime status envelope snapshot: %w", err)
+			}
+			return string(snapshotRaw), generation, true, nil
+		}
+	}
+	if _, err := decodeActivationSnapshot(raw); err != nil {
+		return "", 0, false, err
+	}
+	// Rows written before the generation envelope are readable for display and
+	// stale-state comparisons, but are never admissible for Arm or publication.
+	return raw, 0, false, nil
 }
 
 // SetForwardRuntimeStatus upserts the orthogonal snapshot only when the event
@@ -1491,9 +1558,10 @@ type ForwardRuntimeStatus struct {
 // Before a current activation exists, the one recorded forward_activations row
 // may initialize/update its mirror at that same revision. Both predicates are
 // part of the write statement, so an existing same-activation row cannot
-// create a TOCTOU bypass after deletion advances the generation.
+// create a TOCTOU bypass after any forward revision advances the generation.
 func (s *Store) SetForwardRuntimeStatus(forwardID, activationID string, expectedForwardRevision uint64, snapshotJSON string) error {
-	if _, err := decodeActivationSnapshot(snapshotJSON); err != nil {
+	persistedSnapshotJSON, err := encodePersistedForwardRuntimeStatus(snapshotJSON, expectedForwardRevision)
+	if err != nil {
 		return fmt.Errorf("store: invalid forward runtime snapshot: %w", err)
 	}
 	res, err := s.db.Exec(
@@ -1521,7 +1589,7 @@ func (s *Store) SetForwardRuntimeStatus(forwardID, activationID string, expected
 		                   AND forward_runtime_status.activation_id = excluded.activation_id)
 		         )
 		  )`,
-		forwardID, activationID, snapshotJSON, now(), forwardID, expectedForwardRevision,
+		forwardID, activationID, persistedSnapshotJSON, now(), forwardID, expectedForwardRevision,
 		activationID, activationID, expectedForwardRevision,
 	)
 	if err != nil {
@@ -1545,15 +1613,20 @@ func (s *Store) SetForwardRuntimeStatus(forwardID, activationID string, expected
 // GetForwardRuntimeStatus returns the mirror row for a forward.
 func (s *Store) GetForwardRuntimeStatus(forwardID string) (ForwardRuntimeStatus, error) {
 	var r ForwardRuntimeStatus
+	var persistedSnapshotJSON string
 	err := s.db.QueryRow(
 		`SELECT forward_id, activation_id, snapshot_json, updated_at
 		   FROM forward_runtime_status WHERE forward_id = ?`, forwardID,
-	).Scan(&r.ForwardID, &r.ActivationID, &r.SnapshotJSON, &r.UpdatedAt)
+	).Scan(&r.ForwardID, &r.ActivationID, &persistedSnapshotJSON, &r.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ForwardRuntimeStatus{}, ErrNotFound
 	}
 	if err != nil {
 		return ForwardRuntimeStatus{}, fmt.Errorf("store: get forward runtime status: %w", err)
+	}
+	r.SnapshotJSON, r.Generation, r.GenerationBound, err = decodePersistedForwardRuntimeStatus(persistedSnapshotJSON)
+	if err != nil {
+		return ForwardRuntimeStatus{}, fmt.Errorf("store: decode forward runtime status: %w", err)
 	}
 	return r, nil
 }

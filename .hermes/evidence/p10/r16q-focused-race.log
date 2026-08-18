@@ -1,0 +1,38 @@
+P10-R16Q focused race evidence
+Command: go test -race ./internal/controller/probe ./internal/controller/store -run 'TestR16Q|TestR16.*(Runtime|ProbeJoin|InboxCleanup)|TestManagerClose' -count=1 -v
+Exit: 0
+
+=== RUN   TestManagerCloseCancelsSweeperPromptly
+--- PASS: TestManagerCloseCancelsSweeperPromptly (0.26s)
+=== RUN   TestR16ArmRequiresCurrentRuntimeMirror
+--- PASS: TestR16ArmRequiresCurrentRuntimeMirror (0.25s)
+=== RUN   TestR16ArmRejectsStaleRuntimeMirror
+--- PASS: TestR16ArmRejectsStaleRuntimeMirror (0.26s)
+=== RUN   TestR16QManagerCloseSerializesConcurrentStart
+--- PASS: TestR16QManagerCloseSerializesConcurrentStart (0.36s)
+=== RUN   TestR16QArmRejectsSameActivationAfterForwardRevisionAdvance
+--- PASS: TestR16QArmRejectsSameActivationAfterForwardRevisionAdvance (0.27s)
+PASS
+ok  github.com/gxbrave/AntiNAT/internal/controller/probe 2.430s
+=== RUN   TestR16ProbeJoinRejectsDeletionRevisionAdvance
+--- PASS: TestR16ProbeJoinRejectsDeletionRevisionAdvance (0.28s)
+=== RUN   TestR16ProbeJoinRejectsSameActivationGenerationAdvance
+--- PASS: TestR16ProbeJoinRejectsSameActivationGenerationAdvance (0.28s)
+=== RUN   TestR16RuntimeStatusRejectsSameActivationAtAdvancedRevision
+--- PASS: TestR16RuntimeStatusRejectsSameActivationAtAdvancedRevision (0.26s)
+=== RUN   TestR16InboxCleanupReclaimsExpiredReplayTombstones
+--- PASS: TestR16InboxCleanupReclaimsExpiredReplayTombstones (0.27s)
+=== RUN   TestR16InboxCleanupRetainsProbeResultUntilOutcomeReceipt
+--- PASS: TestR16InboxCleanupRetainsProbeResultUntilOutcomeReceipt (0.29s)
+=== RUN   TestR16QControlInboxCleanupUsesBoundedHighWater
+--- PASS: TestR16QControlInboxCleanupUsesBoundedHighWater (0.28s)
+=== RUN   TestR16QControlInboxCleanupRetainsLiveResendDependencies
+--- PASS: TestR16QControlInboxCleanupRetainsLiveResendDependencies (0.30s)
+=== RUN   TestR16QMigrationRejectsWrongSameNamedIndexDefinition
+--- PASS: TestR16QMigrationRejectsWrongSameNamedIndexDefinition (0.33s)
+=== RUN   TestR16QMigrationRejectsWrongIndexPredicateAfterLedger
+--- PASS: TestR16QMigrationRejectsWrongIndexPredicateAfterLedger (0.27s)
+PASS
+ok  github.com/gxbrave/AntiNAT/internal/controller/store 3.569s
+
+No race reports were emitted.

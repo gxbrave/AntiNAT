@@ -413,6 +413,9 @@ func (m *Manager) Arm(ctx context.Context, nodeID, forwardID, activationID, endp
 	if runtime.ActivationID != activationID {
 		return store.ProbeOperation{}, fmt.Errorf("%w: runtime mirror activation is stale", store.ErrCASConflict)
 	}
+	if !runtime.GenerationBound || runtime.Generation != forward.Revision {
+		return store.ProbeOperation{}, fmt.Errorf("%w: runtime mirror generation is stale", store.ErrCASConflict)
+	}
 
 	probeID, err := randomID()
 	if err != nil {

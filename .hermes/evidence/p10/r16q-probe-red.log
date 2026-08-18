@@ -1,0 +1,16 @@
+P10-R16Q RED evidence
+Base archive commit: 43558ae46c986300c9ed70806bd3c757dd09f052
+Workspace under test: temporary archive; the repair worktree was not modified by this command.
+Command: go test ./internal/controller/probe -run 'TestR16QManagerCloseSerializesConcurrentStart|TestR16QArmRejectsSameActivationAfterForwardRevisionAdvance' -count=1 -v
+Exit: 1
+
+=== RUN   TestR16QManagerCloseSerializesConcurrentStart
+    p10_r16q_quality_test.go:68: concurrent Start returned before Close completed: <nil>
+--- FAIL: TestR16QManagerCloseSerializesConcurrentStart (0.03s)
+=== RUN   TestR16QArmRejectsSameActivationAfterForwardRevisionAdvance
+    p10_r16q_quality_test.go:95: Arm after same-activation generation advance = <nil>, want stale-generation CAS conflict
+--- FAIL: TestR16QArmRejectsSameActivationAfterForwardRevisionAdvance (0.03s)
+FAIL
+FAIL	github.com/gxbrave/AntiNAT/internal/controller/probe	0.068s
+FAIL
+PROBE_EXIT=1

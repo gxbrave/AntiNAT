@@ -1,0 +1,27 @@
+P10-R16Q store/generation/migration GREEN evidence
+Candidate worktree base: 09b394db1c2169c6ffc9538ca03847d3d274acfc; repair changes were present in the worktree.
+Command: go test ./internal/controller/store -run 'TestR16QControlInboxCleanupUsesBoundedHighWater|TestR16QControlInboxCleanupRetainsLiveResendDependencies|TestR16InboxCleanupReclaimsExpiredReplayTombstones|TestR16ProbeJoinRejectsSameActivationGenerationAdvance|TestR16RuntimeStatusRejectsSameActivationAtAdvancedRevision|TestR16CleanupIndexesExposeOrderedKeys|TestR16QMigrationRejectsWrongSameNamedIndexDefinition|TestR16QMigrationRejectsWrongIndexPredicateAfterLedger|TestR16MigrationRejectsRecordedV6WithMissingObject|TestR16MigrationBackfillHardBudgetRollsBack' -count=1 -v
+Exit: 0
+
+=== RUN   TestR16MigrationRejectsRecordedV6WithMissingObject
+--- PASS: TestR16MigrationRejectsRecordedV6WithMissingObject (0.02s)
+=== RUN   TestR16MigrationBackfillHardBudgetRollsBack
+--- PASS: TestR16MigrationBackfillHardBudgetRollsBack (0.02s)
+=== RUN   TestR16CleanupIndexesExposeOrderedKeys
+--- PASS: TestR16CleanupIndexesExposeOrderedKeys (0.02s)
+=== RUN   TestR16ProbeJoinRejectsSameActivationGenerationAdvance
+--- PASS: TestR16ProbeJoinRejectsSameActivationGenerationAdvance (0.03s)
+=== RUN   TestR16RuntimeStatusRejectsSameActivationAtAdvancedRevision
+--- PASS: TestR16RuntimeStatusRejectsSameActivationAtAdvancedRevision (0.03s)
+=== RUN   TestR16InboxCleanupReclaimsExpiredReplayTombstones
+--- PASS: TestR16InboxCleanupReclaimsExpiredReplayTombstones (0.03s)
+=== RUN   TestR16QControlInboxCleanupUsesBoundedHighWater
+--- PASS: TestR16QControlInboxCleanupUsesBoundedHighWater (0.03s)
+=== RUN   TestR16QControlInboxCleanupRetainsLiveResendDependencies
+--- PASS: TestR16QControlInboxCleanupRetainsLiveResendDependencies (0.04s)
+=== RUN   TestR16QMigrationRejectsWrongSameNamedIndexDefinition
+--- PASS: TestR16QMigrationRejectsWrongSameNamedIndexDefinition (0.03s)
+=== RUN   TestR16QMigrationRejectsWrongIndexPredicateAfterLedger
+--- PASS: TestR16QMigrationRejectsWrongIndexPredicateAfterLedger (0.03s)
+PASS
+ok  github.com/gxbrave/AntiNAT/internal/controller/store 0.297s

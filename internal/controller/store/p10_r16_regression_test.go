@@ -87,6 +87,47 @@ func TestR16ProbeJoinRejectsDeletionRevisionAdvance(t *testing.T) {
 	}
 }
 
+func TestR16ProbeJoinRejectsSameActivationGenerationAdvance(t *testing.T) {
+	fixture := newAuthenticatedJoinFixture(t)
+	initial := legalRuntimeSnapshot("NOT_TESTED", "NOT_TESTED", "NONE")
+	if err := fixture.store.SetForwardRuntimeStatus(fixture.forwardID, fixture.activationID, 1, initial); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.CASForwardActivation(fixture.forwardID, 1, fixture.activationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.store.db.Exec(`UPDATE probe_operations SET expected_forward_revision = 2 WHERE id = ?`, fixture.operationID); err != nil {
+		t.Fatal(err)
+	}
+
+	nodePrivate := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x31}, ed25519.SeedSize))
+	err := fixture.store.PublishProbeJoin(
+		fixture.operationID,
+		"IN_FLIGHT",
+		fixture.forwardID,
+		fixture.activationID,
+		authenticatedJoinSnapshot,
+		nodePrivate.Public().(ed25519.PublicKey),
+	)
+	if !errors.Is(err, ErrCASConflict) {
+		t.Fatalf("same-activation stale-generation join error = %v, want ErrCASConflict", err)
+	}
+	op, err := fixture.store.GetProbeOperation(fixture.operationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if op.Status != "IN_FLIGHT" {
+		t.Fatalf("same-activation stale-generation join changed operation status to %q", op.Status)
+	}
+	got, err := fixture.store.GetForwardRuntimeStatus(fixture.forwardID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SnapshotJSON != initial || got.Generation != 1 || !got.GenerationBound {
+		t.Fatalf("same-activation stale-generation join changed runtime mirror: %+v", got)
+	}
+}
+
 func TestR16ProbeOutcomeRejectsDeletionRevisionAdvance(t *testing.T) {
 	s := openTestStore(t)
 	withStoreNow(t, 81_000)
@@ -248,15 +289,19 @@ func TestR16TerminalDeliveryReceiptMarksDeliveredAtomically(t *testing.T) {
 	}
 }
 
-func TestR16InboxCleanupRetainsReplayTombstonesUntilHighWater(t *testing.T) {
+func TestR16InboxCleanupReclaimsExpiredReplayTombstones(t *testing.T) {
 	s := openTestStore(t)
 	withStoreNow(t, 84_000)
 	for i, messageType := range []string{"operation_complete", "probe_ingress_receipt", "message_receipt"} {
 		messageID := fmt.Sprintf("r16-retained-%d", i)
+		payload := []byte(`{"ok":true}`)
+		if messageType == "probe_ingress_receipt" {
+			payload = append([]byte("RCT1"), bytes.Repeat([]byte{0}, 32+32+16+ed25519.SignatureSize)...)
+		}
 		if _, err := s.RecordControlInbox(ControlInboxItem{
 			MessageID: messageID, NodeID: "r16-node",
 			MessageType: messageType, OperationID: fmt.Sprintf("r16-op-%d", i),
-			SemanticPayload: `{"ok":true}`, State: "PROCESSED",
+			SemanticPayload: string(payload), State: "PROCESSED",
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -280,15 +325,15 @@ func TestR16InboxCleanupRetainsReplayTombstonesUntilHighWater(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if removed != 1 {
-		t.Fatalf("removed %d inbox rows, want only replay-safe probe_result", removed)
+	if removed != 4 {
+		t.Fatalf("removed %d expired inbox rows, want 4", removed)
 	}
-	var retained int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM control_inbox WHERE message_type IN ('operation_complete','probe_ingress_receipt','message_receipt')`).Scan(&retained); err != nil {
+	var remaining int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM control_inbox`).Scan(&remaining); err != nil {
 		t.Fatal(err)
 	}
-	if retained != 3 {
-		t.Fatalf("retained replay tombstones = %d, want 3", retained)
+	if remaining != 0 {
+		t.Fatalf("expired replay tombstones remaining = %d, want 0", remaining)
 	}
 }
 

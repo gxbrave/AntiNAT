@@ -1,0 +1,8 @@
+P10-R16Q build evidence
+Environment: ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001.
+Command: ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make build
+Exit: 0
+
+mkdir -p bin
+go build -trimpath -ldflags "-X github.com/gxbrave/AntiNAT/internal/buildinfo.Version=dev -X github.com/gxbrave/AntiNAT/internal/buildinfo.Commit=unknown -X github.com/gxbrave/AntiNAT/internal/buildinfo.Date=unknown" -o bin/antinat-controller ./cmd/antinat-controller
+go build -trimpath -ldflags "-X github.com/gxbrave/AntiNAT/internal/buildinfo.Version=dev -X github.com/gxbrave/AntiNAT/internal/buildinfo.Commit=unknown -X github.com/gxbrave/AntiNAT/internal/buildinfo.Date=unknown" -o bin/antinat-agent ./cmd/antinat-agent

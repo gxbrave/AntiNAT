@@ -1,0 +1,22 @@
+P10-R16Q RED evidence
+Base archive commit: 43558ae46c986300c9ed70806bd3c757dd09f052
+Workspace under test: temporary archive with the candidate quality test file; the repair worktree was not modified by this command.
+Command: go test ./internal/controller/store -run 'TestR16QControlInboxCleanup|TestR16QMigrationRejectsWrong' -count=1 -v
+Exit: 1
+
+=== RUN   TestR16QControlInboxCleanupUsesBoundedHighWater
+    p10_r16q_quality_test.go:51: first inbox cleanup removed 1 rows, want 2
+--- FAIL: TestR16QControlInboxCleanupUsesBoundedHighWater (0.03s)
+=== RUN   TestR16QControlInboxCleanupRetainsLiveResendDependencies
+    p10_r16q_quality_test.go:98: cleanup removed live dependency rows = 1 (err <nil>), want 0
+--- FAIL: TestR16QControlInboxCleanupRetainsLiveResendDependencies (0.03s)
+=== RUN   TestR16QMigrationRejectsWrongSameNamedIndexDefinition
+    p10_r16q_quality_test.go:137: migration accepted a wrong same-named index definition
+--- FAIL: TestR16QMigrationRejectsWrongSameNamedIndexDefinition (0.02s)
+=== RUN   TestR16QMigrationRejectsWrongIndexPredicateAfterLedger
+    p10_r16q_quality_test.go:162: migrate accepted a recorded index with a missing partial predicate
+--- FAIL: TestR16QMigrationRejectsWrongIndexPredicateAfterLedger (0.02s)
+FAIL
+FAIL github.com/gxbrave/AntiNAT/internal/controller/store 0.117s
+FAIL
+STORE_EXIT=1

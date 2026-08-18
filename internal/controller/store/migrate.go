@@ -111,6 +111,60 @@ type schemaQueryer interface {
 	QueryRow(string, ...any) *sql.Row
 }
 
+type r13IndexDefinition struct {
+	name      string
+	table     string
+	columns   []string
+	predicate string
+}
+
+var requiredR13Indexes = []r13IndexDefinition{
+	{
+		name: "idx_control_outbox_command_message", table: "control_outbox",
+		columns: []string{"node_id", "command_message_id"}, predicate: "command_message_id IS NOT NULL",
+	},
+	{
+		name: "idx_control_outbox_operation_complete_message", table: "control_outbox",
+		columns: []string{"node_id", "operation_complete_message_id"}, predicate: "operation_complete_message_id IS NOT NULL",
+	},
+	{
+		name: "idx_control_outbox_controller_operation_complete_message", table: "control_outbox",
+		columns: []string{"node_id", "controller_operation_complete_message_id"}, predicate: "controller_operation_complete_message_id IS NOT NULL",
+	},
+	{
+		name: "idx_probe_terminal_delivery_state", table: "probe_terminal_deliveries",
+		columns: []string{"disposition", "updated_at", "probe_id"},
+	},
+	{
+		name: "idx_probe_terminal_delivery", table: "probe_operations",
+		columns: []string{"status", "created_at", "id"},
+	},
+	{
+		name: "idx_control_inbox_replay_gc", table: "control_inbox",
+		columns: []string{"message_type", "state", "updated_at", "id"}, predicate: "message_type = 'probe_result' AND state = 'PROCESSED'",
+	},
+	{
+		name: "idx_control_inbox_state_page", table: "control_inbox",
+		columns: []string{"state", "message_type", "id"},
+	},
+	{
+		name: "idx_probe_terminal_expiry", table: "probe_terminal_deliveries",
+		columns: []string{"disposition", "updated_at", "probe_id"}, predicate: "disposition = 'ENQUEUED'",
+	},
+	{
+		name: "idx_probe_live_expiry", table: "probe_operations",
+		columns: []string{"expires_at", "id"}, predicate: "status IN ('PENDING', 'ARMED', 'IN_FLIGHT')",
+	},
+	{
+		name: "idx_probe_terminal_created", table: "probe_operations",
+		columns: []string{"created_at", "id"}, predicate: "status IN ('OPEN_FROM_VANTAGE', 'REJECTED', 'DROPPED', 'TIMEOUT', 'NO_INDEPENDENT_VANTAGE', 'PROBE_INFRA_UNAVAILABLE')",
+	},
+	{
+		name: "idx_probe_terminal_updated", table: "probe_operations",
+		columns: []string{"updated_at", "id"}, predicate: "status IN ('OPEN_FROM_VANTAGE', 'REJECTED', 'DROPPED', 'TIMEOUT', 'NO_INDEPENDENT_VANTAGE', 'PROBE_INFRA_UNAVAILABLE')",
+	},
+}
+
 func validateR13HardeningObjects(q schemaQueryer) error {
 	for _, column := range []string{
 		"command_message_id", "operation_complete_message_id",
@@ -127,32 +181,116 @@ func validateR13HardeningObjects(q schemaQueryer) error {
 	} else if !ok {
 		return fmt.Errorf("%w: migration 6 missing probe_operations.expected_forward_revision", ErrNotMigrated)
 	}
-	objects := map[string]string{
-		"probe_terminal_deliveries":                                "table",
-		"idx_control_outbox_command_message":                       "index",
-		"idx_control_outbox_operation_complete_message":            "index",
-		"idx_control_outbox_controller_operation_complete_message": "index",
-		"idx_probe_terminal_delivery_state":                        "index",
-		"idx_probe_terminal_delivery":                              "index",
-		"idx_control_inbox_replay_gc":                              "index",
-		"idx_control_inbox_state_page":                             "index",
-		"idx_probe_terminal_expiry":                                "index",
-		"idx_probe_live_expiry":                                    "index",
-		"idx_probe_terminal_created":                               "index",
-		"idx_probe_terminal_updated":                               "index",
+	objects := []struct {
+		name     string
+		typeName string
+	}{
+		{name: "probe_terminal_deliveries", typeName: "table"},
 	}
-	for object, wantType := range objects {
+	for _, definition := range requiredR13Indexes {
+		objects = append(objects, struct {
+			name     string
+			typeName string
+		}{name: definition.name, typeName: "index"})
+	}
+	for _, object := range objects {
 		var gotType sql.NullString
-		if err := q.QueryRow("SELECT type FROM sqlite_master WHERE name = ?", object).Scan(&gotType); errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("%w: migration 6 missing required object %s", ErrNotMigrated, object)
+		if err := q.QueryRow("SELECT type FROM sqlite_master WHERE name = ?", object.name).Scan(&gotType); errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: migration 6 missing required object %s", ErrNotMigrated, object.name)
 		} else if err != nil {
-			return fmt.Errorf("store: inspect migration object %s: %w", object, err)
+			return fmt.Errorf("store: inspect migration object %s: %w", object.name, err)
 		}
-		if !gotType.Valid || gotType.String != wantType {
-			return fmt.Errorf("%w: migration 6 object %s has type %q, want %q", ErrNotMigrated, object, gotType.String, wantType)
+		if !gotType.Valid || gotType.String != object.typeName {
+			return fmt.Errorf("%w: migration 6 object %s has type %q, want %q", ErrNotMigrated, object.name, gotType.String, object.typeName)
+		}
+	}
+	for _, definition := range requiredR13Indexes {
+		if err := validateR13IndexDefinition(q, definition); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func validateR13IndexDefinition(q schemaQueryer, definition r13IndexDefinition) error {
+	var tableName, sqlText sql.NullString
+	if err := q.QueryRow(`SELECT tbl_name, sql FROM sqlite_master WHERE type = 'index' AND name = ?`, definition.name).
+		Scan(&tableName, &sqlText); errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: migration 6 missing index %s", ErrNotMigrated, definition.name)
+	} else if err != nil {
+		return fmt.Errorf("store: inspect index %s: %w", definition.name, err)
+	}
+	if !tableName.Valid || tableName.String != definition.table {
+		return fmt.Errorf("%w: index %s belongs to %q, want %q", ErrNotMigrated, definition.name, tableName.String, definition.table)
+	}
+	if !sqlText.Valid || strings.TrimSpace(sqlText.String) == "" {
+		return fmt.Errorf("%w: index %s has no SQL definition", ErrNotMigrated, definition.name)
+	}
+
+	rows, err := q.Query("PRAGMA index_info(" + sqlitePragmaString(definition.name) + ")")
+	if err != nil {
+		return fmt.Errorf("store: inspect index %s columns: %w", definition.name, err)
+	}
+	columns := make([]string, 0, len(definition.columns))
+	for rows.Next() {
+		var seq, cid int
+		var name sql.NullString
+		if err := rows.Scan(&seq, &cid, &name); err != nil {
+			rows.Close()
+			return fmt.Errorf("store: scan index %s columns: %w", definition.name, err)
+		}
+		if !name.Valid {
+			rows.Close()
+			return fmt.Errorf("%w: index %s contains an expression column", ErrNotMigrated, definition.name)
+		}
+		if seq != len(columns) {
+			rows.Close()
+			return fmt.Errorf("%w: index %s has non-contiguous column order", ErrNotMigrated, definition.name)
+		}
+		columns = append(columns, name.String)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("store: close index %s columns: %w", definition.name, err)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("store: read index %s columns: %w", definition.name, err)
+	}
+	if len(columns) != len(definition.columns) {
+		return fmt.Errorf("%w: index %s columns = %v, want %v", ErrNotMigrated, definition.name, columns, definition.columns)
+	}
+	for i := range columns {
+		if columns[i] != definition.columns[i] {
+			return fmt.Errorf("%w: index %s columns = %v, want %v", ErrNotMigrated, definition.name, columns, definition.columns)
+		}
+	}
+	if got := indexPredicate(sqlText.String); normalizeIndexSQL(got) != normalizeIndexSQL(definition.predicate) {
+		return fmt.Errorf("%w: index %s predicate = %q, want %q", ErrNotMigrated, definition.name, got, definition.predicate)
+	}
+	return nil
+}
+
+func sqlitePragmaString(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
+func indexPredicate(sqlText string) string {
+	normalized := strings.Join(strings.Fields(strings.ToLower(sqlText)), " ")
+	idx := strings.Index(normalized, " where ")
+	if idx < 0 {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimSuffix(normalized[idx+len(" where "):], ";"))
+}
+
+func normalizeIndexSQL(value string) string {
+	value = strings.Join(strings.Fields(strings.ToLower(value)), " ")
+	for _, replacement := range []struct{ old, new string }{
+		{"( ", "("}, {" )", ")"}, {" ,", ","}, {", ", ","},
+		{" = ", "="}, {" <> ", "<>"}, {" < ", "<"}, {" > ", ">"},
+	} {
+		value = strings.ReplaceAll(value, replacement.old, replacement.new)
+	}
+	return strings.TrimSpace(strings.TrimSuffix(value, ";"))
 }
 
 func schemaColumnExists(q schemaQueryer, table, column string) (bool, error) {

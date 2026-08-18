@@ -91,13 +91,27 @@ func TestR16QArmRejectsSameActivationAfterForwardRevisionAdvance(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := env.manager.Arm(context.Background(), "n1", "f1", "act-1", "198.51.100.7:8080"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("Arm after same-activation generation advance = %v, want invalidated runtime mirror", err)
+	if _, err := env.manager.Arm(context.Background(), "n1", "f1", "act-1", "198.51.100.7:8080"); !errors.Is(err, store.ErrCASConflict) {
+		t.Fatalf("Arm after same-activation generation advance = %v, want stale-generation CAS conflict", err)
 	}
-	if _, err := env.store.GetForwardRuntimeStatus("f1"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("stale runtime mirror survived generation advance: %v", err)
+	runtime, err := env.store.GetForwardRuntimeStatus("f1")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if live, err := env.store.CountLiveProbeOperations(); err != nil || live != 0 {
-		t.Fatalf("stale-generation Arm created %d live operations (err %v)", live, err)
+	if runtime.ActivationID != "act-1" || !runtime.GenerationBound || runtime.Generation != 1 {
+		t.Fatalf("stale runtime mirror changed activation identity: %+v", runtime)
+	}
+	if runtime.SnapshotJSON != r16RuntimeSnapshot {
+		t.Fatalf("same-activation revision advance changed runtime axes: %s", runtime.SnapshotJSON)
+	}
+
+	if err := env.store.SetForwardRuntimeStatus("f1", "act-1", 2, r16RuntimeSnapshot); err != nil {
+		t.Fatalf("fresh generation runtime status: %v", err)
+	}
+	if _, err := env.manager.Arm(context.Background(), "n1", "f1", "act-1", "198.51.100.7:8080"); err != nil {
+		t.Fatalf("Arm after fresh same-activation generation status: %v", err)
+	}
+	if live, err := env.store.CountLiveProbeOperations(); err != nil || live != 1 {
+		t.Fatalf("fresh-generation Arm live operation count = %d (err %v), want 1", live, err)
 	}
 }
