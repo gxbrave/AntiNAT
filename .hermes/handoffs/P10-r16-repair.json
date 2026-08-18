@@ -1,0 +1,2492 @@
+{
+  "schema_version": "P10-r16-repair/v1",
+  "artifact_role": "bounded exact-head R16 implementation handoff closure; review required",
+  "plan": "P10",
+  "task_id": "t_4334a3a5",
+  "source_task_id": "t_12a4f830",
+  "source_run_id": 414,
+  "repair_cycle": 16,
+  "stage": "metadata-only-handoff-closure-review-required",
+  "branch": "ai/P10-wan-probe-activation-cli-e2e",
+  "base_sha": "adf74fa860812054bd71082006a8c78ea4189888",
+  "base_tree_sha": "b304c39ec7573fb22d6508fa4585d8a9b2b4f105",
+  "repair_base_sha": "533db91e3d30153e885238c5deeb88f00e0c3b20",
+  "repair_base_tree_sha": "df6ab2db146c6291bea24ffb92fc4bd70b629db7",
+  "candidate_head_sha": "dcafa36348a8260a655ecbdf8e8f6e87518f1614",
+  "candidate_tree_sha": "f28ffbd16cc793c6c89345bce3f41373f642675b",
+  "implementation_head_sha": "dcafa36348a8260a655ecbdf8e8f6e87518f1614",
+  "implementation_tree_sha": "f28ffbd16cc793c6c89345bce3f41373f642675b",
+  "candidate_definition": "The unchanged review candidate is commit dcafa36348a8260a655ecbdf8e8f6e87518f1614 with tree f28ffbd16cc793c6c89345bce3f41373f642675b. The full candidate delta is adf74fa860812054bd71082006a8c78ea4189888..dcafa36348a8260a655ecbdf8e8f6e87518f1614; the bounded R16 repair delta is 533db91e3d30153e885238c5deeb88f00e0c3b20..dcafa36348a8260a655ecbdf8e8f6e87518f1614. This handoff file is metadata outside that immutable candidate tree and does not redefine the candidate head.",
+  "candidate_delta": {
+    "from_sha": "adf74fa860812054bd71082006a8c78ea4189888",
+    "from_tree_sha": "b304c39ec7573fb22d6508fa4585d8a9b2b4f105",
+    "to_sha": "dcafa36348a8260a655ecbdf8e8f6e87518f1614",
+    "to_tree_sha": "f28ffbd16cc793c6c89345bce3f41373f642675b",
+    "command": "git diff --name-status --no-renames adf74fa860812054bd71082006a8c78ea4189888 dcafa36348a8260a655ecbdf8e8f6e87518f1614",
+    "exit_code": 0,
+    "path_count": 235,
+    "status_counts": {
+      "A": 197,
+      "M": 38
+    },
+    "entries": [
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/f1-activation-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/f1-activation-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/f2-forward-binding-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/f2-forward-binding-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/f3-provider-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/f3-provider-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r10-reconciliation-validation.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r10-red-claim-audit.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r13-package-diff-check.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r13-package-gofmt.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r13-package-make-build.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r13-package-make-check.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r13-package-make-test.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r13-package-required-race.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r13-package-test-r13.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r13-package-walking-skeleton.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r13-package-windows-cross-build.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r13-red-pre-repair.txt"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r14-contracts.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r14-cross-build-matrix.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r14-cross-build.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r14-diff-check.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r14-e2e.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r14-evidence-manifest.json"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r14-evidence-parity.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r14-evidence-verify.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r14-focused.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r14-gofmt.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r14-make-build.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r14-make-check.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r14-make-test.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r14-provisioned-full.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r14-provisioned-make-check.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r14-provisioned-make-test.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r14-provisioned-race.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r14-race.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r14-required-plan-race.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r14-vet.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-cas-arm-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-cas-arm-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-cas-join-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-cas-join-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-cas-outcome-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-cas-outcome-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-cross-build.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-delete-stress-current.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-delivery-expiry-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-delivery-expiry-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-delivery-receipt-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-delivery-receipt-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-diff-check.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-e2e-repeat-current.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-e2e.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-focused-race.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-full-race.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-full.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-gofmt.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-make-build.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-make-check-unprovisioned.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-make-check.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-make-test-current.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-make-test-unprovisioned.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-required-race.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-verify-evidence.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-verify-parity.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-vet.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-contracts.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-final-make-build.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-final-make-check.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-hub-close-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-hub-close-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-lifecycle-race.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-make-build.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-make-check.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-make-test.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-probe-gate-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-probe-gate-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-required-race.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-route-fingerprint-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-route-fingerprint-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-startup-wait-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r6-startup-wait-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r7-apply-desired-capability-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r7-apply-desired-capability-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r9-contracts.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r9-e2e.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r9-focused.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r9-make-build.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r9-make-check.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r9-make-test.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r9-race.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r9-vet.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/red-activation.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/red-migration.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/red-reconcile.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/red-replay.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/s4-receipt-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/s4-receipt-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/s5-reconnect-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/s5-reconnect-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/s6-walking-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/s6-walking-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/handoffs/P10-controller-regressions.json"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/handoffs/P10-r10-repair.json"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/handoffs/P10-r11-repair.json"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/handoffs/P10-r13-recovery.json"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/handoffs/P10-r13-rejected-archive.json"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/handoffs/P10-r14-recovery.json"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/handoffs/P10-r15-reconciliation.json"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/handoffs/P10-r9-repair.json"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/handoffs/P10.json"
+      },
+      {
+        "status": "M",
+        "path": ".hermes/plans/v1-beta/12-gateway-traversal-detection.md"
+      },
+      {
+        "status": "M",
+        "path": ".hermes/plans/v1-beta/14-lifecycle-rotation-recovery.md"
+      },
+      {
+        "status": "M",
+        "path": "cmd/antinat-agent/main.go"
+      },
+      {
+        "status": "A",
+        "path": "cmd/antinat-agent/tokenfile.go"
+      },
+      {
+        "status": "A",
+        "path": "cmd/antinat-agent/tokenfile_test.go"
+      },
+      {
+        "status": "A",
+        "path": "cmd/antinat-agent/tokenfile_windows.go"
+      },
+      {
+        "status": "M",
+        "path": "cmd/antinat-controller/main.go"
+      },
+      {
+        "status": "A",
+        "path": "cmd/antinat-probe/main.go"
+      },
+      {
+        "status": "A",
+        "path": "cmd/antinat-probe/main_test.go"
+      },
+      {
+        "status": "A",
+        "path": "cmd/antinatctl/cli_test.go"
+      },
+      {
+        "status": "A",
+        "path": "cmd/antinatctl/main.go"
+      },
+      {
+        "status": "M",
+        "path": "go.mod"
+      },
+      {
+        "status": "M",
+        "path": "go.sum"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/app.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/app_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/control/p10_r13_regression_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/control/reconnect_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/control/session.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/localstate/activation.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/localstate/journal.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/localstate/outbox.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/localstate/p10_r10_repair_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/localstate/p10_r14_replay_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/localstate/p10_r9_repair_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/localstate/p10_repair_red_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/localstate/probe.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/localstate/probe_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/localstate/schema.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/localstate/store.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/localstate/store_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/p10_r13_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/p10_r9_repair_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/reconcile/activation.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/reconcile/desired.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/reconcile/desired_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/reconcile/p10_r10_repair_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/reconcile/p10_r13_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/reconcile/p10_r14_replay_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/reconcile/p10_r16_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/reconcile/p10_r9_repair_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/reconcile/probe.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/reconcile/probe_gate_lifecycle_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/reconcile/probe_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/reconcile/reconciler.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/reconcile/state_machine.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/reconcile/state_machine_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/startup_cleanup_regression_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/agenthub/hub.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/agenthub/hub_close_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/agenthub/p10_r13_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/agenthub/p10_r16_dual_result_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/agenthub/probe_receipt_ack_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/agenthub/probesink_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/agenthub/session.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/api/api_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/api/auth.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/api/forwards_min.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/api/health.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/api/nodes_min.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/api/p10_r13_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/app.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/app_r16_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/app_r9_repair_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/app_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/auth/auth_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/auth/service.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/cycle2_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/cycle2_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/cycle3_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/cycle4_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/manager.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/manager_cleanup_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/manager_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/p10_network_red_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/p10_r13_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/p10_r16_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/p10_r9_repair_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/p10_repair_red_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/provider.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/provider_service.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/provider_service_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/story6_regression_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/backup_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/control.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/control_cleanup_regression_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/control_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/corrupt_internal_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/cycle3_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/cycle4_regression_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/idempotency.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/idempotency_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/migrate.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/migrate_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/minapi.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/minapi_atomic_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/node_bundle.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/outbox.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/p10_r13_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/p10_r14_activation_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/p10_r14_migration_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/p10_r16_dual_result_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/p10_r16_migration_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/p10_r16_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/p10_r9_repair_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/probe.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/probe_cleanup_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/probe_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/store.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/transaction_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/transactions.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/users.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/web/router_min.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/protocol/endpoint.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/protocol/p10_r9_repair_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/protocol/probe_adapter.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/protocol/strictjson.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/protocol/strictjson_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/traversal/network.go"
+      },
+      {
+        "status": "A",
+        "path": "migrations/0004_probe.sql"
+      },
+      {
+        "status": "A",
+        "path": "migrations/0005_probe_hardening.sql"
+      },
+      {
+        "status": "A",
+        "path": "migrations/0006_r13_hardening.sql"
+      },
+      {
+        "status": "M",
+        "path": "migrations/migrations.go"
+      },
+      {
+        "status": "A",
+        "path": "test/e2e/harness/harness.go"
+      },
+      {
+        "status": "A",
+        "path": "test/e2e/walking_skeleton_test.go"
+      }
+    ]
+  },
+  "r16_repair_delta": {
+    "from_sha": "533db91e3d30153e885238c5deeb88f00e0c3b20",
+    "from_tree_sha": "df6ab2db146c6291bea24ffb92fc4bd70b629db7",
+    "to_sha": "dcafa36348a8260a655ecbdf8e8f6e87518f1614",
+    "to_tree_sha": "f28ffbd16cc793c6c89345bce3f41373f642675b",
+    "command": "git diff --name-status --no-renames 533db91e3d30153e885238c5deeb88f00e0c3b20 dcafa36348a8260a655ecbdf8e8f6e87518f1614",
+    "exit_code": 0,
+    "path_count": 55,
+    "status_counts": {
+      "A": 35,
+      "M": 20
+    },
+    "entries": [
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-cas-arm-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-cas-arm-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-cas-join-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-cas-join-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-cas-outcome-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-cas-outcome-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-cross-build.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-delete-stress-current.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-delivery-expiry-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-delivery-expiry-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-delivery-receipt-green.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-delivery-receipt-red.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-diff-check.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-e2e-repeat-current.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-e2e.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-focused-race.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-full-race.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-full.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-gofmt.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-make-build.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-make-check-unprovisioned.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-make-check.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-make-test-current.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-make-test-unprovisioned.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-required-race.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-verify-evidence.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-verify-parity.log"
+      },
+      {
+        "status": "A",
+        "path": ".hermes/evidence/p10/r16-vet.log"
+      },
+      {
+        "status": "A",
+        "path": "internal/agent/reconcile/p10_r16_regression_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/agent/reconcile/probe.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/agenthub/p10_r16_dual_result_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/agenthub/session.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/app.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/app_r16_regression_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/probe/manager.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/probe/manager_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/probe/p10_r13_regression_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/probe/p10_r16_regression_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/probe/provider_service.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/probe/provider_service_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/control.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/control_cleanup_regression_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/cycle3_regression_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/migrate.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/minapi.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/p10_r13_regression_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/p10_r14_activation_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/p10_r16_dual_result_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/p10_r16_migration_test.go"
+      },
+      {
+        "status": "A",
+        "path": "internal/controller/store/p10_r16_regression_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/probe.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/probe_test.go"
+      },
+      {
+        "status": "M",
+        "path": "internal/controller/store/transactions.go"
+      },
+      {
+        "status": "M",
+        "path": "migrations/0006_r13_hardening.sql"
+      },
+      {
+        "status": "M",
+        "path": "test/e2e/walking_skeleton_test.go"
+      }
+    ],
+    "commit_count": 6,
+    "commits": [
+      {
+        "sha": "11c627108b5328eaf2ea9eaecff1769cacfffd95",
+        "tree_sha": "34397834a52bd5a0ec199de27a21b55f08944ac8",
+        "parents": [
+          "533db91e3d30153e885238c5deeb88f00e0c3b20"
+        ],
+        "message": "test(P10-R16): capture probe generation CAS RED"
+      },
+      {
+        "sha": "54b1749127fee38c069f9814cd5349602799c97c",
+        "tree_sha": "edeb913bf37969aed21bda8ec240d858e947ecd4",
+        "parents": [
+          "11c627108b5328eaf2ea9eaecff1769cacfffd95"
+        ],
+        "message": "fix(P10-R16): fence probes by forward generation"
+      },
+      {
+        "sha": "2c60385102d186ba3ae70e8d98468d03d485c2db",
+        "tree_sha": "9c39283395fba3fdfb6a80b9354cf7d07c5549bc",
+        "parents": [
+          "54b1749127fee38c069f9814cd5349602799c97c"
+        ],
+        "message": "fix(P10-R16): make terminal delivery receipt-safe"
+      },
+      {
+        "sha": "e257758d31d17c0b8f58aa6f98383f78d89fafea",
+        "tree_sha": "cccf08713652d57b73071bc7663f0f49689d1bcf",
+        "parents": [
+          "2c60385102d186ba3ae70e8d98468d03d485c2db"
+        ],
+        "message": "fix(P10-R16): close preserved repair checkpoint"
+      },
+      {
+        "sha": "2966536e43310641ce52deebf2e01d8bdb49a0a5",
+        "tree_sha": "703f566254742a87faa1150eabb238a5972e4ef7",
+        "parents": [
+          "e257758d31d17c0b8f58aa6f98383f78d89fafea"
+        ],
+        "message": "test(P10-R16): record closure stress evidence"
+      },
+      {
+        "sha": "dcafa36348a8260a655ecbdf8e8f6e87518f1614",
+        "tree_sha": "f28ffbd16cc793c6c89345bce3f41373f642675b",
+        "parents": [
+          "2966536e43310641ce52deebf2e01d8bdb49a0a5"
+        ],
+        "message": "test(P10-R16): record final make-test evidence"
+      }
+    ]
+  },
+  "candidate_commits": [
+    {
+      "sha": "da3e3f45240875ef5b0b81a0679502f766e3e71b",
+      "tree_sha": "18ae30ab31b445a9d331fee203c06993290ed531",
+      "parents": [
+        "adf74fa860812054bd71082006a8c78ea4189888"
+      ],
+      "message": "P10 S1-S3: probe store/migration, hub probe sink, agent probe gate + activation state machine (TDD)"
+    },
+    {
+      "sha": "2ec68b8496820e0e50e74d291bcd1a8a2fd66b26",
+      "tree_sha": "2d77a547e19fdac388ec8ce9ca0d0fe4283fd802",
+      "parents": [
+        "da3e3f45240875ef5b0b81a0679502f766e3e71b"
+      ],
+      "message": "P10: gofmt"
+    },
+    {
+      "sha": "53347d23ba6cf9fdc154f3217286ed084ef199b8",
+      "tree_sha": "90bec64f300937bf20ef5cd5e8f1b8af3a516080",
+      "parents": [
+        "2ec68b8496820e0e50e74d291bcd1a8a2fd66b26"
+      ],
+      "message": "P10 S1: controller probe manager, provider service + antinat-probe binary"
+    },
+    {
+      "sha": "9d197946fe6da8a82a316b14186d27683b1e2673",
+      "tree_sha": "5175eb4dcd2b62de26fe765b019e420cab747cf7",
+      "parents": [
+        "53347d23ba6cf9fdc154f3217286ed084ef199b8"
+      ],
+      "message": "P10 S4a: minimal authenticated admin API (auth/nodes/forwards/health + ETag + idempotency)"
+    },
+    {
+      "sha": "9ff2d1ea2ac200f663d15d1ce7d4b57680dab726",
+      "tree_sha": "75ca9be1f3bf6069af93724d0ebdf6170174b66b",
+      "parents": [
+        "9d197946fe6da8a82a316b14186d27683b1e2673"
+      ],
+      "message": "P10 S4b: antinatctl CLI + admin init endpoint, plan-declared file layout, RED fixes"
+    },
+    {
+      "sha": "505c164a1291277e233ca1a09e84127f88e47042",
+      "tree_sha": "36560d958e5d7fd16b1340c7f328c7b2689a3074",
+      "parents": [
+        "9ff2d1ea2ac200f663d15d1ce7d4b57680dab726"
+      ],
+      "message": "P10 S5: controller/agent app composition + mains (TDD)"
+    },
+    {
+      "sha": "30a003d2c23f0a973271ed51d0d88ff9c0adb549",
+      "tree_sha": "a22f25a5495e0d26b8fc0697b042c877fbd35c3b",
+      "parents": [
+        "505c164a1291277e233ca1a09e84127f88e47042"
+      ],
+      "message": "P10 S5b: controller deletion watcher, agent data-plane recovery + activation tracking"
+    },
+    {
+      "sha": "113c5424cf1080a759fde3b78d8a581c9f7ee803",
+      "tree_sha": "a4869972ab56385a972628314b634c5fc5350f8b",
+      "parents": [
+        "30a003d2c23f0a973271ed51d0d88ff9c0adb549"
+      ],
+      "message": "fix(P10): unblock activation callback and complete walking skeleton"
+    },
+    {
+      "sha": "4e9a81f8ea1e7d8517b7b6b1692eeff5bd8bac6c",
+      "tree_sha": "3097d171f19eaba81051bde42233b7eb4f4b3aae",
+      "parents": [
+        "113c5424cf1080a759fde3b78d8a581c9f7ee803"
+      ],
+      "message": "fix(P10): address cycle-1 network and lifecycle findings"
+    },
+    {
+      "sha": "58dd0c6a6827cfcf5e7d34d078cee84c4d20cef8",
+      "tree_sha": "184a2c916559ef072a2a484098b10445ff762b74",
+      "parents": [
+        "4e9a81f8ea1e7d8517b7b6b1692eeff5bd8bac6c"
+      ],
+      "message": "docs(P10): record cycle-1 repair handoff"
+    },
+    {
+      "sha": "d0b099671474d9f353fced914722bab14292f088",
+      "tree_sha": "bb038b88ec8c0fe848990464b901563a15b4a261",
+      "parents": [
+        "58dd0c6a6827cfcf5e7d34d078cee84c4d20cef8"
+      ],
+      "message": "fix(P10): enforce scoped ownership boundary"
+    },
+    {
+      "sha": "28a39a6934db75ac1d13db681e205679abb4079e",
+      "tree_sha": "15873362163ce53bf783fadcfab214d3cb2136ed",
+      "parents": [
+        "d0b099671474d9f353fced914722bab14292f088"
+      ],
+      "message": "docs(P10): record scoped ownership disposition"
+    },
+    {
+      "sha": "98ead948bf4bba9316f0a2cb78187735b5b4c8f6",
+      "tree_sha": "77fe33902223e5eab04028d9f11402215e6a5470",
+      "parents": [
+        "28a39a6934db75ac1d13db681e205679abb4079e"
+      ],
+      "message": "fix(P10): harden controller probe joins and atomic forward create"
+    },
+    {
+      "sha": "830ca67b4e85f5447f70459688eef58b30e93937",
+      "tree_sha": "1c6d45ed7d51380a41c1607f813ef4ce59ae4fb3",
+      "parents": [
+        "98ead948bf4bba9316f0a2cb78187735b5b4c8f6"
+      ],
+      "message": "docs(P10): record controller repair handoff"
+    },
+    {
+      "sha": "60a4535c379f4b961f79cff16a25a56fe8aeb150",
+      "tree_sha": "be482517bf3990be473830ea34b154247073bfc3",
+      "parents": [
+        "830ca67b4e85f5447f70459688eef58b30e93937"
+      ],
+      "message": "test(P10): codify controller probe regressions"
+    },
+    {
+      "sha": "64f5d04b607a573dc53154fe9e401db618171b25",
+      "tree_sha": "c4609bc152ebdc6412379a4c6b2e22857f227afc",
+      "parents": [
+        "60a4535c379f4b961f79cff16a25a56fe8aeb150"
+      ],
+      "message": "docs(P10): record controller regression handoff"
+    },
+    {
+      "sha": "e2f303f1a61ebd79213c28180225515281f23545",
+      "tree_sha": "8eef3ac257550c636f8a36ec8f543ad5f43e3f51",
+      "parents": [
+        "64f5d04b607a573dc53154fe9e401db618171b25"
+      ],
+      "message": "fix(P10): enforce controller probe evidence joins"
+    },
+    {
+      "sha": "08c11ec036d463d1926bb9ec0a9397662eb6d4df",
+      "tree_sha": "57ba72b7d3f345e4dac13253b4afe6726a9ae3b7",
+      "parents": [
+        "e2f303f1a61ebd79213c28180225515281f23545"
+      ],
+      "message": "docs(P10): record controller evidence repair"
+    },
+    {
+      "sha": "599ab3dfc23a745ee0a151ded3ee179d8e37dcf7",
+      "tree_sha": "1a03546015a5fa8ea5985ef03666d3fe3ef7f2a6",
+      "parents": [
+        "08c11ec036d463d1926bb9ec0a9397662eb6d4df"
+      ],
+      "message": "docs(P10): correct handoff file inventory"
+    },
+    {
+      "sha": "8aa0d6d4efbff38b4c408dd4d131db03aee024d7",
+      "tree_sha": "a13385c41d28285ad256a1dc6d805bda6b3c5b60",
+      "parents": [
+        "599ab3dfc23a745ee0a151ded3ee179d8e37dcf7"
+      ],
+      "message": "fix(P10): harden durable outbox replay and claims"
+    },
+    {
+      "sha": "326ed64b04a95195a998148ef96ccc9d461d1f5e",
+      "tree_sha": "13acd7646701e4b75ac1bf4070ec746a60d59670",
+      "parents": [
+        "8aa0d6d4efbff38b4c408dd4d131db03aee024d7"
+      ],
+      "message": "docs(P10): record durable persistence repair"
+    },
+    {
+      "sha": "3aed3776de97be3e28532c2c64d71d2f3e20d9f8",
+      "tree_sha": "af3c5a3da0319071470d12f1eb959568f8bcf438",
+      "parents": [
+        "326ed64b04a95195a998148ef96ccc9d461d1f5e"
+      ],
+      "message": "fix(P10): bound controller probe state cleanup"
+    },
+    {
+      "sha": "7f59b66cd45c383a042326a35cf01307a97979d6",
+      "tree_sha": "1e4ecd4be6286be2ce680bf64d38b38d2a8b3c96",
+      "parents": [
+        "3aed3776de97be3e28532c2c64d71d2f3e20d9f8"
+      ],
+      "message": "test(P10): accept in-flight provider dispatch state"
+    },
+    {
+      "sha": "9ef9d2ff0ff6fc67faaeb5d6253ade6d2b41388b",
+      "tree_sha": "d90ed574722f3edabe93a1f4b22765d567eb12ce",
+      "parents": [
+        "7f59b66cd45c383a042326a35cf01307a97979d6"
+      ],
+      "message": "docs(P10): record bounded controller cleanup handoff"
+    },
+    {
+      "sha": "978e186a5ce1b3407a5ad78a836eee199d154b3d",
+      "tree_sha": "9b7f4c5b30c4714f56a3bd7c834f3ddf5bd5da65",
+      "parents": [
+        "9ef9d2ff0ff6fc67faaeb5d6253ade6d2b41388b"
+      ],
+      "message": "docs(P10): record full verification environment"
+    },
+    {
+      "sha": "6a7938aa3973e6d79cecae5a98b167f365976272",
+      "tree_sha": "8a86a69a45350ca6618ff2d36353bf30061d074f",
+      "parents": [
+        "978e186a5ce1b3407a5ad78a836eee199d154b3d"
+      ],
+      "message": "docs(P10): correct cleanup handoff SHA"
+    },
+    {
+      "sha": "ce62fbfec1ccc7030a5e50a7360dc02030ba9d77",
+      "tree_sha": "fbc82a2879b81655e67f4289c6023d68061bf10f",
+      "parents": [
+        "6a7938aa3973e6d79cecae5a98b167f365976272"
+      ],
+      "message": "fix(P10): harden probe join and receipt retry paths"
+    },
+    {
+      "sha": "45dc35a1fcdd846b7eff4a47b5f09a31dd9be13f",
+      "tree_sha": "a5198abe65d06f0d61e8cc51f7fbc969af1636e3",
+      "parents": [
+        "ce62fbfec1ccc7030a5e50a7360dc02030ba9d77"
+      ],
+      "message": "docs(P10): record final bounded review evidence"
+    },
+    {
+      "sha": "9ebafd87e9b8633805b2d58dc1832b881f516c31",
+      "tree_sha": "13f4aa69005acb1e5fe2e4f5c974296790f0b305",
+      "parents": [
+        "45dc35a1fcdd846b7eff4a47b5f09a31dd9be13f"
+      ],
+      "message": "docs(P10): make cleanup evidence executable"
+    },
+    {
+      "sha": "c4edb088f7ff48cea81e18c56cdd713ce9c6fe33",
+      "tree_sha": "ccf1b5da341807d02ce1dae2bc944f08ae8c43ff",
+      "parents": [
+        "9ebafd87e9b8633805b2d58dc1832b881f516c31"
+      ],
+      "message": "docs(P10): reconcile final candidate handoff"
+    },
+    {
+      "sha": "f06fdd4c49e624dde76f75e34b08091e4f6db1a0",
+      "tree_sha": "bdc7f34ea120e1922a90491b32efaba146e5cdff",
+      "parents": [
+        "c4edb088f7ff48cea81e18c56cdd713ce9c6fe33"
+      ],
+      "message": "fix(P10): bound probe recovery and lifecycle retries"
+    },
+    {
+      "sha": "a2eb8f67c1d9a242506dea7870f8475209cf8f03",
+      "tree_sha": "8860fc42363f971ba514e325eb7896d68b3cec85",
+      "parents": [
+        "f06fdd4c49e624dde76f75e34b08091e4f6db1a0"
+      ],
+      "message": "test(P10): retain bounded repair evidence"
+    },
+    {
+      "sha": "4be6b57f3652828ba5c2abb4ca50a9cbf65ea64c",
+      "tree_sha": "91ea56879db97effd5ef55fd8a21b76b2e84f35b",
+      "parents": [
+        "a2eb8f67c1d9a242506dea7870f8475209cf8f03"
+      ],
+      "message": "docs(P10): retain RED-GREEN evidence logs"
+    },
+    {
+      "sha": "4c2eaaf23ce9a638a721d8019a1722fe78dbddfc",
+      "tree_sha": "e732539c418dd371cf40cb8ebd23e84d9d881c25",
+      "parents": [
+        "4be6b57f3652828ba5c2abb4ca50a9cbf65ea64c"
+      ],
+      "message": "docs(P10): reconcile migration ownership and repair handoff"
+    },
+    {
+      "sha": "f1235449f482d28587aa8e229a94fe1623a73451",
+      "tree_sha": "77b0fd2dc0ef35d1292ffebbfa3613b9e2ef9f50",
+      "parents": [
+        "4c2eaaf23ce9a638a721d8019a1722fe78dbddfc"
+      ],
+      "message": "docs(P10): finalize exact repair handoff"
+    },
+    {
+      "sha": "bee7836f96167fa2efaffaddf2988aff84e240a1",
+      "tree_sha": "8491122051f98f0956747f2957aa68986feedfa8",
+      "parents": [
+        "f1235449f482d28587aa8e229a94fe1623a73451"
+      ],
+      "message": "docs(P10): record final verification evidence"
+    },
+    {
+      "sha": "cdfc420b7173516889954189762f180120727f5e",
+      "tree_sha": "b82031188323e8a0b0068283479d543598c0f288",
+      "parents": [
+        "bee7836f96167fa2efaffaddf2988aff84e240a1"
+      ],
+      "message": "docs(P10): pin candidate head and artifact policy"
+    },
+    {
+      "sha": "add8f144366ab91566decb8119a9fc32a91f9c7e",
+      "tree_sha": "e4b9d2912f31a5413f941cf07ea03858119b7550",
+      "parents": [
+        "cdfc420b7173516889954189762f180120727f5e"
+      ],
+      "message": "fix(P10): close lifecycle workers on capability changes"
+    },
+    {
+      "sha": "ac48fe551eebc7670ec0743e38123a5dec32e7f3",
+      "tree_sha": "3e6df4e8ca75e11ddb8d0f3695660457409fd810",
+      "parents": [
+        "add8f144366ab91566decb8119a9fc32a91f9c7e"
+      ],
+      "message": "test(P10): refresh final verification evidence"
+    },
+    {
+      "sha": "5a844dcf749014393aa32f967b4f06369b8d1148",
+      "tree_sha": "7698a3124ba098265dc1ad3492edb1e1e276fb2e",
+      "parents": [
+        "ac48fe551eebc7670ec0743e38123a5dec32e7f3"
+      ],
+      "message": "docs(P10): record R6 lifecycle evidence and ownership"
+    },
+    {
+      "sha": "5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919",
+      "tree_sha": "da95cffeb1737fdfb7e8d24a6607a7914ac0c80f",
+      "parents": [
+        "5a844dcf749014393aa32f967b4f06369b8d1148"
+      ],
+      "message": "fix(P10): close R7 auth activation and lifecycle gaps"
+    },
+    {
+      "sha": "b360aea8bfe7e05a68eb2016dfd519f4960db3ef",
+      "tree_sha": "6109e82c6b36c30a77866aa74f7e87d0b61e4e2e",
+      "parents": [
+        "5785c367cdb0cbbe9e1a2155e8b1128c2c1ff919"
+      ],
+      "message": "docs(P10): record R7 repair handoff"
+    },
+    {
+      "sha": "ca69aa72ef43851f33b290617e098096a87f7013",
+      "tree_sha": "09d0539767ae03c181baf8e61f3877f07b9e3de4",
+      "parents": [
+        "b360aea8bfe7e05a68eb2016dfd519f4960db3ef"
+      ],
+      "message": "docs(P10): reconcile R8 handoff evidence"
+    },
+    {
+      "sha": "8a3058afdda448d1d761e5f0815f35ed89c96456",
+      "tree_sha": "f1bf1ae29e64dd509bd5a1eab67fc87b48a43f26",
+      "parents": [
+        "ca69aa72ef43851f33b290617e098096a87f7013"
+      ],
+      "message": "fix(P10): repair probe activation and lifecycle recovery"
+    },
+    {
+      "sha": "494fd38daa25d42386470af4242519bdc531c997",
+      "tree_sha": "3607e97da31ec0a5fc94d4701e7052b69b8ccb68",
+      "parents": [
+        "8a3058afdda448d1d761e5f0815f35ed89c96456"
+      ],
+      "message": "docs(P10): record R9 repair evidence"
+    },
+    {
+      "sha": "1bfe27a4d031d4406627b8390699dd7761c6198c",
+      "tree_sha": "0725a0c2dab9c1a28a0f658682e35e6bbcfb584b",
+      "parents": [
+        "494fd38daa25d42386470af4242519bdc531c997"
+      ],
+      "message": "docs(P10): reconcile canonical R9 handoff"
+    },
+    {
+      "sha": "f1a72ddec963abf07dd664cfee679908476c85e1",
+      "tree_sha": "6fdb779a65ad7c3503244efe888516e1523e1941",
+      "parents": [
+        "1bfe27a4d031d4406627b8390699dd7761c6198c"
+      ],
+      "message": "docs(P10): reconcile R10 ownership and RED evidence"
+    },
+    {
+      "sha": "519cbda7e3193526ba95c3f5f77ec8148ce041c1",
+      "tree_sha": "a8a6f831cb4b5c2adaf82f11530e31ed4c4ad69b",
+      "parents": [
+        "f1a72ddec963abf07dd664cfee679908476c85e1"
+      ],
+      "message": "fix(P10): package R11 repair candidate"
+    },
+    {
+      "sha": "8abaf028c0a7579c8281f2dcfe64f2a0444351d4",
+      "tree_sha": "d2a5a4dc1dffedf4dc0ba818a9b9c0b70b8c15b7",
+      "parents": [
+        "519cbda7e3193526ba95c3f5f77ec8148ce041c1"
+      ],
+      "message": "docs(P10): reconcile R12 canonical handoff"
+    },
+    {
+      "sha": "6e559f9d870ae411fbf508baeb5ab893c65f9cd2",
+      "tree_sha": "26e4c7aa7d2aeaa1d8f2e3e342ca0917fd489275",
+      "parents": [
+        "8abaf028c0a7579c8281f2dcfe64f2a0444351d4"
+      ],
+      "message": "test(P10): capture R13 invariant regressions"
+    },
+    {
+      "sha": "ad13cb49b8e0613beaa92a96027e60ffcda2e075",
+      "tree_sha": "ebf2fb7d48093581e1288a23484406d6f1dbe0fa",
+      "parents": [
+        "6e559f9d870ae411fbf508baeb5ab893c65f9cd2"
+      ],
+      "message": "test(P10): add secure enrollment token RED cases"
+    },
+    {
+      "sha": "3d01b8d887c484d9f926a8e4e5e667ec89562f40",
+      "tree_sha": "1accf2062250f33b121ce10d5af1fe86228abcb5",
+      "parents": [
+        "ad13cb49b8e0613beaa92a96027e60ffcda2e075"
+      ],
+      "message": "fix(P10): package R13 recovery candidate"
+    },
+    {
+      "sha": "afbbc2223e8f8938e04c49e15713382abb9345fd",
+      "tree_sha": "ac3da63de845dfe472ed8d08992e0d8a0c0abc1e",
+      "parents": [
+        "3d01b8d887c484d9f926a8e4e5e667ec89562f40"
+      ],
+      "message": "docs(P10): reconcile R13 recovery handoff"
+    },
+    {
+      "sha": "cb5e86cdad774703c1ce97feb75b4e61d84dc685",
+      "tree_sha": "86b808b678b0871bfd2b40a2e7a2df3af67d3e19",
+      "parents": [
+        "afbbc2223e8f8938e04c49e15713382abb9345fd"
+      ],
+      "message": "test(P10-R14): capture merged activation validation RED"
+    },
+    {
+      "sha": "4ee56cce4cc5650d35ef6fda45401c9ec289ac99",
+      "tree_sha": "205b62ec98f87be9c7a96e61c2e93d42c311b06c",
+      "parents": [
+        "cb5e86cdad774703c1ce97feb75b4e61d84dc685"
+      ],
+      "message": "fix(P10-R14): validate merged activation snapshot"
+    },
+    {
+      "sha": "270c4ecd51048d81fcd69eba1758a5d21a4efbe9",
+      "tree_sha": "4ff6a86ae2e2856756272ff560713a1645d053dc",
+      "parents": [
+        "4ee56cce4cc5650d35ef6fda45401c9ec289ac99"
+      ],
+      "message": "test(P10-R14): capture replay fence retention RED"
+    },
+    {
+      "sha": "f89bd21c3147460fbd43e3712f407b793dea22a5",
+      "tree_sha": "885adcdef94ed0099d4f83665fcbb5d69fda004c",
+      "parents": [
+        "270c4ecd51048d81fcd69eba1758a5d21a4efbe9"
+      ],
+      "message": "fix(P10-R14): retain replay fence after receipt acknowledgement"
+    },
+    {
+      "sha": "3092ac022cd394da2852c70350822a8aa4c2297f",
+      "tree_sha": "efb3ee70575b6be537e2ae4ed3371be6ddf70d0d",
+      "parents": [
+        "f89bd21c3147460fbd43e3712f407b793dea22a5"
+      ],
+      "message": "test(P10-R14): capture migration ledger RED"
+    },
+    {
+      "sha": "70856cd06e1e6211339694525e36355ada716718",
+      "tree_sha": "3c0a483e0dd2725f33e30ee262e4ca8ae7c5ae46",
+      "parents": [
+        "3092ac022cd394da2852c70350822a8aa4c2297f"
+      ],
+      "message": "fix(P10-R14): ledger R13 hardening migration"
+    },
+    {
+      "sha": "4c7cd2c67bce16afac25276c4d6325034b1ea2a8",
+      "tree_sha": "f9ccbfd9f9c54ccdc88636b32b746273f46cbfc7",
+      "parents": [
+        "70856cd06e1e6211339694525e36355ada716718"
+      ],
+      "message": "docs(P10-R14): record exact repair handoff and evidence"
+    },
+    {
+      "sha": "533db91e3d30153e885238c5deeb88f00e0c3b20",
+      "tree_sha": "df6ab2db146c6291bea24ffb92fc4bd70b629db7",
+      "parents": [
+        "4c7cd2c67bce16afac25276c4d6325034b1ea2a8"
+      ],
+      "message": "docs(P10-R15): reconcile exact metadata handoffs"
+    },
+    {
+      "sha": "11c627108b5328eaf2ea9eaecff1769cacfffd95",
+      "tree_sha": "34397834a52bd5a0ec199de27a21b55f08944ac8",
+      "parents": [
+        "533db91e3d30153e885238c5deeb88f00e0c3b20"
+      ],
+      "message": "test(P10-R16): capture probe generation CAS RED"
+    },
+    {
+      "sha": "54b1749127fee38c069f9814cd5349602799c97c",
+      "tree_sha": "edeb913bf37969aed21bda8ec240d858e947ecd4",
+      "parents": [
+        "11c627108b5328eaf2ea9eaecff1769cacfffd95"
+      ],
+      "message": "fix(P10-R16): fence probes by forward generation"
+    },
+    {
+      "sha": "2c60385102d186ba3ae70e8d98468d03d485c2db",
+      "tree_sha": "9c39283395fba3fdfb6a80b9354cf7d07c5549bc",
+      "parents": [
+        "54b1749127fee38c069f9814cd5349602799c97c"
+      ],
+      "message": "fix(P10-R16): make terminal delivery receipt-safe"
+    },
+    {
+      "sha": "e257758d31d17c0b8f58aa6f98383f78d89fafea",
+      "tree_sha": "cccf08713652d57b73071bc7663f0f49689d1bcf",
+      "parents": [
+        "2c60385102d186ba3ae70e8d98468d03d485c2db"
+      ],
+      "message": "fix(P10-R16): close preserved repair checkpoint"
+    },
+    {
+      "sha": "2966536e43310641ce52deebf2e01d8bdb49a0a5",
+      "tree_sha": "703f566254742a87faa1150eabb238a5972e4ef7",
+      "parents": [
+        "e257758d31d17c0b8f58aa6f98383f78d89fafea"
+      ],
+      "message": "test(P10-R16): record closure stress evidence"
+    },
+    {
+      "sha": "dcafa36348a8260a655ecbdf8e8f6e87518f1614",
+      "tree_sha": "f28ffbd16cc793c6c89345bce3f41373f642675b",
+      "parents": [
+        "2966536e43310641ce52deebf2e01d8bdb49a0a5"
+      ],
+      "message": "test(P10-R16): record final make-test evidence"
+    }
+  ],
+  "candidate_commit_count": 67,
+  "files_changed": [
+    ".hermes/evidence/p10/f1-activation-green.log",
+    ".hermes/evidence/p10/f1-activation-red.log",
+    ".hermes/evidence/p10/f2-forward-binding-green.log",
+    ".hermes/evidence/p10/f2-forward-binding-red.log",
+    ".hermes/evidence/p10/f3-provider-green.log",
+    ".hermes/evidence/p10/f3-provider-red.log",
+    ".hermes/evidence/p10/r10-reconciliation-validation.log",
+    ".hermes/evidence/p10/r10-red-claim-audit.log",
+    ".hermes/evidence/p10/r13-package-diff-check.log",
+    ".hermes/evidence/p10/r13-package-gofmt.log",
+    ".hermes/evidence/p10/r13-package-make-build.log",
+    ".hermes/evidence/p10/r13-package-make-check.log",
+    ".hermes/evidence/p10/r13-package-make-test.log",
+    ".hermes/evidence/p10/r13-package-required-race.log",
+    ".hermes/evidence/p10/r13-package-test-r13.log",
+    ".hermes/evidence/p10/r13-package-walking-skeleton.log",
+    ".hermes/evidence/p10/r13-package-windows-cross-build.log",
+    ".hermes/evidence/p10/r13-red-pre-repair.txt",
+    ".hermes/evidence/p10/r14-contracts.log",
+    ".hermes/evidence/p10/r14-cross-build-matrix.log",
+    ".hermes/evidence/p10/r14-cross-build.log",
+    ".hermes/evidence/p10/r14-diff-check.log",
+    ".hermes/evidence/p10/r14-e2e.log",
+    ".hermes/evidence/p10/r14-evidence-manifest.json",
+    ".hermes/evidence/p10/r14-evidence-parity.log",
+    ".hermes/evidence/p10/r14-evidence-verify.log",
+    ".hermes/evidence/p10/r14-focused.log",
+    ".hermes/evidence/p10/r14-gofmt.log",
+    ".hermes/evidence/p10/r14-make-build.log",
+    ".hermes/evidence/p10/r14-make-check.log",
+    ".hermes/evidence/p10/r14-make-test.log",
+    ".hermes/evidence/p10/r14-provisioned-full.log",
+    ".hermes/evidence/p10/r14-provisioned-make-check.log",
+    ".hermes/evidence/p10/r14-provisioned-make-test.log",
+    ".hermes/evidence/p10/r14-provisioned-race.log",
+    ".hermes/evidence/p10/r14-race.log",
+    ".hermes/evidence/p10/r14-required-plan-race.log",
+    ".hermes/evidence/p10/r14-vet.log",
+    ".hermes/evidence/p10/r16-cas-arm-green.log",
+    ".hermes/evidence/p10/r16-cas-arm-red.log",
+    ".hermes/evidence/p10/r16-cas-join-green.log",
+    ".hermes/evidence/p10/r16-cas-join-red.log",
+    ".hermes/evidence/p10/r16-cas-outcome-green.log",
+    ".hermes/evidence/p10/r16-cas-outcome-red.log",
+    ".hermes/evidence/p10/r16-cross-build.log",
+    ".hermes/evidence/p10/r16-delete-stress-current.log",
+    ".hermes/evidence/p10/r16-delivery-expiry-green.log",
+    ".hermes/evidence/p10/r16-delivery-expiry-red.log",
+    ".hermes/evidence/p10/r16-delivery-receipt-green.log",
+    ".hermes/evidence/p10/r16-delivery-receipt-red.log",
+    ".hermes/evidence/p10/r16-diff-check.log",
+    ".hermes/evidence/p10/r16-e2e-repeat-current.log",
+    ".hermes/evidence/p10/r16-e2e.log",
+    ".hermes/evidence/p10/r16-focused-race.log",
+    ".hermes/evidence/p10/r16-full-race.log",
+    ".hermes/evidence/p10/r16-full.log",
+    ".hermes/evidence/p10/r16-gofmt.log",
+    ".hermes/evidence/p10/r16-make-build.log",
+    ".hermes/evidence/p10/r16-make-check-unprovisioned.log",
+    ".hermes/evidence/p10/r16-make-check.log",
+    ".hermes/evidence/p10/r16-make-test-current.log",
+    ".hermes/evidence/p10/r16-make-test-unprovisioned.log",
+    ".hermes/evidence/p10/r16-required-race.log",
+    ".hermes/evidence/p10/r16-verify-evidence.log",
+    ".hermes/evidence/p10/r16-verify-parity.log",
+    ".hermes/evidence/p10/r16-vet.log",
+    ".hermes/evidence/p10/r6-contracts.log",
+    ".hermes/evidence/p10/r6-final-make-build.log",
+    ".hermes/evidence/p10/r6-final-make-check.log",
+    ".hermes/evidence/p10/r6-hub-close-green.log",
+    ".hermes/evidence/p10/r6-hub-close-red.log",
+    ".hermes/evidence/p10/r6-lifecycle-race.log",
+    ".hermes/evidence/p10/r6-make-build.log",
+    ".hermes/evidence/p10/r6-make-check.log",
+    ".hermes/evidence/p10/r6-make-test.log",
+    ".hermes/evidence/p10/r6-probe-gate-green.log",
+    ".hermes/evidence/p10/r6-probe-gate-red.log",
+    ".hermes/evidence/p10/r6-required-race.log",
+    ".hermes/evidence/p10/r6-route-fingerprint-green.log",
+    ".hermes/evidence/p10/r6-route-fingerprint-red.log",
+    ".hermes/evidence/p10/r6-startup-wait-green.log",
+    ".hermes/evidence/p10/r6-startup-wait-red.log",
+    ".hermes/evidence/p10/r7-apply-desired-capability-green.log",
+    ".hermes/evidence/p10/r7-apply-desired-capability-red.log",
+    ".hermes/evidence/p10/r9-contracts.log",
+    ".hermes/evidence/p10/r9-e2e.log",
+    ".hermes/evidence/p10/r9-focused.log",
+    ".hermes/evidence/p10/r9-make-build.log",
+    ".hermes/evidence/p10/r9-make-check.log",
+    ".hermes/evidence/p10/r9-make-test.log",
+    ".hermes/evidence/p10/r9-race.log",
+    ".hermes/evidence/p10/r9-vet.log",
+    ".hermes/evidence/p10/red-activation.log",
+    ".hermes/evidence/p10/red-migration.log",
+    ".hermes/evidence/p10/red-reconcile.log",
+    ".hermes/evidence/p10/red-replay.log",
+    ".hermes/evidence/p10/s4-receipt-green.log",
+    ".hermes/evidence/p10/s4-receipt-red.log",
+    ".hermes/evidence/p10/s5-reconnect-green.log",
+    ".hermes/evidence/p10/s5-reconnect-red.log",
+    ".hermes/evidence/p10/s6-walking-green.log",
+    ".hermes/evidence/p10/s6-walking-red.log",
+    ".hermes/handoffs/P10-controller-regressions.json",
+    ".hermes/handoffs/P10-r10-repair.json",
+    ".hermes/handoffs/P10-r11-repair.json",
+    ".hermes/handoffs/P10-r13-recovery.json",
+    ".hermes/handoffs/P10-r13-rejected-archive.json",
+    ".hermes/handoffs/P10-r14-recovery.json",
+    ".hermes/handoffs/P10-r15-reconciliation.json",
+    ".hermes/handoffs/P10-r9-repair.json",
+    ".hermes/handoffs/P10.json",
+    ".hermes/plans/v1-beta/12-gateway-traversal-detection.md",
+    ".hermes/plans/v1-beta/14-lifecycle-rotation-recovery.md",
+    "cmd/antinat-agent/main.go",
+    "cmd/antinat-agent/tokenfile.go",
+    "cmd/antinat-agent/tokenfile_test.go",
+    "cmd/antinat-agent/tokenfile_windows.go",
+    "cmd/antinat-controller/main.go",
+    "cmd/antinat-probe/main.go",
+    "cmd/antinat-probe/main_test.go",
+    "cmd/antinatctl/cli_test.go",
+    "cmd/antinatctl/main.go",
+    "go.mod",
+    "go.sum",
+    "internal/agent/app.go",
+    "internal/agent/app_test.go",
+    "internal/agent/control/p10_r13_regression_test.go",
+    "internal/agent/control/reconnect_test.go",
+    "internal/agent/control/session.go",
+    "internal/agent/localstate/activation.go",
+    "internal/agent/localstate/journal.go",
+    "internal/agent/localstate/outbox.go",
+    "internal/agent/localstate/p10_r10_repair_test.go",
+    "internal/agent/localstate/p10_r14_replay_test.go",
+    "internal/agent/localstate/p10_r9_repair_test.go",
+    "internal/agent/localstate/p10_repair_red_test.go",
+    "internal/agent/localstate/probe.go",
+    "internal/agent/localstate/probe_test.go",
+    "internal/agent/localstate/schema.go",
+    "internal/agent/localstate/store.go",
+    "internal/agent/localstate/store_test.go",
+    "internal/agent/p10_r13_regression_test.go",
+    "internal/agent/p10_r9_repair_test.go",
+    "internal/agent/reconcile/activation.go",
+    "internal/agent/reconcile/desired.go",
+    "internal/agent/reconcile/desired_test.go",
+    "internal/agent/reconcile/p10_r10_repair_test.go",
+    "internal/agent/reconcile/p10_r13_regression_test.go",
+    "internal/agent/reconcile/p10_r14_replay_test.go",
+    "internal/agent/reconcile/p10_r16_regression_test.go",
+    "internal/agent/reconcile/p10_r9_repair_test.go",
+    "internal/agent/reconcile/probe.go",
+    "internal/agent/reconcile/probe_gate_lifecycle_test.go",
+    "internal/agent/reconcile/probe_test.go",
+    "internal/agent/reconcile/reconciler.go",
+    "internal/agent/reconcile/state_machine.go",
+    "internal/agent/reconcile/state_machine_test.go",
+    "internal/agent/startup_cleanup_regression_test.go",
+    "internal/controller/agenthub/hub.go",
+    "internal/controller/agenthub/hub_close_test.go",
+    "internal/controller/agenthub/p10_r13_regression_test.go",
+    "internal/controller/agenthub/p10_r16_dual_result_test.go",
+    "internal/controller/agenthub/probe_receipt_ack_regression_test.go",
+    "internal/controller/agenthub/probesink_test.go",
+    "internal/controller/agenthub/session.go",
+    "internal/controller/api/api_test.go",
+    "internal/controller/api/auth.go",
+    "internal/controller/api/forwards_min.go",
+    "internal/controller/api/health.go",
+    "internal/controller/api/nodes_min.go",
+    "internal/controller/api/p10_r13_regression_test.go",
+    "internal/controller/app.go",
+    "internal/controller/app_r16_regression_test.go",
+    "internal/controller/app_r9_repair_test.go",
+    "internal/controller/app_test.go",
+    "internal/controller/auth/auth_test.go",
+    "internal/controller/auth/service.go",
+    "internal/controller/cycle2_regression_test.go",
+    "internal/controller/probe/cycle2_regression_test.go",
+    "internal/controller/probe/cycle3_regression_test.go",
+    "internal/controller/probe/cycle4_regression_test.go",
+    "internal/controller/probe/manager.go",
+    "internal/controller/probe/manager_cleanup_regression_test.go",
+    "internal/controller/probe/manager_test.go",
+    "internal/controller/probe/p10_network_red_test.go",
+    "internal/controller/probe/p10_r13_regression_test.go",
+    "internal/controller/probe/p10_r16_regression_test.go",
+    "internal/controller/probe/p10_r9_repair_test.go",
+    "internal/controller/probe/p10_repair_red_test.go",
+    "internal/controller/probe/provider.go",
+    "internal/controller/probe/provider_service.go",
+    "internal/controller/probe/provider_service_test.go",
+    "internal/controller/probe/story6_regression_test.go",
+    "internal/controller/store/backup_test.go",
+    "internal/controller/store/control.go",
+    "internal/controller/store/control_cleanup_regression_test.go",
+    "internal/controller/store/control_test.go",
+    "internal/controller/store/corrupt_internal_test.go",
+    "internal/controller/store/cycle3_regression_test.go",
+    "internal/controller/store/cycle4_regression_test.go",
+    "internal/controller/store/idempotency.go",
+    "internal/controller/store/idempotency_test.go",
+    "internal/controller/store/migrate.go",
+    "internal/controller/store/migrate_test.go",
+    "internal/controller/store/minapi.go",
+    "internal/controller/store/minapi_atomic_test.go",
+    "internal/controller/store/node_bundle.go",
+    "internal/controller/store/outbox.go",
+    "internal/controller/store/p10_r13_regression_test.go",
+    "internal/controller/store/p10_r14_activation_test.go",
+    "internal/controller/store/p10_r14_migration_test.go",
+    "internal/controller/store/p10_r16_dual_result_test.go",
+    "internal/controller/store/p10_r16_migration_test.go",
+    "internal/controller/store/p10_r16_regression_test.go",
+    "internal/controller/store/p10_r9_repair_test.go",
+    "internal/controller/store/probe.go",
+    "internal/controller/store/probe_cleanup_regression_test.go",
+    "internal/controller/store/probe_test.go",
+    "internal/controller/store/store.go",
+    "internal/controller/store/transaction_test.go",
+    "internal/controller/store/transactions.go",
+    "internal/controller/store/users.go",
+    "internal/controller/web/router_min.go",
+    "internal/protocol/endpoint.go",
+    "internal/protocol/p10_r9_repair_test.go",
+    "internal/protocol/probe_adapter.go",
+    "internal/protocol/strictjson.go",
+    "internal/protocol/strictjson_test.go",
+    "internal/traversal/network.go",
+    "migrations/0004_probe.sql",
+    "migrations/0005_probe_hardening.sql",
+    "migrations/0006_r13_hardening.sql",
+    "migrations/migrations.go",
+    "test/e2e/harness/harness.go",
+    "test/e2e/walking_skeleton_test.go"
+  ],
+  "files_changed_count": 235,
+  "r16_files_changed": [
+    ".hermes/evidence/p10/r16-cas-arm-green.log",
+    ".hermes/evidence/p10/r16-cas-arm-red.log",
+    ".hermes/evidence/p10/r16-cas-join-green.log",
+    ".hermes/evidence/p10/r16-cas-join-red.log",
+    ".hermes/evidence/p10/r16-cas-outcome-green.log",
+    ".hermes/evidence/p10/r16-cas-outcome-red.log",
+    ".hermes/evidence/p10/r16-cross-build.log",
+    ".hermes/evidence/p10/r16-delete-stress-current.log",
+    ".hermes/evidence/p10/r16-delivery-expiry-green.log",
+    ".hermes/evidence/p10/r16-delivery-expiry-red.log",
+    ".hermes/evidence/p10/r16-delivery-receipt-green.log",
+    ".hermes/evidence/p10/r16-delivery-receipt-red.log",
+    ".hermes/evidence/p10/r16-diff-check.log",
+    ".hermes/evidence/p10/r16-e2e-repeat-current.log",
+    ".hermes/evidence/p10/r16-e2e.log",
+    ".hermes/evidence/p10/r16-focused-race.log",
+    ".hermes/evidence/p10/r16-full-race.log",
+    ".hermes/evidence/p10/r16-full.log",
+    ".hermes/evidence/p10/r16-gofmt.log",
+    ".hermes/evidence/p10/r16-make-build.log",
+    ".hermes/evidence/p10/r16-make-check-unprovisioned.log",
+    ".hermes/evidence/p10/r16-make-check.log",
+    ".hermes/evidence/p10/r16-make-test-current.log",
+    ".hermes/evidence/p10/r16-make-test-unprovisioned.log",
+    ".hermes/evidence/p10/r16-required-race.log",
+    ".hermes/evidence/p10/r16-verify-evidence.log",
+    ".hermes/evidence/p10/r16-verify-parity.log",
+    ".hermes/evidence/p10/r16-vet.log",
+    "internal/agent/reconcile/p10_r16_regression_test.go",
+    "internal/agent/reconcile/probe.go",
+    "internal/controller/agenthub/p10_r16_dual_result_test.go",
+    "internal/controller/agenthub/session.go",
+    "internal/controller/app.go",
+    "internal/controller/app_r16_regression_test.go",
+    "internal/controller/probe/manager.go",
+    "internal/controller/probe/manager_test.go",
+    "internal/controller/probe/p10_r13_regression_test.go",
+    "internal/controller/probe/p10_r16_regression_test.go",
+    "internal/controller/probe/provider_service.go",
+    "internal/controller/probe/provider_service_test.go",
+    "internal/controller/store/control.go",
+    "internal/controller/store/control_cleanup_regression_test.go",
+    "internal/controller/store/cycle3_regression_test.go",
+    "internal/controller/store/migrate.go",
+    "internal/controller/store/minapi.go",
+    "internal/controller/store/p10_r13_regression_test.go",
+    "internal/controller/store/p10_r14_activation_test.go",
+    "internal/controller/store/p10_r16_dual_result_test.go",
+    "internal/controller/store/p10_r16_migration_test.go",
+    "internal/controller/store/p10_r16_regression_test.go",
+    "internal/controller/store/probe.go",
+    "internal/controller/store/probe_test.go",
+    "internal/controller/store/transactions.go",
+    "migrations/0006_r13_hardening.sql",
+    "test/e2e/walking_skeleton_test.go"
+  ],
+  "r16_files_changed_count": 55,
+  "undeclared_files": [],
+  "ownership": {
+    "receiving_plan": "P10",
+    "approved_transfer": true,
+    "common_expiry": "P10 integration or rejection, whichever occurs first.",
+    "carry_forward_reference": {
+      "path": ".hermes/handoffs/P10.json",
+      "sha256": "55375aed08a61bcd054494a950996545c46ac03dc3ed1a4f2caa6339f96d1725",
+      "candidate_at_reference": "533db91e3d30153e885238c5deeb88f00e0c3b20",
+      "note": "The prior exact transfer inventory remains in force; this closure does not rewrite or re-approve it."
+    },
+    "r16_temporary_transfer_groups": [
+      {
+        "source_owner": "P07",
+        "paths": [
+          "internal/agent/reconcile/probe.go",
+          "internal/agent/reconcile/p10_r16_regression_test.go"
+        ],
+        "scope": "R16 probe runtime-mirror, durable receipt-deadline fencing, and exact regression hunks only.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      },
+      {
+        "source_owner": "P08",
+        "paths": [
+          "internal/controller/agenthub/session.go",
+          "internal/controller/agenthub/p10_r16_dual_result_test.go"
+        ],
+        "scope": "R16 exact dual semantic-result/receipt handling and regression hunks only.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      },
+      {
+        "source_owner": "P06",
+        "paths": [
+          "internal/controller/store/control.go",
+          "internal/controller/store/control_cleanup_regression_test.go",
+          "internal/controller/store/cycle3_regression_test.go",
+          "internal/controller/store/migrate.go",
+          "internal/controller/store/minapi.go",
+          "internal/controller/store/p10_r13_regression_test.go",
+          "internal/controller/store/p10_r14_activation_test.go",
+          "internal/controller/store/p10_r16_dual_result_test.go",
+          "internal/controller/store/p10_r16_migration_test.go",
+          "internal/controller/store/p10_r16_regression_test.go",
+          "internal/controller/store/probe.go",
+          "internal/controller/store/probe_test.go",
+          "internal/controller/store/transactions.go"
+        ],
+        "scope": "R16 generation CAS, terminal-delivery/inbox retention, exact delete correlation/recovery, bounded migration/backfill, and named regression hunks only.",
+        "expiry": "P10 integration or rejection, whichever occurs first."
+      }
+    ],
+    "p10_owned_r16_paths": [
+      ".hermes/evidence/p10/r16-cas-arm-green.log",
+      ".hermes/evidence/p10/r16-cas-arm-red.log",
+      ".hermes/evidence/p10/r16-cas-join-green.log",
+      ".hermes/evidence/p10/r16-cas-join-red.log",
+      ".hermes/evidence/p10/r16-cas-outcome-green.log",
+      ".hermes/evidence/p10/r16-cas-outcome-red.log",
+      ".hermes/evidence/p10/r16-cross-build.log",
+      ".hermes/evidence/p10/r16-delete-stress-current.log",
+      ".hermes/evidence/p10/r16-delivery-expiry-green.log",
+      ".hermes/evidence/p10/r16-delivery-expiry-red.log",
+      ".hermes/evidence/p10/r16-delivery-receipt-green.log",
+      ".hermes/evidence/p10/r16-delivery-receipt-red.log",
+      ".hermes/evidence/p10/r16-diff-check.log",
+      ".hermes/evidence/p10/r16-e2e-repeat-current.log",
+      ".hermes/evidence/p10/r16-e2e.log",
+      ".hermes/evidence/p10/r16-focused-race.log",
+      ".hermes/evidence/p10/r16-full-race.log",
+      ".hermes/evidence/p10/r16-full.log",
+      ".hermes/evidence/p10/r16-gofmt.log",
+      ".hermes/evidence/p10/r16-make-build.log",
+      ".hermes/evidence/p10/r16-make-check-unprovisioned.log",
+      ".hermes/evidence/p10/r16-make-check.log",
+      ".hermes/evidence/p10/r16-make-test-current.log",
+      ".hermes/evidence/p10/r16-make-test-unprovisioned.log",
+      ".hermes/evidence/p10/r16-required-race.log",
+      ".hermes/evidence/p10/r16-verify-evidence.log",
+      ".hermes/evidence/p10/r16-verify-parity.log",
+      ".hermes/evidence/p10/r16-vet.log",
+      "internal/controller/app.go",
+      "internal/controller/app_r16_regression_test.go",
+      "internal/controller/probe/manager.go",
+      "internal/controller/probe/manager_test.go",
+      "internal/controller/probe/p10_r13_regression_test.go",
+      "internal/controller/probe/p10_r16_regression_test.go",
+      "internal/controller/probe/provider_service.go",
+      "internal/controller/probe/provider_service_test.go",
+      "migrations/0006_r13_hardening.sql",
+      "test/e2e/walking_skeleton_test.go"
+    ],
+    "future_plan_note": "The full base-to-head inventory contains two pre-R16 future-plan edits already present in the carried-forward R15 candidate. R16 did not touch them; this metadata closure neither approves nor reinterprets them, and fresh specification/ownership review remains mandatory."
+  },
+  "tests": [
+    {
+      "phase": "focused-race",
+      "command": "GOWORK=off go test ./internal/controller/probe ./internal/agent/reconcile ./internal/controller/api ./cmd/antinatctl ./internal/controller/store ./internal/controller/agenthub ./internal/controller -race -count=1 -v",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16-focused-race.log"
+    },
+    {
+      "phase": "required-plan-race",
+      "command": "GOWORK=off go test ./internal/controller/probe ./internal/agent/reconcile ./internal/controller/api ./cmd/antinatctl -race -count=1 -v",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16-required-race.log"
+    },
+    {
+      "phase": "m1-e2e",
+      "command": "GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./test/e2e -run TestLinuxDirectV4WalkingSkeleton -count=1 -v",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16-e2e.log"
+    },
+    {
+      "phase": "cumulative",
+      "command": "GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./... -count=1",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16-full.log"
+    },
+    {
+      "phase": "cumulative-race",
+      "command": "GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -race ./... -count=1",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16-full-race.log"
+    },
+    {
+      "phase": "format",
+      "command": "gofmt -l internal cmd migrations test scripts",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16-gofmt.log",
+      "interpretation": "empty output"
+    },
+    {
+      "phase": "diff-check",
+      "command": "git diff --check",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16-diff-check.log",
+      "interpretation": "empty output"
+    },
+    {
+      "phase": "vet",
+      "command": "GOWORK=off go vet ./...",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16-vet.log",
+      "interpretation": "empty output"
+    },
+    {
+      "phase": "make-check-provisioned",
+      "command": "GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make check",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16-make-check.log"
+    },
+    {
+      "phase": "build",
+      "command": "GOWORK=off make build",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16-make-build.log"
+    },
+    {
+      "phase": "cross-build",
+      "command": "GOWORK=off make cross-build",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16-cross-build.log"
+    },
+    {
+      "phase": "evidence-validation",
+      "command": "GOWORK=off make verify-evidence",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16-verify-evidence.log"
+    },
+    {
+      "phase": "evidence-parity",
+      "command": "GOWORK=off make verify-evidence-parity",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16-verify-parity.log"
+    },
+    {
+      "phase": "unprovisioned-capability-probe",
+      "command": "GOWORK=off env -u ANTINAT_DEDICATED_UID -u ANTINAT_DEDICATED_GID make test",
+      "exit_code": 2,
+      "evidence": ".hermes/evidence/p10/r16-make-test-unprovisioned.log",
+      "interpretation": "expected fail-closed prerequisite result; provisioned make test passes"
+    },
+    {
+      "phase": "unprovisioned-capability-probe",
+      "command": "GOWORK=off env -u ANTINAT_DEDICATED_UID -u ANTINAT_DEDICATED_GID make check",
+      "exit_code": 2,
+      "evidence": ".hermes/evidence/p10/r16-make-check-unprovisioned.log",
+      "interpretation": "expected fail-closed prerequisite result; provisioned make check passes"
+    },
+    {
+      "phase": "m1-e2e-stress",
+      "command": "GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./test/e2e -run TestLinuxDirectV4WalkingSkeleton -count=10 -v",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16-e2e-repeat-current.log"
+    },
+    {
+      "phase": "delete-cas-race-stress",
+      "command": "GOWORK=off go test ./internal/controller/store -run '^TestR16ConcurrentForwardDeleteWritersResolveByCAS$' -race -count=100 -v",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16-delete-stress-current.log"
+    },
+    {
+      "phase": "make-test-provisioned-final",
+      "command": "GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 make test",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p10/r16-make-test-current.log"
+    }
+  ],
+  "test_evidence_provenance": "Commands and exits are preserved from t_12a4f830/run414 and its committed logs; t_4334a3a5 did not rerun broad tests, builds, network probes, or provider calls.",
+  "red_green_evidence": [
+    {
+      "slice": "cas-arm",
+      "red": {
+        "exit_code": 1,
+        "evidence": ".hermes/evidence/p10/r16-cas-arm-red.log"
+      },
+      "green": {
+        "exit_code": 0,
+        "evidence": ".hermes/evidence/p10/r16-cas-arm-green.log"
+      }
+    },
+    {
+      "slice": "cas-join",
+      "red": {
+        "exit_code": 1,
+        "evidence": ".hermes/evidence/p10/r16-cas-join-red.log"
+      },
+      "green": {
+        "exit_code": 0,
+        "evidence": ".hermes/evidence/p10/r16-cas-join-green.log"
+      }
+    },
+    {
+      "slice": "cas-outcome",
+      "red": {
+        "exit_code": 1,
+        "evidence": ".hermes/evidence/p10/r16-cas-outcome-red.log"
+      },
+      "green": {
+        "exit_code": 0,
+        "evidence": ".hermes/evidence/p10/r16-cas-outcome-green.log"
+      }
+    },
+    {
+      "slice": "delivery-expiry",
+      "red": {
+        "exit_code": 1,
+        "evidence": ".hermes/evidence/p10/r16-delivery-expiry-red.log"
+      },
+      "green": {
+        "exit_code": 0,
+        "evidence": ".hermes/evidence/p10/r16-delivery-expiry-green.log"
+      }
+    },
+    {
+      "slice": "delivery-receipt",
+      "red": {
+        "exit_code": 1,
+        "evidence": ".hermes/evidence/p10/r16-delivery-receipt-red.log"
+      },
+      "green": {
+        "exit_code": 0,
+        "evidence": ".hermes/evidence/p10/r16-delivery-receipt-green.log"
+      }
+    }
+  ],
+  "evidence": [
+    ".hermes/evidence/p10/r16-cas-arm-green.log",
+    ".hermes/evidence/p10/r16-cas-arm-red.log",
+    ".hermes/evidence/p10/r16-cas-join-green.log",
+    ".hermes/evidence/p10/r16-cas-join-red.log",
+    ".hermes/evidence/p10/r16-cas-outcome-green.log",
+    ".hermes/evidence/p10/r16-cas-outcome-red.log",
+    ".hermes/evidence/p10/r16-cross-build.log",
+    ".hermes/evidence/p10/r16-delete-stress-current.log",
+    ".hermes/evidence/p10/r16-delivery-expiry-green.log",
+    ".hermes/evidence/p10/r16-delivery-expiry-red.log",
+    ".hermes/evidence/p10/r16-delivery-receipt-green.log",
+    ".hermes/evidence/p10/r16-delivery-receipt-red.log",
+    ".hermes/evidence/p10/r16-diff-check.log",
+    ".hermes/evidence/p10/r16-e2e-repeat-current.log",
+    ".hermes/evidence/p10/r16-e2e.log",
+    ".hermes/evidence/p10/r16-focused-race.log",
+    ".hermes/evidence/p10/r16-full-race.log",
+    ".hermes/evidence/p10/r16-full.log",
+    ".hermes/evidence/p10/r16-gofmt.log",
+    ".hermes/evidence/p10/r16-make-build.log",
+    ".hermes/evidence/p10/r16-make-check-unprovisioned.log",
+    ".hermes/evidence/p10/r16-make-check.log",
+    ".hermes/evidence/p10/r16-make-test-current.log",
+    ".hermes/evidence/p10/r16-make-test-unprovisioned.log",
+    ".hermes/evidence/p10/r16-required-race.log",
+    ".hermes/evidence/p10/r16-verify-evidence.log",
+    ".hermes/evidence/p10/r16-verify-parity.log",
+    ".hermes/evidence/p10/r16-vet.log"
+  ],
+  "evidence_count": 28,
+  "evidence_sha256": {
+    ".hermes/evidence/p10/r16-cas-arm-green.log": "e3b03bd155443dc404f7707150d74afba3372ab436d150b72919979dc53dc2a4",
+    ".hermes/evidence/p10/r16-cas-arm-red.log": "abc8844f39259f1de948701b7667a46a3abef48394875e4d06e3887b180c12a7",
+    ".hermes/evidence/p10/r16-cas-join-green.log": "8a4e46640cb112bef29b52b826a05ef0a7254ee6f0d6a6ebefa1dc4163497b20",
+    ".hermes/evidence/p10/r16-cas-join-red.log": "205dd44039e9e17a4146a31db9b6cc59ee1b98175b76194b997867ad9d6bd8c4",
+    ".hermes/evidence/p10/r16-cas-outcome-green.log": "ad689bb55213c2d358788837ca30197d981104e691118063752dc5d980c2d7e3",
+    ".hermes/evidence/p10/r16-cas-outcome-red.log": "291f843356ae03b1d0d09f4a4a0ce806c381caeb7d53f158f81424d634fe8ca4",
+    ".hermes/evidence/p10/r16-cross-build.log": "a06b2350bbcf01ba72b7b8e51a7bf5324333f9322d93d8057e64ac80d4ad9059",
+    ".hermes/evidence/p10/r16-delete-stress-current.log": "2eff7ee0d50175fb2b3b5afe82daf886723e45449365099470992155df1c9483",
+    ".hermes/evidence/p10/r16-delivery-expiry-green.log": "a3a4b7ec343dc27929feba39cf87aa43359f7da9639e32023aee502d9cf0031d",
+    ".hermes/evidence/p10/r16-delivery-expiry-red.log": "168fb2a79fd22fe492b7ab6025103ecc551134abb49a2f054cd5925cd67e1c13",
+    ".hermes/evidence/p10/r16-delivery-receipt-green.log": "2d12abcfbde78728bc8cc2201cc99dc0a1b8ab8f4f076672dabcb592fa5138fb",
+    ".hermes/evidence/p10/r16-delivery-receipt-red.log": "504d86bdc67e26ae39faded3057ba120314b7214795948d1c7d8fcec6f2cbd0f",
+    ".hermes/evidence/p10/r16-diff-check.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".hermes/evidence/p10/r16-e2e-repeat-current.log": "98b072d18e1f4d7b6b1244848310232e70ed009f7a6d46b433f05520a1f3e64c",
+    ".hermes/evidence/p10/r16-e2e.log": "a7e93a212befc741a2214b5b21d96f381c4116c2c8731b556ff132682f19ddea",
+    ".hermes/evidence/p10/r16-focused-race.log": "b034ad204cbbd1099dcf303c007a61550685261170c751758fad776194537c18",
+    ".hermes/evidence/p10/r16-full-race.log": "22c9a65980cf890ef4d0cd944ec1b265a452780031304f06a9a168be1d7cf9e7",
+    ".hermes/evidence/p10/r16-full.log": "64527317abf02f3d86cb28a253f20df94def4bfc4860761c208fb55e80f13818",
+    ".hermes/evidence/p10/r16-gofmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".hermes/evidence/p10/r16-make-build.log": "6bac6abed0a203ea26b2e56083af6d85b9e830b8ec93bacc63d539bbca78992b",
+    ".hermes/evidence/p10/r16-make-check-unprovisioned.log": "071a7c0b7d7cb47630f0760345a917faf9a56e8a86de3373c55bfcf5b72fba40",
+    ".hermes/evidence/p10/r16-make-check.log": "13f8284d8233bd6c9b2dd8f8687e00f141197d5a45110f7be9af2192576db8a8",
+    ".hermes/evidence/p10/r16-make-test-current.log": "d4cc6353dbde8c7a8326a96a5f832f83a72b3c528270ec52db821b3ec44cf64b",
+    ".hermes/evidence/p10/r16-make-test-unprovisioned.log": "fffe4b452568395734ab99c64e0e88c62d4fd43a47704c4d4cb07e73f9dfeb5e",
+    ".hermes/evidence/p10/r16-required-race.log": "fb4046c328cfea07ff426ed59bf21ed730c6ceca6e52def078e95f9151b94460",
+    ".hermes/evidence/p10/r16-verify-evidence.log": "252e5156c0a45961e4b88fea3c790f5560b6e784ca2e17ba12dbbabaa173588c",
+    ".hermes/evidence/p10/r16-verify-parity.log": "d10489979e2857d71bb8cca9bfb51d8a053676a445274f2b8e61ec907585794d",
+    ".hermes/evidence/p10/r16-vet.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "contracts_consumed": [
+    {
+      "path": "docs/state-model.md",
+      "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
+    },
+    {
+      "path": "docs/protocol.md",
+      "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"
+    },
+    {
+      "path": "api/openapi.yaml",
+      "sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32"
+    },
+    {
+      "path": ".hermes/plans/v1-beta/00-master-orchestration.md",
+      "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4"
+    },
+    {
+      "path": ".hermes/plans/v1-beta/10-wan-probe-activation-cli-e2e.md",
+      "sha256": "91c7b8814d969ec9bfbf757a97c9a7aeb865fad7b49b76be826603d693b80ce0"
+    },
+    {
+      "path": "docs/adr/0003-wan-probe-truth.md",
+      "sha256": "31f4b1a01041a228e01c5fbc2cf0d0d9aeb447844b7dfa1da361f55df5b85fbd"
+    },
+    {
+      "path": "docs/installer-contract.md",
+      "sha256": "c7f83ea2fedcf9b1c393dae290ff1168bcd9f495d064a2ea74d386f3d38c630a"
+    },
+    {
+      "path": "docs/error-codes.md",
+      "sha256": "be4f4c22c0cd7a5a04bc9076e14efef7028a4c7634eb926aa675e7f87cbfa3b5"
+    },
+    {
+      "path": "test/contracts/manifest.json",
+      "sha256": "c300e1c883ca9aefd69f054827f9c8279fddeae140d330623d17b8477fe87121"
+    }
+  ],
+  "contracts_changed": [],
+  "capability_result": "SUPPORTED_WITH_LIMITS",
+  "known_limits": [
+    "WAN/publication evidence is local/sandbox-only; no independent public-WAN/provider-egress vantage or arbitrary-NAT reachability claim is made.",
+    "Windows and non-amd64 evidence is cross-build/compile-only; no native runtime gate was exercised for those platforms.",
+    "Cumulative sandbox gates require the provisioned ANTINAT_DEDICATED_UID=12001 and ANTINAT_DEDICATED_GID=12001 identity; unprovisioned runs fail closed with exit 2 as recorded.",
+    "No router/UPnP/CGNAT, UDP traversal, production deployment, native-platform runtime, or soak evidence is claimed.",
+    "This is an implementation candidate only. Fresh exact-head migration-plan, specification/ownership, quality/security, network/protocol, and lifecycle/integration-boundary reviews remain mandatory."
+  ],
+  "cleanup_done": true,
+  "cleanup": {
+    "candidate_clean_before_handoff_write": true,
+    "candidate_status_before_handoff_write": [],
+    "git_lock_count": 0,
+    "competing_workspace_writer_count": 0,
+    "generated_build_artifacts_removed_by_source_run": true,
+    "candidate_head_unchanged_by_closure": true,
+    "intentional_post_write_path": ".hermes/handoffs/P10-r16-repair.json",
+    "note": "No production, test, plan, evidence, config, canonical handoff, merge, rebase, reset, cherry-pick, push, tag, release, build, network probe, or provider action was performed by this closure task."
+  },
+  "writer_quiescence": {
+    "checked_at_utc": "2026-08-18T03:35:32Z",
+    "other_processes_referencing_workspace": 0,
+    "git_lock_count": 0,
+    "result": "QUIESCENT"
+  },
+  "review_required": true,
+  "review_status": "REQUIRED_NOT_REVIEWED",
+  "review_approval": false,
+  "integration_status": "CANDIDATE_ONLY",
+  "integration_approval": false
+}
