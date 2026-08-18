@@ -39,3 +39,27 @@ CREATE INDEX IF NOT EXISTS idx_probe_terminal_delivery_state
 DROP INDEX IF EXISTS idx_probe_terminal_delivery;
 CREATE INDEX idx_probe_terminal_delivery
     ON probe_operations(status, created_at, id);
+
+-- R16 bounded recovery/cleanup paths use deterministic id ordering. These
+-- indexes keep the bounded keyset scans from sorting the historical tables.
+CREATE INDEX IF NOT EXISTS idx_control_inbox_replay_gc
+    ON control_inbox(message_type, state, updated_at, id)
+    WHERE message_type = 'probe_result' AND state = 'PROCESSED';
+CREATE INDEX IF NOT EXISTS idx_control_inbox_state_page
+    ON control_inbox(state, message_type, id);
+CREATE INDEX IF NOT EXISTS idx_probe_terminal_expiry
+    ON probe_terminal_deliveries(disposition, updated_at, probe_id)
+    WHERE disposition = 'ENQUEUED';
+
+-- Probe-operation cleanup uses different durable clocks. Keep the ordered key
+-- first in each partial index so a caller-sized LIMIT bounds work rather than
+-- merely truncating a full historical sort.
+CREATE INDEX IF NOT EXISTS idx_probe_live_expiry
+    ON probe_operations(expires_at, id)
+    WHERE status IN ('PENDING', 'ARMED', 'IN_FLIGHT');
+CREATE INDEX IF NOT EXISTS idx_probe_terminal_created
+    ON probe_operations(created_at, id)
+    WHERE status IN ('OPEN_FROM_VANTAGE', 'REJECTED', 'DROPPED', 'TIMEOUT', 'NO_INDEPENDENT_VANTAGE', 'PROBE_INFRA_UNAVAILABLE');
+CREATE INDEX IF NOT EXISTS idx_probe_terminal_updated
+    ON probe_operations(updated_at, id)
+    WHERE status IN ('OPEN_FROM_VANTAGE', 'REJECTED', 'DROPPED', 'TIMEOUT', 'NO_INDEPENDENT_VANTAGE', 'PROBE_INFRA_UNAVAILABLE');

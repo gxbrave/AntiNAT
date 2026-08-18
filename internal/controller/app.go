@@ -52,6 +52,15 @@ type Config struct {
 	MaxProbeRounds int
 }
 
+type appLifecycleState uint8
+
+const (
+	appStateNew appLifecycleState = iota
+	appStateRunning
+	appStateClosing
+	appStateClosed
+)
+
 // App is one composed controller process.
 type App struct {
 	cfg Config
@@ -68,10 +77,12 @@ type App struct {
 
 	ready atomic.Bool
 
-	shutdownMu sync.Mutex
-	closeMu    sync.Mutex
-	closed     bool
-	closeOrder []string
+	// lifecycleMu serializes the complete Start/Shutdown transitions, including
+	// watcher Wait/Add and rollback. This prevents a concurrent Shutdown from
+	// observing a half-started app or a later Start from reopening closed deps.
+	lifecycleMu sync.Mutex
+	state       appLifecycleState
+	closeOrder  []string
 
 	watchCancel context.CancelFunc
 	watchWG     sync.WaitGroup
@@ -162,18 +173,33 @@ func New(cfg Config) (*App, error) {
 // Start binds the listener and serves the composed HTTP surface. On failure
 // every opened resource is rolled back and readiness stays false.
 func (a *App) Start() error {
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+	if a.state != appStateNew {
+		return errors.New("controller: app is not in NEW state")
+	}
+
+	fail := func(err error) error {
+		a.ready.Store(false)
+		a.state = appStateClosing
+		if closeErr := a.closeResources(); closeErr != nil {
+			a.state = appStateClosing
+			return fmt.Errorf("%w (rollback: %v)", err, closeErr)
+		}
+		a.state = appStateClosed
+		return err
+	}
+
 	ln, err := net.Listen("tcp", a.cfg.ListenAddress)
 	if err != nil {
-		_ = a.closeResources()
-		return fmt.Errorf("controller: listen %s: %w", a.cfg.ListenAddress, err)
+		return fail(fmt.Errorf("controller: listen %s: %w", a.cfg.ListenAddress, err))
 	}
 	a.ln = ln
 	a.addr = ln.Addr().String()
 
 	admin, err := web.NewRouter(api.RouterConfig{Store: a.store, Auth: a.auth})
 	if err != nil {
-		_ = a.closeResources()
-		return fmt.Errorf("controller: admin router: %w", err)
+		return fail(fmt.Errorf("controller: admin router: %w", err))
 	}
 
 	mux := http.NewServeMux()
@@ -185,14 +211,14 @@ func (a *App) Start() error {
 		ReadHeaderTimeout: 15 * time.Second,
 	}
 	if err := a.probe.Start(context.Background()); err != nil {
-		_ = a.closeResources()
-		return fmt.Errorf("controller: start probe manager: %w", err)
+		return fail(fmt.Errorf("controller: start probe manager: %w", err))
 	}
 	go func() {
 		_ = a.srv.Serve(ln)
 	}()
-	// Start the deletion watcher: it completes online-delete operations
-	// when the agent's delete result arrives (Story 6 online delete).
+
+	// Add the watcher while lifecycleMu is held; Shutdown cannot race Wait with
+	// this Add operation.
 	watchCtx, watchCancel := context.WithCancel(context.Background())
 	a.watchCancel = watchCancel
 	a.watchWG.Add(1)
@@ -200,6 +226,7 @@ func (a *App) Start() error {
 		defer a.watchWG.Done()
 		a.watchDeletions(watchCtx)
 	}()
+	a.state = appStateRunning
 	a.ready.Store(true)
 	return nil
 }
@@ -219,10 +246,11 @@ func (a *App) watchDeletions(ctx context.Context) {
 	}
 }
 
-// completeFinishedDeletions scans recent operation_complete / delete-ack
-// inbox rows for delete-result payloads and completes the operations.
+// completeFinishedDeletions drains RECEIVED delete-result inbox rows in
+// ascending durable-id order. Each completion rechecks the exact envelope,
+// operation, node, and forward binding inside one store transaction.
 func (a *App) completeFinishedDeletions() {
-	rows, err := a.store.ListControlInboxByType("",
+	rows, err := a.store.ListControlInboxByTypeStateLimit("", "RECEIVED", 500,
 		"operation_complete", "desired_result", "forward_delete_ack")
 	if err != nil {
 		return
@@ -233,18 +261,29 @@ func (a *App) completeFinishedDeletions() {
 			DeletionOperationID string `json:"deletion_operation_id"`
 			Deleted             bool   `json:"deleted"`
 		}
-		if err := protocol.DecodeStrictJSONInto([]byte(row.SemanticPayload), &res); err != nil {
+		if err := protocol.DecodeStrictJSONInto([]byte(row.SemanticPayload), &res); err != nil ||
+			!res.Deleted || res.ForwardID == "" || res.DeletionOperationID == "" {
+			// Malformed or non-deletion results cannot become valid later; mark
+			// them processed so one poison row cannot pin the recovery cursor.
+			_ = a.store.SetControlInboxState(row.MessageID, "PROCESSED")
 			continue
 		}
-		if !res.Deleted || res.DeletionOperationID == "" {
-			continue
+		if err := a.store.CompleteForwardDeletionResult(row.MessageID, res.DeletionOperationID, res.ForwardID); err != nil {
+			// A permanent identity mismatch is consumed fail-closed. Other
+			// store errors remain RECEIVED for a later retry.
+			if errors.Is(err, store.ErrCASConflict) || errors.Is(err, store.ErrForwardNotFound) {
+				_ = a.store.SetControlInboxState(row.MessageID, "PROCESSED")
+			}
 		}
-		_ = a.store.CompleteForwardDeletionOperation(res.DeletionOperationID)
 	}
 }
 
 // Addr returns the bound listener address (valid after Start).
-func (a *App) Addr() string { return a.addr }
+func (a *App) Addr() string {
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+	return a.addr
+}
 
 // Ready reports whether the app started successfully and has not shut down.
 func (a *App) Ready() bool { return a.ready.Load() }
@@ -279,33 +318,35 @@ func (a *App) ArmProbe(ctx context.Context, nodeID, forwardID, endpoint string) 
 // in reverse dependency order (store last). It is idempotent and bounded by
 // ctx while joining the watcher and AgentHub handshake/session drain.
 func (a *App) Shutdown(ctx context.Context) error {
-	a.shutdownMu.Lock()
-	defer a.shutdownMu.Unlock()
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	a.closeMu.Lock()
-	if a.closed {
-		a.closeMu.Unlock()
+	if a.state == appStateClosed {
 		return nil
 	}
+	if a.state != appStateNew && a.state != appStateRunning && a.state != appStateClosing {
+		return errors.New("controller: invalid lifecycle state")
+	}
+	a.state = appStateClosing
 	a.ready.Store(false)
-	cancel := a.watchCancel
-	a.watchCancel = nil
-	a.closeMu.Unlock()
-	if cancel != nil {
-		cancel()
+	if a.watchCancel != nil {
+		a.watchCancel()
 	}
 	if err := waitControllerGroup(ctx, &a.watchWG); err != nil {
+		// Keep CLOSING and retain the cancellation handle so a later call can
+		// retry the same close operation after the caller's deadline expires.
 		return fmt.Errorf("controller: wait for watcher: %w", err)
 	}
-	err := a.closeResourcesContext(ctx)
-	if err == nil {
-		a.closeMu.Lock()
-		a.closed = true
-		a.closeMu.Unlock()
+	a.watchCancel = nil
+	if err := a.closeResourcesContext(ctx); err != nil {
+		// A failed close is retryable; never advertise CLOSED while a resource
+		// may still be usable.
+		return err
 	}
-	return err
+	a.state = appStateClosed
+	return nil
 }
 
 func waitControllerGroup(ctx context.Context, wg *sync.WaitGroup) error {
@@ -375,7 +416,7 @@ func (a *App) closeResourcesContext(ctx context.Context) error {
 
 // CloseOrder returns the recorded resource close order (test hook).
 func (a *App) CloseOrder() []string {
-	a.closeMu.Lock()
-	defer a.closeMu.Unlock()
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
 	return append([]string(nil), a.closeOrder...)
 }

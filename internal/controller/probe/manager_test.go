@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -159,6 +160,14 @@ func newTestEnv(t *testing.T, providerRejected bool) *testEnv {
 }
 
 func (e *testEnv) createNodeForward(t *testing.T) {
+	t.Helper()
+	e.createNodeForwardWithoutRuntime(t)
+	if err := e.store.SetForwardRuntimeStatus("f1", "act-1", 1, r16RuntimeSnapshot); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (e *testEnv) createNodeForwardWithoutRuntime(t *testing.T) {
 	t.Helper()
 	if err := e.store.CreateNode(store.Node{ID: "n1", Name: "n1"}); err != nil {
 		t.Fatal(err)
@@ -377,6 +386,15 @@ func TestJoinOpensFromVantage(t *testing.T) {
 		if got.Status == string(protocol.OutcomeOpenFromVantage) {
 			item, err := env.store.ControlOutboxItemByOperation(op.ID, "probe_outcome")
 			if err != nil {
+				// PublishProbeJoin and outcome delivery are separate durable
+				// transactions. Under -race the status commit can be observed
+				// before the recovery-safe outbox insert; keep polling the same
+				// terminal operation rather than turning that valid ordering into
+				// a timing failure.
+				if errors.Is(err, store.ErrNotFound) {
+					time.Sleep(20 * time.Millisecond)
+					continue
+				}
 				t.Fatalf("probe outcome outbox: %v", err)
 			}
 			var outcome struct {

@@ -29,6 +29,7 @@ var (
 
 // ControlInboxItem is one durable inbound A2C message record.
 type ControlInboxItem struct {
+	ID              int64
 	MessageID       string
 	NodeID          string
 	MessageType     string
@@ -191,11 +192,11 @@ func (s *Store) AcceptControlReceipt(operationID, messageType, sessionID string)
 	}
 	defer tx.Rollback()
 
-	var state, session string
+	var state, session, nodeID string
 	err = tx.QueryRow(
-		`SELECT state, session_id FROM control_outbox
+		`SELECT state, session_id, node_id FROM control_outbox
 		  WHERE operation_id = ? AND message_type = ?`, operationID, messageType,
-	).Scan(&state, &session)
+	).Scan(&state, &session, &nodeID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%w: operation %q has no outbox row", ErrIllegalPhase, operationID)
 	}
@@ -207,6 +208,45 @@ func (s *Store) AcceptControlReceipt(operationID, messageType, sessionID string)
 	}
 	if state != "SEMANTIC_ACKED" {
 		return fmt.Errorf("%w: operation %q is %s, want SEMANTIC_ACKED", ErrIllegalPhase, operationID, state)
+	}
+	// A forward deletion issued as a desired/forward_delete command has two
+	// durable semantic results: the normal command report and the dedicated
+	// deletion result queued by the reconciler. The indexed outbox row is the
+	// only durable join point between those result message IDs. Do not GC it
+	// when the first result's receipt arrives; otherwise the second result can
+	// no longer be correlated after a normal fast agent pump. Non-deletion
+	// commands retain the ordinary one-result receipt semantics.
+	if messageType == "desired" || messageType == "forward_delete" {
+		var deletionCount int
+		if err := tx.QueryRow(
+			`SELECT COUNT(*) FROM forward_deletion_operations WHERE id = ?`, operationID,
+		).Scan(&deletionCount); err != nil {
+			return fmt.Errorf("store: check deletion result fan-in: %w", err)
+		}
+		if deletionCount == 1 {
+			var commandResultID, controllerResultID string
+			if err := tx.QueryRow(`
+				SELECT operation_complete_message_id, controller_operation_complete_message_id
+				  FROM control_outbox
+				 WHERE operation_id = ? AND message_type = ?`, operationID, messageType,
+			).Scan(&commandResultID, &controllerResultID); err != nil {
+				return fmt.Errorf("store: read deletion result fan-in ids: %w", err)
+			}
+			var resultCount int
+			if err := tx.QueryRow(`
+				SELECT COUNT(*) FROM control_inbox
+				 WHERE node_id = ? AND message_id IN (?, ?)`,
+				nodeID, commandResultID, controllerResultID,
+			).Scan(&resultCount); err != nil {
+				return fmt.Errorf("store: check deletion result fan-in rows: %w", err)
+			}
+			if resultCount < 2 {
+				if err := tx.Commit(); err != nil {
+					return fmt.Errorf("store: commit retained deletion outbox: %w", err)
+				}
+				return nil
+			}
+		}
 	}
 	if _, err := tx.Exec(
 		`UPDATE control_outbox SET state = 'RECEIPTED', updated_at = ? WHERE operation_id = ? AND message_type = ?`,
@@ -415,14 +455,27 @@ func (s *Store) ControlInboxState(messageID string) (string, error) {
 	return state, nil
 }
 
-// DeleteControlInboxBeforeLimit trims durable message-id replay records after
-// their replay window. The operation is deliberately bounded; in-flight
-// outbox rows are never touched, so an unacknowledged semantic receipt still
-// retains its durable intent until the normal receipt transition completes.
+// DeleteControlInboxBeforeLimit trims only one-way probe-result records after
+// their local processing high-water. Result/receipt rows for the control and
+// probe delivery protocols remain durable replay tombstones: no age-only
+// cutoff can prove that a disconnected peer has stopped replaying them.
 func (s *Store) DeleteControlInboxBeforeLimit(cutoff int64, limit int) (int, error) {
 	limit = probeCleanupLimit(limit)
 	query := `DELETE FROM control_inbox WHERE id IN
-		(SELECT id FROM control_inbox WHERE created_at < ? ORDER BY created_at, id LIMIT ?)`
+		(SELECT i.id FROM control_inbox i
+		 WHERE i.message_type = 'probe_result' AND i.state = 'PROCESSED' AND i.updated_at < ?
+		   AND COALESCE(i.operation_id, '') <> ''
+		   AND NOT EXISTS (
+				 SELECT 1 FROM control_outbox o
+				  WHERE o.node_id = i.node_id AND o.operation_id = i.operation_id
+				    AND o.message_type = 'probe_outcome'
+			)
+		   AND NOT EXISTS (
+				 SELECT 1 FROM probe_terminal_deliveries d
+				  WHERE d.probe_id = i.operation_id
+				    AND d.disposition NOT IN ('DELIVERED', 'STALE', 'MISSING', 'EXPIRED')
+			)
+		 ORDER BY i.updated_at, i.id LIMIT ?)`
 	args := []any{cutoff, limit}
 	res, err := s.db.Exec(query, args...)
 	if err != nil {

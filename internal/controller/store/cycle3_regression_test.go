@@ -222,7 +222,7 @@ func TestSetForwardRuntimeStatusRejectsContradictoryPublication(t *testing.T) {
 		t.Fatalf("create forward: %v", err)
 	}
 	contradictory := legalRuntimeSnapshot("NOT_TESTED", "UNKNOWN", "PUBLISHED_VERIFIED")
-	if err := s.SetForwardRuntimeStatus("forward-runtime", "activation-runtime", contradictory); err == nil {
+	if err := s.SetForwardRuntimeStatus("forward-runtime", "activation-runtime", 1, contradictory); err == nil {
 		t.Fatal("contradictory runtime snapshot was persisted")
 	}
 	if _, err := s.GetForwardRuntimeStatus("forward-runtime"); !errors.Is(err, ErrNotFound) {

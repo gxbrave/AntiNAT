@@ -1,0 +1,35 @@
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-agent	1.035s
+?   	github.com/gxbrave/AntiNAT/cmd/antinat-controller	[no test files]
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-probe	1.029s
+ok  	github.com/gxbrave/AntiNAT/cmd/antinatctl	3.360s
+ok  	github.com/gxbrave/AntiNAT/internal/agent	3.356s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/control	6.949s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/localstate	3.572s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	8.876s
+ok  	github.com/gxbrave/AntiNAT/internal/buildinfo	2.151s
+ok  	github.com/gxbrave/AntiNAT/internal/config	1.021s
+ok  	github.com/gxbrave/AntiNAT/internal/controller	5.590s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/agenthub	13.386s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/api	9.575s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/auth	8.799s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	13.189s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/store	37.079s
+?   	github.com/gxbrave/AntiNAT/internal/controller/web	[no test files]
+ok  	github.com/gxbrave/AntiNAT/internal/forward	1.034s
+ok  	github.com/gxbrave/AntiNAT/internal/forward/tcp	2.307s
+ok  	github.com/gxbrave/AntiNAT/internal/protocol	7.069s
+ok  	github.com/gxbrave/AntiNAT/internal/security	1.066s
+ok  	github.com/gxbrave/AntiNAT/internal/security/framecrypto	1.019s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal	3.046s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/stun	1.511s
+?   	github.com/gxbrave/AntiNAT/migrations	[no test files]
+ok  	github.com/gxbrave/AntiNAT/scripts	1.033s
+ok  	github.com/gxbrave/AntiNAT/spike/datapath	1.225s
+ok  	github.com/gxbrave/AntiNAT/spike/network	4.165s
+ok  	github.com/gxbrave/AntiNAT/spike/sandbox	12.481s
+ok  	github.com/gxbrave/AntiNAT/spike/sqlite	3.000s
+ok  	github.com/gxbrave/AntiNAT/spike/state	3.164s
+ok  	github.com/gxbrave/AntiNAT/spike/windows-identity	1.341s
+ok  	github.com/gxbrave/AntiNAT/test/contracts	4.748s
+ok  	github.com/gxbrave/AntiNAT/test/e2e	3.160s
+?   	github.com/gxbrave/AntiNAT/test/e2e/harness	[no test files]

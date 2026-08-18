@@ -513,7 +513,8 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 		return
 	}
 	op.used = true
-	m.replay[frame.ProbeID] = now.Add(protocol.ProbeReplayWindow)
+	receiptDeadline := op.deadline.Add(protocol.ProbeReplayWindow)
+	m.replay[frame.ProbeID] = receiptDeadline
 	m.replaySource[frame.ProbeID] = replaySource{
 		source: source, forwardID: op.forwardID, digest: op.digest,
 	}

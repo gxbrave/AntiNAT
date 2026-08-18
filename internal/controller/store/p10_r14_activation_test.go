@@ -14,7 +14,7 @@ const r14FirstHopRuntimeSnapshot = `{"control_state":"ONLINE","listener_state":"
 // mapping must never be combined with verified publication evidence.
 func TestR14PublishProbeJoinRejectsInvalidMergedActivationSnapshot(t *testing.T) {
 	fixture := newAuthenticatedJoinFixture(t)
-	if err := fixture.store.SetForwardRuntimeStatus(fixture.forwardID, fixture.activationID, r14FirstHopRuntimeSnapshot); err != nil {
+	if err := fixture.store.SetForwardRuntimeStatus(fixture.forwardID, fixture.activationID, 1, r14FirstHopRuntimeSnapshot); err != nil {
 		t.Fatalf("seed first-hop runtime snapshot: %v", err)
 	}
 

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/hex"
 	"fmt"
@@ -58,43 +59,61 @@ func (s *Store) ApplyForwardDesired(spec ForwardSpec, outbox ControlOutboxItem) 
 // ApplyForwardDelete atomically records a forward deletion operation and
 // enqueues its delete command. The forward row itself is removed only after a
 // durable receipt (P14 lifecycle); the intent and outbox commit together here.
+// BEGIN IMMEDIATE is intentional: a deferred read-then-write transaction can
+// hit SQLITE_BUSY_SNAPSHOT when a control-plane writer commits between the
+// revision read and the CAS update. Serializing the writer decision lets the
+// loser observe the new revision and return the typed CAS conflict instead.
 func (s *Store) ApplyForwardDelete(op ForwardDeletionOperation, outbox ControlOutboxItem) error {
 	if op.ID == "" || outbox.OperationID != op.ID {
 		return fmt.Errorf("%w: deletion operation/outbox identity", ErrIdempotencyConflict)
 	}
-	tx, err := s.db.Begin()
+	ctx := context.Background()
+	conn, err := s.db.Conn(ctx)
 	if err != nil {
+		return fmt.Errorf("store: forward delete conn: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return fmt.Errorf("store: begin forward delete tx: %w", err)
 	}
-	defer tx.Rollback()
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
 
 	// A retried operation id is a replay of the same durable intent. Return
 	// success only when its immutable binding and queued payload agree; do not
 	// bump the parent revision or enqueue a second side effect.
 	var existingForward string
 	var existingRevision uint64
-	err = tx.QueryRow(`SELECT forward_id, desired_revision FROM forward_deletion_operations WHERE id = ?`, op.ID).
+	err = conn.QueryRowContext(ctx, `SELECT forward_id, desired_revision FROM forward_deletion_operations WHERE id = ?`, op.ID).
 		Scan(&existingForward, &existingRevision)
 	if err == nil {
 		if existingForward != op.ForwardID || existingRevision != op.DesiredRevision {
 			return fmt.Errorf("%w: deletion operation %s", ErrIdempotencyConflict, op.ID)
 		}
 		var existingNode, existingPayload string
-		if err := tx.QueryRow(`SELECT node_id, semantic_payload FROM control_outbox WHERE operation_id = ? AND message_type = ?`, outbox.OperationID, outbox.MessageType).
+		if err := conn.QueryRowContext(ctx, `SELECT node_id, semantic_payload FROM control_outbox WHERE operation_id = ? AND message_type = ?`, outbox.OperationID, outbox.MessageType).
 			Scan(&existingNode, &existingPayload); err != nil {
 			return fmt.Errorf("store: verify replayed delete outbox: %w", err)
 		}
 		if existingNode != outbox.NodeID || existingPayload != outbox.SemanticPayload {
 			return fmt.Errorf("%w: deletion outbox %s", ErrIdempotencyConflict, outbox.OperationID)
 		}
-		return tx.Commit()
+		if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+			return fmt.Errorf("store: commit replayed forward delete tx: %w", err)
+		}
+		committed = true
+		return nil
 	}
 	if err != sql.ErrNoRows {
 		return fmt.Errorf("store: check forward delete operation: %w", err)
 	}
 
 	var currentRevision uint64
-	if err := tx.QueryRow(`SELECT revision FROM forwards WHERE id = ?`, op.ForwardID).Scan(&currentRevision); err == sql.ErrNoRows {
+	if err := conn.QueryRowContext(ctx, `SELECT revision FROM forwards WHERE id = ?`, op.ForwardID).Scan(&currentRevision); err == sql.ErrNoRows {
 		return ErrForwardNotFound
 	} else if err != nil {
 		return fmt.Errorf("store: read forward delete parent: %w", err)
@@ -103,7 +122,7 @@ func (s *Store) ApplyForwardDelete(op ForwardDeletionOperation, outbox ControlOu
 		return fmt.Errorf("%w: forward %s revision %d", ErrCASConflict, op.ForwardID, op.DesiredRevision)
 	}
 
-	if _, err := tx.Exec(
+	if _, err := conn.ExecContext(ctx,
 		`INSERT INTO forward_deletion_operations
 		    (id, forward_id, status, desired_revision, created_at)
 		 VALUES (?, ?, ?, ?, ?)`,
@@ -111,7 +130,7 @@ func (s *Store) ApplyForwardDelete(op ForwardDeletionOperation, outbox ControlOu
 	); err != nil {
 		return fmt.Errorf("store: forward delete op insert: %w", err)
 	}
-	res, err := tx.Exec(`UPDATE forwards SET revision = revision + 1, updated_at = ? WHERE id = ? AND revision = ?`, now(), op.ForwardID, op.DesiredRevision)
+	res, err := conn.ExecContext(ctx, `UPDATE forwards SET revision = revision + 1, updated_at = ? WHERE id = ? AND revision = ?`, now(), op.ForwardID, op.DesiredRevision)
 	if err != nil {
 		return fmt.Errorf("store: forward delete parent bump: %w", err)
 	}
@@ -120,12 +139,13 @@ func (s *Store) ApplyForwardDelete(op ForwardDeletionOperation, outbox ControlOu
 	} else if n != 1 {
 		return fmt.Errorf("%w: forward %s revision %d", ErrCASConflict, op.ForwardID, op.DesiredRevision)
 	}
-	if err := insertOutboxTx(tx, outbox); err != nil {
+	if err := insertOutboxExec(ctx, conn, outbox); err != nil {
 		return err
 	}
-	if err := tx.Commit(); err != nil {
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return fmt.Errorf("store: commit forward delete tx: %w", err)
 	}
+	committed = true
 	return nil
 }
 
@@ -155,12 +175,20 @@ func (s *Store) ApplyNodeDelete(op NodeDeletionOperation, outbox ControlOutboxIt
 	return nil
 }
 
+type sqlContextExecer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
 func insertOutboxTx(tx *sql.Tx, item ControlOutboxItem) error {
+	return insertOutboxExec(context.Background(), tx, item)
+}
+
+func insertOutboxExec(ctx context.Context, exec sqlContextExecer, item ControlOutboxItem) error {
 	ts := now()
 	commandID := deterministicMessageID(item.OperationID, item.MessageType)
 	resultID := deterministicMessageID(commandID, "operation_complete")
 	controllerResultID := deterministicMessageID(item.OperationID, "operation_complete")
-	if _, err := tx.Exec(
+	if _, err := exec.ExecContext(ctx,
 		`INSERT INTO control_outbox
 		    (operation_id, message_type, node_id, semantic_payload, state,
 		     attempt_count, created_at, updated_at, command_message_id,

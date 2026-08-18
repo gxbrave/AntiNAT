@@ -1,0 +1,23 @@
+python3 scripts/verify-evidence-parity.py
+PASS valid baseline: expected=True schema=True go=True
+PASS integral JSON number: expected=True schema=True go=True
+PASS large integral JSON exponent: expected=True schema=True go=True
+PASS lowercase RFC3339 markers: expected=True schema=True go=True
+PASS trailing newline in plan: expected=False schema=False go=False
+PASS trailing newline in commit SHA: expected=False schema=False go=False
+PASS trailing newline in artifact digest: expected=False schema=False go=False
+PASS year zero timestamp: expected=False schema=False go=False
+PASS C0 controls in command: expected=False schema=False go=False
+PASS C0 controls in os: expected=False schema=False go=False
+PASS C0 controls in evidence path: expected=False schema=False go=False
+PASS duplicate object member: expected=False schema=False go=False
+PASS invalid UTF-8: expected=False schema=False go=False
+PASS whitespace command: expected=False schema=False go=False
+PASS whitespace os: expected=False schema=False go=False
+PASS whitespace evidence path: expected=False schema=False go=False
+PASS invalid RFC3339 offset hour: expected=False schema=False go=False
+PASS invalid RFC3339 offset minute: expected=False schema=False go=False
+PASS invalid calendar date: expected=False schema=False go=False
+PASS missing command: expected=False schema=False go=False
+PASS reversed timestamps: expected=False schema=False go=False
+parity passed: 21 cases

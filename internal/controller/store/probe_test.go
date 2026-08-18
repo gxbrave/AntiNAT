@@ -174,7 +174,7 @@ func TestForwardActivationCAS(t *testing.T) {
 	}
 
 	// Same-activation update succeeds on an absent mirror row.
-	if err := s.SetForwardRuntimeStatus("f1", "act-1", legalRuntimeSnapshot("NOT_TESTED", "NOT_TESTED", "NONE")); err != nil {
+	if err := s.SetForwardRuntimeStatus("f1", "act-1", f.Revision, legalRuntimeSnapshot("NOT_TESTED", "NOT_TESTED", "NONE")); err != nil {
 		t.Fatalf("set runtime status: %v", err)
 	}
 	got, err := s.GetForwardRuntimeStatus("f1")
@@ -186,7 +186,7 @@ func TestForwardActivationCAS(t *testing.T) {
 	}
 
 	// Same-activation update succeeds (the mirror follows the current event).
-	if err := s.SetForwardRuntimeStatus("f1", "act-1", legalRuntimeSnapshot("OPEN_FROM_VANTAGE", "VERIFIED", "PUBLISHED_VERIFIED")); err != nil {
+	if err := s.SetForwardRuntimeStatus("f1", "act-1", f.Revision, legalRuntimeSnapshot("OPEN_FROM_VANTAGE", "VERIFIED", "PUBLISHED_VERIFIED")); err != nil {
 		t.Fatalf("update runtime status: %v", err)
 	}
 	got2, _ := s.GetForwardRuntimeStatus("f1")
@@ -197,7 +197,7 @@ func TestForwardActivationCAS(t *testing.T) {
 	// A stale activation event (neither the mirror's activation nor the
 	// forward's current activation) must be rejected and leave the row
 	// untouched.
-	if err := s.SetForwardRuntimeStatus("f1", "act-stale", legalRuntimeSnapshot("REJECTED", "FAILED", "NONE")); err == nil {
+	if err := s.SetForwardRuntimeStatus("f1", "act-stale", f.Revision, legalRuntimeSnapshot("REJECTED", "FAILED", "NONE")); err == nil {
 		t.Fatalf("expected CAS conflict for stale activation event")
 	}
 	got3, _ := s.GetForwardRuntimeStatus("f1")
@@ -215,7 +215,7 @@ func TestForwardActivationCAS(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("ensure activation 2: %v", err)
 	}
-	if err := s.SetForwardRuntimeStatus("f1", "act-2", legalRuntimeSnapshot("NOT_TESTED", "NOT_TESTED", "NONE")); err != nil {
+	if err := s.SetForwardRuntimeStatus("f1", "act-2", f.Revision+1, legalRuntimeSnapshot("NOT_TESTED", "NOT_TESTED", "NONE")); err != nil {
 		t.Fatalf("set runtime status for current activation: %v", err)
 	}
 	got4, _ := s.GetForwardRuntimeStatus("f1")
@@ -224,7 +224,7 @@ func TestForwardActivationCAS(t *testing.T) {
 	}
 
 	// After the mirror moved to act-2, an act-1 event is stale and rejected.
-	if err := s.SetForwardRuntimeStatus("f1", "act-1", legalRuntimeSnapshot("REJECTED", "FAILED", "NONE")); err == nil {
+	if err := s.SetForwardRuntimeStatus("f1", "act-1", f.Revision+1, legalRuntimeSnapshot("REJECTED", "FAILED", "NONE")); err == nil {
 		t.Fatalf("expected CAS conflict for old activation after advance")
 	}
 }

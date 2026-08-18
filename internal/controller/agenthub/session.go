@@ -443,32 +443,49 @@ func (h *Hub) handleProbePlaneMessage(s *ControlSession, env protocol.Envelope) 
 // durable receipt so the agent can GC its outbox row.
 func (h *Hub) handleAgentResult(s *ControlSession, env protocol.Envelope) error {
 	hdr := env.Header
+	messageID := hex.EncodeToString(hdr.MessageID[:])
+
+	// Correlate before the first durable insert. An attacker/buggy peer must not
+	// be able to seed a replay tombstone for an arbitrary message id and later
+	// have it treated as a valid deletion/result completion.
+	row, agentOp, err := h.matchOutboxRow(s, hdr.MessageID, hdr.MessageType)
+	if err != nil {
+		if existing, getErr := h.store.ControlInboxItemByMessageID(messageID); getErr == nil &&
+			existing.NodeID == s.nodeID && existing.MessageType == hdr.MessageType &&
+			existing.SemanticPayload == string(env.Payload) {
+			return nil // exact duplicate after the correlated outbox row was GC'd
+		}
+		return err
+	}
 	item := store.ControlInboxItem{
-		MessageID:       hex.EncodeToString(hdr.MessageID[:]),
+		MessageID:       messageID,
 		NodeID:          s.nodeID,
 		MessageType:     hdr.MessageType,
+		OperationID:     agentOp,
 		SemanticPayload: string(env.Payload),
 		State:           "RECEIVED",
 	}
-	duplicate, err := h.store.RecordControlInbox(item)
+	_, err = h.store.RecordControlInbox(item)
 	if err != nil {
-		return err
+		// Rows written by pre-correlation schema versions have no operation
+		// discriminator. The outbox match above is the required proof before
+		// filling that legacy NULL/empty field; never bind from payload alone.
+		existing, getErr := h.store.ControlInboxItemByMessageID(messageID)
+		if getErr != nil || existing.NodeID != item.NodeID || existing.MessageType != item.MessageType ||
+			existing.SemanticPayload != item.SemanticPayload ||
+			(existing.OperationID != "" && existing.OperationID != agentOp) {
+			return err
+		}
+		if existing.OperationID == "" {
+			if bindErr := h.store.BindControlInboxOperationID(messageID, agentOp); bindErr != nil {
+				return bindErr
+			}
+		}
 	}
 	// probe_armed is the semantic boundary for controller probe admission.
 	// Do not acknowledge or garbage-collect the command until the probe sink
 	// has durably accepted the RDY1 payload. A failed sink leaves the inbox in
 	// RECEIVED and the outbox row unacknowledged so reconnect can retry it.
-	messageID := hex.EncodeToString(hdr.MessageID[:])
-	row, agentOp, err := h.matchOutboxRow(s, hdr.MessageID, hdr.MessageType)
-	if err != nil {
-		if duplicate {
-			return nil // cached duplicate of an already-correlated result
-		}
-		return err
-	}
-	// A result correlated to a probe_arm row IS the durable probe_armed
-	// answer (the agent's OnCommand returned the RDY1 frame through the
-	// journal). Notify the probe sink with the raw payload.
 	if row.MessageType == "probe_arm" {
 		state, stateErr := h.store.ControlInboxState(messageID)
 		if stateErr != nil {
@@ -497,49 +514,71 @@ func (h *Hub) handleAgentResult(s *ControlSession, env protocol.Envelope) error 
 // legal single steps and writes the C2A durable receipt so the agent can GC
 // its outbox row. Shared by handleAgentResult and the probe_armed path.
 func (h *Hub) advanceResultRow(s *ControlSession, row store.ControlOutboxItem, agentOp string) error {
-	// Advance the row to SEMANTIC_ACKED with legal single steps. On reconnect
-	// the row may still be PENDING (requeued, pump not yet re-claimed): the
-	// result arriving first proves the agent already processed the command,
-	// so claim + mark-sent + ack in sequence.
-	switch row.State {
-	case "PENDING":
-		if err := h.store.ClaimControlOutboxOperation(row.OperationID, row.MessageType, s.session); err != nil {
-			return err
-		}
-		if err := h.store.MarkControlOutboxSent(row.OperationID, row.MessageType, s.session); err != nil {
-			return err
-		}
-	case "CLAIMED":
-		if err := h.store.MarkControlOutboxSent(row.OperationID, row.MessageType, s.session); err != nil {
-			return err
-		}
-	case "SEMANTIC_ACKED":
-		// The result was already processed in an earlier session and the C2A
-		// receipt was written, but the connection died before the controller
-		// consumed the agent's A2C receipt. The result resend (deduped by
-		// deterministic message id) proves the new session is continuing the
-		// operation: re-bind the row so the follow-up A2C receipt can
-		// complete the GC, skip the FSM advance (no legal step exists past
-		// SEMANTIC_ACKED except the receipt), and re-write the idempotent
-		// C2A receipt so the agent can GC its own outbox row.
-		if err := h.store.RebindControlOutboxSession(row.OperationID, row.MessageType, s.session); err != nil {
-			return err
-		}
-		// SENT rows (result arrived right after the pump's re-send) and any
-		// other state fall through: the strict ack below fails closed on
-		// states that are not the legal SENT predecessor, exactly as before
-		// FIX1.
-	}
-	if row.State != "SEMANTIC_ACKED" {
-		if err := h.store.AcceptControlSemanticACK(row.OperationID, row.MessageType, s.session); err != nil {
-			return err
-		}
+	if err := h.ensureOutboxSemanticACKed(s, row); err != nil {
+		return err
 	}
 	receiptID := security.MessageID(agentOp, "message_receipt")
 	payload := fmt.Sprintf(`{"operation_id":%q}`, agentOp)
 	writeCtx, cancel := context.WithTimeout(context.Background(), h.cfg.ControlWriteTimeout)
 	defer cancel()
 	return s.writeEnvelope(writeCtx, receiptID, "message_receipt", []byte(payload))
+}
+
+// ensureOutboxSemanticACKed converges one correlated row to SEMANTIC_ACKED
+// without weakening the store FSM. The pump and inbound frame loop race on
+// purpose, so a stale transition result is handled by re-reading the row and
+// retrying the next legal step.
+func (h *Hub) ensureOutboxSemanticACKed(s *ControlSession, row store.ControlOutboxItem) error {
+	// Re-read the row before every single-step transition. The outbox pump and
+	// the inbound frame loop are concurrent: a result can race a pump claim (or
+	// a receipt can race the result handler). Acting on the snapshot returned by
+	// matchOutboxRow would turn that benign race into an illegal-phase session
+	// failure. Each failed transition is therefore retried from the newly
+	// observed state; the FSM itself remains strict and single-step.
+	var lastErr error
+	for attempt := 0; attempt < 8; attempt++ {
+		current, err := h.store.ControlOutboxItemByOperation(row.OperationID, row.MessageType)
+		if errors.Is(err, store.ErrNotFound) {
+			// A concurrent A2C receipt already consumed the row. The result is
+			// durably recorded, so re-sending the deterministic C2A receipt is
+			// safe and lets the Agent deduplicate it if needed.
+			break
+		}
+		if err != nil {
+			return err
+		}
+		switch current.State {
+		case "PENDING":
+			err = h.store.ClaimControlOutboxOperation(current.OperationID, current.MessageType, s.session)
+		case "CLAIMED":
+			err = h.store.MarkControlOutboxSent(current.OperationID, current.MessageType, s.session)
+		case "SENT":
+			err = h.store.AcceptControlSemanticACK(current.OperationID, current.MessageType, s.session)
+		case "SEMANTIC_ACKED":
+			// A result resend on a new session proves that this row is still
+			// live; rebind it before the follow-up receipt.
+			err = h.store.RebindControlOutboxSession(current.OperationID, current.MessageType, s.session)
+			if err == nil {
+				lastErr = nil
+				attempt = 8
+				continue
+			}
+		default:
+			return fmt.Errorf("%w: operation %q is %s", store.ErrIllegalPhase, current.OperationID, current.State)
+		}
+		if err == nil {
+			lastErr = nil
+			continue
+		}
+		lastErr = err
+		if !errors.Is(err, store.ErrIllegalPhase) {
+			return err
+		}
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return nil
 }
 
 // handleAgentReceipt advances the controller outbox row SEMANTIC_ACKED ->
@@ -550,29 +589,78 @@ func (h *Hub) advanceResultRow(s *ControlSession, row store.ControlOutboxItem, a
 // handleAgentResult).
 func (h *Hub) handleAgentReceipt(s *ControlSession, env protocol.Envelope) error {
 	hdr := env.Header
-	item := store.ControlInboxItem{
-		MessageID:       hex.EncodeToString(hdr.MessageID[:]),
-		NodeID:          s.nodeID,
-		MessageType:     hdr.MessageType,
-		SemanticPayload: string(env.Payload),
-		State:           "RECEIVED",
-	}
-	duplicate, err := h.store.RecordControlInbox(item)
+	operationID, err := operationIDFromReceipt(env.Payload)
 	if err != nil {
 		return err
 	}
-	op, err := operationIDFromReceipt(env.Payload)
+	row, _, err := h.matchOutboxRowByCommandMessageID(s, operationID)
 	if err != nil {
-		return err
+		// A desired forward deletion has a second Agent outbox result keyed by
+		// deletion_operation_id rather than by the C2A command message id. Its
+		// receipt is therefore not a command-message correlation. Accept this
+		// alternate path only for a durable deletion operation and only when the
+		// receipt message id is the exact deterministic id for that result; a
+		// payload-supplied operation id alone is never sufficient.
+		if _, deletionErr := h.store.GetForwardDeletionOperation(operationID); deletionErr == nil {
+			controllerResultID := security.MessageID(operationID, "operation_complete")
+			row, err = h.store.ControlOutboxItemByCorrelation(
+				s.nodeID, hex.EncodeToString(controllerResultID[:]), "controller_operation_complete",
+				"PENDING", "CLAIMED", "SENT", "SEMANTIC_ACKED",
+			)
+			if err == nil {
+				expectedReceiptID := security.MessageID(operationID, "message_receipt")
+				if hdr.MessageID != expectedReceiptID {
+					return errors.New("receipt does not match deletion result message")
+				}
+			}
+		}
 	}
-	row, _, err := h.matchOutboxRowByCommandMessageID(s, op)
+	messageID := hex.EncodeToString(hdr.MessageID[:])
 	if err != nil {
-		if duplicate {
-			return nil // cached duplicate of an already-consumed receipt
+		if existing, getErr := h.store.ControlInboxItemByMessageID(messageID); getErr == nil &&
+			existing.NodeID == s.nodeID && existing.MessageType == hdr.MessageType &&
+			(existing.OperationID == "" || existing.OperationID == operationID) &&
+			existing.SemanticPayload == string(env.Payload) {
+			return nil // exact duplicate after the command row was GC'd
 		}
 		return err
 	}
-	return h.store.AcceptControlReceipt(row.OperationID, row.MessageType, s.session)
+	item := store.ControlInboxItem{
+		MessageID:       messageID,
+		NodeID:          s.nodeID,
+		MessageType:     hdr.MessageType,
+		OperationID:     operationID,
+		SemanticPayload: string(env.Payload),
+		State:           "RECEIVED",
+	}
+	if _, err := h.store.RecordControlInbox(item); err != nil {
+		return err
+	}
+	var lastErr error
+	for attempt := 0; attempt < 8; attempt++ {
+		if err := h.ensureOutboxSemanticACKed(s, row); err != nil {
+			return err
+		}
+		lastErr = h.store.AcceptControlReceipt(row.OperationID, row.MessageType, s.session)
+		if lastErr == nil {
+			return nil
+		}
+		if !errors.Is(lastErr, store.ErrIllegalPhase) {
+			return lastErr
+		}
+		// Another receipt may have consumed the row between the convergence
+		// read and this transaction. The exact inbox tombstone proves that this
+		// frame is the same durable receipt, so treating the already-GC'd row as
+		// success is idempotent and does not widen correlation.
+		if _, rowErr := h.store.ControlOutboxItemByOperation(row.OperationID, row.MessageType); errors.Is(rowErr, store.ErrNotFound) {
+			if existing, inboxErr := h.store.ControlInboxItemByMessageID(messageID); inboxErr == nil &&
+				existing.NodeID == s.nodeID && existing.MessageType == hdr.MessageType &&
+				existing.OperationID == operationID && existing.SemanticPayload == string(env.Payload) {
+				return nil
+			}
+		}
+	}
+	return lastErr
 }
 
 // outboxPump claims PENDING rows and sends them as C2A envelopes. A fresh

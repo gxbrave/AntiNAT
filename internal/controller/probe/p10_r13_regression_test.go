@@ -37,7 +37,7 @@ func TestR13VerifiedJoinPreservesIndependentActivationAxes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := env.store.SetForwardRuntimeStatus("f1", "act-1", string(rawBefore)); err != nil {
+	if err := env.store.SetForwardRuntimeStatus("f1", "act-1", 1, string(rawBefore)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -113,7 +113,7 @@ func TestR13VerifiedJoinPreservesIndependentActivationAxes(t *testing.T) {
 // trailing, depth, and non-canonical integer forms before runtime CAS.
 func TestR13ActivationStatusUsesStrictSemanticJSON(t *testing.T) {
 	env := newTestEnv(t, false)
-	env.createNodeForward(t)
+	env.createNodeForwardWithoutRuntime(t)
 	snapshot := `{"control_state":"ONLINE","listener_state":"READY","mapping_state":"PUBLIC_CANDIDATE","keepalive_state":"NOT_REQUIRED","wan_reachability_state":"NOT_TESTED","return_path_state":"NOT_TESTED","target_health_state":"UNKNOWN","publication_state":"NONE","data_plane_state":"READY"}`
 	payloads := []string{
 		`{"forward_id":"f1","forward_id":"f1","activation":"act-1","generation":1,"snapshot":` + snapshot + `}`,

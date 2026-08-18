@@ -175,7 +175,7 @@ func TestR13RuntimeStatusInsertCASUsesCurrentActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := `{"control_state":"ONLINE","listener_state":"READY","mapping_state":"PUBLIC_CANDIDATE","keepalive_state":"NOT_REQUIRED","wan_reachability_state":"NOT_TESTED","return_path_state":"NOT_TESTED","target_health_state":"UNKNOWN","publication_state":"NONE","data_plane_state":"READY"}`
-	if err := s.SetForwardRuntimeStatus("forward-runtime-r13", "activation-old", snapshot); !errors.Is(err, ErrCASConflict) {
+	if err := s.SetForwardRuntimeStatus("forward-runtime-r13", "activation-old", 2, snapshot); !errors.Is(err, ErrCASConflict) {
 		t.Fatalf("stale absent-mirror insert = %v, want ErrCASConflict", err)
 	}
 	if _, err := s.GetForwardRuntimeStatus("forward-runtime-r13"); !errors.Is(err, ErrNotFound) {
@@ -198,14 +198,14 @@ func TestR13RuntimeStatusExistingRowCASUsesCurrentActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	oldSnapshot := `{"control_state":"ONLINE","listener_state":"READY","mapping_state":"PUBLIC_CANDIDATE","keepalive_state":"NOT_REQUIRED","wan_reachability_state":"NOT_TESTED","return_path_state":"NOT_TESTED","target_health_state":"UNKNOWN","publication_state":"NONE","data_plane_state":"READY"}`
-	if err := s.SetForwardRuntimeStatus("forward-runtime-existing-r13", "activation-old", oldSnapshot); err != nil {
+	if err := s.SetForwardRuntimeStatus("forward-runtime-existing-r13", "activation-old", 1, oldSnapshot); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.CASForwardActivation("forward-runtime-existing-r13", 1, "activation-new"); err != nil {
 		t.Fatal(err)
 	}
 	staleSnapshot := `{"control_state":"OFFLINE","listener_state":"ERROR","mapping_state":"ERROR","keepalive_state":"LOST","wan_reachability_state":"REJECTED","return_path_state":"FAILED","target_health_state":"FAIL","publication_state":"UNPUBLISHED","data_plane_state":"DEGRADED"}`
-	if err := s.SetForwardRuntimeStatus("forward-runtime-existing-r13", "activation-old", staleSnapshot); !errors.Is(err, ErrCASConflict) {
+	if err := s.SetForwardRuntimeStatus("forward-runtime-existing-r13", "activation-old", 2, staleSnapshot); !errors.Is(err, ErrCASConflict) {
 		t.Fatalf("same-old-activation update after forward advance = %v, want ErrCASConflict", err)
 	}
 	got, err := s.GetForwardRuntimeStatus("forward-runtime-existing-r13")

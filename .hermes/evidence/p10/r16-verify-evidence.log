@@ -1,0 +1,2 @@
+go run ./scripts/verify-evidence.go ./test/evidence/fixtures/pass.json
+PASS ./test/evidence/fixtures/pass.json: evidence record is valid

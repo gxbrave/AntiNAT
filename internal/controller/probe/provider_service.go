@@ -244,19 +244,37 @@ func (p *Provider) handleRequest(w http.ResponseWriter, r *http.Request) {
 	p.mu.Lock()
 	p.requests++
 	now := p.cfg.Clock()
-	p.resetAdmissionWindowLocked(now)
-	p.rateCount++
-	rateLimited := p.rateCount > p.cfg.MaxRequests
 	p.mu.Unlock()
+
+	// Apply the cheap public-ingress bound before reading or verifying attacker-
+	// controlled input. This queue is deliberately separate from the trusted
+	// authenticated rate budget below.
+	select {
+	case p.inbound <- struct{}{}:
+		defer func() { <-p.inbound }()
+	default:
+		p.writeResult(w, providerResult{Accepted: false, Reason: "busy"})
+		return
+	}
 
 	// Read the protocol-sized body once. No field is used for correlation until
 	// the complete signed request has passed strict decoding and verification.
-	raw, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, protocol.MaxPayloadBytes+1))
+	raw, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, p.cfg.MaxRequestBytes))
 	if readErr != nil {
 		p.writeResult(w, providerResult{Accepted: false, Reason: "bad_request"})
 		return
 	}
 	req, err := decodeProviderRequestAt(bytes.NewReader(raw), p.cfg.ControllerPublicKey, now)
+	if req != nil {
+		// The decoder returns a request only after the controller signature has
+		// verified. Charge the authenticated global budget only at that boundary;
+		// malformed/unsigned traffic cannot starve trusted requests.
+		if p.admitAuthenticatedRate(now) {
+			probeID := req.ProbeID
+			p.writeResult(w, providerResult{ProbeID: probeID, Accepted: false, Reason: "rate_limited"})
+			return
+		}
+	}
 	if err != nil {
 		// A request returned alongside a semantic error has already passed
 		// signature verification, so its id is safe to correlate. Malformed or
@@ -264,39 +282,12 @@ func (p *Provider) handleRequest(w http.ResponseWriter, r *http.Request) {
 		probeID := ""
 		if req != nil {
 			probeID = req.ProbeID
-		}
-		if rateLimited {
-			p.writeResult(w, providerResult{ProbeID: probeID, Accepted: false, Reason: "rate_limited"})
-			return
-		}
-		if req != nil {
-			// Semantic validation errors still belong to an authenticated
-			// request. Preserve the legacy bounded replay fence, but do not
-			// charge any outbound identity budget because no dial can occur.
-			select {
-			case p.inbound <- struct{}{}:
-				defer func() { <-p.inbound }()
-			default:
-				p.writeResult(w, providerResult{ProbeID: probeID, Accepted: false, Reason: "busy"})
-				return
-			}
 			if reason := p.admitReplay(req, now); reason != "" {
 				p.writeResult(w, providerResult{ProbeID: probeID, Accepted: false, Reason: reason})
 				return
 			}
 		}
 		p.writeResult(w, providerResult{ProbeID: probeID, Accepted: false, Reason: providerRequestReason(err)})
-		return
-	}
-	if rateLimited {
-		p.writeResult(w, providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "rate_limited"})
-		return
-	}
-	select {
-	case p.inbound <- struct{}{}:
-		defer func() { <-p.inbound }()
-	default:
-		p.writeResult(w, providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "busy"})
 		return
 	}
 
@@ -324,6 +315,14 @@ func (p *Provider) handleRequest(w http.ResponseWriter, r *http.Request) {
 	res := p.execute(r.Context(), req)
 	res.cacheKey = replayKey(req)
 	p.writeResult(w, res)
+}
+
+func (p *Provider) admitAuthenticatedRate(now time.Time) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.resetAdmissionWindowLocked(now)
+	p.rateCount++
+	return p.rateCount > p.cfg.MaxRequests
 }
 
 // resetAdmissionWindowLocked advances all minute buckets together. Keeping a

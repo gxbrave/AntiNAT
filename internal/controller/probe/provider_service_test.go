@@ -398,8 +398,8 @@ func TestProviderBusyResultRetainsProbeID(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Reason != "busy" || result.ProbeID != probeID {
-		t.Fatalf("busy result = %+v, want correlated busy result", result)
+	if result.Reason != "busy" || result.ProbeID != "" {
+		t.Fatalf("busy result = %+v, want generic pre-auth busy result", result)
 	}
 }
 
@@ -427,5 +427,99 @@ func TestProviderFullReplayCachePreservesLiveFence(t *testing.T) {
 	}
 	if _, ok := p.replay[replayKey(first)]; !ok {
 		t.Fatal("full replay admission evicted the live first fence")
+	}
+}
+
+// R16 RED: unauthenticated ingress must not consume the authenticated global
+// execution budget that protects trusted Controller requests.
+func TestR16UnsignedRequestsDoNotConsumeAuthenticatedProviderBudget(t *testing.T) {
+	controllerPub, controllerPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, providerPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := NewProvider(ProviderConfig{ControllerPublicKey: controllerPub, ProviderPrivateKey: providerPrivate, MaxRequests: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unsigned := httptest.NewRecorder()
+	p.handleRequest(unsigned, httptest.NewRequest(http.MethodPost, "/probe/v1/request", bytes.NewReader([]byte(`{"probe_id":"bad"}`))))
+	valid := httptest.NewRecorder()
+	p.handleRequest(valid, httptest.NewRequest(http.MethodPost, "/probe/v1/request", bytes.NewReader(signedAdmissionRequest(t, controllerPrivate, strings.Repeat("cc", 16)))))
+	var result providerResult
+	if err := json.Unmarshal(valid.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Reason == "rate_limited" {
+		t.Fatalf("authenticated request was starved by unsigned traffic: %+v", result)
+	}
+	if result.ProbeID != strings.Repeat("cc", 16) {
+		t.Fatalf("authenticated result probe id = %q, want correlated id", result.ProbeID)
+	}
+}
+
+// R16 RED: the cheap pre-auth concurrency bound must run before signature
+// verification, so an attacker cannot make every worker perform crypto/body
+// work while the bounded ingress queue is full.
+func TestR16PreAuthConcurrencyPrecedesSignatureVerification(t *testing.T) {
+	controllerPub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, providerPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := NewProvider(ProviderConfig{ControllerPublicKey: controllerPub, ProviderPrivateKey: providerPrivate, MaxConcurrent: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < cap(p.inbound); i++ {
+		p.inbound <- struct{}{}
+	}
+	defer func() {
+		for i := 0; i < cap(p.inbound); i++ {
+			<-p.inbound
+		}
+	}()
+	recorder := httptest.NewRecorder()
+	p.handleRequest(recorder, httptest.NewRequest(http.MethodPost, "/probe/v1/request", bytes.NewReader([]byte(`{"probe_id":"unsigned"}`))))
+	var result providerResult
+	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Reason != "busy" || result.ProbeID != "" {
+		t.Fatalf("pre-auth saturation result = %+v, want generic busy", result)
+	}
+}
+
+// R16 RED: ProviderConfig.MaxRequestBytes must be the actual HTTP body cap;
+// the protocol maximum is not a substitute for the configured deployment
+// budget.
+func TestR16ProviderEnforcesConfiguredMaxRequestBytes(t *testing.T) {
+	controllerPub, controllerPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, providerPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := signedAdmissionRequest(t, controllerPrivate, strings.Repeat("dd", 16))
+	p, err := NewProvider(ProviderConfig{ControllerPublicKey: controllerPub, ProviderPrivateKey: providerPrivate, MaxRequestBytes: int64(len(body) - 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	p.handleRequest(recorder, httptest.NewRequest(http.MethodPost, "/probe/v1/request", bytes.NewReader(body)))
+	var result providerResult
+	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Reason != "bad_request" || result.ProbeID != "" {
+		t.Fatalf("oversized request result = %+v, want generic bad_request", result)
 	}
 }

@@ -127,24 +127,24 @@ func (s *Store) ListProbeProviders() ([]ProbeProvider, error) {
 // outcome registry (docs/protocol.md §8) plus PENDING/ARMED/IN_FLIGHT
 // intermediate states. ArmHex is the canonical ARM1 frame bytes.
 type ProbeOperation struct {
-	ID            string
-	NodeID        string
-	ForwardID     string
-	ActivationID  string
+	ID           string
+	NodeID       string
+	ForwardID    string
+	ActivationID string
 	// ExpectedForwardRevision is the forward generation observed when the
 	// operation was armed. Activation identity alone is not a delete fence:
 	// online deletion advances revision without rotating the activation.
 	ExpectedForwardRevision uint64
-	ProviderID    string
-	Status        string
-	Endpoint      string
-	ArmHex        string
-	ChallengeHash string
-	TTLMS         uint64
-	ExpiryOpaque  string
-	ExpiresAt     int64
-	CreatedAt     int64
-	UpdatedAt     int64
+	ProviderID              string
+	Status                  string
+	Endpoint                string
+	ArmHex                  string
+	ChallengeHash           string
+	TTLMS                   uint64
+	ExpiryOpaque            string
+	ExpiresAt               int64
+	CreatedAt               int64
+	UpdatedAt               int64
 }
 
 // CreateProbeOperation inserts a PENDING operation row.
@@ -769,7 +769,7 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 // has the given digest. The digest uniquely identifies the arm; the scan is
 // bounded by the operation TTL (probe state is bounded and expirable).
 func (s *Store) ProbeOperationByArmDigest(digest [32]byte) (ProbeOperation, error) {
-	const query = `SELECT id, node_id, forward_id, activation_id, provider_id, status,
+	const query = `SELECT id, node_id, forward_id, activation_id, expected_forward_revision, provider_id, status,
 		endpoint, arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
 		FROM probe_operations WHERE 1 = 1 ORDER BY expires_at, id LIMIT ?`
 	return s.findProbeOperationByArmDigest(digest, query, defaultProbeLookupLimit)
@@ -779,7 +779,7 @@ func (s *Store) ProbeOperationByArmDigest(digest [32]byte) (ProbeOperation, erro
 // nodeID. The node/status/deadline fence is part of the lookup rather than a
 // caller convention, so a late frame cannot operate on another node's row.
 func (s *Store) ProbeOperationByArmDigestForNode(digest [32]byte, nodeID string, nowUnix int64) (ProbeOperation, error) {
-	const query = `SELECT id, node_id, forward_id, activation_id, provider_id, status,
+	const query = `SELECT id, node_id, forward_id, activation_id, expected_forward_revision, provider_id, status,
 		endpoint, arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
 		FROM probe_operations
 		WHERE node_id = ? AND status IN ('PENDING','ARMED','IN_FLIGHT') AND expires_at > ?
@@ -792,7 +792,7 @@ func (s *Store) ProbeOperationByArmDigestForNode(digest [32]byte, nodeID string,
 // returned row to terminalize a receipt that crossed the deadline, or to ignore
 // evidence that arrived after the sweeper already wrote a terminal tombstone.
 func (s *Store) ProbeOperationByArmDigestForNodeIncludingExpired(digest [32]byte, nodeID string) (ProbeOperation, error) {
-	const query = `SELECT id, node_id, forward_id, activation_id, provider_id, status,
+	const query = `SELECT id, node_id, forward_id, activation_id, expected_forward_revision, provider_id, status,
 		endpoint, arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
 		FROM probe_operations
 		WHERE node_id = ? ORDER BY updated_at DESC, id DESC LIMIT ?`
@@ -836,7 +836,7 @@ func (s *Store) findProbeOperationByArmDigest(digest [32]byte, query string, arg
 		var lastID string
 		for rows.Next() {
 			var op ProbeOperation
-			if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ProviderID, &op.Status,
+			if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ExpectedForwardRevision, &op.ProviderID, &op.Status,
 				&op.Endpoint, &op.ArmHex, &op.ChallengeHash, &op.TTLMS, &op.ExpiryOpaque,
 				&op.ExpiresAt, &op.CreatedAt, &op.UpdatedAt); err != nil {
 				rows.Close()
@@ -897,7 +897,7 @@ func (s *Store) ListProbeOperationsByStatusLimit(limit int, statuses ...string) 
 	}
 	args = append(args, limit)
 	rows, err := s.db.Query(
-		`SELECT id, node_id, forward_id, activation_id, provider_id, status, endpoint,
+		`SELECT id, node_id, forward_id, activation_id, expected_forward_revision, provider_id, status, endpoint,
 		        arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
 		   FROM probe_operations WHERE status IN (`+placeholders+`) ORDER BY created_at LIMIT ?`,
 		args...,
@@ -909,7 +909,7 @@ func (s *Store) ListProbeOperationsByStatusLimit(limit int, statuses ...string) 
 	var out []ProbeOperation
 	for rows.Next() {
 		var op ProbeOperation
-		if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ProviderID, &op.Status,
+		if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ExpectedForwardRevision, &op.ProviderID, &op.Status,
 			&op.Endpoint, &op.ArmHex, &op.ChallengeHash, &op.TTLMS, &op.ExpiryOpaque,
 			&op.ExpiresAt, &op.CreatedAt, &op.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("store: scan probe operation: %w", err)
@@ -1047,9 +1047,9 @@ func (s *Store) ListUndeliveredTerminalProbeOperationsPage(limit int, afterCreat
 	if limit <= 0 {
 		limit = defaultProbeLookupLimit
 	}
-	rows, err := s.db.Query(`SELECT o.id, o.node_id, o.forward_id, o.activation_id, o.provider_id, o.status, o.endpoint,
+	rows, err := s.db.Query(`SELECT o.id, o.node_id, o.forward_id, o.activation_id, o.expected_forward_revision, o.provider_id, o.status, o.endpoint,
 		o.arm_hex, o.challenge_hash, o.ttl_ms, o.expiry_opaque, o.expires_at, o.created_at, o.updated_at
-		FROM probe_operations o
+		FROM probe_operations o INDEXED BY idx_probe_terminal_created
 		WHERE `+probeTerminalSQL+` AND (o.created_at > ? OR (o.created_at = ? AND o.id > ?))
 		  AND NOT EXISTS (SELECT 1 FROM probe_terminal_deliveries d
 		                  WHERE d.probe_id = o.id AND d.disposition IN ('STALE','MISSING','EXPIRED','DELIVERED'))
@@ -1061,7 +1061,7 @@ func (s *Store) ListUndeliveredTerminalProbeOperationsPage(limit int, afterCreat
 	var out []ProbeOperation
 	for rows.Next() {
 		var op ProbeOperation
-		if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ProviderID, &op.Status,
+		if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ExpectedForwardRevision, &op.ProviderID, &op.Status,
 			&op.Endpoint, &op.ArmHex, &op.ChallengeHash, &op.TTLMS, &op.ExpiryOpaque,
 			&op.ExpiresAt, &op.CreatedAt, &op.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("store: scan undelivered terminal probe operation: %w", err)
@@ -1136,9 +1136,9 @@ func (s *Store) ListTerminalProbeOperationsPage(limit int, afterCreated int64, a
 	if limit <= 0 {
 		limit = defaultProbeLookupLimit
 	}
-	rows, err := s.db.Query(`SELECT id, node_id, forward_id, activation_id, provider_id, status, endpoint,
+	rows, err := s.db.Query(`SELECT id, node_id, forward_id, activation_id, expected_forward_revision, provider_id, status, endpoint,
 		arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
-		FROM probe_operations
+		FROM probe_operations INDEXED BY idx_probe_terminal_created
 		WHERE `+probeTerminalSQL+` AND (created_at > ? OR (created_at = ? AND id > ?))
 		ORDER BY created_at, id LIMIT ?`, afterCreated, afterCreated, afterID, limit)
 	if err != nil {
@@ -1148,7 +1148,7 @@ func (s *Store) ListTerminalProbeOperationsPage(limit int, afterCreated int64, a
 	var out []ProbeOperation
 	for rows.Next() {
 		var op ProbeOperation
-		if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ProviderID, &op.Status,
+		if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ExpectedForwardRevision, &op.ProviderID, &op.Status,
 			&op.Endpoint, &op.ArmHex, &op.ChallengeHash, &op.TTLMS, &op.ExpiryOpaque,
 			&op.ExpiresAt, &op.CreatedAt, &op.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("store: scan terminal probe operation: %w", err)
@@ -1198,9 +1198,9 @@ func (s *Store) ExpireProbeOperations(nowUnix int64) ([]ProbeOperation, error) {
 // A non-positive limit selects the safe default cleanup batch.
 func (s *Store) ExpireProbeOperationsLimit(nowUnix int64, limit int) ([]ProbeOperation, error) {
 	limit = probeCleanupLimit(limit)
-	query := `SELECT id, node_id, forward_id, activation_id, provider_id, status, endpoint,
+	query := `SELECT id, node_id, forward_id, activation_id, expected_forward_revision, provider_id, status, endpoint,
 			arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
-		FROM probe_operations
+		FROM probe_operations INDEXED BY idx_probe_live_expiry
 		WHERE status IN ('PENDING','ARMED','IN_FLIGHT') AND expires_at <= ?
 		ORDER BY expires_at, id LIMIT ?`
 	args := []any{nowUnix, limit}
@@ -1211,7 +1211,7 @@ func (s *Store) ExpireProbeOperationsLimit(nowUnix int64, limit int) ([]ProbeOpe
 	var candidates []ProbeOperation
 	for rows.Next() {
 		var op ProbeOperation
-		if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ProviderID, &op.Status,
+		if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ExpectedForwardRevision, &op.ProviderID, &op.Status,
 			&op.Endpoint, &op.ArmHex, &op.ChallengeHash, &op.TTLMS, &op.ExpiryOpaque,
 			&op.ExpiresAt, &op.CreatedAt, &op.UpdatedAt); err != nil {
 			rows.Close()
@@ -1302,7 +1302,7 @@ func (s *Store) DeleteTerminalProbeOperationsBeforeLimit(cutoff int64, limit int
 		return 0, fmt.Errorf("store: begin probe tombstone gc: %w", err)
 	}
 	defer tx.Rollback()
-	query := `SELECT id FROM probe_operations WHERE ` + probeTerminalSQL + ` AND updated_at < ?
+	query := `SELECT id FROM probe_operations INDEXED BY idx_probe_terminal_updated WHERE ` + probeTerminalSQL + ` AND updated_at < ?
 		AND (EXISTS (SELECT 1 FROM probe_results ack WHERE ack.probe_id = probe_operations.id AND ack.kind = 'outcome_acked')
 		     OR EXISTS (SELECT 1 FROM probe_terminal_deliveries d WHERE d.probe_id = probe_operations.id
 		              AND d.disposition IN ('EXPIRED', 'STALE', 'MISSING', 'DELIVERED')))
@@ -1487,11 +1487,12 @@ type ForwardRuntimeStatus struct {
 }
 
 // SetForwardRuntimeStatus upserts the orthogonal snapshot only when the event
-// names forwards.current_activation_id. Before a current activation exists,
-// the one recorded forward_activations row may initialize/update its mirror.
-// Both predicates are part of the write statement, so an existing same-old-
-// activation row cannot create a TOCTOU bypass after the forward advances.
-func (s *Store) SetForwardRuntimeStatus(forwardID, activationID, snapshotJSON string) error {
+// names both forwards.current_activation_id and the exact forward revision.
+// Before a current activation exists, the one recorded forward_activations row
+// may initialize/update its mirror at that same revision. Both predicates are
+// part of the write statement, so an existing same-activation row cannot
+// create a TOCTOU bypass after deletion advances the generation.
+func (s *Store) SetForwardRuntimeStatus(forwardID, activationID string, expectedForwardRevision uint64, snapshotJSON string) error {
 	if _, err := decodeActivationSnapshot(snapshotJSON); err != nil {
 		return fmt.Errorf("store: invalid forward runtime snapshot: %w", err)
 	}
@@ -1500,7 +1501,7 @@ func (s *Store) SetForwardRuntimeStatus(forwardID, activationID, snapshotJSON st
 		 SELECT ?, ?, ?, ?
 		  WHERE EXISTS (
 		        SELECT 1 FROM forwards f
-		         WHERE f.id = ? AND (
+		         WHERE f.id = ? AND f.revision = ? AND (
 		               f.current_activation_id = ?
 		               OR (COALESCE(f.current_activation_id, '') = '' AND EXISTS (
 		                     SELECT 1 FROM forward_activations a
@@ -1512,15 +1513,16 @@ func (s *Store) SetForwardRuntimeStatus(forwardID, activationID, snapshotJSON st
 		    activation_id = excluded.activation_id,
 		    snapshot_json = excluded.snapshot_json,
 		    updated_at = excluded.updated_at
-		  WHERE excluded.activation_id = (
-		        SELECT current_activation_id FROM forwards
-		         WHERE id = excluded.forward_id
-		  ) OR (
-		        COALESCE((SELECT current_activation_id FROM forwards
-		                   WHERE id = excluded.forward_id), '') = ''
-		        AND forward_runtime_status.activation_id = excluded.activation_id
+		  WHERE EXISTS (
+		        SELECT 1 FROM forwards f
+		         WHERE f.id = excluded.forward_id AND f.revision = ? AND (
+		               f.current_activation_id = excluded.activation_id
+		               OR (COALESCE(f.current_activation_id, '') = ''
+		                   AND forward_runtime_status.activation_id = excluded.activation_id)
+		         )
 		  )`,
-		forwardID, activationID, snapshotJSON, now(), forwardID, activationID, activationID,
+		forwardID, activationID, snapshotJSON, now(), forwardID, expectedForwardRevision,
+		activationID, activationID, expectedForwardRevision,
 	)
 	if err != nil {
 		return fmt.Errorf("store: set forward runtime status: %w", err)

@@ -1,0 +1,578 @@
+=== RUN   TestProviderBindsExpectedSourceIP
+--- PASS: TestProviderBindsExpectedSourceIP (0.02s)
+=== RUN   TestAgentProbeResultCannotSelfPublish
+--- PASS: TestAgentProbeResultCannotSelfPublish (0.34s)
+=== RUN   TestVerifiedJoinStoresFrozenLegalSnapshot
+--- PASS: TestVerifiedJoinStoresFrozenLegalSnapshot (0.50s)
+=== RUN   TestLateReceiptTransitionsToTimeout
+--- PASS: TestLateReceiptTransitionsToTimeout (0.45s)
+=== RUN   TestProbeResultRejectsUnknownJSONFields
+--- PASS: TestProbeResultRejectsUnknownJSONFields (0.42s)
+=== RUN   TestProviderRejectsPrivateExpectedSource
+--- PASS: TestProviderRejectsPrivateExpectedSource (0.00s)
+=== RUN   TestProviderReplayDifferentMaterialIsConflict
+--- PASS: TestProviderReplayDifferentMaterialIsConflict (0.01s)
+=== RUN   TestArmRejectsStaleForwardActivation
+--- PASS: TestArmRejectsStaleForwardActivation (0.28s)
+=== RUN   TestSetProbeOperationChallengeRejectsMalformedHash
+--- PASS: TestSetProbeOperationChallengeRejectsMalformedHash (0.39s)
+=== RUN   TestDuplicateProbeReceiptIsIdempotent
+--- PASS: TestDuplicateProbeReceiptIsIdempotent (0.37s)
+=== RUN   TestManagerSweepExpiryIsBounded
+--- PASS: TestManagerSweepExpiryIsBounded (0.47s)
+=== RUN   TestManagerArmUsesBoundedActiveState
+--- PASS: TestManagerArmUsesBoundedActiveState (0.32s)
+=== RUN   TestManagerCloseCancelsSweeperPromptly
+--- PASS: TestManagerCloseCancelsSweeperPromptly (0.28s)
+=== RUN   TestArmEnqueuesProbeArm
+--- PASS: TestArmEnqueuesProbeArm (0.32s)
+=== RUN   TestArmRejectsMalformedProviderEgressIP
+--- PASS: TestArmRejectsMalformedProviderEgressIP (0.30s)
+=== RUN   TestProbeResultRejectsWrongNodeAndOutcome
+--- PASS: TestProbeResultRejectsWrongNodeAndOutcome (0.31s)
+=== RUN   TestProviderNotRequestedBeforeArmed
+--- PASS: TestProviderNotRequestedBeforeArmed (0.33s)
+=== RUN   TestProbeArmedTriggersProviderRequest
+--- PASS: TestProbeArmedTriggersProviderRequest (2.29s)
+=== RUN   TestJoinOpensFromVantage
+--- PASS: TestJoinOpensFromVantage (0.35s)
+=== RUN   TestJoinRejectsControlOnlyReceipt
+--- PASS: TestJoinRejectsControlOnlyReceipt (0.24s)
+=== RUN   TestProviderRejectedNeverOpens
+--- PASS: TestProviderRejectedNeverOpens (0.75s)
+=== RUN   TestProviderReplayCanonicalizesProbeID
+--- PASS: TestProviderReplayCanonicalizesProbeID (0.00s)
+=== RUN   TestProviderACKMustBindToWAN1
+--- PASS: TestProviderACKMustBindToWAN1 (0.00s)
+=== RUN   TestR13VerifiedJoinPreservesIndependentActivationAxes
+--- PASS: TestR13VerifiedJoinPreservesIndependentActivationAxes (0.32s)
+=== RUN   TestR13ActivationStatusUsesStrictSemanticJSON
+--- PASS: TestR13ActivationStatusUsesStrictSemanticJSON (0.23s)
+=== RUN   TestR13ProviderAdmissionBudgetsEveryIdentityAxis
+=== RUN   TestR13ProviderAdmissionBudgetsEveryIdentityAxis/controller
+=== RUN   TestR13ProviderAdmissionBudgetsEveryIdentityAxis/node
+=== RUN   TestR13ProviderAdmissionBudgetsEveryIdentityAxis/endpoint
+=== RUN   TestR13ProviderAdmissionBudgetsEveryIdentityAxis/daily
+--- PASS: TestR13ProviderAdmissionBudgetsEveryIdentityAxis (0.03s)
+    --- PASS: TestR13ProviderAdmissionBudgetsEveryIdentityAxis/controller (0.01s)
+    --- PASS: TestR13ProviderAdmissionBudgetsEveryIdentityAxis/node (0.01s)
+    --- PASS: TestR13ProviderAdmissionBudgetsEveryIdentityAxis/endpoint (0.01s)
+    --- PASS: TestR13ProviderAdmissionBudgetsEveryIdentityAxis/daily (0.01s)
+=== RUN   TestR13ProviderDailyBudgetDoesNotResetOnClockRollback
+--- PASS: TestR13ProviderDailyBudgetDoesNotResetOnClockRollback (0.01s)
+=== RUN   TestR13ProviderDeadlineInstallFailureFailsClosed
+--- PASS: TestR13ProviderDeadlineInstallFailureFailsClosed (0.00s)
+=== RUN   TestR13TerminalRecoveryHasHardPerSweepBudgetAndCursor
+--- PASS: TestR13TerminalRecoveryHasHardPerSweepBudgetAndCursor (0.28s)
+=== RUN   TestR13ManagerSweepExpiresOfflineTerminalDelivery
+--- PASS: TestR13ManagerSweepExpiresOfflineTerminalDelivery (0.26s)
+=== RUN   TestR16ArmRequiresCurrentRuntimeMirror
+--- PASS: TestR16ArmRequiresCurrentRuntimeMirror (0.23s)
+=== RUN   TestR16ArmRejectsStaleRuntimeMirror
+--- PASS: TestR16ArmRejectsStaleRuntimeMirror (0.24s)
+=== RUN   TestProviderReplayReturnsCachedSignedResult
+--- PASS: TestProviderReplayReturnsCachedSignedResult (0.00s)
+=== RUN   TestProviderDuplicateAdmissionReportsPendingBeforeResultIsCached
+--- PASS: TestProviderDuplicateAdmissionReportsPendingBeforeResultIsCached (0.00s)
+=== RUN   TestRecoverOperationsRequeuesTerminalOutcome
+--- PASS: TestRecoverOperationsRequeuesTerminalOutcome (0.24s)
+=== RUN   TestConsumedTerminalOutcomeIsNotRequeuedAfterOutboxGC
+--- PASS: TestConsumedTerminalOutcomeIsNotRequeuedAfterOutboxGC (0.27s)
+=== RUN   TestSweepRequeuesExpiredTimeoutOutcome
+--- PASS: TestSweepRequeuesExpiredTimeoutOutcome (0.25s)
+=== RUN   TestHandleActivationStatusRejectsGenerationOutsideCurrentRevision
+--- PASS: TestHandleActivationStatusRejectsGenerationOutsideCurrentRevision (0.23s)
+=== RUN   TestProviderRateLimitedOutcomeRemainsRetryable
+--- PASS: TestProviderRateLimitedOutcomeRemainsRetryable (0.00s)
+=== RUN   TestArmRequiresNonEmptyCurrentActivation
+--- PASS: TestArmRequiresNonEmptyCurrentActivation (0.23s)
+=== RUN   TestProviderRejectsUnsignedRequest
+--- PASS: TestProviderRejectsUnsignedRequest (0.00s)
+=== RUN   TestProviderRefusesPrivateEndpoint
+--- PASS: TestProviderRefusesPrivateEndpoint (0.00s)
+=== RUN   TestProviderRejectsSignedRequestPastTTL
+--- PASS: TestProviderRejectsSignedRequestPastTTL (0.00s)
+=== RUN   TestProviderReplayCacheIsBounded
+--- PASS: TestProviderReplayCacheIsBounded (0.00s)
+=== RUN   TestProviderReplaySweepHonorsWindowBoundary
+--- PASS: TestProviderReplaySweepHonorsWindowBoundary (0.00s)
+=== RUN   TestProviderReplaySweeperCancellation
+--- PASS: TestProviderReplaySweeperCancellation (0.00s)
+=== RUN   TestProviderFullExchange
+--- PASS: TestProviderFullExchange (0.01s)
+=== RUN   TestProviderRateLimitedResultRetainsProbeID
+--- PASS: TestProviderRateLimitedResultRetainsProbeID (0.00s)
+=== RUN   TestProviderBusyResultRetainsProbeID
+--- PASS: TestProviderBusyResultRetainsProbeID (0.00s)
+=== RUN   TestProviderFullReplayCachePreservesLiveFence
+--- PASS: TestProviderFullReplayCachePreservesLiveFence (0.00s)
+=== RUN   TestR16UnsignedRequestsDoNotConsumeAuthenticatedProviderBudget
+--- PASS: TestR16UnsignedRequestsDoNotConsumeAuthenticatedProviderBudget (0.00s)
+=== RUN   TestR16PreAuthConcurrencyPrecedesSignatureVerification
+--- PASS: TestR16PreAuthConcurrencyPrecedesSignatureVerification (0.00s)
+=== RUN   TestR16ProviderEnforcesConfiguredMaxRequestBytes
+--- PASS: TestR16ProviderEnforcesConfiguredMaxRequestBytes (0.00s)
+=== RUN   TestManagerRejectsNonIndependentProvider
+--- PASS: TestManagerRejectsNonIndependentProvider (0.27s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	12.896s
+=== RUN   TestActorPanicDoesNotStopSiblingsOrSupervisor
+--- PASS: TestActorPanicDoesNotStopSiblingsOrSupervisor (0.00s)
+=== RUN   TestSupervisorReportsActorFailure
+--- PASS: TestSupervisorReportsActorFailure (0.00s)
+=== RUN   TestSupervisorStartIsBounded
+--- PASS: TestSupervisorStartIsBounded (0.00s)
+=== RUN   TestSupervisorStartTimeoutBoundsLifecycle
+--- PASS: TestSupervisorStartTimeoutBoundsLifecycle (0.05s)
+=== RUN   TestSupervisorWaitReturnsAfterStartFailure
+--- PASS: TestSupervisorWaitReturnsAfterStartFailure (0.00s)
+=== RUN   TestSupervisorWaitReturnsWithUndrainedResults
+--- PASS: TestSupervisorWaitReturnsWithUndrainedResults (0.00s)
+=== RUN   TestApplyDesiredRollsBackNewActorsWhenCommitLosesCapability
+--- PASS: TestApplyDesiredRollsBackNewActorsWhenCommitLosesCapability (0.01s)
+=== RUN   TestApplyDesiredRejectsCapabilityLossBeforeCommit
+--- PASS: TestApplyDesiredRejectsCapabilityLossBeforeCommit (0.01s)
+=== RUN   TestApplyDesiredPartialKeepsOldAppliedAndAdvancesSibling
+--- PASS: TestApplyDesiredPartialKeepsOldAppliedAndAdvancesSibling (0.02s)
+=== RUN   TestApplyDesiredSkipsOldRevisionWithoutSideEffect
+--- PASS: TestApplyDesiredSkipsOldRevisionWithoutSideEffect (0.01s)
+=== RUN   TestApplyDesiredRejectsTombstonedForward
+--- PASS: TestApplyDesiredRejectsTombstonedForward (0.01s)
+=== RUN   TestApplyDesiredTerminalRejectedWhenLatchEngaged
+--- PASS: TestApplyDesiredTerminalRejectedWhenLatchEngaged (0.01s)
+=== RUN   TestApplyDesiredTombstoneBeforeStopHook
+--- PASS: TestApplyDesiredTombstoneBeforeStopHook (0.01s)
+=== RUN   TestApplyDesiredStopHookFailureKeepsTombstone
+--- PASS: TestApplyDesiredStopHookFailureKeepsTombstone (0.01s)
+=== RUN   TestRecordResultAndDurableReceiptFlow
+--- PASS: TestRecordResultAndDurableReceiptFlow (0.02s)
+=== RUN   TestRequeuePendingResendsResultOnNewSession
+--- PASS: TestRequeuePendingResendsResultOnNewSession (0.01s)
+=== RUN   TestDeleteResultPayloadRoundTrip
+--- PASS: TestDeleteResultPayloadRoundTrip (0.00s)
+=== RUN   TestRestartRecoversConsumedReplayFencesBeyondOnePage
+--- PASS: TestRestartRecoversConsumedReplayFencesBeyondOnePage (3.97s)
+=== RUN   TestRestartFailsClosedWhenWallClockRollsBackBeforeArm
+--- PASS: TestRestartFailsClosedWhenWallClockRollsBackBeforeArm (0.01s)
+=== RUN   TestRestartRecoveryHonorsActiveAndReplayBounds
+--- PASS: TestRestartRecoveryHonorsActiveAndReplayBounds (0.05s)
+=== RUN   TestRestartQuarantinesConsumedFenceAcrossWallClockRollback
+--- PASS: TestRestartQuarantinesConsumedFenceAcrossWallClockRollback (0.03s)
+=== RUN   TestRestartRemovesConsumedFenceAfterReplayDeadline
+--- PASS: TestRestartRemovesConsumedFenceAfterReplayDeadline (0.03s)
+=== RUN   TestR13RestartOverflowQuarantinesProbeGate
+--- PASS: TestR13RestartOverflowQuarantinesProbeGate (0.04s)
+=== RUN   TestR13RestartUnknownConsumedDeadlineQuarantinesProbeGate
+--- PASS: TestR13RestartUnknownConsumedDeadlineQuarantinesProbeGate (0.01s)
+=== RUN   TestR13LiveReplayCapacityNeverEvictsFence
+--- PASS: TestR13LiveReplayCapacityNeverEvictsFence (0.02s)
+=== RUN   TestR13ProbeIngressReadDeadlineFailureFailsClosed
+--- PASS: TestR13ProbeIngressReadDeadlineFailureFailsClosed (0.01s)
+=== RUN   TestR13ProbeIngressWriteDeadlineFailureFailsClosed
+--- PASS: TestR13ProbeIngressWriteDeadlineFailureFailsClosed (0.01s)
+=== RUN   TestR14RestartHydratesAcknowledgedConsumedProbeFence
+--- PASS: TestR14RestartHydratesAcknowledgedConsumedProbeFence (0.01s)
+=== RUN   TestR16LiveConsumedSourceFenceUsesDurableReceiptDeadline
+--- PASS: TestR16LiveConsumedSourceFenceUsesDurableReceiptDeadline (0.02s)
+=== RUN   TestConsumedProbeSourceRemainsGatedDuringReplayWindow
+--- PASS: TestConsumedProbeSourceRemainsGatedDuringReplayWindow (0.01s)
+=== RUN   TestApplyDesiredRollsBackExistingHotUpdateWhenCommitFails
+--- PASS: TestApplyDesiredRollsBackExistingHotUpdateWhenCommitFails (0.01s)
+=== RUN   TestProbeGateCloseJoinsIngressWorkers
+--- PASS: TestProbeGateCloseJoinsIngressWorkers (0.00s)
+=== RUN   TestHandleProbeArmRejectsUnmatchedActivation
+--- PASS: TestHandleProbeArmRejectsUnmatchedActivation (0.01s)
+=== RUN   TestHandleProbeArmRejectsEndpointMismatch
+--- PASS: TestHandleProbeArmRejectsEndpointMismatch (0.01s)
+=== RUN   TestProbeGateAcceptsAndAcks
+--- PASS: TestProbeGateAcceptsAndAcks (0.32s)
+=== RUN   TestProbeGateWrongSourcePassesToBusiness
+--- PASS: TestProbeGateWrongSourcePassesToBusiness (0.02s)
+=== RUN   TestProbeIngressDemultiplexesSameSourceByFrame
+--- PASS: TestProbeIngressDemultiplexesSameSourceByFrame (0.05s)
+=== RUN   TestConsumedProbeSurvivesArmDeadlineUntilReceiptDeadline
+--- PASS: TestConsumedProbeSurvivesArmDeadlineUntilReceiptDeadline (0.02s)
+=== RUN   TestRetryPendingReceiptsMarksDurableReceiptSent
+--- PASS: TestRetryPendingReceiptsMarksDurableReceiptSent (0.02s)
+=== RUN   TestRetryPendingReceiptsScansAllRetainedRows
+--- PASS: TestRetryPendingReceiptsScansAllRetainedRows (1.42s)
+=== RUN   TestRetryPendingReceiptsResendsAfterTransportWriteUntilSemanticAck
+--- PASS: TestRetryPendingReceiptsResendsAfterTransportWriteUntilSemanticAck (0.01s)
+=== RUN   TestControllerReceiptAckRetainsProbeFence
+--- PASS: TestControllerReceiptAckRetainsProbeFence (0.01s)
+=== RUN   TestProbeGateRejectsReplay
+--- PASS: TestProbeGateRejectsReplay (0.51s)
+=== RUN   TestReconcileOnceAppliesAndRecordsDeletionResult
+--- PASS: TestReconcileOnceAppliesAndRecordsDeletionResult (0.01s)
+=== RUN   TestReconcileOnceWithoutSessionSkipsResultRecording
+--- PASS: TestReconcileOnceWithoutSessionSkipsResultRecording (0.00s)
+=== RUN   TestReconcileOnceRefusesWhenDecommissioned
+--- PASS: TestReconcileOnceRefusesWhenDecommissioned (0.00s)
+=== RUN   TestReconcileRunLoopSurvivesActorPanicAndProcessesTriggers
+--- PASS: TestReconcileRunLoopSurvivesActorPanicAndProcessesTriggers (0.05s)
+=== RUN   TestReconcileOnceActorPanicDoesNotFailTheReconcile
+--- PASS: TestReconcileOnceActorPanicDoesNotFailTheReconcile (0.01s)
+=== RUN   TestReconcileOnceRepeatedWhileDeletionResultInFlight
+--- PASS: TestReconcileOnceRepeatedWhileDeletionResultInFlight (0.01s)
+=== RUN   TestReconcileRunSurvivesInFlightDeletionResult
+--- PASS: TestReconcileRunSurvivesInFlightDeletionResult (0.06s)
+=== RUN   TestReconcileRunSurvivesStopOutcomeFlip
+--- PASS: TestReconcileRunSurvivesStopOutcomeFlip (0.07s)
+=== RUN   TestActivationAxesVaryIndependently
+--- PASS: TestActivationAxesVaryIndependently (0.00s)
+=== RUN   TestActivationStaleEventCannotOverwriteCurrentCAS
+--- PASS: TestActivationStaleEventCannotOverwriteCurrentCAS (0.00s)
+=== RUN   TestActivationFutureGenerationCannotBypassCAS
+--- PASS: TestActivationFutureGenerationCannotBypassCAS (0.00s)
+=== RUN   TestActivationEvidenceLossImmediateUnpublish
+--- PASS: TestActivationEvidenceLossImmediateUnpublish (0.00s)
+=== RUN   TestActivationRecoveryCannotRestoreVerifiedPublication
+--- PASS: TestActivationRecoveryCannotRestoreVerifiedPublication (0.00s)
+=== RUN   TestActivationPublicationTruthInvariants
+--- PASS: TestActivationPublicationTruthInvariants (0.00s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	8.079s
+=== RUN   TestUnauthenticatedAccessFails
+--- PASS: TestUnauthenticatedAccessFails (0.54s)
+=== RUN   TestAuthInitAllowsOnlyUnauthenticatedFirstBootstrap
+--- PASS: TestAuthInitAllowsOnlyUnauthenticatedFirstBootstrap (1.11s)
+=== RUN   TestLoginLogoutMe
+--- PASS: TestLoginLogoutMe (0.89s)
+=== RUN   TestNodeCreateAndToken
+--- PASS: TestNodeCreateAndToken (0.97s)
+=== RUN   TestForwardCreateListDelete
+--- PASS: TestForwardCreateListDelete (0.82s)
+=== RUN   TestForwardCreateIdempotencyReplayAndConflict
+--- PASS: TestForwardCreateIdempotencyReplayAndConflict (0.84s)
+=== RUN   TestIdempotencyConflict
+--- PASS: TestIdempotencyConflict (0.71s)
+=== RUN   TestR13AdminBootstrapRejectsAmbiguousJSON
+--- PASS: TestR13AdminBootstrapRejectsAmbiguousJSON (0.36s)
+=== RUN   TestR13AdminBootstrapUsesProtocolPayloadLimit
+--- PASS: TestR13AdminBootstrapUsesProtocolPayloadLimit (0.86s)
+=== RUN   TestR13ConcurrentNodeCreateReplaysAtomicResponse
+--- PASS: TestR13ConcurrentNodeCreateReplaysAtomicResponse (0.66s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/controller/api	8.813s
+=== RUN   TestCLIAdminInitLoginNodeForward
+--- PASS: TestCLIAdminInitLoginNodeForward (1.69s)
+=== RUN   TestCLIUnauthenticatedFails
+--- PASS: TestCLIUnauthenticatedFails (1.72s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/cmd/antinatctl	4.462s
+=== RUN   TestBusyTimeoutWaitsForLockedWriter
+--- PASS: TestBusyTimeoutWaitsForLockedWriter (0.65s)
+=== RUN   TestControlInboxReplayCleanupIsBounded
+--- PASS: TestControlInboxReplayCleanupIsBounded (0.47s)
+=== RUN   TestControlInboxReplayCleanupRetainsUnacknowledgedOutbox
+--- PASS: TestControlInboxReplayCleanupRetainsUnacknowledgedOutbox (0.40s)
+=== RUN   TestControlOutboxInsertAlwaysStartsPending
+--- PASS: TestControlOutboxInsertAlwaysStartsPending (0.31s)
+=== RUN   TestControlOutboxClaim
+--- PASS: TestControlOutboxClaim (0.26s)
+=== RUN   TestControlOutboxConcurrentClaimsHaveOneOwner
+--- PASS: TestControlOutboxConcurrentClaimsHaveOneOwner (0.35s)
+=== RUN   TestControlOutboxFSMTransitions
+--- PASS: TestControlOutboxFSMTransitions (0.36s)
+=== RUN   TestControlOutboxSessionBound
+--- PASS: TestControlOutboxSessionBound (0.33s)
+=== RUN   TestControlOutboxSemanticACKUsesAtomicSessionAndPhaseCAS
+--- PASS: TestControlOutboxSemanticACKUsesAtomicSessionAndPhaseCAS (0.35s)
+=== RUN   TestControlOutboxRequeueForNewSession
+--- PASS: TestControlOutboxRequeueForNewSession (0.26s)
+=== RUN   TestControlOutboxRequeueSkipsSemanticAcked
+--- PASS: TestControlOutboxRequeueSkipsSemanticAcked (0.29s)
+=== RUN   TestControlOutboxRebindSession
+--- PASS: TestControlOutboxRebindSession (0.32s)
+=== RUN   TestControlInboxDedup
+--- PASS: TestControlInboxDedup (0.27s)
+=== RUN   TestControlInboxConcurrentDuplicateDeliveryIsIdempotent
+--- PASS: TestControlInboxConcurrentDuplicateDeliveryIsIdempotent (1.02s)
+=== RUN   TestControlInboxDuplicatePreservesNodeAndOperationBinding
+=== RUN   TestControlInboxDuplicatePreservesNodeAndOperationBinding/node
+=== RUN   TestControlInboxDuplicatePreservesNodeAndOperationBinding/operation
+--- PASS: TestControlInboxDuplicatePreservesNodeAndOperationBinding (0.25s)
+    --- PASS: TestControlInboxDuplicatePreservesNodeAndOperationBinding/node (0.00s)
+    --- PASS: TestControlInboxDuplicatePreservesNodeAndOperationBinding/operation (0.00s)
+=== RUN   TestControlInboxDuplicateHandlesLegacyNullOperationID
+--- PASS: TestControlInboxDuplicateHandlesLegacyNullOperationID (0.23s)
+=== RUN   TestSetNodeControlState
+--- PASS: TestSetNodeControlState (0.23s)
+=== RUN   TestMigrationFailureRollsBackLeavingOldDB
+--- PASS: TestMigrationFailureRollsBackLeavingOldDB (0.27s)
+=== RUN   TestSetProbeOperationStatusCannotPublishVerifiedOutcome
+--- PASS: TestSetProbeOperationStatusCannotPublishVerifiedOutcome (0.23s)
+=== RUN   TestSetForwardRuntimeStatusRejectsContradictoryPublication
+--- PASS: TestSetForwardRuntimeStatusRejectsContradictoryPublication (0.23s)
+=== RUN   TestPublishProbeJoinRejectsMismatchedWireEvidence
+--- PASS: TestPublishProbeJoinRejectsMismatchedWireEvidence (0.24s)
+=== RUN   TestPublishProbeJoinRejectsWrongPathACK
+--- PASS: TestPublishProbeJoinRejectsWrongPathACK (0.25s)
+=== RUN   TestPublishProbeJoinRejectsForgedACKSignature
+--- PASS: TestPublishProbeJoinRejectsForgedACKSignature (0.27s)
+=== RUN   TestPublishProbeJoinRejectsForgedReceiptSignature
+--- PASS: TestPublishProbeJoinRejectsForgedReceiptSignature (0.25s)
+=== RUN   TestCreateEnrollmentTokenStoresHashOnly
+--- PASS: TestCreateEnrollmentTokenStoresHashOnly (0.22s)
+=== RUN   TestConsumeEnrollmentTokenAtomic
+--- PASS: TestConsumeEnrollmentTokenAtomic (0.23s)
+=== RUN   TestConsumeEnrollmentTokenIdempotentReplay
+--- PASS: TestConsumeEnrollmentTokenIdempotentReplay (0.23s)
+=== RUN   TestConsumeEnrollmentTokenDifferentKeyRejected
+--- PASS: TestConsumeEnrollmentTokenDifferentKeyRejected (0.23s)
+=== RUN   TestConsumeEnrollmentTokenExpired
+--- PASS: TestConsumeEnrollmentTokenExpired (0.23s)
+=== RUN   TestConsumeEnrollmentTokenUnknown
+--- PASS: TestConsumeEnrollmentTokenUnknown (0.22s)
+=== RUN   TestConsumeEnrollmentTokenNodeMismatch
+--- PASS: TestConsumeEnrollmentTokenNodeMismatch (0.23s)
+=== RUN   TestEnrollmentResultHashOnly
+--- PASS: TestEnrollmentResultHashOnly (0.23s)
+=== RUN   TestR13NodeAndIdempotencyPersistenceAreAtomic
+--- PASS: TestR13NodeAndIdempotencyPersistenceAreAtomic (0.22s)
+=== RUN   TestR13NodeBundleReplayConflictAndExpiry
+--- PASS: TestR13NodeBundleReplayConflictAndExpiry (0.23s)
+=== RUN   TestR13NodeBundleConcurrentSameKeyReplaysWinner
+--- PASS: TestR13NodeBundleConcurrentSameKeyReplaysWinner (0.27s)
+=== RUN   TestR13RuntimeStatusInsertCASUsesCurrentActivation
+--- PASS: TestR13RuntimeStatusInsertCASUsesCurrentActivation (0.24s)
+=== RUN   TestR13RuntimeStatusExistingRowCASUsesCurrentActivation
+--- PASS: TestR13RuntimeStatusExistingRowCASUsesCurrentActivation (0.23s)
+=== RUN   TestR13TerminalProbeDispositionIsDurable
+--- PASS: TestR13TerminalProbeDispositionIsDurable (0.27s)
+=== RUN   TestR13TerminalProbeSelectionIsIndexedAndBounded
+--- PASS: TestR13TerminalProbeSelectionIsIndexedAndBounded (0.26s)
+=== RUN   TestR13TerminalSelectionRepairsLegacyIndexDefinition
+--- PASS: TestR13TerminalSelectionRepairsLegacyIndexDefinition (0.23s)
+=== RUN   TestR13TerminalProbeOfflineDeliveryHasFiniteRetention
+--- PASS: TestR13TerminalProbeOfflineDeliveryHasFiniteRetention (0.25s)
+=== RUN   TestR14PublishProbeJoinRejectsInvalidMergedActivationSnapshot
+--- PASS: TestR14PublishProbeJoinRejectsInvalidMergedActivationSnapshot (0.26s)
+=== RUN   TestR14FreshStoreRecordsHardeningMigration
+--- PASS: TestR14FreshStoreRecordsHardeningMigration (0.23s)
+=== RUN   TestR14UpgradeBackfillsLegacyOutboxCorrelationIDs
+--- PASS: TestR14UpgradeBackfillsLegacyOutboxCorrelationIDs (0.25s)
+=== RUN   TestR14HardeningMigrationIsIdempotentAcrossReopen
+--- PASS: TestR14HardeningMigrationIsIdempotentAcrossReopen (0.27s)
+=== RUN   TestR14HardeningMigrationRollbackLeavesV5DatabaseIntact
+--- PASS: TestR14HardeningMigrationRollbackLeavesV5DatabaseIntact (0.14s)
+=== RUN   TestR16ForwardDeleteOutboxWaitsForBothSemanticResults
+--- PASS: TestR16ForwardDeleteOutboxWaitsForBothSemanticResults (0.25s)
+=== RUN   TestR16MigrationRejectsLedgerGapAndWrongName
+=== RUN   TestR16MigrationRejectsLedgerGapAndWrongName/gap
+=== RUN   TestR16MigrationRejectsLedgerGapAndWrongName/wrong-name
+--- PASS: TestR16MigrationRejectsLedgerGapAndWrongName (0.26s)
+    --- PASS: TestR16MigrationRejectsLedgerGapAndWrongName/gap (0.12s)
+    --- PASS: TestR16MigrationRejectsLedgerGapAndWrongName/wrong-name (0.14s)
+=== RUN   TestR16MigrationRejectsRecordedV6WithMissingObject
+--- PASS: TestR16MigrationRejectsRecordedV6WithMissingObject (0.23s)
+=== RUN   TestR16MigrationRejectsRecordedV6WithWrongObjectKind
+--- PASS: TestR16MigrationRejectsRecordedV6WithWrongObjectKind (0.23s)
+=== RUN   TestR16MigrationBackfillHardBudgetRollsBack
+--- PASS: TestR16MigrationBackfillHardBudgetRollsBack (0.22s)
+=== RUN   TestR16CleanupIndexesExposeOrderedKeys
+--- PASS: TestR16CleanupIndexesExposeOrderedKeys (0.23s)
+=== RUN   TestR16ProbeArmRejectsAdvancedForwardRevision
+--- PASS: TestR16ProbeArmRejectsAdvancedForwardRevision (0.23s)
+=== RUN   TestR16ProbeJoinRejectsDeletionRevisionAdvance
+--- PASS: TestR16ProbeJoinRejectsDeletionRevisionAdvance (0.25s)
+=== RUN   TestR16ProbeOutcomeRejectsDeletionRevisionAdvance
+--- PASS: TestR16ProbeOutcomeRejectsDeletionRevisionAdvance (0.24s)
+=== RUN   TestR16RuntimeStatusRejectsSameActivationAtAdvancedRevision
+--- PASS: TestR16RuntimeStatusRejectsSameActivationAtAdvancedRevision (0.25s)
+=== RUN   TestR16TerminalDeliveryExpiryPreservesSentWork
+=== RUN   TestR16TerminalDeliveryExpiryPreservesSentWork/SENT
+=== RUN   TestR16TerminalDeliveryExpiryPreservesSentWork/SEMANTIC_ACKED
+--- PASS: TestR16TerminalDeliveryExpiryPreservesSentWork (0.49s)
+    --- PASS: TestR16TerminalDeliveryExpiryPreservesSentWork/SENT (0.24s)
+    --- PASS: TestR16TerminalDeliveryExpiryPreservesSentWork/SEMANTIC_ACKED (0.24s)
+=== RUN   TestR16TerminalDeliveryReceiptMarksDeliveredAtomically
+--- PASS: TestR16TerminalDeliveryReceiptMarksDeliveredAtomically (0.24s)
+=== RUN   TestR16InboxCleanupRetainsReplayTombstonesUntilHighWater
+--- PASS: TestR16InboxCleanupRetainsReplayTombstonesUntilHighWater (0.24s)
+=== RUN   TestR16InboxCleanupRetainsProbeResultUntilOutcomeReceipt
+--- PASS: TestR16InboxCleanupRetainsProbeResultUntilOutcomeReceipt (0.28s)
+=== RUN   TestR16ConcurrentForwardDeleteWritersResolveByCAS
+--- PASS: TestR16ConcurrentForwardDeleteWritersResolveByCAS (0.45s)
+=== RUN   TestR16ForwardDeletionCompletionRequiresExactCorrelation
+--- PASS: TestR16ForwardDeletionCompletionRequiresExactCorrelation (0.24s)
+=== RUN   TestR16ForwardDeletionRecoveryUsesDurableResultCorrelationAfterOutboxGC
+--- PASS: TestR16ForwardDeletionRecoveryUsesDurableResultCorrelationAfterOutboxGC (0.24s)
+=== RUN   TestR16ForwardDeletionRecoveryDrainsPast500Rows
+--- PASS: TestR16ForwardDeletionRecoveryDrainsPast500Rows (1.94s)
+=== RUN   TestApplyForwardDesiredPublishesCurrentActivationForRevision
+--- PASS: TestApplyForwardDesiredPublishesCurrentActivationForRevision (0.23s)
+=== RUN   TestOpenRejectsFutureSchemaVersion
+--- PASS: TestOpenRejectsFutureSchemaVersion (0.25s)
+=== RUN   TestApplyForwardDeleteRejectsMismatchedOutboxIdentity
+--- PASS: TestApplyForwardDeleteRejectsMismatchedOutboxIdentity (0.23s)
+=== RUN   TestApplyForwardDeleteRejectsNextRevisionRepresentation
+--- PASS: TestApplyForwardDeleteRejectsNextRevisionRepresentation (0.22s)
+=== RUN   TestProbeOperationDigestLookupScansBeyondOnePage
+--- PASS: TestProbeOperationDigestLookupScansBeyondOnePage (2.24s)
+=== RUN   TestTerminalProbeCleanupIsBounded
+--- PASS: TestTerminalProbeCleanupIsBounded (0.29s)
+=== RUN   TestProbeCleanupRetainsRecentTerminalReceipt
+--- PASS: TestProbeCleanupRetainsRecentTerminalReceipt (0.24s)
+=== RUN   TestTerminalProbeCleanupRetainsUnacknowledgedOutcome
+--- PASS: TestTerminalProbeCleanupRetainsUnacknowledgedOutcome (0.24s)
+=== RUN   TestTerminalProbeRetentionBoundaryPreventsRevival
+--- PASS: TestTerminalProbeRetentionBoundaryPreventsRevival (0.25s)
+=== RUN   TestProbeExpiryUsesControlledTimestampBoundary
+--- PASS: TestProbeExpiryUsesControlledTimestampBoundary (0.23s)
+=== RUN   TestProbeProviderCRUD
+--- PASS: TestProbeProviderCRUD (0.23s)
+=== RUN   TestProbeOperationLifecycle
+--- PASS: TestProbeOperationLifecycle (0.25s)
+=== RUN   TestForwardActivationCAS
+--- PASS: TestForwardActivationCAS (0.25s)
+=== RUN   TestPublishProbeJoinRequiresCompleteEvidenceAndLegalSnapshot
+--- PASS: TestPublishProbeJoinRequiresCompleteEvidenceAndLegalSnapshot (0.24s)
+=== RUN   TestTerminalProbeTombstoneGCPreventsRevival
+--- PASS: TestTerminalProbeTombstoneGCPreventsRevival (0.25s)
+=== RUN   TestProbeMigrationVersion
+--- PASS: TestProbeMigrationVersion (0.22s)
+=== RUN   TestConcurrentWALWritesAndBackupRestore
+--- PASS: TestConcurrentWALWritesAndBackupRestore (0.49s)
+=== RUN   TestInstanceIDStableAcrossRestart
+--- PASS: TestInstanceIDStableAcrossRestart (0.26s)
+=== RUN   TestDiskFreeBytesReportsPositive
+--- PASS: TestDiskFreeBytesReportsPositive (0.00s)
+=== RUN   TestLowDiskRefusesGrowthButAllowsDelete
+--- PASS: TestLowDiskRefusesGrowthButAllowsDelete (0.25s)
+=== RUN   TestOpenFailsClosedOnGarbageFile
+--- PASS: TestOpenFailsClosedOnGarbageFile (0.00s)
+=== RUN   TestOpenFailsClosedOnTruncatedDB
+--- PASS: TestOpenFailsClosedOnTruncatedDB (0.25s)
+=== RUN   TestIdempotencyReplaysSameHash
+--- PASS: TestIdempotencyReplaysSameHash (0.25s)
+=== RUN   TestIdempotencyConflictsOnDifferentHash
+--- PASS: TestIdempotencyConflictsOnDifferentHash (0.24s)
+=== RUN   TestIdempotencyConflictsOnDifferentRouteOrPrincipal
+=== RUN   TestIdempotencyConflictsOnDifferentRouteOrPrincipal/route
+=== RUN   TestIdempotencyConflictsOnDifferentRouteOrPrincipal/principal
+--- PASS: TestIdempotencyConflictsOnDifferentRouteOrPrincipal (0.24s)
+    --- PASS: TestIdempotencyConflictsOnDifferentRouteOrPrincipal/route (0.00s)
+    --- PASS: TestIdempotencyConflictsOnDifferentRouteOrPrincipal/principal (0.00s)
+=== RUN   TestIdempotencyExpiredKeyCanBeReused
+--- PASS: TestIdempotencyExpiredKeyCanBeReused (0.26s)
+=== RUN   TestAdminEventsCursorSurvivesRestart
+--- PASS: TestAdminEventsCursorSurvivesRestart (0.26s)
+=== RUN   TestIdempotencyConcurrentSameKeySameHash
+--- PASS: TestIdempotencyConcurrentSameKeySameHash (2.11s)
+=== RUN   TestIdempotencyConcurrentExpiredKeyReuse
+--- PASS: TestIdempotencyConcurrentExpiredKeyReuse (0.25s)
+=== RUN   TestOpenAppliesAllMigrations
+--- PASS: TestOpenAppliesAllMigrations (0.23s)
+=== RUN   TestOpenIsIdempotentAcrossReopen
+--- PASS: TestOpenIsIdempotentAcrossReopen (0.27s)
+=== RUN   TestForeignKeysEnforcedForForwardParent
+--- PASS: TestForeignKeysEnforcedForForwardParent (0.23s)
+=== RUN   TestForwardDeletionOperationSurvivesForwardDeletion
+--- PASS: TestForwardDeletionOperationSurvivesForwardDeletion (0.24s)
+=== RUN   TestForwardSpecRequiresStableForwardParent
+--- PASS: TestForwardSpecRequiresStableForwardParent (0.23s)
+=== RUN   TestForwardActivationCASConflictsOnStaleRevision
+--- PASS: TestForwardActivationCASConflictsOnStaleRevision (0.24s)
+=== RUN   TestCreateForwardBundleRollsBackEverySideEffectOnOutboxFault
+--- PASS: TestCreateForwardBundleRollsBackEverySideEffectOnOutboxFault (0.25s)
+=== RUN   TestCreateForwardBundleReplaysIdenticallyAndConflictsOnHashMismatch
+--- PASS: TestCreateForwardBundleReplaysIdenticallyAndConflictsOnHashMismatch (0.25s)
+=== RUN   TestCreateForwardBundleConcurrentIdenticalRetryHasOneSideEffect
+--- PASS: TestCreateForwardBundleConcurrentIdenticalRetryHasOneSideEffect (0.69s)
+=== RUN   TestApplyForwardDesiredRollsBackOnOutboxFault
+--- PASS: TestApplyForwardDesiredRollsBackOnOutboxFault (0.25s)
+=== RUN   TestApplyForwardDesiredCommitsAll
+--- PASS: TestApplyForwardDesiredCommitsAll (0.23s)
+=== RUN   TestApplyForwardDeleteRollsBackOnOutboxFault
+--- PASS: TestApplyForwardDeleteRollsBackOnOutboxFault (0.26s)
+=== RUN   TestApplyForwardDeleteRejectsStaleParentRevision
+--- PASS: TestApplyForwardDeleteRejectsStaleParentRevision (0.25s)
+=== RUN   TestApplyForwardDeleteReplayIsIdempotent
+--- PASS: TestApplyForwardDeleteReplayIsIdempotent (0.25s)
+=== RUN   TestApplyNodeDeleteRollsBackOnOutboxFault
+--- PASS: TestApplyNodeDeleteRollsBackOnOutboxFault (0.24s)
+=== RUN   TestCreateUserStoresOnlyHash
+--- PASS: TestCreateUserStoresOnlyHash (0.26s)
+=== RUN   TestGetUserByUsernameNotFound
+--- PASS: TestGetUserByUsernameNotFound (0.24s)
+=== RUN   TestSetUserPasswordRotatesHash
+--- PASS: TestSetUserPasswordRotatesHash (0.25s)
+=== RUN   TestCreateSessionStoresOnlyHash
+--- PASS: TestCreateSessionStoresOnlyHash (0.24s)
+=== RUN   TestRevokeSession
+--- PASS: TestRevokeSession (0.24s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/controller/store	36.871s
+=== RUN   TestR13ResultCorrelationBeyond256Rows
+--- PASS: TestR13ResultCorrelationBeyond256Rows (1.99s)
+=== RUN   TestR13ReceiptCorrelationBeyond256Rows
+--- PASS: TestR13ReceiptCorrelationBeyond256Rows (1.55s)
+=== RUN   TestR13CorrelationMissFailsClosedWithoutPrefixScan
+--- PASS: TestR13CorrelationMissFailsClosedWithoutPrefixScan (1.11s)
+=== RUN   TestR13ReceiptSemanticJSONIsStrict
+--- PASS: TestR13ReceiptSemanticJSONIsStrict (0.00s)
+=== RUN   TestEnrollHappyPath
+--- PASS: TestEnrollHappyPath (0.34s)
+=== RUN   TestEnrollResponseLossReplaysOriginalResult
+--- PASS: TestEnrollResponseLossReplaysOriginalResult (0.31s)
+=== RUN   TestEnrollWrongPossessionKeyRejected
+--- PASS: TestEnrollWrongPossessionKeyRejected (0.25s)
+=== RUN   TestEnrollExpiredTokenRejected
+--- PASS: TestEnrollExpiredTokenRejected (0.25s)
+=== RUN   TestEnrollCrossNodeRejected
+--- PASS: TestEnrollCrossNodeRejected (0.24s)
+=== RUN   TestEnrollPlaintextPublicRefused
+--- PASS: TestEnrollPlaintextPublicRefused (0.23s)
+=== RUN   TestEnrollUnknownNodeRejected
+--- PASS: TestEnrollUnknownNodeRejected (0.23s)
+=== RUN   TestEpochFencingOldSocketRejected
+--- PASS: TestEpochFencingOldSocketRejected (0.27s)
+=== RUN   TestEpochFencingFutureEpochRejected
+--- PASS: TestEpochFencingFutureEpochRejected (0.24s)
+=== RUN   TestAgentPersistsEpochBeforeActivation
+--- PASS: TestAgentPersistsEpochBeforeActivation (0.24s)
+=== RUN   TestHubCloseDrainsActiveSessions
+--- PASS: TestHubCloseDrainsActiveSessions (0.25s)
+=== RUN   TestOversizeWSMessageFailsClosed
+--- PASS: TestOversizeWSMessageFailsClosed (0.26s)
+=== RUN   TestEnrollChallengeOversizeBodyRejected
+--- PASS: TestEnrollChallengeOversizeBodyRejected (0.23s)
+=== RUN   TestControlGarbageFirstMessageFailsClosed
+--- PASS: TestControlGarbageFirstMessageFailsClosed (0.24s)
+=== RUN   TestEnvelopeCapConsistency
+--- PASS: TestEnvelopeCapConsistency (0.00s)
+=== RUN   TestForwardDeleteControllerReceiptsBothAgentResults
+--- PASS: TestForwardDeleteControllerReceiptsBothAgentResults (0.42s)
+=== RUN   TestProbeReceiptGetsSemanticControllerAck
+--- PASS: TestProbeReceiptGetsSemanticControllerAck (0.26s)
+=== RUN   TestProbeReceiptReplayAfterSinkFailureIsRetried
+--- PASS: TestProbeReceiptReplayAfterSinkFailureIsRetried (0.29s)
+=== RUN   TestProbeSinkReceivesProbePlaneMessages
+--- PASS: TestProbeSinkReceivesProbePlaneMessages (0.37s)
+=== RUN   TestProbeSinkDedupsReplayedReceipt
+--- PASS: TestProbeSinkDedupsReplayedReceipt (0.28s)
+=== RUN   TestReconnectResendOfConsumedReceiptKeepsSessionAlive
+--- PASS: TestReconnectResendOfConsumedReceiptKeepsSessionAlive (1.75s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/controller/agenthub	12.612s
+=== RUN   TestR16ControllerShutdownBeforeStartIsTerminal
+--- PASS: TestR16ControllerShutdownBeforeStartIsTerminal (0.53s)
+=== RUN   TestR16ControllerStartIsSingleShot
+--- PASS: TestR16ControllerStartIsSingleShot (0.63s)
+=== RUN   TestR16ControllerStartShutdownRaceEndsClosed
+--- PASS: TestR16ControllerStartShutdownRaceEndsClosed (0.56s)
+=== RUN   TestControllerShutdownCanRetryAfterWatcherDeadline
+--- PASS: TestControllerShutdownCanRetryAfterWatcherDeadline (0.56s)
+=== RUN   TestControllerShutdownConcurrentCallsAreSerialized
+--- PASS: TestControllerShutdownConcurrentCallsAreSerialized (0.51s)
+=== RUN   TestStartupFailureRollsBackReadiness
+--- PASS: TestStartupFailureRollsBackReadiness (0.55s)
+=== RUN   TestShutdownClosesResourcesInOrder
+--- PASS: TestShutdownClosesResourcesInOrder (0.53s)
+=== RUN   TestStartupHealthRoutes
+--- PASS: TestStartupHealthRoutes (0.46s)
+=== RUN   TestIPv6ControlListener
+--- PASS: TestIPv6ControlListener (0.43s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/controller	5.806s

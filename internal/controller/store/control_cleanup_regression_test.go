@@ -14,11 +14,14 @@ func TestControlInboxReplayCleanupIsBounded(t *testing.T) {
 		if _, err := s.RecordControlInbox(ControlInboxItem{
 			MessageID:       fmt.Sprintf("replay-message-%d", i),
 			NodeID:          "cleanup-node",
-			MessageType:     "probe_ingress_receipt",
+			MessageType:     "probe_result",
 			OperationID:     fmt.Sprintf("probe-%d", i),
 			SemanticPayload: fmt.Sprintf(`{"probe_id":"probe-%d"}`, i),
 			State:           "RECEIVED",
 		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetControlInboxState(fmt.Sprintf("replay-message-%d", i), "PROCESSED"); err != nil {
 			t.Fatal(err)
 		}
 	}

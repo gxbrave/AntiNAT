@@ -187,6 +187,10 @@ func TestLinuxDirectV4WalkingSkeleton(t *testing.T) {
 		st2, ok, err2 := app2.Store().GetAppliedState(fwdID)
 		return err2 == nil && ok && st2.ActualBindPort == st.ActualBindPort
 	})
+	harness.WaitFor(t, 20*time.Second, "control session online after restart", func() bool {
+		n, err := h.Store.GetNode(nodeID)
+		return err == nil && n.ControlState == "ONLINE"
+	})
 	snap := app2.ActivationSnapshot(fwdID)
 	if snap == nil {
 		t.Fatal("no activation snapshot after restart")
@@ -219,8 +223,25 @@ func TestLinuxDirectV4WalkingSkeleton(t *testing.T) {
 	if delOp == "" {
 		t.Fatalf("no deletion operation id in %s", out)
 	}
+	var delLogged bool
 	harness.WaitFor(t, 20*time.Second, "deletion COMPLETED", func() bool {
 		op, err := h.Store.GetForwardDeletionOperation(delOp)
+		if !delLogged && err == nil && op.Status != "COMPLETED" {
+			ctrlOutbox, ctrlOutboxErr := h.Store.ControlOutboxItemByOperation(delOp, "forward_delete")
+			ctrlDesired, ctrlDesiredErr := h.Store.ControlOutboxItemByOperation(delOp, "desired")
+			ctrlRows, ctrlRowsErr := h.Store.ListControlOutboxByState("", "PENDING", "CLAIMED", "SENT", "SEMANTIC_ACKED")
+			received, receivedErr := h.Store.ListControlInboxByTypeStateLimit("", "RECEIVED", 20, "operation_complete", "desired_result", "forward_delete_ack")
+			agentOutbox, agentOutboxErr := app2.Store().OutboxOperationIDs()
+			agentStates := make(map[string]string)
+			for _, id := range agentOutbox {
+				state, present, stateErr := app2.Store().OutboxState(id)
+				if stateErr == nil && present {
+					agentStates[id] = state
+				}
+			}
+			t.Logf("delete diagnostic: delOp=%s status=%q ctrl_forward=%+v ctrl_forward_err=%v ctrl_desired=%+v ctrl_desired_err=%v ctrl_rows=%+v ctrl_rows_err=%v received=%+v received_err=%v agent_outbox=%v agent_states=%v agent_err=%v", delOp, op.Status, ctrlOutbox, ctrlOutboxErr, ctrlDesired, ctrlDesiredErr, ctrlRows, ctrlRowsErr, received, receivedErr, agentOutbox, agentStates, agentOutboxErr)
+			delLogged = true
+		}
 		return err == nil && op.Status == "COMPLETED"
 	})
 	// Listener is gone: the published endpoint refuses connections.

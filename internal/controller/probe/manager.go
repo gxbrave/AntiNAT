@@ -389,25 +389,18 @@ func (m *Manager) Arm(ctx context.Context, nodeID, forwardID, activationID, endp
 	if provider == nil {
 		return store.ProbeOperation{}, errors.New("probe: no enabled provider registered")
 	}
-	// A probe join is allowed to mutate only an already-persisted activation
-	// mirror. Initialize the legal pre-probe baseline at arm time rather than
-	// fabricating unrelated axes from WAN evidence during the join transaction.
-	if _, err := m.store.GetForwardRuntimeStatus(forwardID); errors.Is(err, store.ErrNotFound) {
-		baseline := protocol.ActivationStates{
-			ControlState: "ONLINE", ListenerState: "READY", MappingState: "PUBLIC_CANDIDATE",
-			KeepaliveState: "NOT_REQUIRED", WanReachabilityState: "NOT_TESTED",
-			ReturnPathState: "NOT_TESTED", TargetHealthState: "UNKNOWN",
-			PublicationState: "NONE", DataPlaneState: "READY",
-		}
-		rawBaseline, marshalErr := json.Marshal(baseline)
-		if marshalErr != nil {
-			return store.ProbeOperation{}, marshalErr
-		}
-		if err := m.store.SetForwardRuntimeStatus(forwardID, activationID, string(rawBaseline)); err != nil {
-			return store.ProbeOperation{}, fmt.Errorf("probe: initialize runtime mirror: %w", err)
-		}
-	} else if err != nil {
+	// WAN evidence owns only its three activation axes. Arm therefore requires
+	// an Agent-observed runtime mirror for this exact activation; it must never
+	// fabricate control/listener/mapping/target/data-plane truth.
+	runtime, err := m.store.GetForwardRuntimeStatus(forwardID)
+	if errors.Is(err, store.ErrNotFound) {
+		return store.ProbeOperation{}, fmt.Errorf("probe: current runtime mirror: %w", err)
+	}
+	if err != nil {
 		return store.ProbeOperation{}, fmt.Errorf("probe: read runtime mirror: %w", err)
+	}
+	if runtime.ActivationID != activationID {
+		return store.ProbeOperation{}, fmt.Errorf("%w: runtime mirror activation is stale", store.ErrCASConflict)
 	}
 
 	probeID, err := randomID()
@@ -453,17 +446,18 @@ func (m *Manager) Arm(ctx context.Context, nodeID, forwardID, activationID, endp
 	}
 
 	op, err := m.store.CreateProbeOperationBundle(store.ProbeOperation{
-		ID:           hex.EncodeToString(probeID[:]),
-		NodeID:       nodeID,
-		ForwardID:    forwardID,
-		ActivationID: activationID,
-		ProviderID:   provider.ID,
-		Status:       "PENDING",
-		Endpoint:     endpoint,
-		ArmHex:       hex.EncodeToString(arm.Canonical()),
-		TTLMS:        arm.TTLMS,
-		ExpiryOpaque: hex.EncodeToString(opaque[:]),
-		ExpiresAt:    m.clock().Add(DefaultTTL).Unix(),
+		ID:                      hex.EncodeToString(probeID[:]),
+		NodeID:                  nodeID,
+		ForwardID:               forwardID,
+		ActivationID:            activationID,
+		ExpectedForwardRevision: forward.Revision,
+		ProviderID:              provider.ID,
+		Status:                  "PENDING",
+		Endpoint:                endpoint,
+		ArmHex:                  hex.EncodeToString(arm.Canonical()),
+		TTLMS:                   arm.TTLMS,
+		ExpiryOpaque:            hex.EncodeToString(opaque[:]),
+		ExpiresAt:               m.clock().Add(DefaultTTL).Unix(),
 	}, store.ControlOutboxItem{
 		OperationID:     hex.EncodeToString(probeID[:]),
 		MessageType:     "probe_arm",
@@ -519,7 +513,7 @@ func (m *Manager) HandleActivationStatus(nodeID string, payload []byte) error {
 	if err != nil {
 		return err
 	}
-	return m.store.SetForwardRuntimeStatus(v.ForwardID, v.Activation, string(stateJSON))
+	return m.store.SetForwardRuntimeStatus(v.ForwardID, v.Activation, v.Generation, string(stateJSON))
 }
 
 // handleArmed verifies the RDY1 frame against the node key and the arm
