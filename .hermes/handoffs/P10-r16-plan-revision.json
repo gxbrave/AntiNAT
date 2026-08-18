@@ -1,0 +1,194 @@
+{
+  "schema_version": "P10-r16-plan-revision/v1",
+  "artifact_role": "metadata-only migration registry revision handoff; review required",
+  "plan": "P10",
+  "task_id": "t_ac48c811",
+  "stage": "metadata-only-plan-revision-review-required",
+  "branch": "ai/P10-wan-probe-activation-cli-e2e",
+  "implementation_candidate": {
+    "head_sha": "dcafa36348a8260a655ecbdf8e8f6e87518f1614",
+    "tree_sha": "f28ffbd16cc793c6c89345bce3f41373f642675b",
+    "source_handoff": ".hermes/handoffs/P10-r16-repair.json"
+  },
+  "r16_handoff_metadata_commit": {
+    "head_sha": "ff15183159679665cb315cab63b0df6f2bf73685",
+    "tree_sha": "77a3e865a27c9dcd258ce948a313dabb3053f8d0"
+  },
+  "plan_revision_commit": {
+    "head_sha": "7e4da2ceb80f6ab92da16117d565988dd80bf0a4",
+    "tree_sha": "e7ad06b2bd3b657bf21eaa6e9da16bc73d3bd847",
+    "parent_sha": "ff15183159679665cb315cab63b0df6f2bf73685",
+    "message": "docs(P10-R16): reconcile migration plan numbers"
+  },
+  "changed_files": [
+    ".hermes/plans/v1-beta/12-gateway-traversal-detection.md",
+    ".hermes/plans/v1-beta/14-lifecycle-rotation-recovery.md",
+    ".hermes/plans/v1-beta/15-controller-api-metrics-sse.md",
+    ".hermes/plans/v1-beta/16-hooks-sandbox.md"
+  ],
+  "changed_files_count": 4,
+  "file_sha256": {
+    ".hermes/plans/v1-beta/12-gateway-traversal-detection.md": "7f7bbccc7f1866428023f0201e5523e9ffb072135151123cac4580d038aa9126",
+    ".hermes/plans/v1-beta/14-lifecycle-rotation-recovery.md": "9e839123e47414be64e5f6d7cacd40b7171754636e9c234997124cd23a33a56d",
+    ".hermes/plans/v1-beta/15-controller-api-metrics-sse.md": "14e0abce5d8fb8610f29832d438316488bab87741bd04d4942bb4c33d9f5647e",
+    ".hermes/plans/v1-beta/16-hooks-sandbox.md": "6a4647137ea7e87733e047133ff966cc4983a6540355e54449b9219a464b0ec6"
+  },
+  "change_map": [
+    {
+      "plan": "P12",
+      "path": ".hermes/plans/v1-beta/12-gateway-traversal-detection.md",
+      "old": "migrations/0006_traversal.sql",
+      "new": "migrations/0007_traversal.sql"
+    },
+    {
+      "plan": "P14",
+      "path": ".hermes/plans/v1-beta/14-lifecycle-rotation-recovery.md",
+      "old": "migrations/0007_lifecycle.sql",
+      "new": "migrations/0008_lifecycle.sql"
+    },
+    {
+      "plan": "P15",
+      "path": ".hermes/plans/v1-beta/15-controller-api-metrics-sse.md",
+      "old": "migrations/0006_api_metrics.sql",
+      "new": "migrations/0009_api_metrics.sql"
+    },
+    {
+      "plan": "P16",
+      "path": ".hermes/plans/v1-beta/16-hooks-sandbox.md",
+      "old": "migrations/0007_hooks.sql",
+      "new": "migrations/0010_hooks.sql"
+    }
+  ],
+  "migration_registry": {
+    "actual_files": [
+      {
+        "number": "0001",
+        "name": "core",
+        "path": "migrations/0001_core.sql"
+      },
+      {
+        "number": "0002",
+        "name": "control",
+        "path": "migrations/0002_control.sql"
+      },
+      {
+        "number": "0003",
+        "name": "enrollment",
+        "path": "migrations/0003_enrollment.sql"
+      },
+      {
+        "number": "0004",
+        "name": "probe",
+        "path": "migrations/0004_probe.sql"
+      },
+      {
+        "number": "0005",
+        "name": "probe_hardening",
+        "path": "migrations/0005_probe_hardening.sql"
+      },
+      {
+        "number": "0006",
+        "name": "r13_hardening",
+        "path": "migrations/0006_r13_hardening.sql"
+      }
+    ],
+    "matching_existing_plan_declarations": [
+      {
+        "number": "0001",
+        "name": "core",
+        "plan": "06-controller-store-auth.md"
+      },
+      {
+        "number": "0002",
+        "name": "control",
+        "plan": "06-controller-store-auth.md"
+      },
+      {
+        "number": "0003",
+        "name": "enrollment",
+        "plan": "08-enrollment-control-channel.md"
+      }
+    ],
+    "future_plan_declarations": [
+      {
+        "number": "0007",
+        "name": "traversal",
+        "plan": "12-gateway-traversal-detection.md"
+      },
+      {
+        "number": "0008",
+        "name": "lifecycle",
+        "plan": "14-lifecycle-rotation-recovery.md"
+      },
+      {
+        "number": "0009",
+        "name": "api_metrics",
+        "plan": "15-controller-api-metrics-sse.md"
+      },
+      {
+        "number": "0010",
+        "name": "hooks",
+        "plan": "16-hooks-sandbox.md"
+      }
+    ],
+    "actual_numbers_contiguous": true,
+    "future_numbers_contiguous_after_actual": true,
+    "duplicate_number_with_different_name": false,
+    "p13_creates_migration": false
+  },
+  "temporary_ownership_transfer": {
+    "receiving_plan": "P10",
+    "source_plans": [
+      "P12",
+      "P14",
+      "P15",
+      "P16"
+    ],
+    "paths": [
+      ".hermes/plans/v1-beta/12-gateway-traversal-detection.md",
+      ".hermes/plans/v1-beta/14-lifecycle-rotation-recovery.md",
+      ".hermes/plans/v1-beta/15-controller-api-metrics-sse.md",
+      ".hermes/plans/v1-beta/16-hooks-sandbox.md"
+    ],
+    "scope": "migration filename/number statements and directly related ownership notes only",
+    "expires": "P10 integration or rejection, whichever occurs first"
+  },
+  "contracts_changed": [],
+  "production_or_test_files_changed": false,
+  "tests_run_by_this_revision": 0,
+  "validation": [
+    {
+      "command": "git diff --check ff15183159679665cb315cab63b0df6f2bf73685 7e4da2ceb80f6ab92da16117d565988dd80bf0a4",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff-tree --no-commit-id --name-only -r 7e4da2ceb80f6ab92da16117d565988dd80bf0a4",
+      "exit_code": 0,
+      "expected_paths": [
+        ".hermes/plans/v1-beta/12-gateway-traversal-detection.md",
+        ".hermes/plans/v1-beta/14-lifecycle-rotation-recovery.md",
+        ".hermes/plans/v1-beta/15-controller-api-metrics-sse.md",
+        ".hermes/plans/v1-beta/16-hooks-sandbox.md"
+      ]
+    },
+    {
+      "command": "migration registry actual/declared consistency and 0001..0010 continuity check",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 -m json.tool .hermes/handoffs/P10-r16-repair.json",
+      "exit_code": 0
+    }
+  ],
+  "worktree_clean_after_plan_commit": true,
+  "review_status": "REQUIRED_NOT_REVIEWED",
+  "review_required": true,
+  "review_approval": false,
+  "integration_status": "CANDIDATE_ONLY",
+  "integration_approval": false,
+  "known_limits": [
+    "This revision changes orchestration plan metadata only and does not review production behavior.",
+    "Fresh exact-head specification/ownership, quality/security, network/protocol, and lifecycle/integration-boundary reviews remain mandatory.",
+    "The handoff file is metadata outside the immutable plan-revision tree and does not redefine the implementation candidate."
+  ]
+}
