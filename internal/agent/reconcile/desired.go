@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/gxbrave/AntiNAT/internal/agent/localstate"
 	"github.com/gxbrave/AntiNAT/internal/protocol"
@@ -30,8 +31,71 @@ type ApplyHook func(ctx context.Context, spec protocol.ForwardSpec) (protocol.Ap
 type StopHook func(ctx context.Context, forwardID string) error
 
 // RollbackHook restores a hot-updated actor to the previous durable desired
-// spec and applied generation when the enclosing desired commit fails.
+// spec and applied generation when the enclosing desired commit fails. The
+// context carries the opaque SideEffectFence issued to the corresponding apply
+// hook; data-plane implementations must use it as a compare-and-swap token.
 type RollbackHook func(ctx context.Context, previous protocol.ForwardSpec, applied protocol.AppliedForwardState) error
+
+// ErrStaleSideEffect reports a compensation attempt for a live side effect that
+// has already been superseded, deleted, or replaced. A stale compensation must
+// never mutate the newer side effect.
+var ErrStaleSideEffect = errors.New("reconcile: stale side effect")
+
+// SideEffectFence is an opaque, per-apply identity used to fence compensation
+// and callback delivery. Pointer identity is intentional: equal-looking
+// desired revisions must not make two concurrent operations interchangeable.
+// The value is populated by the side-effect owner (the data plane) and is never
+// serialized or exposed on the wire.
+type SideEffectFence struct {
+	mu    sync.RWMutex
+	value any
+}
+
+type sideEffectFenceContextKey struct{}
+
+// NewSideEffectFence allocates one unique side-effect identity.
+func NewSideEffectFence() *SideEffectFence { return &SideEffectFence{} }
+
+// SetValue associates the owner-specific compare-and-swap token with fence.
+// It is safe for a rollback hook to consume the same context after apply has
+// returned, and for a failed compensation to leave the original token intact.
+func (f *SideEffectFence) SetValue(value any) {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	f.value = value
+	f.mu.Unlock()
+}
+
+// Value returns the owner-specific token currently associated with fence.
+func (f *SideEffectFence) Value() any {
+	if f == nil {
+		return nil
+	}
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.value
+}
+
+// WithSideEffectFence attaches fence to ctx. A nil context is treated as a
+// background context so hooks may safely pass through caller contexts.
+func WithSideEffectFence(ctx context.Context, fence *SideEffectFence) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, sideEffectFenceContextKey{}, fence)
+}
+
+// SideEffectFenceFromContext returns the fence attached by the reconcile layer,
+// or nil for legacy/direct hook calls that have not opted into fencing.
+func SideEffectFenceFromContext(ctx context.Context) *SideEffectFence {
+	if ctx == nil {
+		return nil
+	}
+	fence, _ := ctx.Value(sideEffectFenceContextKey{}).(*SideEffectFence)
+	return fence
+}
 
 // DesiredOutcome is the per-Forward reconcile decision.
 type DesiredOutcome int
@@ -92,6 +156,15 @@ type CapabilityCheck func() error
 // boundary and cannot safely be committed.
 var ErrCapabilityLost = errors.New("reconcile: capability lost during desired apply")
 
+func deletionOperationIDFor(d protocol.DesiredState, forwardID string) string {
+	for _, spec := range d.Forwards {
+		if spec.ForwardID == forwardID {
+			return spec.DeletionOperationID
+		}
+	}
+	return ""
+}
+
 // ApplyDesired reconciles one desired snapshot against the applied state.
 func ApplyDesired(ctx context.Context, store *localstate.Store, latch *localstate.Latch, d protocol.DesiredState, apply ApplyHook, stop StopHook) (DesiredApplyReport, error) {
 	return ApplyDesiredWithGuardAndRollback(ctx, store, latch, d, apply, stop, nil, nil)
@@ -109,6 +182,22 @@ func ApplyDesiredWithGuardAndRollback(ctx context.Context, store *localstate.Sto
 	var report DesiredApplyReport
 	if err := d.Validate(); err != nil {
 		return report, fmt.Errorf("reconcile: desired: %w", err)
+	}
+	// Install every deletion fence before inspecting or applying any PRESENT
+	// sibling. A mixed controller snapshot must not expose a window in which a
+	// sibling apply (or a crash) can leave an ABSENT Forward unfenced.
+	deleteIntents := make([]localstate.ForwardDeleteIntent, 0)
+	for _, spec := range d.Forwards {
+		if spec.Presence != protocol.PresenceAbsent {
+			continue
+		}
+		deleteIntents = append(deleteIntents, localstate.ForwardDeleteIntent{
+			ForwardID: spec.ForwardID, DeletionOperationID: spec.DeletionOperationID,
+			DesiredRevision: spec.DesiredRevision,
+		})
+	}
+	if err := store.PutForwardDeleteIntents(deleteIntents); err != nil {
+		return report, fmt.Errorf("reconcile: persist forward delete intent: %w", err)
 	}
 	applied, err := store.ListAppliedStates()
 	if err != nil {
@@ -135,6 +224,7 @@ func ApplyDesiredWithGuardAndRollback(ctx context.Context, store *localstate.Sto
 	type hotUpdate struct {
 		previous protocol.ForwardSpec
 		applied  protocol.AppliedForwardState
+		fence    *SideEffectFence
 	}
 	var hotUpdates []hotUpdate
 	rollbackNewActors := func() error {
@@ -153,7 +243,8 @@ func ApplyDesiredWithGuardAndRollback(ctx context.Context, store *localstate.Sto
 		var rollbackErr error
 		if rollback != nil {
 			for i := len(hotUpdates) - 1; i >= 0; i-- {
-				if err := rollback(ctx, hotUpdates[i].previous, hotUpdates[i].applied); err != nil {
+				rollbackCtx := WithSideEffectFence(ctx, hotUpdates[i].fence)
+				if err := rollback(rollbackCtx, hotUpdates[i].previous, hotUpdates[i].applied); err != nil {
 					rollbackErr = errors.Join(rollbackErr, fmt.Errorf("rollback hot update for %q: %w", hotUpdates[i].applied.ForwardID, err))
 				}
 			}
@@ -164,11 +255,27 @@ func ApplyDesiredWithGuardAndRollback(ctx context.Context, store *localstate.Sto
 	for _, spec := range d.Forwards {
 		switch spec.Presence {
 		case protocol.PresenceAbsent:
+			// A final tombstone plus no pending row means cleanup already
+			// completed. Do not invoke StopHook again; report the durable delete
+			// idempotently. A pending row means the final commit happened but the
+			// stop side effect still needs retry.
+			_, pending, tombstone, tombstoned, fenceErr := store.ForwardDeleteFence(spec.ForwardID)
+			if fenceErr != nil {
+				return report, fenceErr
+			}
+			if tombstoned && !pending {
+				if tombstone.DeletionOperationID != spec.DeletionOperationID || (tombstone.DesiredRevision != 0 && tombstone.DesiredRevision != spec.DesiredRevision) {
+					return report, fmt.Errorf("reconcile: forward %q delete identity conflicts with durable tombstone", spec.ForwardID)
+				}
+				results = append(results, DesiredApplyResult{ForwardID: spec.ForwardID, Outcome: OutcomeDeleted})
+				commits = append(commits, localstate.ForwardApply{ForwardID: spec.ForwardID, Outcome: localstate.ApplySkipped})
+				continue
+			}
 			results = append(results, DesiredApplyResult{ForwardID: spec.ForwardID, Outcome: OutcomeDeleted})
 			commits = append(commits, localstate.ForwardApply{ForwardID: spec.ForwardID, Outcome: localstate.ApplyDeleted})
 		case protocol.PresencePresent:
-			if prev, ok := prevByID[spec.ForwardID]; ok && spec.DesiredRevision <= prev.DesiredRevision {
-				// Old revision: already applied at this or a newer revision;
+			if prev, ok := prevByID[spec.ForwardID]; ok && spec.DesiredRevision <= prev.SpecRevision {
+				// Older than or equal to the serving revision;
 				// idempotent skip, no side effect, no actor restart.
 				results = append(results, DesiredApplyResult{ForwardID: spec.ForwardID, Outcome: OutcomeUnchanged})
 				commits = append(commits, localstate.ForwardApply{ForwardID: spec.ForwardID, Outcome: localstate.ApplySkipped})
@@ -181,13 +288,13 @@ func ApplyDesiredWithGuardAndRollback(ctx context.Context, store *localstate.Sto
 				commits = append(commits, localstate.ForwardApply{ForwardID: spec.ForwardID, Outcome: localstate.ApplySkipped})
 				continue
 			}
-			tombstoned, err := store.TombstoneExists(spec.ForwardID)
+			_, pendingDelete, _, tombstoned, err := store.ForwardDeleteFence(spec.ForwardID)
 			if err != nil {
 				return report, err
 			}
-			if tombstoned {
-				// A durable tombstone is authoritative: an old snapshot or
-				// Controller rollback must never resurrect this Forward.
+			if pendingDelete || tombstoned {
+				// A pending delete or final tombstone is authoritative: an old
+				// snapshot or Controller rollback must never resurrect this Forward.
 				results = append(results, DesiredApplyResult{ForwardID: spec.ForwardID, Outcome: OutcomeTombstonedRejected})
 				commits = append(commits, localstate.ForwardApply{ForwardID: spec.ForwardID, Outcome: localstate.ApplySkipped})
 				continue
@@ -203,7 +310,8 @@ func ApplyDesiredWithGuardAndRollback(ctx context.Context, store *localstate.Sto
 					return report, errors.Join(fmt.Errorf("%w: before forward %q: %v", ErrCapabilityLost, spec.ForwardID, err), rollbackErr)
 				}
 			}
-			appliedState, applyErr := apply(ctx, spec)
+			fence := NewSideEffectFence()
+			appliedState, applyErr := apply(WithSideEffectFence(ctx, fence), spec)
 			if applyErr == nil {
 				applyErr = appliedState.Validate()
 			}
@@ -215,7 +323,7 @@ func ApplyDesiredWithGuardAndRollback(ctx context.Context, store *localstate.Sto
 			if previousApplied, existed := prevByID[spec.ForwardID]; !existed {
 				newActors = append(newActors, spec.ForwardID)
 			} else if previousSpec, found := previousSpecByID[spec.ForwardID]; found {
-				hotUpdates = append(hotUpdates, hotUpdate{previous: previousSpec, applied: previousApplied})
+				hotUpdates = append(hotUpdates, hotUpdate{previous: previousSpec, applied: previousApplied, fence: fence})
 			}
 			results = append(results, DesiredApplyResult{ForwardID: spec.ForwardID, Outcome: OutcomeApplied})
 			commits = append(commits, localstate.ForwardApply{ForwardID: spec.ForwardID, Outcome: localstate.ApplyApplied, Applied: &appliedState})
@@ -238,12 +346,27 @@ func ApplyDesiredWithGuardAndRollback(ctx context.Context, store *localstate.Sto
 	}
 
 	// Tombstone-before-stop: only now that the tombstone is durable do the
-	// stop hooks run.
+	// stop hooks run. A completed tombstone with no pending row is already
+	// cleaned up and must not invoke StopHook again.
 	for i := range results {
 		if results[i].Outcome != OutcomeDeleted || stop == nil {
 			continue
 		}
+		_, pending, _, tombstoned, fenceErr := store.ForwardDeleteFence(results[i].ForwardID)
+		if fenceErr != nil {
+			results[i].Outcome = OutcomeDeleteFailed
+			results[i].Err = fenceErr
+			continue
+		}
+		if !pending && tombstoned {
+			continue
+		}
 		if err := stop(ctx, results[i].ForwardID); err != nil {
+			results[i].Outcome = OutcomeDeleteFailed
+			results[i].Err = err
+			continue
+		}
+		if err := store.CompleteForwardDeleteIntent(results[i].ForwardID, deletionOperationIDFor(d, results[i].ForwardID)); err != nil {
 			results[i].Outcome = OutcomeDeleteFailed
 			results[i].Err = err
 		}

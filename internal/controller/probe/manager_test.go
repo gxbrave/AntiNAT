@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -37,11 +38,18 @@ type testEnv struct {
 // fakeProvider implements the provider side of the signed request/result
 // protocol in-process.
 type fakeProvider struct {
-	priv     ed25519.PrivateKey
-	ctrlPub  ed25519.PublicKey
-	mu       sync.Mutex
-	lastReq  *providerRequest
-	rejected bool
+	priv         ed25519.PrivateKey
+	ctrlPub      ed25519.PublicKey
+	mu           sync.Mutex
+	lastReq      *providerRequest
+	requestCount int
+	rejected     bool
+}
+
+func (p *fakeProvider) requestTotal() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.requestCount
 }
 
 func (p *fakeProvider) handler() http.Handler {
@@ -54,6 +62,7 @@ func (p *fakeProvider) handler() http.Handler {
 		}
 		p.mu.Lock()
 		p.lastReq = req
+		p.requestCount++
 		rejected := p.rejected
 		p.mu.Unlock()
 
@@ -268,6 +277,99 @@ func TestProviderNotRequestedBeforeArmed(t *testing.T) {
 
 // TestProbeArmedTriggersProviderRequest covers arm->armed->provider: after a
 // valid RDY1 the manager marks the op ARMED and requests the provider.
+func TestDuplicateProbeArmedIsIdempotent(t *testing.T) {
+	env := newTestEnv(t, false)
+	env.createNodeForward(t)
+	op, arm := env.armAndGetPayload(t, "198.51.100.7:8080")
+	rdy := signRDY1(t, env.nodePriv, arm)
+	if err := env.manager.HandleProbeMessage("n1", "probe_armed", rdy); err != nil {
+		t.Fatalf("first probe_armed: %v", err)
+	}
+	if err := env.manager.HandleProbeMessage("n1", "probe_armed", rdy); err != nil {
+		t.Fatalf("duplicate probe_armed: %v", err)
+	}
+	got, err := env.store.GetProbeOperation(op.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "ARMED" && got.Status != "IN_FLIGHT" {
+		t.Fatalf("duplicate probe_armed status = %q, want ARMED or IN_FLIGHT", got.Status)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if env.provider.requestTotal() >= 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := env.provider.requestTotal(); got != 1 {
+		t.Fatalf("provider request count = %d, want exactly one", got)
+	}
+}
+
+func TestDuplicateProbeArmedDoesNotRestartLostProviderRound(t *testing.T) {
+	env := newTestEnv(t, false)
+	env.createNodeForward(t)
+	op, arm := env.armAndGetPayload(t, "198.51.100.7:8080")
+
+	rawDB := openR16QRawDB(t, env)
+	trigger := fmt.Sprintf(`CREATE TRIGGER test_probe_armed_round_loss
+		BEFORE UPDATE OF status ON probe_operations
+		WHEN OLD.id = %q AND OLD.status = 'ARMED' AND NEW.status = 'IN_FLIGHT'
+		BEGIN SELECT RAISE(ABORT, 'injected provider round admission failure'); END`, op.ID)
+	if _, err := rawDB.Exec(trigger); err != nil {
+		t.Fatalf("install provider admission fault: %v", err)
+	}
+
+	rdy := signRDY1(t, env.nodePriv, arm)
+	if err := env.manager.HandleProbeMessage("n1", "probe_armed", rdy); err != nil {
+		t.Fatalf("first probe_armed: %v", err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		env.manager.mu.Lock()
+		_, active := env.manager.active[op.ID]
+		env.manager.mu.Unlock()
+		current, err := env.store.GetProbeOperation(op.ID)
+		if err == nil && current.Status == "ARMED" && !active {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	current, err := env.store.GetProbeOperation(op.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Status != "ARMED" {
+		t.Fatalf("lost provider round status = %q, want ARMED", current.Status)
+	}
+	if got := env.provider.requestTotal(); got != 0 {
+		t.Fatalf("provider request count after lost round = %d, want 0", got)
+	}
+	if _, err := rawDB.Exec(`DROP TRIGGER test_probe_armed_round_loss`); err != nil {
+		t.Fatalf("remove provider admission fault: %v", err)
+	}
+
+	// A duplicate RDY1 must not start another provider challenge after the
+	// original in-memory owner has disappeared. Durable ARMED recovery owns
+	// the next attempt.
+	if err := env.manager.HandleProbeMessage("n1", "probe_armed", rdy); err != nil {
+		t.Fatalf("duplicate probe_armed after lost round: %v", err)
+	}
+	if got := env.provider.requestTotal(); got != 0 {
+		t.Fatalf("provider request count after duplicate RDY1 = %d, want 0", got)
+	}
+
+	env.manager.recoverOperations()
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && env.provider.requestTotal() < 1 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := env.provider.requestTotal(); got != 1 {
+		t.Fatalf("provider request count after ARMED recovery = %d, want exactly 1", got)
+	}
+}
+
 func TestProbeArmedTriggersProviderRequest(t *testing.T) {
 	env := newTestEnv(t, false)
 	env.createNodeForward(t)
@@ -361,9 +463,12 @@ func TestJoinOpensFromVantage(t *testing.T) {
 			agentDone <- err
 			return
 		}
-		// RCT1 over the control channel (delivered via the sink).
+		// RCT1 over the control channel (delivered via the sink). The provider
+		// result is persisted by the controller after this ACK exchange, so the
+		// first receipt may legitimately race the durable challenge write. Model
+		// the Agent's retry until the challenge correlation is available.
 		rct1 := signRCT1(t, env.nodePriv, arm, chash)
-		if err := env.manager.HandleProbeMessage("n1", "probe_ingress_receipt", rct1); err != nil {
+		if err := handleReceiptEventually(t, env, rct1); err != nil {
 			agentDone <- err
 			return
 		}
@@ -424,9 +529,13 @@ func TestJoinRejectsControlOnlyReceipt(t *testing.T) {
 	env.createNodeForward(t)
 	op, arm := env.armAndGetPayload(t, "198.51.100.7:8080")
 
-	forged := signRCT1(t, env.nodePriv, arm, [32]byte{0xaa})
+	challenge := [32]byte{0xaa}
+	if err := env.store.SetProbeOperationChallenge(op.ID, hex.EncodeToString(challenge[:])); err != nil {
+		t.Fatalf("establish forged-receipt challenge: %v", err)
+	}
+	forged := signRCT1(t, env.nodePriv, arm, challenge)
 	if err := env.manager.HandleProbeMessage("n1", "probe_ingress_receipt", forged); err != nil {
-		t.Fatalf("handle forged receipt: %v", err)
+		t.Fatalf("handle control-only receipt: %v", err)
 	}
 	got, err := env.store.GetProbeOperation(op.ID)
 	if err != nil {
@@ -488,6 +597,19 @@ func signRDY1(t *testing.T, nodePriv ed25519.PrivateKey, arm protocol.ProbeArm) 
 	digest := arm.Digest()
 	body := append([]byte(protocol.ProbeMagicArmed), digest[:]...)
 	return append(body, ed25519.Sign(nodePriv, body)...)
+}
+
+func handleReceiptEventually(t *testing.T, env *testEnv, receipt []byte) error {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		err := env.manager.HandleProbeMessage("n1", "probe_ingress_receipt", receipt)
+		if !errors.Is(err, errProbeChallengeNotEstablished) {
+			return err
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return errProbeChallengeNotEstablished
 }
 
 func signRCT1(t *testing.T, nodePriv ed25519.PrivateKey, arm protocol.ProbeArm, challengeHash [32]byte) []byte {

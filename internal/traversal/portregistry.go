@@ -84,19 +84,30 @@ func (l *Lease) Generation() uint64 { return l.generation }
 // while the entry still matches this owner and generation. A stale release
 // returns ErrStaleLease and never touches the current owner's socket.
 func (l *Lease) Release() error {
-	registry := l.registry
-	registry.mu.Lock()
-	defer registry.mu.Unlock()
-	entry, ok := registry.entries[l.Actual]
-	if !ok || entry.owner != l.owner || entry.generation != l.generation || entry.lease != l {
+	if l == nil || l.registry == nil || l.Listener == nil {
 		return ErrStaleLease
 	}
-	if err := l.Listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-		// Retain the registry entry when the OS close fails. Dropping
-		// ownership before a successful close would permit a new lease to
-		// overlap a live descriptor and would let a later stale Release
-		// close the new owner.
+	registry := l.registry
+	registry.mu.Lock()
+	entry, ok := registry.entries[l.Actual]
+	if !ok || entry.owner != l.owner || entry.generation != l.generation || entry.lease != l {
+		registry.mu.Unlock()
+		return ErrStaleLease
+	}
+	registry.mu.Unlock()
+
+	// Do not hold the registry mutex across an arbitrary listener Close: a
+	// platform/test listener can block, and unrelated Acquire/Has/Len calls must
+	// remain responsive. Revalidate the exact lease before removing ownership.
+	err := l.Listener.Close()
+	if err != nil && !errors.Is(err, net.ErrClosed) {
 		return err
+	}
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	entry, ok = registry.entries[l.Actual]
+	if !ok || entry.owner != l.owner || entry.generation != l.generation || entry.lease != l {
+		return ErrStaleLease
 	}
 	// net.ErrClosed means the descriptor is provably already gone (the
 	// documented delete flow is Forward.Close then Release): treat it as a

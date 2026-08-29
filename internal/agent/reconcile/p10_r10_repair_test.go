@@ -111,6 +111,30 @@ func TestRestartRecoveryHonorsActiveAndReplayBounds(t *testing.T) {
 	}
 }
 
+func TestTerminalMarkerDoesNotRecoverDurableProbeOperations(t *testing.T) {
+	st, err := localstate.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	now := time.Unix(45_000, 0)
+	arm := protocol.ProbeArm{Endpoint: "198.51.100.7:8080", TTLMS: 60_000}
+	arm.ProbeID[15] = 6
+	arm.ExpectedSourceIP = [4]byte{198, 51, 100, 6}
+	if err := st.SaveArmedProbeForForward(arm, "forward-terminal", now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewProbeManager(ProbeManagerOptions{Store: st, Marker: localstate.MarkerDecommissioning, Clock: func() time.Time { return now }})
+	if manager.hasArmedBySource(arm.ExpectedSourceIP, "forward-terminal") {
+		t.Fatal("terminal-marker manager recovered an active probe")
+	}
+	manager.mu.Lock()
+	if len(manager.ops) != 0 || len(manager.replay) != 0 {
+		t.Fatalf("terminal-marker manager recovered ops=%d replay=%d", len(manager.ops), len(manager.replay))
+	}
+	manager.mu.Unlock()
+}
+
 func TestRestartQuarantinesConsumedFenceAcrossWallClockRollback(t *testing.T) {
 	st, err := localstate.Open(t.TempDir())
 	if err != nil {

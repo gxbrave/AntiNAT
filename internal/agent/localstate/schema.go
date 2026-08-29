@@ -17,7 +17,7 @@ import (
 // SchemaVersion is the current Agent bbolt schema version. A database
 // carrying a higher version is from a newer AntiNAT build and Open fails
 // closed with ErrSchemaTooNew rather than risk silent data damage.
-const SchemaVersion uint64 = 2
+const SchemaVersion uint64 = 3
 
 // ErrSchemaTooNew reports a database written by a newer schema than this
 // build understands. Opening must fail closed.
@@ -45,6 +45,10 @@ const (
 	// probe_armed (docs/protocol.md §7.2: durable persistence precedes the
 	// RDY1 response), so a crash never loses an armed operation.
 	bucketProbeOps = "probe_operations"
+	// bucketForwardDeleteIntents (schema v3): reversible, durable deletion
+	// fences. Unlike the final tombstone, this row remains until cleanup has
+	// completed so restart recovery cannot reopen a Forward in the crash window.
+	bucketForwardDeleteIntents = "forward_delete_intents"
 )
 
 // allBuckets is the complete frozen bucket set. Schema v1 creates every
@@ -82,6 +86,15 @@ var schemaMigrations = []migration{
 	{version: 2, apply: func(tx *bolt.Tx) error {
 		if _, err := tx.CreateBucketIfNotExists([]byte(bucketProbeOps)); err != nil {
 			return fmt.Errorf("localstate: create bucket %q: %w", bucketProbeOps, err)
+		}
+		return nil
+	}},
+	// v3: durable, reversible Forward deletion fences. The separate bucket
+	// keeps pending lifecycle rows distinct from final tombstones and avoids
+	// key namespace collisions with legacy Forward IDs.
+	{version: 3, apply: func(tx *bolt.Tx) error {
+		if _, err := tx.CreateBucketIfNotExists([]byte(bucketForwardDeleteIntents)); err != nil {
+			return fmt.Errorf("localstate: create bucket %q: %w", bucketForwardDeleteIntents, err)
 		}
 		return nil
 	}},

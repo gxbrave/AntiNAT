@@ -1,0 +1,12 @@
+recorded_at_utc=2026-08-29T17:07:32Z
+workspace=/root/Claude/AntiNAT/p10-r16q2-resume
+branch=handoff/P10-r16q2-resume
+pre_freeze_head=2856c963f91cd24867bbc79a1bb4b7a3485bcab7
+pre_freeze_head_tree=9a4c4f690110863287ecc32e3e8d8f29f32ae0c9
+go_version=go version go1.22.2 linux/amd64
+go_env_GOWORK=off
+ANTINAT_DEDICATED_UID=12001
+ANTINAT_DEDICATED_GID=12001
+uname=Linux hermes 6.8.0-138-generic #138-Ubuntu SMP PREEMPT_DYNAMIC Fri Jul 31 22:41:49 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+govulncheck=UNAVAILABLE
+sqlite3=3.45.1 2024-01-30 16:01:20 e876e51a0ed5c5b3126f52e532044363a014bc594cfefa87ffb5b82257ccalt1 (64-bit)

@@ -131,6 +131,19 @@ func activationFor(forwardID string, specRevision uint64) [16]byte {
 // TestHandleProbeArmRejectsUnmatchedActivation covers Story 2 RED: an arm
 // whose activation does not match any applied forward fails closed, and the
 // arm must never be persisted.
+func TestTerminalMarkerRejectsNewProbeArm(t *testing.T) {
+	e := newProbeTestEnv(t)
+	e.mgr.marker = localstate.MarkerDecommissioned
+	arm := sampleProbeArm()
+	arm.Activation = activationFor("fwd-1", 1)
+	if _, err := e.mgr.HandleProbeArm(context.Background(), arm.Canonical(), e.forward); !errors.Is(err, ErrProbeArmRejected) {
+		t.Fatalf("terminal-marker arm error = %v, want ErrProbeArmRejected", err)
+	}
+	if _, ok, _ := e.store.LoadArmedProbe(arm.ProbeID); ok {
+		t.Fatal("terminal-marker arm was persisted")
+	}
+}
+
 func TestHandleProbeArmRejectsUnmatchedActivation(t *testing.T) {
 	e := newProbeTestEnv(t)
 	arm := sampleProbeArm()

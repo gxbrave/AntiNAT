@@ -1,10 +1,12 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
 // P08 Story 5 RED: controller-side outbox FSM transitions (frozen
@@ -162,6 +164,63 @@ func TestControlOutboxSessionBound(t *testing.T) {
 	}
 	if err := s.AcceptControlSemanticACK("op-1", "desired", "session-OLD"); !errors.Is(err, ErrStaleSession) {
 		t.Fatalf("old-session ack = %v, want ErrStaleSession", err)
+	}
+}
+
+// A receipt must reserve SQLite's write lock before reading its outbox row.
+// If another writer commits after a deferred receipt transaction reads, WAL
+// upgrades can fail with SQLITE_BUSY_SNAPSHOT and falsely close the session.
+func TestControlReceiptWaitsForWriterBeforeReading(t *testing.T) {
+	s := openControlStore(t)
+	const operationID = "op-receipt-contention"
+	mustEnqueue(t, s, operationID, "desired", "node-a")
+	if _, err := s.ClaimControlOutbox("node-a", "session-1", 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkControlOutboxSent(operationID, "desired", "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AcceptControlSemanticACK(operationID, "desired", "session-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	conn, err := s.db.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("contention connection: %v", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		t.Fatalf("hold writer lock: %v", err)
+	}
+	defer conn.ExecContext(context.Background(), "ROLLBACK")
+	if _, err := conn.ExecContext(context.Background(),
+		`UPDATE control_outbox SET updated_at = updated_at + 1 WHERE operation_id = ?`, operationID,
+	); err != nil {
+		t.Fatalf("write under held lock: %v", err)
+	}
+
+	result := make(chan error, 1)
+	go func() {
+		result <- s.AcceptControlReceipt(operationID, "desired", "session-1")
+	}()
+	select {
+	case err := <-result:
+		t.Fatalf("receipt completed while another writer held the lock: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if _, err := conn.ExecContext(context.Background(), "COMMIT"); err != nil {
+		t.Fatalf("release writer lock: %v", err)
+	}
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("receipt after writer commit: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("receipt did not complete after writer commit")
+	}
+	if _, err := s.ControlOutboxItemByOperation(operationID, "desired"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("receipt row not GC'd after contention: %v", err)
 	}
 }
 

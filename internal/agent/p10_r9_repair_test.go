@@ -26,7 +26,7 @@ func TestPrepareActivationRecoveryProcessesAllPersistedSnapshots(t *testing.T) {
 	const count = 300
 	for i := 0; i < count; i++ {
 		if err := st.SaveActivationSnapshot(localstate.ActivationSnapshot{
-			ForwardID: "fwd-" + zeroPad(i), Activation: "act-" + zeroPad(i), Generation: 1, States: states,
+			ForwardID: "fwd-" + zeroPad(i), Activation: activationHex("fwd-"+zeroPad(i), 1), Generation: 1, States: states,
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -67,6 +67,11 @@ func TestControllerShutdownCanRetryAfterContextDeadline(t *testing.T) {
 		t.Fatalf("reopen store after retry Shutdown: %v", err)
 	}
 	_ = reopened.Close()
+}
+
+func activationHex(forwardID string, generation uint64) string {
+	id := protocol.ActivationID(forwardID, generation)
+	return fmt.Sprintf("%x", id[:])
 }
 
 func zeroPad(i int) string {

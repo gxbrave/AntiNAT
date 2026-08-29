@@ -514,12 +514,12 @@ func TestR16ForwardDeletionRecoveryUsesDurableResultCorrelationAfterOutboxGC(t *
 	if err := s.ApplyForwardDelete(ForwardDeletionOperation{ID: deletionID, ForwardID: "r16-recovery-forward", Status: "PENDING", DesiredRevision: 1}, ControlOutboxItem{OperationID: deletionID, MessageType: "desired", NodeID: "r16-recovery-node", SemanticPayload: `{}`}); err != nil {
 		t.Fatal(err)
 	}
-	var resultMessageID, commandMessageID string
-	if err := s.db.QueryRow(`SELECT operation_complete_message_id, command_message_id FROM control_outbox WHERE operation_id = ?`, deletionID).Scan(&resultMessageID, &commandMessageID); err != nil {
+	var resultMessageID string
+	if err := s.db.QueryRow(`SELECT controller_operation_complete_message_id FROM control_outbox WHERE operation_id = ?`, deletionID).Scan(&resultMessageID); err != nil {
 		t.Fatal(err)
 	}
 	payload := `{"forward_id":"r16-recovery-forward","deletion_operation_id":"r16-recovery-operation","deleted":true}`
-	if _, err := s.RecordControlInbox(ControlInboxItem{MessageID: resultMessageID, NodeID: "r16-recovery-node", MessageType: "operation_complete", OperationID: commandMessageID, SemanticPayload: payload, State: "RECEIVED"}); err != nil {
+	if _, err := s.RecordControlInbox(ControlInboxItem{MessageID: resultMessageID, NodeID: "r16-recovery-node", MessageType: "operation_complete", OperationID: deletionID, SemanticPayload: payload, State: "RECEIVED"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.db.Exec(`DELETE FROM control_outbox WHERE operation_id = ?`, deletionID); err != nil {

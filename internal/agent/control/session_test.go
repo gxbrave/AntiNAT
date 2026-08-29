@@ -328,8 +328,10 @@ func TestSessionReconnectSemanticResend(t *testing.T) {
 	if applied.Load() != 1 {
 		t.Fatalf("applied = %d, want 1", applied.Load())
 	}
-	// The controller outbox row must have been receipted (GC'd).
-	deadline = time.Now().Add(5 * time.Second)
+	// The controller outbox row must have been receipted (GC'd). Race-instrumented
+	// repository runs can pause the hub and agent pumps while other packages run;
+	// keep this assertion bounded without making the liveness check scheduler-fragile.
+	deadline = time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := h.st.ControlOutboxItemByOperation("op-1", "desired"); errors.Is(err, store.ErrNotFound) {
 			break

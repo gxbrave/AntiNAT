@@ -273,6 +273,36 @@ func DialEcho(t *testing.T, endpoint, send, wantTag string) {
 	}
 }
 
+// AssertForwardGone fails only when the endpoint answers with the deleted
+// Forward's target-echo signature. Under the full parallel test suite the
+// ephemeral port freed by the deleted listener can be rebound by an unrelated
+// test process; that is port reuse, not resurrection - the durable
+// applied-state/tombstone checks remain the primary no-resurrection proof.
+func AssertForwardGone(t *testing.T, endpoint, send, wantTag string) {
+	t.Helper()
+	conn, err := net.DialTimeout("tcp4", endpoint, 500*time.Millisecond)
+	if err != nil {
+		return // connection refused: the listener is gone
+	}
+	defer conn.Close()
+	// The port answered; only the target echo signature proves the deleted
+	// Forward is still serving.
+	_, _ = conn.Write([]byte(send))
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, len(wantTag)+len(send)+1)
+	n, readErr := conn.Read(buf)
+	if readErr != nil {
+		// An unrelated listener accepted the connection but is not the
+		// Forward's echo service.
+		t.Logf("note: %s rebound by an unrelated process after delete (accepted connection, no echo)", endpoint)
+		return
+	}
+	if got := string(buf[:n]); got == wantTag+send {
+		t.Fatalf("deleted forward's echo answered on %s: %q", endpoint, got)
+	}
+	t.Logf("note: %s rebound by an unrelated process after delete (answered %q, not the forward echo)", endpoint, string(buf[:n]))
+}
+
 // HTTPGet fetches a controller admin URL (no auth needed for healthz).
 func HTTPGet(t *testing.T, url string) (int, string) {
 	t.Helper()

@@ -61,7 +61,11 @@ func TestR13SignedReceiptEnvelopeUsesStrictSemanticJSON(t *testing.T) {
 		[]byte(`{"operation_id":"first","unknown":true}`),
 		[]byte(`{"operation_id":"first"} {}`),
 	} {
-		client.inSeq = uint64(i)
+		client.active = &sessionIdentity{
+			epoch:   1,
+			session: "session-r13",
+			inSeq:   uint64(i),
+		}
 		header := protocol.ProtectedHeader{
 			ProtocolDomain: protocol.ProtocolDomain, ControllerInstanceID: instance,
 			NodeID: nodeID, ControllerKeyID: "controller-r13", AgentCredentialVer: 1,

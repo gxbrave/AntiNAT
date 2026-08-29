@@ -2,6 +2,7 @@ package probe
 
 import (
 	"context"
+	"encoding/hex"
 	"testing"
 
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
@@ -66,7 +67,11 @@ func TestDuplicateProbeReceiptIsIdempotent(t *testing.T) {
 	if err := env.store.SetProbeOperationStatus(op.ID, "ARMED"); err != nil {
 		t.Fatalf("set operation armed: %v", err)
 	}
-	receipt := signRCT1(t, env.nodePriv, arm, [32]byte{1})
+	challenge := [32]byte{1}
+	if err := env.store.SetProbeOperationChallenge(op.ID, hex.EncodeToString(challenge[:])); err != nil {
+		t.Fatalf("establish provider challenge: %v", err)
+	}
+	receipt := signRCT1(t, env.nodePriv, arm, challenge)
 	if err := env.manager.HandleProbeMessage("n1", "probe_ingress_receipt", receipt); err != nil {
 		t.Fatalf("first receipt: %v", err)
 	}

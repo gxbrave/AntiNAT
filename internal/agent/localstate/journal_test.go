@@ -3,6 +3,7 @@ package localstate
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"testing"
 
 	bolt "go.etcd.io/bbolt"
@@ -132,6 +133,39 @@ func TestOperationInboxFSMEnforcesPhases(t *testing.T) {
 	}
 	if err := store.NackOperation(1, "session-1", "op-2", "late"); !errors.Is(err, ErrIllegalPhase) {
 		t.Fatalf("nack-after-applied error = %v, want ErrIllegalPhase", err)
+	}
+}
+
+func TestOutboxOperationIDsAfterPagesBeyondFixedPrefix(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.AdvanceSession(1, "session-page"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 300; i++ {
+		if err := store.QueueResult(1, "session-page", fmt.Sprintf("op-%03d", i), []byte("result")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, err := store.OutboxOperationIDsAfter("", 256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 256 {
+		t.Fatalf("first outbox page length = %d, want 256", len(first))
+	}
+	second, err := store.OutboxOperationIDsAfter(first[len(first)-1], 256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second) != 44 {
+		t.Fatalf("second outbox page length = %d, want 44", len(second))
+	}
+	if second[0] != "op-256" || second[len(second)-1] != "op-299" {
+		t.Fatalf("second outbox page = %q..%q, want op-256..op-299", second[0], second[len(second)-1])
 	}
 }
 

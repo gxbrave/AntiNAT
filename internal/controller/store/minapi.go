@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -258,7 +259,7 @@ func (s *Store) ListControlInboxByType(nodeID string, types ...string) ([]Contro
 		where += " AND node_id = ?"
 	}
 	rows, err := s.db.Query(
-		`SELECT message_id, node_id, message_type, COALESCE(operation_id, ''), semantic_payload, state
+		`SELECT message_id, node_id, message_type, COALESCE(operation_id, ''), semantic_payload, state, updated_at
 		   FROM control_inbox WHERE `+where+` ORDER BY id DESC LIMIT 500`,
 		args...,
 	)
@@ -270,7 +271,7 @@ func (s *Store) ListControlInboxByType(nodeID string, types ...string) ([]Contro
 	for rows.Next() {
 		var item ControlInboxItem
 		if err := rows.Scan(&item.MessageID, &item.NodeID, &item.MessageType,
-			&item.OperationID, &item.SemanticPayload, &item.State); err != nil {
+			&item.OperationID, &item.SemanticPayload, &item.State, &item.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("store: scan control inbox: %w", err)
 		}
 		items = append(items, item)
@@ -303,7 +304,7 @@ func (s *Store) ListControlInboxByTypeStateLimit(nodeID, state string, limit int
 	}
 	args = append(args, limit)
 	rows, err := s.db.Query(`SELECT id, message_id, node_id, message_type,
-		COALESCE(operation_id, ''), semantic_payload, state
+		COALESCE(operation_id, ''), semantic_payload, state, updated_at
 		FROM control_inbox WHERE `+where+` ORDER BY id ASC LIMIT ?`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("store: list inbox state page: %w", err)
@@ -313,7 +314,7 @@ func (s *Store) ListControlInboxByTypeStateLimit(nodeID, state string, limit int
 	for rows.Next() {
 		var item ControlInboxItem
 		if err := rows.Scan(&item.ID, &item.MessageID, &item.NodeID, &item.MessageType,
-			&item.OperationID, &item.SemanticPayload, &item.State); err != nil {
+			&item.OperationID, &item.SemanticPayload, &item.State, &item.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("store: scan inbox state page: %w", err)
 		}
 		items = append(items, item)
@@ -321,15 +322,200 @@ func (s *Store) ListControlInboxByTypeStateLimit(nodeID, state string, limit int
 	return items, rows.Err()
 }
 
+// ListForwardDeletionResultCandidates returns only RECEIVED operation-complete
+// rows that are durably identified as the dedicated forward-deletion result.
+//
+// A generic operation_complete page cannot be used here: ordinary result rows
+// may remain RECEIVED until their normal consumer runs and would otherwise
+// occupy the whole page forever. The scan therefore uses one bounded,
+// process-local high-water/keyset pass over the raw inbox primary key. While
+// the outbox row exists, the indexed controller-operation-complete correlation
+// is authoritative. After outbox GC, only the inbox operation binding plus the
+// deterministic dedicated message id is recoverable without a schema change.
+// Payload fields are intentionally not inspected by this enumerator;
+// CompleteForwardDeletionMessage validates them after resolving the durable
+// deletion operation.
+func (s *Store) ListForwardDeletionResultCandidates(limit int) ([]ControlInboxItem, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	if s == nil || s.db == nil {
+		return nil, errStoreClosed
+	}
+
+	// The recovery cursor is process-local and serialized with Store.Close. It
+	// bounds raw inbox work even when ordinary RECEIVED operation_complete rows
+	// vastly outnumber dedicated deletion results. Rows arriving after the
+	// high-water boundary are considered on the next pass.
+	cursor := &s.deletionCandidateCursor
+	cursor.mu.Lock()
+	defer cursor.mu.Unlock()
+	if cursor.closed {
+		return nil, errStoreClosed
+	}
+
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("store: begin deletion candidate scan: %w", err)
+	}
+	defer tx.Rollback()
+
+	highWater, beforeID := cursor.highWater, cursor.beforeID
+	initialized := cursor.initialized
+	if !initialized || beforeID <= 0 {
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM control_inbox`).Scan(&highWater); err != nil {
+			return nil, fmt.Errorf("store: read deletion candidate high-water: %w", err)
+		}
+		if highWater == 0 {
+			if err := tx.Commit(); err != nil {
+				return nil, fmt.Errorf("store: commit empty deletion candidate scan: %w", err)
+			}
+			cursor.resetLocked()
+			return nil, nil
+		}
+		beforeID = highWater
+		initialized = true
+	}
+
+	// Do not put state/type/deletion filters in this query. With a filtered
+	// LIMIT, an ordinary-row prefix could force SQLite to examine an unbounded
+	// number of unrelated entries. The INTEGER PRIMARY KEY keyset plus
+	// NOT INDEXED makes the raw examined-row budget explicit.
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, message_id, node_id, message_type,
+		       COALESCE(operation_id, ''), semantic_payload, state, updated_at
+		  FROM control_inbox NOT INDEXED
+		 WHERE id <= ? AND id > 0
+		 ORDER BY id DESC
+		 LIMIT ?`, beforeID, maxControlInboxCleanupScan)
+	if err != nil {
+		return nil, fmt.Errorf("store: list deletion candidate scan: %w", err)
+	}
+
+	// Materialize the bounded raw page before issuing classification lookups.
+	// Some SQLite drivers do not permit a second statement on a transaction
+	// while the first statement still has an active cursor. The raw scan is
+	// already bounded by maxControlInboxCleanupScan, so retaining this page is
+	// also a bounded allocation.
+	rawItems := make([]ControlInboxItem, 0, maxControlInboxCleanupScan)
+	for rows.Next() {
+		var item ControlInboxItem
+		if err := rows.Scan(&item.ID, &item.MessageID, &item.NodeID,
+			&item.MessageType, &item.OperationID, &item.SemanticPayload,
+			&item.State, &item.UpdatedAt); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("store: scan deletion candidate row: %w", err)
+		}
+		rawItems = append(rawItems, item)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("store: close deletion candidate scan: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: read deletion candidate scan: %w", err)
+	}
+
+	candidateCapacity := limit
+	if candidateCapacity > maxControlInboxCleanupScan {
+		candidateCapacity = maxControlInboxCleanupScan
+	}
+	candidates := make([]ControlInboxItem, 0, candidateCapacity)
+	lastExaminedID := int64(0)
+	for _, item := range rawItems {
+		lastExaminedID = item.ID
+		if item.State != ControlInboxReceived || item.MessageType != "operation_complete" {
+			continue
+		}
+
+		// Check both exact result correlations independently. The controller
+		// correlation has precedence: if it exists, only a row that joins to a
+		// durable forward-deletion operation is eligible. A normal result
+		// correlation belongs to the ordinary result consumer and suppresses
+		// direct post-GC recovery. Neither branch inspects the payload.
+		var controllerCorrelation, normalCorrelation int
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
+			SELECT 1
+			  FROM control_outbox
+			 WHERE node_id = ?
+			   AND controller_operation_complete_message_id = ?
+		)`, item.NodeID, item.MessageID).Scan(&controllerCorrelation); err != nil {
+			return nil, fmt.Errorf("store: check controller deletion correlation: %w", err)
+		}
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
+			SELECT 1
+			  FROM control_outbox
+			 WHERE node_id = ?
+			   AND operation_complete_message_id = ?
+		)`, item.NodeID, item.MessageID).Scan(&normalCorrelation); err != nil {
+			return nil, fmt.Errorf("store: check normal result correlation: %w", err)
+		}
+
+		eligible := false
+		if controllerCorrelation == 1 {
+			var live int
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
+				SELECT 1
+				  FROM control_outbox o
+				  JOIN forward_deletion_operations d ON d.id = o.operation_id
+				 WHERE o.node_id = ?
+				   AND o.controller_operation_complete_message_id = ?
+			)`, item.NodeID, item.MessageID).Scan(&live); err != nil {
+				return nil, fmt.Errorf("store: check live deletion candidate: %w", err)
+			}
+			eligible = live == 1
+		} else if normalCorrelation == 0 &&
+			item.OperationID != "" &&
+			item.MessageID == deterministicMessageID(item.OperationID, "operation_complete") {
+			// After outbox GC, only a direct dedicated binding is recoverable.
+			// A normal Agent result binds to the command message id; SHA-256
+			// message ids are one-way, so direct recovery is considered only
+			// when neither result correlation exists.
+			var exists int
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
+				SELECT 1 FROM forward_deletion_operations WHERE id = ?
+			)`, item.OperationID).Scan(&exists); err != nil {
+				return nil, fmt.Errorf("store: check recovered deletion operation: %w", err)
+			}
+			eligible = exists == 1
+		}
+		if eligible {
+			candidates = append(candidates, item)
+			// Do not consume rows beyond the caller's result limit. Advancing to
+			// the last row actually examined keeps the next call from skipping a
+			// candidate that would otherwise be trimmed from the returned page.
+			if len(candidates) == limit {
+				break
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("store: commit deletion candidate scan: %w", err)
+	}
+
+	// The scan is descending for bounded keyset progress; API callers receive
+	// candidates in durable inbox order.
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].ID < candidates[j].ID })
+	if lastExaminedID == 0 || lastExaminedID <= 1 {
+		cursor.resetLocked()
+	} else {
+		cursor.highWater = highWater
+		cursor.beforeID = lastExaminedID - 1
+		cursor.initialized = initialized
+	}
+	return candidates, nil
+}
+
 // ControlInboxItemByMessageID returns one exact durable inbox record. It is
 // used by correlation paths that must not substitute a payload-supplied id.
 func (s *Store) ControlInboxItemByMessageID(messageID string) (ControlInboxItem, error) {
 	var item ControlInboxItem
 	err := s.db.QueryRow(`SELECT id, message_id, node_id, message_type,
-		COALESCE(operation_id, ''), semantic_payload, state
+		COALESCE(operation_id, ''), semantic_payload, state, updated_at
 		FROM control_inbox WHERE message_id = ?`, messageID).Scan(
 		&item.ID, &item.MessageID, &item.NodeID, &item.MessageType,
-		&item.OperationID, &item.SemanticPayload, &item.State)
+		&item.OperationID, &item.SemanticPayload, &item.State, &item.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ControlInboxItem{}, ErrNotFound
 	}
@@ -386,30 +572,158 @@ func durableDeletionResultCorrelation(messageID, inboxOperation, deletionOperati
 	return false
 }
 
-// CompleteForwardDeletionResult atomically applies a strictly correlated Agent
-// delete result. The result message id must be the exact indexed completion
-// correlation for the deletion command; node, forward, operation, and inbox
-// binding are all rechecked inside the same transaction.
+// permanentDeletionResultError adds the narrow terminal classification while
+// retaining the historical store sentinel for callers that distinguish a
+// correlation/CAS failure from other storage errors. The watcher keys only on
+// ErrPermanentDeletionResult; the wrapped cause remains diagnostic/API
+// compatible.
+func permanentDeletionResultError(cause error, format string, args ...any) error {
+	if cause == nil {
+		cause = ErrCASConflict
+	}
+	values := make([]any, 0, len(args)+2)
+	values = append(values, ErrPermanentDeletionResult, cause)
+	values = append(values, args...)
+	return fmt.Errorf("%w: %w: "+format, values...)
+}
+
+// CompleteForwardDeletionMessage atomically applies the dedicated forward
+// deletion result identified by its durable inbox message id. The message id
+// and inbox operation binding are the correlation authority; payload ids are
+// checked only as assertions after the durable deletion operation is resolved.
+// Ordinary operation_complete results return ErrNotFound and remain available
+// to their normal consumer.
+func (s *Store) CompleteForwardDeletionMessage(messageID string) error {
+	return s.completeForwardDeletionMessage(messageID, false, "", "")
+}
+
+// CompleteForwardDeletionResult is the historical compatibility entry point
+// for callers that also have the deletion and forward ids. The ids are
+// assertions only: messageID is resolved against the indexed outbox result
+// correlation before either assertion is checked. The compatibility path may
+// recognize the normal operation_complete correlation while the canonical
+// watcher remains dedicated-result-only; after outbox GC only the dedicated
+// inbox binding is recoverable.
 func (s *Store) CompleteForwardDeletionResult(messageID, deletionOperationID, forwardID string) error {
 	if messageID == "" || deletionOperationID == "" || forwardID == "" {
-		return ErrCASConflict
+		return permanentDeletionResultError(ErrCASConflict, "deletion result identity is incomplete")
 	}
-	tx, err := s.db.Begin()
+	return s.completeForwardDeletionMessage(messageID, true, deletionOperationID, forwardID)
+}
+
+// completeForwardDeletionMessage performs the canonical message-centric
+// completion transaction. expectedDeletionOperationID and expectedForwardID
+// are optional caller assertions used only by CompleteForwardDeletionResult;
+// neither is ever used to select a durable row. When allowNormalResult is
+// false, only the dedicated controller-operation-complete outbox correlation
+// can identify a live deletion result. When it is true, the compatibility
+// caller may additionally use the indexed normal operation_complete result.
+func (s *Store) completeForwardDeletionMessage(messageID string, allowNormalResult bool, expectedDeletionOperationID, expectedForwardID string) error {
+	if messageID == "" {
+		return permanentDeletionResultError(ErrCASConflict, "deletion result message id is required")
+	}
+	conn, err := s.db.Conn(context.Background())
 	if err != nil {
+		return fmt.Errorf("store: deletion result conn: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
 		return fmt.Errorf("store: begin deletion result: %w", err)
 	}
-	defer tx.Rollback()
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
 
 	var inboxNode, inboxType, inboxOperation, inboxPayload, inboxState string
-	if err := tx.QueryRow(`SELECT node_id, message_type, COALESCE(operation_id, ''), semantic_payload, state
-		FROM control_inbox WHERE message_id = ?`, messageID).Scan(&inboxNode, &inboxType, &inboxOperation, &inboxPayload, &inboxState); errors.Is(err, sql.ErrNoRows) {
+	if err := conn.QueryRowContext(context.Background(), `SELECT node_id, message_type,
+		COALESCE(operation_id, ''), semantic_payload, state
+		FROM control_inbox WHERE message_id = ?`, messageID).
+		Scan(&inboxNode, &inboxType, &inboxOperation, &inboxPayload, &inboxState); errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return fmt.Errorf("store: read deletion result inbox: %w", err)
 	}
-	if inboxType != "operation_complete" && inboxType != "desired_result" && inboxType != "forward_delete_ack" {
-		return fmt.Errorf("%w: unexpected deletion result type %q", ErrCASConflict, inboxType)
+	if inboxType != "operation_complete" {
+		return ErrNotFound
 	}
+
+	// Resolve the durable deletion operation from the result message id first.
+	// The dedicated controller result has precedence. The normal result is
+	// accepted only by the compatibility wrapper, never by the watcher.
+	var deletionOperationID, outboxNode string
+	correlationFound := false
+	err = conn.QueryRowContext(context.Background(), `SELECT operation_id, node_id
+		FROM control_outbox
+		WHERE node_id = ? AND controller_operation_complete_message_id = ?
+		LIMIT 1`, inboxNode, messageID).Scan(&deletionOperationID, &outboxNode)
+	if err == nil {
+		correlationFound = true
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("store: resolve deletion result correlation: %w", err)
+	}
+	if !correlationFound && allowNormalResult {
+		err = conn.QueryRowContext(context.Background(), `SELECT operation_id, node_id
+			FROM control_outbox
+			WHERE node_id = ? AND operation_complete_message_id = ?
+			LIMIT 1`, inboxNode, messageID).Scan(&deletionOperationID, &outboxNode)
+		if err == nil {
+			correlationFound = true
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("store: resolve compatibility deletion result correlation: %w", err)
+		}
+	}
+	if !correlationFound {
+		// After outbox GC, only a dedicated result can be recovered without a
+		// historical operation/message mapping. A normal result's inbox binding
+		// is the Agent command id, not the deletion operation id.
+		if inboxOperation == "" || messageID != deterministicMessageID(inboxOperation, "operation_complete") {
+			return ErrNotFound
+		}
+		// An ordinary command result can have the same inbox operation binding
+		// and deterministic message shape as a deletion operation. Once the
+		// outbox row is gone, refuse the fallback whenever the exact normal
+		// result correlation exists; only an uncorrelated dedicated binding is
+		// recoverable here.
+		var normalCorrelation int
+		if err := conn.QueryRowContext(context.Background(), `SELECT EXISTS(
+			SELECT 1 FROM control_outbox
+			 WHERE node_id = ? AND operation_complete_message_id = ?
+		)`, inboxNode, messageID).Scan(&normalCorrelation); err != nil {
+			return fmt.Errorf("store: check normal deletion correlation: %w", err)
+		}
+		if normalCorrelation == 1 {
+			return ErrNotFound
+		}
+		deletionOperationID = inboxOperation
+	}
+	if correlationFound && outboxNode != inboxNode {
+		return permanentDeletionResultError(ErrCASConflict, "deletion result node correlation mismatch")
+	}
+
+	var durableForwardID, deletionStatus string
+	if err := conn.QueryRowContext(context.Background(), `SELECT forward_id, status
+		FROM forward_deletion_operations WHERE id = ?`, deletionOperationID).
+		Scan(&durableForwardID, &deletionStatus); errors.Is(err, sql.ErrNoRows) {
+		// A correlated controller result can exist for a non-deletion operation.
+		// It is not a deletion candidate and must not poison that operation.
+		return ErrNotFound
+	} else if err != nil {
+		return fmt.Errorf("store: read deletion operation: %w", err)
+	}
+
+	// Compatibility arguments are checked only after the message-centric
+	// outbox/inbox correlation and durable operation lookup above. In
+	// particular, they never steer either SELECT or the mutation below.
+	if expectedDeletionOperationID != "" && expectedDeletionOperationID != deletionOperationID {
+		return permanentDeletionResultError(ErrCASConflict, "deletion operation assertion mismatch")
+	}
+	if expectedForwardID != "" && expectedForwardID != durableForwardID {
+		return permanentDeletionResultError(ErrCASConflict, "forward assertion mismatch")
+	}
+
 	var result struct {
 		ForwardID           string `json:"forward_id"`
 		DeletionOperationID string `json:"deletion_operation_id"`
@@ -417,59 +731,29 @@ func (s *Store) CompleteForwardDeletionResult(messageID, deletionOperationID, fo
 	}
 	if err := protocol.DecodeStrictJSONInto([]byte(inboxPayload), &result); err != nil ||
 		!result.Deleted || result.ForwardID == "" || result.DeletionOperationID == "" {
-		return fmt.Errorf("%w: malformed deletion result payload", ErrCASConflict)
+		return permanentDeletionResultError(ErrCASConflict, "malformed deletion result payload")
+	}
+	if result.DeletionOperationID != deletionOperationID || result.ForwardID != durableForwardID {
+		return permanentDeletionResultError(ErrCASConflict, "deletion result payload does not match durable operation")
 	}
 
-	var storedForward, deletionStatus string
-	if err := tx.QueryRow(`SELECT forward_id, status FROM forward_deletion_operations WHERE id = ?`, deletionOperationID).Scan(&storedForward, &deletionStatus); errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
-	} else if err != nil {
-		return fmt.Errorf("store: read deletion operation: %w", err)
-	}
-	if storedForward != forwardID || result.ForwardID != forwardID || result.DeletionOperationID != deletionOperationID {
-		return fmt.Errorf("%w: deletion operation/forward payload mismatch", ErrCASConflict)
-	}
 	var forwardNode string
-	if err := tx.QueryRow(`SELECT node_id FROM forwards WHERE id = ?`, forwardID).Scan(&forwardNode); errors.Is(err, sql.ErrNoRows) {
-		return ErrForwardNotFound
+	if err := conn.QueryRowContext(context.Background(), `SELECT node_id FROM forwards WHERE id = ?`, durableForwardID).
+		Scan(&forwardNode); errors.Is(err, sql.ErrNoRows) {
+		return permanentDeletionResultError(ErrForwardNotFound, "forward %q is absent", durableForwardID)
 	} else if err != nil {
 		return fmt.Errorf("store: read deletion forward: %w", err)
 	}
 	if inboxNode != forwardNode {
-		return fmt.Errorf("%w: deletion result node mismatch", ErrCASConflict)
-	}
-
-	var commandMessageID, operationCompleteMessageID, controllerCompleteMessageID, outboxNode string
-	correlationFound := true
-	if err := tx.QueryRow(`SELECT command_message_id, operation_complete_message_id,
-		controller_operation_complete_message_id, node_id
-		FROM control_outbox WHERE operation_id = ? AND node_id = ?
-		ORDER BY id DESC LIMIT 1`, deletionOperationID, inboxNode).Scan(&commandMessageID, &operationCompleteMessageID, &controllerCompleteMessageID, &outboxNode); errors.Is(err, sql.ErrNoRows) {
-		// The command row may already have been GC'd after its durable receipt.
-		// The inbox still retains the exact command/result operation binding, so
-		// accept only the protocol's deterministic deletion-result IDs. This
-		// preserves crash recovery without falling back to payload-only IDs.
-		correlationFound = false
-		if !durableDeletionResultCorrelation(messageID, inboxOperation, deletionOperationID) {
-			return fmt.Errorf("%w: deletion command correlation is missing", ErrCASConflict)
-		}
-	} else if err != nil {
-		return fmt.Errorf("store: read deletion command correlation: %w", err)
-	}
-	if correlationFound {
-		if inboxNode != outboxNode || (messageID != operationCompleteMessageID && messageID != controllerCompleteMessageID) {
-			return fmt.Errorf("%w: deletion result message correlation mismatch", ErrCASConflict)
-		}
-		if inboxOperation != "" && inboxOperation != commandMessageID && inboxOperation != deletionOperationID {
-			return fmt.Errorf("%w: deletion result operation binding mismatch", ErrCASConflict)
-		}
+		return permanentDeletionResultError(ErrCASConflict, "deletion result node mismatch")
 	}
 	if deletionStatus != "PENDING" && deletionStatus != "COMPLETED" {
 		return fmt.Errorf("%w: deletion operation is %s", ErrCASConflict, deletionStatus)
 	}
 	if deletionStatus == "PENDING" {
-		res, err := tx.Exec(`UPDATE forward_deletion_operations SET status = 'COMPLETED', completed_at = ?
-			WHERE id = ? AND forward_id = ? AND status = 'PENDING'`, now(), deletionOperationID, forwardID)
+		res, err := conn.ExecContext(context.Background(), `UPDATE forward_deletion_operations
+			SET status = 'COMPLETED', completed_at = ?
+			WHERE id = ? AND forward_id = ? AND status = 'PENDING'`, now(), deletionOperationID, durableForwardID)
 		if err != nil {
 			return fmt.Errorf("store: complete deletion operation: %w", err)
 		}
@@ -479,14 +763,29 @@ func (s *Store) CompleteForwardDeletionResult(messageID, deletionOperationID, fo
 			return ErrCASConflict
 		}
 	}
-	if inboxState != "PROCESSED" {
-		if _, err := tx.Exec(`UPDATE control_inbox SET state = 'PROCESSED', updated_at = ? WHERE message_id = ?`, now(), messageID); err != nil {
+	if inboxState != ControlInboxProcessed {
+		res, err := conn.ExecContext(context.Background(), `UPDATE control_inbox SET state = 'PROCESSED', updated_at = ?
+			WHERE message_id = ? AND state = 'RECEIVED'`, now(), messageID)
+		if err != nil {
 			return fmt.Errorf("store: mark deletion result processed: %w", err)
 		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("store: mark deletion result processed rows: %w", err)
+		}
+		if n != 1 {
+			var current string
+			if err := conn.QueryRowContext(context.Background(),
+				`SELECT state FROM control_inbox WHERE message_id = ?`, messageID).Scan(&current); err != nil {
+				return fmt.Errorf("store: recheck deletion result state: %w", err)
+			}
+			return fmt.Errorf("%w: deletion result inbox is %s, want RECEIVED", ErrCASConflict, current)
+		}
 	}
-	if err := tx.Commit(); err != nil {
+	if _, err := conn.ExecContext(context.Background(), "COMMIT"); err != nil {
 		return fmt.Errorf("store: commit deletion result: %w", err)
 	}
+	committed = true
 	return nil
 }
 

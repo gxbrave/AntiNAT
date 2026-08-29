@@ -148,7 +148,7 @@ func TestVerifiedJoinStoresFrozenLegalSnapshot(t *testing.T) {
 			done <- err
 			return
 		}
-		done <- env.manager.HandleProbeMessage("n1", "probe_ingress_receipt", signRCT1(t, env.nodePriv, arm, chash))
+		done <- handleReceiptEventually(t, env, signRCT1(t, env.nodePriv, arm, chash))
 	}()
 	if err := env.manager.HandleProbeMessage("n1", "probe_armed", signRDY1(t, env.nodePriv, arm)); err != nil {
 		t.Fatal(err)

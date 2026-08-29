@@ -31,15 +31,16 @@ func sampleArm() protocol.ProbeArm {
 }
 
 // TestSchemaV2ProbeBucket verifies migration v2 added the probe_operations
-// bucket on a fresh store and on an existing v1 store.
+// bucket and migration v3 added the durable Forward delete fence bucket on a
+// fresh store and on an existing older store.
 func TestSchemaV2ProbeBucket(t *testing.T) {
 	s := openProbeStore(t)
 	v, err := s.SchemaVersion()
 	if err != nil {
 		t.Fatalf("schema version: %v", err)
 	}
-	if v != 2 {
-		t.Fatalf("SchemaVersion = %d, want 2 (v1 buckets + probe_operations)", v)
+	if v != 3 {
+		t.Fatalf("SchemaVersion = %d, want 3 (v1 buckets + probe_operations + forward_delete_intents)", v)
 	}
 	// The bucket must be usable through the store API.
 	if err := s.SaveArmedProbe(sampleArm(), time.Now().Add(time.Minute)); err != nil {

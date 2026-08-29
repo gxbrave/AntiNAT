@@ -27,8 +27,15 @@ var (
 	ErrNodeNotFound    = errors.New("store: node not found")
 	ErrForwardNotFound = errors.New("store: forward not found")
 	ErrCASConflict     = errors.New("store: revision CAS conflict")
-	ErrSchemaTooNew    = errors.New("store: database schema is newer than this build")
+	// ErrPermanentDeletionResult marks an authenticated deletion result whose
+	// identity or deterministic correlation is provably impossible. Callers may
+	// terminalize the inbox row only for this explicit classification; ordinary
+	// CAS, SQL, and storage failures remain retryable.
+	ErrPermanentDeletionResult = errors.New("store: permanent deletion result identity failure")
+	ErrSchemaTooNew            = errors.New("store: database schema is newer than this build")
 )
+
+var errStoreClosed = errors.New("store: store is closed")
 
 // Store is a configured SQLite-backed Controller store. A Store is safe for
 // concurrent use by multiple goroutines; database/sql manages the pool and
@@ -39,6 +46,18 @@ type Store struct {
 	minFreeBytes uint64
 	diskFree     func(string) (uint64, error)
 	clock        func() int64
+
+	// inboxCleanupCursor is owned by this Store instance. It is deliberately
+	// process-local: a reopened Store starts a fresh bounded high-water pass.
+	// Close serializes with cleanup so the cursor cannot outlive the DB handle.
+	inboxCleanupCursor controlInboxCleanupCursor
+
+	// deletionCandidateCursor bounds the recovery watcher scan without allowing
+	// ordinary RECEIVED operation_complete rows to starve a dedicated result.
+	// It is process-local for the same reason as the cleanup cursor: a reopened
+	// store starts a fresh high-water pass. Close serializes it with the database
+	// handle so a recovery scan cannot continue after shutdown.
+	deletionCandidateCursor controlInboxCleanupCursor
 }
 
 // Open opens (or creates) the database at path, configures the frozen
@@ -84,11 +103,29 @@ func dsnFor(path string) string {
 		"&_pragma=synchronous(FULL)"
 }
 
-// Close closes the underlying database.
+// Close closes the underlying database after serializing with inbox cleanup.
+// The cleanup cursor is process-local and is discarded with the Store instance;
+// a reopened Store starts a fresh high-water cycle.
 func (s *Store) Close() error {
 	if s == nil || s.db == nil {
 		return nil
 	}
+	// Both bounded scanners use process-local cursors. Lock them in one fixed
+	// order before closing the database so neither scanner can continue using
+	// the handle after Close commits the terminal boundary.
+	cleanupCursor := &s.inboxCleanupCursor
+	candidateCursor := &s.deletionCandidateCursor
+	cleanupCursor.mu.Lock()
+	defer cleanupCursor.mu.Unlock()
+	candidateCursor.mu.Lock()
+	defer candidateCursor.mu.Unlock()
+	if cleanupCursor.closed && candidateCursor.closed {
+		return nil
+	}
+	cleanupCursor.closed = true
+	cleanupCursor.resetLocked()
+	candidateCursor.closed = true
+	candidateCursor.resetLocked()
 	return s.db.Close()
 }
 

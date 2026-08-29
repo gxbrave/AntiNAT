@@ -69,7 +69,7 @@ func TestR13VerifiedJoinPreservesIndependentActivationAxes(t *testing.T) {
 			agentDone <- err
 			return
 		}
-		agentDone <- env.manager.HandleProbeMessage("n1", "probe_ingress_receipt", signRCT1(t, env.nodePriv, arm, challenge))
+		agentDone <- handleReceiptEventually(t, env, signRCT1(t, env.nodePriv, arm, challenge))
 	}()
 	if err := env.manager.HandleProbeMessage("n1", "probe_armed", signRDY1(t, env.nodePriv, arm)); err != nil {
 		t.Fatal(err)
@@ -362,6 +362,49 @@ func TestR13TerminalRecoveryHasHardPerSweepBudgetAndCursor(t *testing.T) {
 	env.manager.recoverTerminalOutcomes()
 	if got := countDispositions(); got != 5 {
 		t.Fatalf("third recovery reached %d terminal rows, want all 5", got)
+	}
+}
+
+// A terminal status may commit before its activation outbox row is created.
+// Recovery must retain the cursor on an enqueue failure so the same bounded
+// page retries immediately after the storage fault clears.
+func TestR13TerminalRecoveryRetriesFailedEnqueueWithoutCursorSkip(t *testing.T) {
+	env := newTestEnv(t, false)
+	env.createNodeForward(t)
+	env.manager.cleanupBatch = 2
+	base := time.Now()
+	for i := 0; i < 2; i++ {
+		createR13ManagerTerminalOperation(t, env, fmt.Sprintf("terminal-enqueue-failure-%d", i), base)
+	}
+
+	rawDB := openR16QRawDB(t, env)
+	trigger := `CREATE TRIGGER test_terminal_outcome_enqueue_failure
+		BEFORE INSERT ON control_outbox
+		WHEN NEW.operation_id = 'terminal-enqueue-failure-0' AND NEW.message_type = 'probe_outcome'
+		BEGIN SELECT RAISE(ABORT, 'injected terminal outcome enqueue failure'); END`
+	if _, err := rawDB.Exec(trigger); err != nil {
+		t.Fatalf("install terminal enqueue fault: %v", err)
+	}
+	env.manager.recoverTerminalOutcomes()
+	if _, err := env.store.ProbeOutcomeDisposition("terminal-enqueue-failure-0"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("failed enqueue unexpectedly persisted first disposition: %v", err)
+	}
+	if _, err := env.store.ProbeOutcomeDisposition("terminal-enqueue-failure-1"); err != nil {
+		t.Fatalf("independent later row was not recovered after first-row failure: %v", err)
+	}
+	if _, err := rawDB.Exec(`DROP TRIGGER test_terminal_outcome_enqueue_failure`); err != nil {
+		t.Fatalf("remove terminal enqueue fault: %v", err)
+	}
+
+	// The full page cursor advanced past the failed row so later rows could
+	// progress. One empty boundary pass resets the keyset cursor; the following
+	// pass retries the still-undelivered first row.
+	env.manager.recoverTerminalOutcomes()
+	env.manager.recoverTerminalOutcomes()
+	for i := 0; i < 2; i++ {
+		if _, err := env.store.ProbeOutcomeDisposition(fmt.Sprintf("terminal-enqueue-failure-%d", i)); err != nil {
+			t.Fatalf("terminal row %d was not retried after enqueue recovery: %v", i, err)
+		}
 	}
 }
 

@@ -41,6 +41,14 @@ type ArmedProbe struct {
 	Consumed    bool
 	Receipt     []byte
 	ReceiptSent bool
+	// ChallengeHash binds the consumed receipt and ACK to the exact WAN1
+	// challenge that was durably joined.
+	ChallengeHash [32]byte
+	// ACK retains the exact same-path ACK1 bytes after durable consumption.
+	// ACKSent distinguishes a successful provider write from an ACK that still
+	// needs replay after a partial/failed connection write.
+	ACK     []byte
+	ACKSent bool
 	// ReceiptAcknowledged records semantic Controller acknowledgement separately
 	// from transport delivery. The consumed row remains a replay fence until
 	// ReceiptDeadline even after this flag is set.
@@ -62,6 +70,10 @@ var (
 const defaultProbeScanLimit = 256
 
 const probeReceiptIndexPrefix = "receipt/"
+
+// ErrProbeAdmissionConflict means the durable applied forward or activation
+// snapshot changed while an ARM admission was being committed.
+var ErrProbeAdmissionConflict = errors.New("localstate: probe admission conflict")
 
 func probeReceiptIndexKey(operationID string) []byte {
 	return []byte(probeReceiptIndexPrefix + operationID)
@@ -130,6 +142,88 @@ func (s *Store) LoadArmedProbe(probeID [16]byte) (ArmedProbe, bool, error) {
 	return rec, found, err
 }
 
+// CommitProbeAdmission durably records the activated snapshot and ARM1 in one
+// bbolt transaction. The applied revision, activation identity, and previous
+// snapshot are checked inside that transaction so a stale admission cannot
+// publish an ARM for a newer or rolled-back forward.
+func (s *Store) CommitProbeAdmission(forwardID string, expectedRevision uint64, activation string, arm protocol.ProbeArm, deadline time.Time, before, after protocol.ActivationStates) error {
+	if forwardID == "" || expectedRevision == 0 || activation == "" {
+		return ErrProbeAdmissionConflict
+	}
+	if err := arm.Validate(); err != nil {
+		return err
+	}
+	if err := before.Validate(); err != nil {
+		return err
+	}
+	if err := after.Validate(); err != nil {
+		return err
+	}
+	wantActivation := protocol.ActivationID(forwardID, expectedRevision)
+	if activation != hex.EncodeToString(wantActivation[:]) || arm.Activation != wantActivation {
+		return ErrProbeAdmissionConflict
+	}
+	armedAt := time.Time{}
+	if arm.TTLMS > 0 {
+		armedAt = deadline.Add(-time.Duration(arm.TTLMS) * time.Millisecond)
+	}
+	rec := ArmedProbe{Arm: arm, ForwardID: forwardID, Digest: arm.Digest(), Deadline: deadline, ArmedAt: armedAt}
+	rawArm, err := json.Marshal(rec)
+	if err != nil {
+		return err
+	}
+	snapshot := ActivationSnapshot{ForwardID: forwardID, Activation: activation, Generation: expectedRevision, States: after}
+	rawSnapshot, err := json.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+	return s.db.Update(func(tx *bolt.Tx) error {
+		applied, found, err := loadAppliedRecordTx(tx.Bucket([]byte(bucketApplied)), forwardID)
+		if err != nil {
+			return err
+		}
+		if !found || applied.State.SpecRevision != expectedRevision {
+			return ErrProbeAdmissionConflict
+		}
+		oldSnapshotRaw := tx.Bucket([]byte(bucketActivation)).Get([]byte(forwardID))
+		if oldSnapshotRaw != nil {
+			var old ActivationSnapshot
+			if err := json.Unmarshal(oldSnapshotRaw, &old); err != nil {
+				return err
+			}
+			if err := validateActivationSnapshot(forwardID, old); err != nil {
+				return err
+			}
+			if old.Activation != activation || old.Generation != expectedRevision || old.States != before {
+				return ErrProbeAdmissionConflict
+			}
+		}
+		probeBucket := tx.Bucket([]byte(bucketProbeOps))
+		if oldRaw := probeBucket.Get(arm.ProbeID[:]); oldRaw != nil {
+			var existing ArmedProbe
+			if err := json.Unmarshal(oldRaw, &existing); err != nil {
+				return err
+			}
+			if existing.Consumed {
+				return ErrProbeConsumed
+			}
+			if existing.ForwardID != forwardID || existing.Digest != rec.Digest || !bytes.Equal(existing.Arm.Canonical(), arm.Canonical()) {
+				return ErrProbeConflict
+			}
+		}
+		if err := validateActivationSnapshot(forwardID, snapshot); err != nil {
+			return err
+		}
+		if err := tx.Bucket([]byte(bucketActivation)).Put([]byte(forwardID), rawSnapshot); err != nil {
+			return err
+		}
+		if err := probeBucket.Put(arm.ProbeID[:], rawArm); err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
 // DeleteArmedProbe removes an operation (normally only an expired row).
 func (s *Store) DeleteArmedProbe(probeID [16]byte) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
@@ -155,6 +249,47 @@ func (s *Store) DeleteArmedProbe(probeID [16]byte) error {
 // after a process crash, and a failed receipt send can be retried later.
 func (s *Store) MarkArmedProbeConsumed(probeID [16]byte, receipt []byte) error {
 	return s.MarkArmedProbeConsumedWithReceipt(probeID, receipt, "", time.Now().Add(protocol.ProbeReplayWindow))
+}
+
+// MarkArmedProbeConsumedWithACK records the exact RCT1 and ACK1 material in
+// one durable transaction before either network write.
+func (s *Store) MarkArmedProbeConsumedWithACK(probeID [16]byte, receipt, ack []byte, challengeHash [32]byte, receiptMessageID string, receiptDeadline time.Time) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte(bucketProbeOps))
+		raw := bucket.Get(probeID[:])
+		if raw == nil {
+			return ErrProbeNotFound
+		}
+		var rec ArmedProbe
+		if err := json.Unmarshal(raw, &rec); err != nil {
+			return fmt.Errorf("localstate: decode armed probe: %w", err)
+		}
+		if rec.Consumed {
+			if rec.ReceiptMessageID != receiptMessageID || !bytes.Equal(rec.Receipt, receipt) || !bytes.Equal(rec.ACK, ack) || rec.ChallengeHash != challengeHash {
+				return ErrProbeConflict
+			}
+			return nil
+		}
+		rec.Consumed = true
+		rec.Receipt = append([]byte(nil), receipt...)
+		rec.ReceiptSent = false
+		rec.ReceiptMessageID = receiptMessageID
+		rec.ReceiptDeadline = receiptDeadline
+		rec.ChallengeHash = challengeHash
+		rec.ACK = append([]byte(nil), ack...)
+		rec.ACKSent = false
+		updated, err := json.Marshal(rec)
+		if err != nil {
+			return fmt.Errorf("localstate: encode consumed probe: %w", err)
+		}
+		if err := bucket.Put(probeID[:], updated); err != nil {
+			return err
+		}
+		if receiptMessageID != "" {
+			return bucket.Put(probeReceiptIndexKey(receiptMessageID), probeID[:])
+		}
+		return nil
+	})
 }
 
 // MarkArmedProbeConsumedWithReceipt records the deterministic controller
@@ -198,6 +333,55 @@ func (s *Store) MarkArmedProbeConsumedWithReceipt(probeID [16]byte, receipt []by
 			}
 		}
 		return nil
+	})
+}
+
+// SetArmedProbeACK records the exact same-path ACK1 bytes before a provider
+// write. The consumed row remains the replay fence even when the connection
+// fails after a partial write.
+func (s *Store) SetArmedProbeACK(probeID [16]byte, ack []byte) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte(bucketProbeOps))
+		raw := bucket.Get(probeID[:])
+		if raw == nil {
+			return ErrProbeNotFound
+		}
+		var rec ArmedProbe
+		if err := json.Unmarshal(raw, &rec); err != nil {
+			return fmt.Errorf("localstate: decode armed probe: %w", err)
+		}
+		if !rec.Consumed {
+			return ErrProbeNotFound
+		}
+		rec.ACK = append([]byte(nil), ack...)
+		rec.ACKSent = false
+		updated, err := json.Marshal(rec)
+		if err != nil {
+			return fmt.Errorf("localstate: encode ACK-pending probe: %w", err)
+		}
+		return bucket.Put(probeID[:], updated)
+	})
+}
+
+// MarkArmedProbeACKSent records that the exact ACK1 bytes were fully written
+// to the provider connection.
+func (s *Store) MarkArmedProbeACKSent(probeID [16]byte) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte(bucketProbeOps))
+		raw := bucket.Get(probeID[:])
+		if raw == nil {
+			return ErrProbeNotFound
+		}
+		var rec ArmedProbe
+		if err := json.Unmarshal(raw, &rec); err != nil {
+			return fmt.Errorf("localstate: decode armed probe: %w", err)
+		}
+		rec.ACKSent = true
+		updated, err := json.Marshal(rec)
+		if err != nil {
+			return fmt.Errorf("localstate: encode ACK-sent probe: %w", err)
+		}
+		return bucket.Put(probeID[:], updated)
 	})
 }
 

@@ -43,6 +43,7 @@ type ControlSession struct {
 	nodeID   string
 	epoch    uint64
 	session  string
+	owner    store.ControlOwner
 	agentPub ed25519.PublicKey
 
 	conn    *websocket.Conn
@@ -90,14 +91,20 @@ func (s *ControlSession) wait() {
 }
 
 // writeEnvelope signs and writes one C2A envelope with the next sequence.
+// Sequence reservation happens only after local envelope preparation succeeds;
+// a malformed payload or an unavailable connection must not create a gap in an
+// otherwise-live session.
 func (s *ControlSession) writeEnvelope(ctx context.Context, messageID [16]byte, messageType string, payload []byte) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+
 	s.mu.Lock()
-	s.outSeq++
-	seq := s.outSeq
 	conn := s.conn
+	seq := s.outSeq + 1
 	s.mu.Unlock()
+	if conn == nil {
+		return errors.New("agenthub: session is not connected")
+	}
 
 	header := protocol.ProtectedHeader{
 		ProtocolDomain:       protocol.ProtocolDomain,
@@ -117,9 +124,17 @@ func (s *ControlSession) writeEnvelope(ctx context.Context, messageID [16]byte, 
 	if err != nil {
 		return fmt.Errorf("agenthub: build envelope: %w", err)
 	}
-	if conn == nil {
-		return errors.New("agenthub: session is not connected")
+
+	// writeMu excludes every other writer, but retain the CAS-style check so a
+	// future caller cannot publish a frame with a sequence that was consumed
+	// while this envelope was being prepared.
+	s.mu.Lock()
+	if s.outSeq+1 != seq {
+		s.mu.Unlock()
+		return errors.New("agenthub: outbound sequence changed during envelope preparation")
 	}
+	s.outSeq = seq
+	s.mu.Unlock()
 	return conn.Write(ctx, websocket.MessageBinary, frame)
 }
 
@@ -205,10 +220,11 @@ func (h *Hub) handshake(ctx context.Context, conn *websocket.Conn) (*ControlSess
 		return nil, fmt.Errorf("agent claims epoch %d beyond controller epoch %d (rollback?)", hello.AgentMaxEpoch, node.CurrentConnectionEpoch)
 	}
 	newSession := randomHexID()
-	if err := h.store.CASNodeConnectionEpoch(nodeID, node.CurrentConnectionEpoch, newSession); err != nil {
+	owner, err := h.store.AcquireControlOwner(nodeID, node.CurrentConnectionEpoch, newSession)
+	if err != nil {
 		return nil, fmt.Errorf("epoch CAS failed: %w", err)
 	}
-	newEpoch := node.CurrentConnectionEpoch + 1
+	newEpoch := owner.ConnectionEpoch
 
 	// 3. SessionWelcome (signed by the controller key).
 	var serverNonce [security.SessionNonceSize]byte
@@ -252,6 +268,7 @@ func (h *Hub) handshake(ctx context.Context, conn *websocket.Conn) (*ControlSess
 		nodeID:   nodeID,
 		epoch:    newEpoch,
 		session:  newSession,
+		owner:    owner,
 		agentPub: hello.PublicKey(),
 		conn:     conn,
 		closed:   make(chan struct{}),
@@ -307,6 +324,12 @@ func (h *Hub) handleInboundFrame(s *ControlSession, frame []byte) error {
 	if hdr.NodeID != s.nodeIDBytes() || hdr.AgentCredentialVer == 0 {
 		return errors.New("frame node/credential mismatch")
 	}
+	// The frame may have been parsed before a takeover. Recheck the durable
+	// owner immediately before sequence advancement and downstream mutation;
+	// each owner-aware store write repeats the predicate atomically.
+	if err := h.store.RequireCurrentControlOwner(s.owner); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	expectedSeq := s.inSeq + 1
 	if hdr.Sequence != expectedSeq {
@@ -329,6 +352,11 @@ func (h *Hub) handleInboundFrame(s *ControlSession, frame []byte) error {
 	case "status":
 		if sink, ok := h.sink.(ActivationStatusSink); ok {
 			if err := sink.HandleActivationStatus(s.nodeID, env.Payload); err != nil {
+				var stale interface{ StaleActivationStatus() bool }
+				if errors.As(err, &stale) && stale.StaleActivationStatus() {
+					h.audit("CONTROL_STATUS_STALE", fmt.Sprintf(`{"node_id":%q,"reason":%q}`, s.nodeID, err.Error()))
+					return nil
+				}
 				return err
 			}
 		}
@@ -336,6 +364,92 @@ func (h *Hub) handleInboundFrame(s *ControlSession, frame []byte) error {
 	default:
 		return fmt.Errorf("unexpected message type %q", hdr.MessageType)
 	}
+}
+
+// A sink can authorize terminal probe-receipt rejection only through an
+// explicit marker. Generic parser or store sentinels may also describe
+// retryable/internal failures when returned by another sink implementation.
+func isPermanentProbeReceiptError(err error) bool {
+	var marker interface{ PermanentProbeReceipt() bool }
+	return errors.As(err, &marker) && marker.PermanentProbeReceipt()
+}
+
+// recordProbeReceiptInbox preserves the legacy empty-operation binding used by
+// older control-inbox rows. The payload-derived operation id is authoritative
+// only after the authenticated message material and node/type binding match.
+func (h *Hub) recordProbeReceiptInbox(s *ControlSession, item store.ControlInboxItem) (bool, error) {
+	duplicate, err := h.store.RecordControlInboxOwned(s.owner, item)
+	if err == nil {
+		return duplicate, nil
+	}
+	if !errors.Is(err, store.ErrMessageConflict) {
+		return false, err
+	}
+	existing, getErr := h.store.ControlInboxItemByMessageID(item.MessageID)
+	if getErr != nil {
+		return false, err
+	}
+	if existing.NodeID != item.NodeID || existing.MessageType != item.MessageType ||
+		existing.SemanticPayload != item.SemanticPayload ||
+		(existing.OperationID != "" && existing.OperationID != item.OperationID) {
+		return false, err
+	}
+	if existing.OperationID == "" {
+		if bindErr := h.store.BindControlInboxOperationIDOwned(s.owner, item.MessageID, item.OperationID); bindErr != nil {
+			return false, bindErr
+		}
+	}
+	return true, nil
+}
+
+// processProbeReceipt runs the durable RCT1 sink boundary. The keyed delivery
+// lock is held across admission, sink execution, and exact completion: closing
+// an old WebSocket does not stop a handler already inside the sink, and a
+// takeover must not let a replacement handler invoke the same sink twice.
+// Retryable failures deliberately leave the inbox row RECEIVED for replay.
+func (h *Hub) processProbeReceipt(s *ControlSession, item store.ControlInboxItem) (bool, error) {
+	unlock := h.probeDeliveryLocks.acquire(item.MessageID)
+	defer unlock()
+	duplicate, err := h.recordProbeReceiptInbox(s, item)
+	if err != nil {
+		if errors.Is(err, store.ErrMessageConflict) {
+			return false, err
+		}
+		h.audit("PROBE_RECEIPT_INBOX_ERROR", fmt.Sprintf(`{"node_id":%q,"err":%q}`, s.nodeID, err.Error()))
+		return false, nil
+	}
+	_ = duplicate
+	state, err := h.store.ControlInboxState(item.MessageID)
+	if err != nil {
+		h.audit("PROBE_RECEIPT_STATE_ERROR", fmt.Sprintf(`{"node_id":%q,"err":%q}`, s.nodeID, err.Error()))
+		return false, nil
+	}
+	if state == store.ControlInboxProcessed || state == store.ControlInboxNacked {
+		return true, nil
+	}
+	if state != store.ControlInboxReceived {
+		return false, fmt.Errorf("%w: probe receipt inbox is %s", store.ErrIllegalPhase, state)
+	}
+	if h.sink == nil {
+		return false, nil
+	}
+	if err := h.sink.HandleProbeMessage(s.nodeID, item.MessageType, []byte(item.SemanticPayload)); err != nil {
+		if !isPermanentProbeReceiptError(err) {
+			h.audit("PROBE_SINK_ERROR", fmt.Sprintf(`{"node_id":%q,"type":%q,"err":%q}`, s.nodeID, item.MessageType, err.Error()))
+			return false, nil
+		}
+		if rejectErr := h.store.SetControlInboxStateExact(item, store.ControlInboxNacked); rejectErr != nil {
+			h.audit("PROBE_RECEIPT_REJECTION_STATE_ERROR", fmt.Sprintf(`{"node_id":%q,"err":%q}`, s.nodeID, rejectErr.Error()))
+			return false, nil
+		}
+		h.audit("PROBE_RECEIPT_REJECTED", fmt.Sprintf(`{"node_id":%q,"reason":%q}`, s.nodeID, err.Error()))
+		return true, nil
+	}
+	if err := h.store.SetControlInboxStateExact(item, store.ControlInboxProcessed); err != nil {
+		h.audit("PROBE_RECEIPT_STATE_ERROR", fmt.Sprintf(`{"node_id":%q,"err":%q}`, s.nodeID, err.Error()))
+		return false, nil
+	}
+	return true, nil
 }
 
 // handleProbePlaneMessage records a durable probe-plane A2C message and
@@ -363,42 +477,16 @@ func (h *Hub) handleProbePlaneMessage(s *ControlSession, env protocol.Envelope) 
 		SemanticPayload: string(env.Payload),
 		State:           "RECEIVED",
 	}
-	duplicate, err := h.store.RecordControlInbox(item)
-	if err != nil {
-		return err
-	}
-	if duplicate && hdr.MessageType != "probe_ingress_receipt" {
-		if hdr.MessageType != "probe_armed" {
-			// Cached duplicate of an already-recorded probe message: the sink
-			// was already notified for the first delivery; do not double-forward
-			// and do not re-advance the outbox row.
-			return nil
-		}
-		state, stateErr := h.store.ControlInboxState(hex.EncodeToString(hdr.MessageID[:]))
-		if stateErr != nil {
-			return stateErr
-		}
-		if state == "PROCESSED" && hdr.MessageType != "probe_armed" {
-			return nil
-		}
-	}
 	if hdr.MessageType == "probe_ingress_receipt" {
-		messageID := hex.EncodeToString(hdr.MessageID[:])
-		state, err := h.store.ControlInboxState(messageID)
-		if err != nil {
-			return err
+		// processProbeReceipt owns the per-message lock across admission,
+		// sink execution, and exact completion. The delivery lock is not
+		// re-entrant.
+		accepted, processErr := h.processProbeReceipt(s, item)
+		if processErr != nil {
+			return processErr
 		}
-		if state != "PROCESSED" {
-			if h.sink == nil {
-				return nil
-			}
-			if err := h.sink.HandleProbeMessage(s.nodeID, hdr.MessageType, env.Payload); err != nil {
-				h.audit("PROBE_SINK_ERROR", fmt.Sprintf(`{"node_id":%q,"type":%q,"err":%q}`, s.nodeID, hdr.MessageType, err.Error()))
-				return nil
-			}
-			if err := h.store.SetControlInboxState(messageID, "PROCESSED"); err != nil {
-				return err
-			}
+		if !accepted {
+			return nil
 		}
 		receiptID := security.MessageID(operationID, "message_receipt")
 		payload := fmt.Sprintf(`{"operation_id":%q}`, operationID)
@@ -406,32 +494,74 @@ func (h *Hub) handleProbePlaneMessage(s *ControlSession, env protocol.Envelope) 
 		defer cancel()
 		return s.writeEnvelope(writeCtx, receiptID, "message_receipt", []byte(payload))
 	}
-	messageID := hex.EncodeToString(hdr.MessageID[:])
-	state, err := h.store.ControlInboxState(messageID)
+
+	// Serialize the generic probe-plane sink path as well. Its exact inbox
+	// completion may outlive the session owner that admitted the sink, and the
+	// keyed lock prevents an overlapping replay from entering before completion.
+	unlock := h.probeDeliveryLocks.acquire(item.MessageID)
+	defer unlock()
+	duplicate, err := h.store.RecordControlInboxOwned(s.owner, item)
 	if err != nil {
 		return err
 	}
-	if state != "PROCESSED" {
+	if duplicate {
+		// A duplicate is only a transport-level replay marker. If the first
+		// delivery failed after RecordControlInbox committed, the row remains
+		// RECEIVED and the same deterministic message must re-enter the sink.
+		// Both terminal dispositions suppress forwarding. probe_armed still
+		// needs its outbox correlation/receipt path after PROCESSED.
+		state, stateErr := h.store.ControlInboxState(hex.EncodeToString(hdr.MessageID[:]))
+		if stateErr != nil {
+			h.audit("PROBE_INBOX_STATE_ERROR", fmt.Sprintf(`{"node_id":%q,"type":%q,"err":%q}`, s.nodeID, hdr.MessageType, stateErr.Error()))
+			return nil
+		}
+		if state == store.ControlInboxNacked ||
+			(state == store.ControlInboxProcessed && hdr.MessageType != "probe_armed") {
+			return nil
+		}
+	}
+	messageID := hex.EncodeToString(hdr.MessageID[:])
+	state, err := h.store.ControlInboxState(messageID)
+	if err != nil {
+		h.audit("PROBE_INBOX_STATE_ERROR", fmt.Sprintf(`{"node_id":%q,"type":%q,"err":%q}`, s.nodeID, hdr.MessageType, err.Error()))
+		return nil
+	}
+	if state == store.ControlInboxNacked {
+		return nil
+	}
+	if state == store.ControlInboxReceived {
 		if h.sink == nil {
-			return errors.New("agenthub: probe sink is not configured")
+			// The inbox is the durable handoff boundary. An optional P10 sink
+			// may be absent in a transport-only hub; retain the authenticated
+			// payload as RECEIVED without tearing down the session.
+			return nil
 		}
 		if err := h.sink.HandleProbeMessage(s.nodeID, hdr.MessageType, env.Payload); err != nil {
 			h.audit("PROBE_SINK_ERROR", fmt.Sprintf(`{"node_id":%q,"type":%q,"err":%q}`, s.nodeID, hdr.MessageType, err.Error()))
-			return err
+			// The exact RECEIVED inbox row is the retry token. A downstream
+			// failure must not close the authenticated control session.
+			return nil
 		}
-		if err := h.store.SetControlInboxState(messageID, "PROCESSED"); err != nil {
-			return err
+		if err := h.store.SetControlInboxStateExact(item, store.ControlInboxProcessed); err != nil {
+			// The sink may have durably advanced the probe operation before
+			// this inbox-state write. Keep the session alive and leave RECEIVED
+			// for deterministic redelivery; exact row identity prevents a
+			// stale handler from completing unrelated authenticated material.
+			h.audit("PROBE_STATE_ERROR", fmt.Sprintf(`{"node_id":%q,"type":%q,"err":%q}`, s.nodeID, hdr.MessageType, err.Error()))
+			return nil
 		}
 	}
 	if hdr.MessageType == "probe_armed" {
 		// Correlate only after the sink has durably accepted RDY1. A missing
-		// row is tolerated for revalidation arms; the durable probe sink is
-		// still the admission authority.
+		// row is tolerated for revalidation arms; internal lookup failures
+		// remain retryable and must not be silently treated as absence.
 		row, agentOp, err := h.matchOutboxRow(s, hdr.MessageID, hdr.MessageType)
 		if err == nil {
 			if err := h.advanceResultRow(s, row, agentOp); err != nil {
 				return err
 			}
+		} else if !errors.Is(err, store.ErrNotFound) {
+			h.audit("PROBE_ARM_CORRELATION_ERROR", fmt.Sprintf(`{"node_id":%q,"err":%q}`, s.nodeID, err.Error()))
 		}
 	}
 	return nil
@@ -450,12 +580,46 @@ func (h *Hub) handleAgentResult(s *ControlSession, env protocol.Envelope) error 
 	// have it treated as a valid deletion/result completion.
 	row, agentOp, err := h.matchOutboxRow(s, hdr.MessageID, hdr.MessageType)
 	if err != nil {
-		if existing, getErr := h.store.ControlInboxItemByMessageID(messageID); getErr == nil &&
-			existing.NodeID == s.nodeID && existing.MessageType == hdr.MessageType &&
-			existing.SemanticPayload == string(env.Payload) {
-			return nil // exact duplicate after the correlated outbox row was GC'd
+		if !errors.Is(err, store.ErrNotFound) {
+			h.audit("CONTROL_RESULT_CORRELATION_ERROR", fmt.Sprintf(`{"node_id":%q,"type":%q,"err":%q}`, s.nodeID, hdr.MessageType, err.Error()))
+			// A transient/internal lookup failure is retryable. Keep the session
+			// alive and leave no inbox tombstone until correlation succeeds.
+			return nil
 		}
-		return err
+		// The outbox may have been garbage-collected after the controller
+		// consumed the Agent's receipt while the Agent did not receive the C2A
+		// receipt. The exact inbox row is the only migration-free replay token.
+		// It must carry the operation binding established by the original indexed
+		// correlation; node/type/payload equality alone is not an owner proof.
+		existing, getErr := h.store.ControlInboxItemByMessageID(messageID)
+		if getErr != nil {
+			return err
+		}
+		if existing.NodeID != s.nodeID || existing.MessageType != hdr.MessageType ||
+			existing.SemanticPayload != string(env.Payload) {
+			return fmt.Errorf("%w: result replay message %q binding/material differs", store.ErrMessageConflict, messageID)
+		}
+		if existing.OperationID == "" {
+			return fmt.Errorf("%w: result replay message %q has no durable operation binding", store.ErrMessageConflict, messageID)
+		}
+		switch existing.State {
+		case store.ControlInboxNacked:
+			// A permanently rejected result is a terminal transport disposition;
+			// never recreate an outbox row or repeat its downstream effect.
+			return nil
+		case store.ControlInboxReceived, store.ControlInboxProcessed:
+			// No outbox row remains to advance. Re-send only the deterministic
+			// receipt; the Agent journal deduplicates it by message id. A RECEIVED
+			// row remains the durable retry record for any operation-specific
+			// recovery worker.
+			receiptID := security.MessageID(existing.OperationID, "message_receipt")
+			payload := fmt.Sprintf(`{"operation_id":%q}`, existing.OperationID)
+			writeCtx, cancel := context.WithTimeout(context.Background(), h.cfg.ControlWriteTimeout)
+			defer cancel()
+			return s.writeEnvelope(writeCtx, receiptID, "message_receipt", []byte(payload))
+		default:
+			return fmt.Errorf("%w: result replay inbox is %s", store.ErrIllegalPhase, existing.State)
+		}
 	}
 	item := store.ControlInboxItem{
 		MessageID:       messageID,
@@ -463,9 +627,9 @@ func (h *Hub) handleAgentResult(s *ControlSession, env protocol.Envelope) error 
 		MessageType:     hdr.MessageType,
 		OperationID:     agentOp,
 		SemanticPayload: string(env.Payload),
-		State:           "RECEIVED",
+		State:           store.ControlInboxReceived,
 	}
-	_, err = h.store.RecordControlInbox(item)
+	_, err = h.store.RecordControlInboxOwned(s.owner, item)
 	if err != nil {
 		// Rows written by pre-correlation schema versions have no operation
 		// discriminator. The outbox match above is the required proof before
@@ -477,37 +641,76 @@ func (h *Hub) handleAgentResult(s *ControlSession, env protocol.Envelope) error 
 			return err
 		}
 		if existing.OperationID == "" {
-			if bindErr := h.store.BindControlInboxOperationID(messageID, agentOp); bindErr != nil {
+			if bindErr := h.store.BindControlInboxOperationIDOwned(s.owner, messageID, agentOp); bindErr != nil {
 				return bindErr
 			}
 		}
 	}
-	// probe_armed is the semantic boundary for controller probe admission.
-	// Do not acknowledge or garbage-collect the command until the probe sink
-	// has durably accepted the RDY1 payload. A failed sink leaves the inbox in
-	// RECEIVED and the outbox row unacknowledged so reconnect can retry it.
-	if row.MessageType == "probe_arm" {
-		state, stateErr := h.store.ControlInboxState(messageID)
-		if stateErr != nil {
-			return stateErr
+
+	state, err := h.store.ControlInboxState(messageID)
+	if err != nil {
+		h.audit("CONTROL_RESULT_INBOX_STATE_ERROR", fmt.Sprintf(`{"node_id":%q,"type":%q,"err":%q}`, s.nodeID, hdr.MessageType, err.Error()))
+		return nil
+	}
+	if state == store.ControlInboxNacked {
+		// A permanently rejected duplicate must not re-enter a sink or advance
+		// the correlated outbox as if the result had succeeded.
+		return nil
+	}
+	if state != store.ControlInboxReceived && state != store.ControlInboxProcessed {
+		return fmt.Errorf("%w: result inbox is %s", store.ErrIllegalPhase, state)
+	}
+
+	// probe_arm has two semantic result forms on the existing operation_complete
+	// wire: binary RDY1 on success and a JSON Agent journal NACK on application
+	// failure. The latter is translated to the existing probe_result sink path;
+	// it must never be handed to the RDY1 parser.
+	if row.MessageType == "probe_arm" && state == store.ControlInboxReceived {
+		if h.sink == nil {
+			// Preserve the exact correlated result for a later replay when the
+			// optional probe consumer is wired; a missing sink is not a frame
+			// violation and must not close the authenticated session.
+			return nil
 		}
-		if state != "PROCESSED" {
-			if h.sink == nil {
-				return errors.New("agenthub: probe sink is not configured")
-			}
-			if err := h.sink.HandleProbeMessage(s.nodeID, "probe_armed", env.Payload); err != nil {
-				h.audit("PROBE_SINK_ERROR", fmt.Sprintf(`{"node_id":%q,"type":%q,"err":%q}`, s.nodeID, "probe_armed", err.Error()))
-				return err
-			}
-			if err := h.store.SetControlInboxState(messageID, "PROCESSED"); err != nil {
-				return err
-			}
+		sinkType := "probe_armed"
+		sinkPayload := env.Payload
+		if isProbeArmNACK(env.Payload) {
+			sinkType = "probe_result"
+			sinkPayload = []byte(fmt.Sprintf(`{"probe_id":%q,"outcome":"REJECTED"}`, row.OperationID))
+		}
+		if err := h.sink.HandleProbeMessage(s.nodeID, sinkType, sinkPayload); err != nil {
+			h.audit("PROBE_SINK_ERROR", fmt.Sprintf(`{"node_id":%q,"type":%q,"err":%q}`, s.nodeID, sinkType, err.Error()))
+			// Keep RECEIVED as the retry token. A transient application sink
+			// failure must not kill an authenticated session or emit a semantic
+			// receipt before downstream processing succeeded.
+			return nil
+		}
+		if err := h.store.SetControlInboxStateOwned(s.owner, messageID, store.ControlInboxProcessed); err != nil {
+			// The sink may have durably advanced the probe operation before this
+			// inbox-state write. Leave RECEIVED for deterministic redelivery.
+			h.audit("PROBE_ARMED_STATE_ERROR", fmt.Sprintf(`{"node_id":%q,"err":%q}`, s.nodeID, err.Error()))
+			return nil
 		}
 	}
 	if err := h.advanceResultRow(s, row, agentOp); err != nil {
 		return err
 	}
 	return nil
+}
+
+// isProbeArmNACK recognizes the Agent journal's exact application-failure
+// result. Invalid or non-JSON payloads remain on the binary RDY1 path and are
+// rejected by the probe sink rather than being guessed as NACKs.
+func isProbeArmNACK(payload []byte) bool {
+	var result struct {
+		Status    string `json:"status"`
+		Reason    string `json:"reason"`
+		Recovered bool   `json:"recovered"`
+	}
+	if err := protocol.DecodeStrictJSONInto(payload, &result); err != nil {
+		return false
+	}
+	return result.Status == "nacked"
 }
 
 // advanceResultRow advances a correlated outbox row to SEMANTIC_ACKED with
@@ -542,6 +745,7 @@ func (h *Hub) ensureOutboxSemanticACKed(s *ControlSession, row store.ControlOutb
 			// A concurrent A2C receipt already consumed the row. The result is
 			// durably recorded, so re-sending the deterministic C2A receipt is
 			// safe and lets the Agent deduplicate it if needed.
+			lastErr = nil
 			break
 		}
 		if err != nil {
@@ -549,15 +753,15 @@ func (h *Hub) ensureOutboxSemanticACKed(s *ControlSession, row store.ControlOutb
 		}
 		switch current.State {
 		case "PENDING":
-			err = h.store.ClaimControlOutboxOperation(current.OperationID, current.MessageType, s.session)
+			err = h.store.ClaimControlOutboxOperationOwned(current.OperationID, current.MessageType, s.owner)
 		case "CLAIMED":
-			err = h.store.MarkControlOutboxSent(current.OperationID, current.MessageType, s.session)
+			err = h.store.MarkControlOutboxSentOwned(current.OperationID, current.MessageType, s.owner)
 		case "SENT":
-			err = h.store.AcceptControlSemanticACK(current.OperationID, current.MessageType, s.session)
+			err = h.store.AcceptControlSemanticACKOwned(current.OperationID, current.MessageType, s.owner)
 		case "SEMANTIC_ACKED":
 			// A result resend on a new session proves that this row is still
 			// live; rebind it before the follow-up receipt.
-			err = h.store.RebindControlOutboxSession(current.OperationID, current.MessageType, s.session)
+			err = h.store.RebindControlOutboxSessionOwned(current.OperationID, current.MessageType, s.owner)
 			if err == nil {
 				lastErr = nil
 				attempt = 8
@@ -589,59 +793,93 @@ func (h *Hub) ensureOutboxSemanticACKed(s *ControlSession, row store.ControlOutb
 // handleAgentResult).
 func (h *Hub) handleAgentReceipt(s *ControlSession, env protocol.Envelope) error {
 	hdr := env.Header
-	operationID, err := operationIDFromReceipt(env.Payload)
+	agentOperationID, err := operationIDFromReceipt(env.Payload)
 	if err != nil {
 		return err
 	}
-	row, _, err := h.matchOutboxRowByCommandMessageID(s, operationID)
-	if err != nil {
-		// A desired forward deletion has a second Agent outbox result keyed by
-		// deletion_operation_id rather than by the C2A command message id. Its
-		// receipt is therefore not a command-message correlation. Accept this
-		// alternate path only for a durable deletion operation and only when the
-		// receipt message id is the exact deterministic id for that result; a
-		// payload-supplied operation id alone is never sufficient.
-		if _, deletionErr := h.store.GetForwardDeletionOperation(operationID); deletionErr == nil {
-			controllerResultID := security.MessageID(operationID, "operation_complete")
-			row, err = h.store.ControlOutboxItemByCorrelation(
-				s.nodeID, hex.EncodeToString(controllerResultID[:]), "controller_operation_complete",
-				"PENDING", "CLAIMED", "SENT", "SEMANTIC_ACKED",
-			)
-			if err == nil {
-				expectedReceiptID := security.MessageID(operationID, "message_receipt")
-				if hdr.MessageID != expectedReceiptID {
-					return errors.New("receipt does not match deletion result message")
-				}
-			}
-		}
+	expectedReceiptID := security.MessageID(agentOperationID, "message_receipt")
+	if hdr.MessageID != expectedReceiptID {
+		return errors.New("receipt does not match deterministic message id")
 	}
+
+	// The authenticated receipt operation is an Agent-side transport identity.
+	// Resolve the Controller operation only through the indexed durable result
+	// correlations; a receipt payload must never select a deletion record.
+	row, err := h.matchOutboxRowByReceiptOperationID(s, agentOperationID)
 	messageID := hex.EncodeToString(hdr.MessageID[:])
 	if err != nil {
-		if existing, getErr := h.store.ControlInboxItemByMessageID(messageID); getErr == nil &&
-			existing.NodeID == s.nodeID && existing.MessageType == hdr.MessageType &&
-			(existing.OperationID == "" || existing.OperationID == operationID) &&
-			existing.SemanticPayload == string(env.Payload) {
-			return nil // exact duplicate after the command row was GC'd
+		if !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+		// The outbox may already have been GC'd after a prior identical receipt.
+		// Only an exact durable inbox row is a cached duplicate; storage errors or
+		// material mismatches must remain visible to the authenticated session.
+		existing, getErr := h.store.ControlInboxItemByMessageID(messageID)
+		if getErr == nil {
+			if existing.NodeID != s.nodeID || existing.MessageType != hdr.MessageType ||
+				(existing.OperationID != "" && existing.OperationID != agentOperationID) ||
+				existing.SemanticPayload != string(env.Payload) {
+				return fmt.Errorf("%w: receipt replay message %q binding/material differs", store.ErrMessageConflict, messageID)
+			}
+			return nil
+		}
+		if !errors.Is(getErr, store.ErrNotFound) {
+			return getErr
 		}
 		return err
 	}
+
 	item := store.ControlInboxItem{
 		MessageID:       messageID,
 		NodeID:          s.nodeID,
 		MessageType:     hdr.MessageType,
-		OperationID:     operationID,
+		OperationID:     agentOperationID,
 		SemanticPayload: string(env.Payload),
-		State:           "RECEIVED",
+		State:           store.ControlInboxReceived,
 	}
-	if _, err := h.store.RecordControlInbox(item); err != nil {
+	if _, err := h.store.RecordControlInboxOwned(s.owner, item); err != nil {
+		if !errors.Is(err, store.ErrMessageConflict) {
+			return err
+		}
+		// Legacy rows may have been recorded before the operation binding was
+		// added. The exact receipt correlation above is the proof used to fill it;
+		// payload equality is checked before the binding is repaired.
+		existing, getErr := h.store.ControlInboxItemByMessageID(messageID)
+		if getErr != nil || existing.NodeID != item.NodeID || existing.MessageType != item.MessageType ||
+			existing.SemanticPayload != item.SemanticPayload ||
+			(existing.OperationID != "" && existing.OperationID != agentOperationID) {
+			return err
+		}
+		if existing.OperationID == "" {
+			if bindErr := h.store.BindControlInboxOperationIDOwned(s.owner, messageID, agentOperationID); bindErr != nil {
+				return bindErr
+			}
+		}
+	}
+	state, err := h.store.ControlInboxState(messageID)
+	if err != nil {
 		return err
+	}
+	if state == store.ControlInboxNacked {
+		// A permanently rejected receipt is a transport tombstone only. It
+		// must never consume the correlated outbox row on replay.
+		return nil
+	}
+	if state != store.ControlInboxReceived && state != store.ControlInboxProcessed {
+		return fmt.Errorf("%w: receipt inbox is %s", store.ErrIllegalPhase, state)
 	}
 	var lastErr error
 	for attempt := 0; attempt < 8; attempt++ {
 		if err := h.ensureOutboxSemanticACKed(s, row); err != nil {
 			return err
 		}
-		lastErr = h.store.AcceptControlReceipt(row.OperationID, row.MessageType, s.session)
+		lastErr = h.store.AcceptControlReceiptOwnedInbox(s.owner, store.ControlReceipt{
+			ReceiptMessageID:  messageID,
+			SemanticPayload:   string(env.Payload),
+			InboxOperationID:  agentOperationID,
+			OutboxOperationID: row.OperationID,
+			OutboxMessageType: row.MessageType,
+		})
 		if lastErr == nil {
 			return nil
 		}
@@ -655,7 +893,7 @@ func (h *Hub) handleAgentReceipt(s *ControlSession, env protocol.Envelope) error
 		if _, rowErr := h.store.ControlOutboxItemByOperation(row.OperationID, row.MessageType); errors.Is(rowErr, store.ErrNotFound) {
 			if existing, inboxErr := h.store.ControlInboxItemByMessageID(messageID); inboxErr == nil &&
 				existing.NodeID == s.nodeID && existing.MessageType == hdr.MessageType &&
-				existing.OperationID == operationID && existing.SemanticPayload == string(env.Payload) {
+				existing.OperationID == agentOperationID && existing.SemanticPayload == string(env.Payload) {
 				return nil
 			}
 		}
@@ -667,8 +905,16 @@ func (h *Hub) handleAgentReceipt(s *ControlSession, env protocol.Envelope) error
 // session first requeues anything left in flight from a previous session
 // (semantic resend, v0.8 §6.1).
 func (h *Hub) outboxPump(ctx context.Context, s *ControlSession) {
-	if _, err := h.store.RequeueControlOutboxForSession(s.nodeID, s.session); err != nil {
-		h.audit("CONTROL_OUTBOX_REQUEUE_FAILED", fmt.Sprintf(`{"node_id":%q,"err":%q}`, s.nodeID, err.Error()))
+	closeOnError := func(event string, err error) {
+		h.audit(event, fmt.Sprintf(`{"node_id":%q,"err":%q}`, s.nodeID, err.Error()))
+		// A pump error is a session-fatal delivery failure. Returning by itself
+		// would leave the inbound loop and socket alive with no worker to drain
+		// the outbox; close the session so the normal reconnect path can retry.
+		s.close()
+	}
+	if _, err := h.store.RequeueControlOutboxForOwner(s.owner); err != nil {
+		closeOnError("CONTROL_OUTBOX_REQUEUE_FAILED", err)
+		return
 	}
 	ticker := time.NewTicker(outboxPumpInterval)
 	defer ticker.Stop()
@@ -679,16 +925,19 @@ func (h *Hub) outboxPump(ctx context.Context, s *ControlSession) {
 		case <-s.closed:
 			return
 		case <-ticker.C:
-			items, err := h.store.ClaimControlOutbox(s.nodeID, s.session, outboxClaimLimit)
+			items, err := h.store.ClaimControlOutboxOwned(s.owner, outboxClaimLimit)
 			if err != nil {
+				closeOnError("CONTROL_OUTBOX_CLAIM_FAILED", err)
 				return
 			}
 			for _, item := range items {
 				msgID := security.MessageID(item.OperationID, item.MessageType)
 				if err := s.writeEnvelope(ctx, msgID, item.MessageType, []byte(item.SemanticPayload)); err != nil {
+					closeOnError("CONTROL_OUTBOX_WRITE_FAILED", err)
 					return
 				}
-				if err := h.store.MarkControlOutboxSent(item.OperationID, item.MessageType, s.session); err != nil {
+				if err := h.store.MarkControlOutboxSentOwned(item.OperationID, item.MessageType, s.owner); err != nil {
+					closeOnError("CONTROL_OUTBOX_MARK_SENT_FAILED", err)
 					return
 				}
 			}
@@ -713,7 +962,7 @@ func (h *Hub) register(s *ControlSession) bool {
 	if old != nil {
 		old.close()
 	}
-	if err := h.store.SetNodeControlState(s.nodeID, "ONLINE"); err != nil {
+	if err := h.store.SetNodeControlStateOwned(s.owner, "ONLINE"); err != nil {
 		h.audit("CONTROL_STATE_FAILED", fmt.Sprintf(`{"node_id":%q,"err":%q}`, s.nodeID, err.Error()))
 	}
 	return true
@@ -724,7 +973,7 @@ func (h *Hub) unregister(s *ControlSession) {
 	defer h.sessionsMu.Unlock()
 	if h.sessions[s.nodeID] == s {
 		delete(h.sessions, s.nodeID)
-		if err := h.store.SetNodeControlState(s.nodeID, "OFFLINE"); err != nil {
+		if err := h.store.SetNodeControlStateOwned(s.owner, "OFFLINE"); err != nil {
 			h.audit("CONTROL_STATE_FAILED", fmt.Sprintf(`{"node_id":%q,"err":%q}`, s.nodeID, err.Error()))
 		}
 	}
@@ -792,27 +1041,70 @@ func (h *Hub) matchOutboxRow(s *ControlSession, resultMsgID [16]byte, resultType
 	states := []string{"PENDING", "CLAIMED", "SENT", "SEMANTIC_ACKED"}
 	resultHex := hex.EncodeToString(resultMsgID[:])
 	if resultType == "operation_complete" {
-		if row, err := h.store.ControlOutboxItemByCorrelation(s.nodeID, resultHex, "operation_complete", states...); err == nil {
+		row, err := h.store.ControlOutboxItemByCorrelation(s.nodeID, resultHex, "operation_complete", states...)
+		if err == nil {
 			cmdMsgID := security.MessageID(row.OperationID, row.MessageType)
 			return row, hex.EncodeToString(cmdMsgID[:]), nil
 		}
-		if row, err := h.store.ControlOutboxItemByCorrelation(s.nodeID, resultHex, "controller_operation_complete", states...); err == nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			return store.ControlOutboxItem{}, "", fmt.Errorf("agent result correlation: %w", err)
+		}
+		row, err = h.store.ControlOutboxItemByCorrelation(s.nodeID, resultHex, "controller_operation_complete", states...)
+		if err == nil {
 			return row, row.OperationID, nil
 		}
-	} else if row, err := h.store.ControlOutboxItemByCorrelation(s.nodeID, resultHex, "command", states...); err == nil {
-		return row, row.OperationID, nil
+		if !errors.Is(err, store.ErrNotFound) {
+			return store.ControlOutboxItem{}, "", fmt.Errorf("agent result alternate correlation: %w", err)
+		}
+	} else {
+		row, err := h.store.ControlOutboxItemByCorrelation(s.nodeID, resultHex, "command", states...)
+		if err == nil {
+			return row, row.OperationID, nil
+		}
+		if !errors.Is(err, store.ErrNotFound) {
+			return store.ControlOutboxItem{}, "", fmt.Errorf("agent result correlation: %w", err)
+		}
 	}
-	return store.ControlOutboxItem{}, "", errors.New("agent result does not match any in-flight outbox row")
+	return store.ControlOutboxItem{}, "", fmt.Errorf("agent result does not match any in-flight outbox row: %w", store.ErrNotFound)
 }
 
 // matchOutboxRowByCommandMessageID correlates an A2C receipt (referencing the
 // command message id) to an in-flight row. PENDING rows are included for the
 // reconnect race (result/receipt beating the pump).
 func (h *Hub) matchOutboxRowByCommandMessageID(s *ControlSession, commandMsgIDHex string) (store.ControlOutboxItem, string, error) {
-	if row, err := h.store.ControlOutboxItemByCorrelation(s.nodeID, strings.ToLower(commandMsgIDHex), "command", "PENDING", "CLAIMED", "SENT", "SEMANTIC_ACKED"); err == nil {
+	row, err := h.store.ControlOutboxItemByCorrelation(s.nodeID, strings.ToLower(commandMsgIDHex), "command", "PENDING", "CLAIMED", "SENT", "SEMANTIC_ACKED")
+	if err == nil {
 		return row, row.OperationID, nil
 	}
-	return store.ControlOutboxItem{}, "", errors.New("receipt does not match any in-flight outbox row")
+	if !errors.Is(err, store.ErrNotFound) {
+		return store.ControlOutboxItem{}, "", fmt.Errorf("receipt correlation: %w", err)
+	}
+	return store.ControlOutboxItem{}, "", fmt.Errorf("receipt does not match any in-flight outbox row: %w", store.ErrNotFound)
+}
+
+// matchOutboxRowByReceiptOperationID resolves a receipt's Agent-side operation
+// identity through the exact deterministic result correlations persisted on the
+// Controller outbox. The returned row carries the independent Controller
+// semantic operation identity used by receipt GC.
+func (h *Hub) matchOutboxRowByReceiptOperationID(s *ControlSession, agentOperationID string) (store.ControlOutboxItem, error) {
+	resultID := security.MessageID(agentOperationID, "operation_complete")
+	resultHex := hex.EncodeToString(resultID[:])
+	states := []string{"PENDING", "CLAIMED", "SENT", "SEMANTIC_ACKED"}
+	row, err := h.store.ControlOutboxItemByCorrelation(s.nodeID, resultHex, "operation_complete", states...)
+	if err == nil {
+		return row, nil
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return store.ControlOutboxItem{}, fmt.Errorf("receipt result correlation: %w", err)
+	}
+	row, err = h.store.ControlOutboxItemByCorrelation(s.nodeID, resultHex, "controller_operation_complete", states...)
+	if err == nil {
+		return row, nil
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return store.ControlOutboxItem{}, fmt.Errorf("receipt controller-result correlation: %w", err)
+	}
+	return store.ControlOutboxItem{}, fmt.Errorf("receipt does not match any in-flight outbox row: %w", store.ErrNotFound)
 }
 
 // operationIDFromReceipt parses {"operation_id": "..."} from the receipt

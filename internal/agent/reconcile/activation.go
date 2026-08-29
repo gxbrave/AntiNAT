@@ -32,6 +32,17 @@ type Activation struct {
 	states     protocol.ActivationStates
 }
 
+// ProbeAdmission is the compare-and-swap token returned when a probe cycle is
+// admitted. Before and After let the caller roll back only the transition it
+// made; an unrelated same-generation update is never overwritten.
+type ProbeAdmission struct {
+	ForwardID  string
+	Activation string
+	Generation uint64
+	Before     protocol.ActivationStates
+	After      protocol.ActivationStates
+}
+
 // NewActivation creates an activation at generation 1 with every axis at its
 // neutral start value (NOT_TESTED / NONE / STOPPED).
 func NewActivation(forwardID, activationID string, generation uint64) *Activation {
@@ -63,6 +74,48 @@ func (a *Activation) Set(s protocol.ActivationStates) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.states = s
+	return nil
+}
+
+// StartProbeAdmission verifies the exact activation identity and generation,
+// then atomically enters the probe state. The returned token can be used for a
+// compare-and-swap rollback if a later durable admission step fails.
+func (a *Activation) StartProbeAdmission(expectedActivation string, expectedGeneration uint64) (ProbeAdmission, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if expectedActivation == "" || expectedGeneration == 0 ||
+		a.activation != expectedActivation || a.generation != expectedGeneration {
+		return ProbeAdmission{}, ErrStaleEvent
+	}
+	before := a.states
+	next := before
+	next.WanReachabilityState = "PROBING"
+	next.PublicationState = "UNPUBLISHED"
+	next.ReturnPathState = "NOT_TESTED"
+	if err := next.Validate(); err != nil {
+		return ProbeAdmission{}, err
+	}
+	a.states = next
+	return ProbeAdmission{
+		ForwardID: a.forwardID, Activation: a.activation, Generation: a.generation,
+		Before: before, After: next,
+	}, nil
+}
+
+// RollbackProbeAdmission restores only the exact transition represented by
+// token. If another writer has changed identity, generation, or state since
+// admission, the rollback fails closed rather than clobbering that update.
+func (a *Activation) RollbackProbeAdmission(token ProbeAdmission) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.forwardID != token.ForwardID || a.activation != token.Activation ||
+		a.generation != token.Generation || a.states != token.After {
+		return ErrStaleEvent
+	}
+	if err := token.Before.Validate(); err != nil {
+		return err
+	}
+	a.states = token.Before
 	return nil
 }
 
@@ -165,30 +218,35 @@ func (a *Activation) resetForGenerationLocked(next uint64, activationID string) 
 	a.states.DataPlaneState = "STOPPED"
 }
 
-// ForwardID returns the identity bound to this activation.
-func (a *Activation) ForwardID() string {
+// IdentitySnapshot returns the activation identity and complete state under
+// one lock. Callers that need to compare multiple fields must not compose the
+// individual accessors across separate lock acquisitions.
+func (a *Activation) IdentitySnapshot() (string, string, uint64, protocol.ActivationStates) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.forwardID
+	return a.forwardID, a.activation, a.generation, a.states
+}
+
+// ForwardID returns the identity bound to this activation.
+func (a *Activation) ForwardID() string {
+	forwardID, _, _, _ := a.IdentitySnapshot()
+	return forwardID
 }
 
 // ActivationID returns the opaque activation identity.
 func (a *Activation) ActivationID() string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.activation
+	_, activation, _, _ := a.IdentitySnapshot()
+	return activation
 }
 
 // Generation returns the current activation generation.
 func (a *Activation) Generation() uint64 {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.generation
+	_, _, generation, _ := a.IdentitySnapshot()
+	return generation
 }
 
 // Snapshot returns a copy of the current orthogonal snapshot.
 func (a *Activation) Snapshot() protocol.ActivationStates {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.states
+	_, _, _, states := a.IdentitySnapshot()
+	return states
 }

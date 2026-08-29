@@ -59,6 +59,13 @@ type ProbeManagerOptions struct {
 	MaxActiveOperations int
 	// SendTimeout bounds receipt/control writes during retry.
 	SendTimeout time.Duration
+	// ReceiptRetryInterval controls same-session retries for receipts that
+	// were transport-delivered but have not received a semantic ACK.
+	ReceiptRetryInterval time.Duration
+	// Marker is the durable terminal lifecycle state. Terminal markers suppress
+	// probe-arm recovery and new probe admission; durable receipt rows remain
+	// available for cleanup/retry.
+	Marker localstate.MarkerState
 }
 
 // armedOp is one in-memory armed probe operation (loaded from bbolt at
@@ -69,6 +76,19 @@ type armedOp struct {
 	digest    [32]byte
 	deadline  time.Time
 	used      bool
+}
+
+// PreparedProbeArm contains all validated and signed material for an ARM1
+// admission. Preparation has no durable side effect; the caller must either
+// activate or abort it.
+type PreparedProbeArm struct {
+	Arm              protocol.ProbeArm
+	ForwardID        string
+	ExpectedRevision uint64
+	Digest           [32]byte
+	Deadline         time.Time
+	RDY              []byte
+	Existing         bool
 }
 
 type replaySource struct {
@@ -84,18 +104,21 @@ type ProbeManager struct {
 	clock func() time.Time
 	send  SendControlFunc
 
-	mu            sync.Mutex
-	ops           map[[16]byte]*armedOp
-	replay        map[[16]byte]time.Time
-	replaySource  map[[16]byte]replaySource
-	maxReplay     int
-	maxActive     int
-	recoveryErr   error
-	sendTimeout   time.Duration
-	sweepInterval time.Duration
-	sweepAfter    []byte
-	cancel        context.CancelFunc
-	wg            sync.WaitGroup
+	mu                   sync.Mutex
+	receiptMu            sync.Mutex
+	ops                  map[[16]byte]*armedOp
+	replay               map[[16]byte]time.Time
+	replaySource         map[[16]byte]replaySource
+	maxReplay            int
+	maxActive            int
+	recoveryErr          error
+	sendTimeout          time.Duration
+	receiptRetryInterval time.Duration
+	sweepInterval        time.Duration
+	marker               localstate.MarkerState
+	sweepAfter           []byte
+	cancel               context.CancelFunc
+	wg                   sync.WaitGroup
 }
 
 // NewProbeManager builds the manager and recovers durable armed operations
@@ -116,20 +139,25 @@ func NewProbeManager(opts ProbeManagerOptions) *ProbeManager {
 	if opts.SendTimeout <= 0 {
 		opts.SendTimeout = 5 * time.Second
 	}
-	m := &ProbeManager{
-		store:         opts.Store,
-		key:           opts.NodeKey,
-		clock:         opts.Clock,
-		send:          opts.SendControl,
-		ops:           map[[16]byte]*armedOp{},
-		replay:        map[[16]byte]time.Time{},
-		replaySource:  map[[16]byte]replaySource{},
-		maxReplay:     opts.MaxReplayEntries,
-		maxActive:     opts.MaxActiveOperations,
-		sendTimeout:   opts.SendTimeout,
-		sweepInterval: opts.SweepInterval,
+	if opts.ReceiptRetryInterval <= 0 {
+		opts.ReceiptRetryInterval = 500 * time.Millisecond
 	}
-	if m.store != nil {
+	m := &ProbeManager{
+		store:                opts.Store,
+		key:                  opts.NodeKey,
+		clock:                opts.Clock,
+		send:                 opts.SendControl,
+		ops:                  map[[16]byte]*armedOp{},
+		replay:               map[[16]byte]time.Time{},
+		replaySource:         map[[16]byte]replaySource{},
+		maxReplay:            opts.MaxReplayEntries,
+		maxActive:            opts.MaxActiveOperations,
+		sendTimeout:          opts.SendTimeout,
+		receiptRetryInterval: opts.ReceiptRetryInterval,
+		sweepInterval:        opts.SweepInterval,
+		marker:               opts.Marker,
+	}
+	if m.store != nil && m.marker == localstate.MarkerActive {
 		// Replay tombstones may outlive active operations. Walk every durable
 		// page so a consumed or armed source fence beyond the active-operation
 		// page cannot be forgotten on restart.
@@ -217,13 +245,19 @@ func (m *ProbeManager) Start(parent context.Context) {
 	m.mu.Unlock()
 	go func() {
 		defer m.wg.Done()
-		ticker := time.NewTicker(m.sweepInterval)
-		defer ticker.Stop()
+		sweepTicker := time.NewTicker(m.sweepInterval)
+		defer sweepTicker.Stop()
+		receiptTicker := time.NewTicker(m.receiptRetryInterval)
+		defer receiptTicker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case now := <-ticker.C:
+			case <-receiptTicker.C:
+				// ReceiptSent records only transport delivery. Keep retrying
+				// on the healthy session until semantic acknowledgement.
+				_ = m.RetryPendingReceipts(ctx)
+			case now := <-sweepTicker.C:
 				m.mu.Lock()
 				m.sweep(now)
 				after := append([]byte(nil), m.sweepAfter...)
@@ -247,6 +281,17 @@ func (m *ProbeManager) Start(parent context.Context) {
 
 // Close stops the retention sweeper and waits for it to exit.
 func (m *ProbeManager) Close() {
+	_ = m.CloseContext(context.Background())
+}
+
+// CloseContext stops the retention sweeper and joins it subject to ctx. A
+// caller deadline never turns an in-flight sweep or receipt retry into an
+// unowned goroutine; a later caller may retry the join after cancellation has
+// propagated.
+func (m *ProbeManager) CloseContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	m.mu.Lock()
 	cancel := m.cancel
 	m.cancel = nil
@@ -254,68 +299,177 @@ func (m *ProbeManager) Close() {
 	if cancel != nil {
 		cancel()
 	}
-	m.wg.Wait()
+	done := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
-// HandleProbeArm validates a canonical ARM1 frame against the applied state,
-// persists the armed operation durably (protocol.md §7.2: probe_armed only
-// after durable persistence), and returns the signed RDY1 frame bytes.
-// forwardID names the applied forward the arm must match.
-func (m *ProbeManager) HandleProbeArm(ctx context.Context, raw []byte, forwardID string) ([]byte, error) {
+// PrepareProbeArm validates and signs an ARM1 without persisting it. App-level
+// admission can therefore transition activation first and commit the ARM only
+// after all identity and generation fences have passed.
+func (m *ProbeManager) PrepareProbeArm(raw []byte, forwardID string) (PreparedProbeArm, error) {
+	if m.marker != localstate.MarkerActive {
+		return PreparedProbeArm{}, ErrProbeArmRejected
+	}
 	arm, err := protocol.ParseProbeArm(raw)
 	if err != nil {
-		return nil, err
+		return PreparedProbeArm{}, err
 	}
 	if m.store == nil || forwardID == "" {
-		return nil, ErrProbeArmRejected
+		return PreparedProbeArm{}, ErrProbeArmRejected
 	}
 	applied, ok, err := m.store.GetAppliedState(forwardID)
 	if err != nil {
-		return nil, err
+		return PreparedProbeArm{}, err
 	}
-	if !ok {
-		// No applied forward: the arm cannot match any activation.
-		return nil, ErrProbeArmRejected
-	}
-	// Activation must match the current applied activation, and the endpoint
-	// must equal the actual bind tuple.
-	if arm.Activation != protocol.ActivationID(forwardID, applied.SpecRevision) {
-		return nil, ErrProbeArmRejected
+	if !ok || arm.Activation != protocol.ActivationID(forwardID, applied.SpecRevision) {
+		return PreparedProbeArm{}, ErrProbeArmRejected
 	}
 	wantEndpoint := net.JoinHostPort(applied.ActualBindHost, fmt.Sprintf("%d", applied.ActualBindPort))
 	if arm.Endpoint != wantEndpoint {
-		return nil, ErrProbeArmRejected
+		return PreparedProbeArm{}, ErrProbeArmRejected
 	}
-
 	deadline := m.clock().Add(time.Duration(arm.TTLMS) * time.Millisecond)
 	m.mu.Lock()
 	_, alreadyArmed := m.ops[arm.ProbeID]
 	capacity := len(m.ops) >= m.maxActive && !alreadyArmed
 	m.mu.Unlock()
 	if capacity {
-		return nil, ErrProbeArmRejected
+		return PreparedProbeArm{}, ErrProbeArmRejected
 	}
-	if err := m.store.SaveArmedProbeForForward(arm, forwardID, deadline); err != nil {
-		if errors.Is(err, localstate.ErrProbeConsumed) || errors.Is(err, localstate.ErrProbeConflict) {
-			return nil, ErrProbeArmRejected
-		}
-		return nil, err
+	if m.key == nil {
+		return PreparedProbeArm{}, ErrProbeArmRejected
 	}
-	m.mu.Lock()
-	m.ops[arm.ProbeID] = &armedOp{arm: arm, forwardID: forwardID, digest: arm.Digest(), deadline: deadline}
-	m.mu.Unlock()
-
-	// RDY1: magic + digest + signature over (RDY1 || digest).
 	digest := arm.Digest()
 	var rdy bytes.Buffer
 	rdy.WriteString(protocol.ProbeMagicArmed)
 	rdy.Write(digest[:])
 	sig, err := m.key.Sign(rdy.Bytes())
 	if err != nil {
-		return nil, err
+		return PreparedProbeArm{}, err
 	}
 	rdy.Write(sig)
-	return rdy.Bytes(), nil
+	return PreparedProbeArm{Arm: arm, ForwardID: forwardID, ExpectedRevision: applied.SpecRevision, Digest: digest, Deadline: deadline, RDY: rdy.Bytes(), Existing: alreadyArmed}, nil
+}
+
+// CommitPreparedProbeArm durably records a prepared ARM and then publishes it
+// to the in-memory gate. RDY1 is returned by the caller only after this method
+// succeeds, so a failed persistence step cannot expose an unbacked operation.
+func (m *ProbeManager) CommitPreparedProbeArm(prepared PreparedProbeArm) error {
+	if m.marker != localstate.MarkerActive {
+		return ErrProbeArmRejected
+	}
+	if m.store == nil || prepared.ForwardID == "" || prepared.Arm.ProbeID == ([16]byte{}) || prepared.ExpectedRevision == 0 {
+		return ErrProbeArmRejected
+	}
+	if err := m.store.SaveArmedProbeForForward(prepared.Arm, prepared.ForwardID, prepared.Deadline); err != nil {
+		if errors.Is(err, localstate.ErrProbeConsumed) || errors.Is(err, localstate.ErrProbeConflict) {
+			return ErrProbeArmRejected
+		}
+		return err
+	}
+	m.mu.Lock()
+	m.ops[prepared.Arm.ProbeID] = &armedOp{arm: prepared.Arm, forwardID: prepared.ForwardID, digest: prepared.Digest, deadline: prepared.Deadline}
+	m.mu.Unlock()
+	return nil
+}
+
+// CommitPreparedProbeArmWithActivation commits the activation snapshot and ARM
+// in one localstate transaction before publishing the in-memory operation.
+func (m *ProbeManager) CommitPreparedProbeArmWithActivation(prepared PreparedProbeArm, activation string, before, after protocol.ActivationStates) error {
+	if m.marker != localstate.MarkerActive {
+		return ErrProbeArmRejected
+	}
+	if m.store == nil || prepared.ForwardID == "" || prepared.Arm.ProbeID == ([16]byte{}) || prepared.ExpectedRevision == 0 {
+		return ErrProbeArmRejected
+	}
+	if activation != hex.EncodeToString(prepared.Arm.Activation[:]) {
+		return ErrProbeArmRejected
+	}
+	if err := m.store.CommitProbeAdmission(prepared.ForwardID, prepared.ExpectedRevision, activation, prepared.Arm, prepared.Deadline, before, after); err != nil {
+		if errors.Is(err, localstate.ErrProbeConsumed) || errors.Is(err, localstate.ErrProbeConflict) || errors.Is(err, localstate.ErrProbeAdmissionConflict) {
+			return ErrProbeArmRejected
+		}
+		return err
+	}
+	m.mu.Lock()
+	m.ops[prepared.Arm.ProbeID] = &armedOp{arm: prepared.Arm, forwardID: prepared.ForwardID, digest: prepared.Digest, deadline: prepared.Deadline}
+	m.mu.Unlock()
+	return nil
+}
+
+// AbortPreparedProbeArm removes only an operation published by this manager.
+// It never deletes an unrelated durable row for a preparation that failed
+// before commit.
+func (m *ProbeManager) AbortPreparedProbeArm(prepared PreparedProbeArm) error {
+	if m.store == nil || prepared.Arm.ProbeID == ([16]byte{}) {
+		return nil
+	}
+	m.mu.Lock()
+	op, committed := m.ops[prepared.Arm.ProbeID]
+	if committed && (op.forwardID != prepared.ForwardID || op.digest != prepared.Digest) {
+		committed = false
+	}
+	if committed {
+		delete(m.ops, prepared.Arm.ProbeID)
+	}
+	m.mu.Unlock()
+	if !committed {
+		return nil
+	}
+	return m.store.DeleteArmedProbe(prepared.Arm.ProbeID)
+}
+
+// HandleProbeArm validates, persists, and publishes one ARM1. It retains the
+// direct manager API used by lower-level tests while the App uses prepare and
+// commit around activation admission.
+func (m *ProbeManager) HandleProbeArm(ctx context.Context, raw []byte, forwardID string) ([]byte, error) {
+	if m.marker != localstate.MarkerActive {
+		return nil, ErrProbeArmRejected
+	}
+	prepared, err := m.PrepareProbeArm(raw, forwardID)
+	if err != nil {
+		return nil, err
+	}
+	if err := m.CommitPreparedProbeArm(prepared); err != nil {
+		return nil, err
+	}
+	return prepared.RDY, nil
+}
+
+// RetryPendingACKs replays durable ACK1 material whose provider write did not
+// complete. The source connection is not reused; callers must provide a fresh
+// accepted provider path that is already known to belong to the operation.
+// The normal gate invokes this only when it has a fresh matching WAN1 frame.
+func (m *ProbeManager) RetryPendingACK(probeID [16]byte, conn net.Conn, writeTimeout time.Duration) error {
+	if m.store == nil || conn == nil {
+		return ErrProbeArmRejected
+	}
+	rec, ok, err := m.store.LoadArmedProbe(probeID)
+	if err != nil {
+		return err
+	}
+	if !ok || !rec.Consumed || rec.ACKSent || len(rec.ACK) == 0 {
+		return ErrProbeArmRejected
+	}
+	if writeTimeout <= 0 {
+		writeTimeout = 2 * time.Second
+	}
+	if err := conn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
+		return err
+	}
+	if _, err := writeFull(conn, rec.ACK); err != nil {
+		return err
+	}
+	return m.store.MarkArmedProbeACKSent(probeID)
 }
 
 // RetryPendingReceipts resends consumed receipts that were durably recorded
@@ -323,6 +477,8 @@ func (m *ProbeManager) HandleProbeArm(ctx context.Context, raw []byte, forwardID
 // only a prior transport write; the Controller may have disconnected before
 // processing it, so it must not suppress a reconnect retry.
 func (m *ProbeManager) RetryPendingReceipts(ctx context.Context) error {
+	m.receiptMu.Lock()
+	defer m.receiptMu.Unlock()
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -476,15 +632,17 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 		return
 	}
 	if _, replayed := m.replay[frame.ProbeID]; replayed {
-		// Keep the durable digest binding explicit on the restart path. Any
-		// frame for a fenced probe id is rejected, including one that presents
-		// a different arm digest; the comparison prevents a future caller from
-		// accidentally treating the source fence as a probe-id-only allowlist.
-		if binding, ok := m.replaySource[frame.ProbeID]; ok && binding.digest != frame.ArmDigest {
-			m.mu.Unlock()
+		// A consumed probe id is normally a generic replay drop. The one
+		// exception is a byte-for-byte authenticated WAN1 retry while ACK1 is
+		// durably pending: this is the only bounded way to recover a provider
+		// connection after a partial write without reopening the business path.
+		binding, bound := m.replaySource[frame.ProbeID]
+		m.mu.Unlock()
+		if !bound || binding.digest != frame.ArmDigest || binding.source != source ||
+			(forwardID != "" && binding.forwardID != forwardID) {
 			return
 		}
-		m.mu.Unlock()
+		m.replayPendingACK(conn, source, frame, readTimeout)
 		return
 	}
 	var op *armedOp
@@ -507,6 +665,15 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 	if op == nil {
 		m.mu.Unlock()
 		return // generic REJECTED/DROPPED
+	}
+	// A recovered or misconfigured manager may have durable arms but no node
+	// signing key. Fail closed before consuming the arm or attempting to write
+	// an unauthenticated ACK1/RCT1; a later key restoration can retry it. Keep
+	// the replay-pending ACK path above available because it reuses a durable,
+	// already-signed ACK and does not need the live key.
+	if m.key == nil {
+		m.mu.Unlock()
+		return
 	}
 	if len(m.replay) >= m.maxReplay {
 		m.mu.Unlock()
@@ -565,7 +732,7 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 		m.mu.Unlock()
 		return
 	}
-	if err := m.store.MarkArmedProbeConsumedWithReceipt(op.arm.ProbeID, rct.Bytes(), receiptOperationID, op.deadline.Add(protocol.ProbeReplayWindow)); err != nil {
+	if err := m.store.MarkArmedProbeConsumedWithACK(op.arm.ProbeID, rct.Bytes(), ack.Bytes(), chash, receiptOperationID, op.deadline.Add(protocol.ProbeReplayWindow)); err != nil {
 		m.mu.Lock()
 		op.used = false
 		delete(m.replay, frame.ProbeID)
@@ -577,6 +744,7 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 	if _, err := writeFull(conn, ack.Bytes()); err != nil {
 		return
 	}
+	_ = m.store.MarkArmedProbeACKSent(op.arm.ProbeID)
 	if m.send != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), readTimeout)
 		err := m.send(ctx, "probe_ingress_receipt", rct.Bytes())
@@ -585,6 +753,30 @@ func (m *ProbeManager) handleIngress(conn net.Conn, source [4]byte, readTimeout 
 			_ = m.store.MarkArmedProbeReceiptSent(op.arm.ProbeID)
 		}
 	}
+}
+
+// replayPendingACK verifies the full WAN1 binding against the durable arm and
+// replays ACK1 only when that exact operation still has an unsent ACK. A fresh
+// challenge is rejected because it would make the stored ACK semantically
+// unrelated to the ingress frame.
+func (m *ProbeManager) replayPendingACK(conn net.Conn, source [4]byte, frame protocol.ProviderFrame, timeout time.Duration) {
+	rec, ok, err := m.store.LoadArmedProbe(frame.ProbeID)
+	if err != nil || !ok || !rec.Consumed || rec.ACKSent || len(rec.ACK) == 0 || rec.Arm.ExpectedSourceIP != source ||
+		rec.Digest != frame.ArmDigest || rec.Arm.ProviderID != frame.ProviderID || rec.Arm.Activation != frame.Activation ||
+		rec.Arm.Endpoint != frame.Endpoint || rec.Arm.ExpiryOpaque != frame.ExpiryOpaque || rec.ChallengeHash != frame.ChallengeHash() ||
+		!ed25519.Verify(rec.Arm.ProviderKey(), frame.SigningBytes(), frame.Signature) {
+		return
+	}
+	if timeout <= 0 {
+		timeout = 2 * time.Second
+	}
+	if err := conn.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+		return
+	}
+	if _, err := writeFull(conn, rec.ACK); err != nil {
+		return
+	}
+	_ = m.store.MarkArmedProbeACKSent(frame.ProbeID)
 }
 
 // probeReceiptOperationID derives the semantic id carried in the controller's
@@ -610,16 +802,19 @@ type ProbeGateOptions struct {
 // armed provider source and passes every other connection to the business
 // accept path untouched.
 type ProbeGate struct {
-	inner  net.Listener
-	mgr    *ProbeManager
-	opts   ProbeGateOptions
-	slots  chan struct{}
-	mu     sync.Mutex
-	closed bool
-	active map[net.Conn]struct{}
-	wg     sync.WaitGroup
-	once   sync.Once
-	err    error
+	inner           net.Listener
+	mgr             *ProbeManager
+	opts            ProbeGateOptions
+	slots           chan struct{}
+	mu              sync.Mutex
+	closed          bool
+	active          map[net.Conn]struct{}
+	wg              sync.WaitGroup
+	closeMu         sync.Mutex
+	closeInProgress bool
+	closeDone       chan struct{}
+	closeComplete   bool
+	closeErr        error
 }
 
 // NewProbeGate wraps inner with the probe ingress gate.
@@ -652,8 +847,8 @@ func (g *ProbeGate) Accept() (net.Conn, error) {
 			return nil, net.ErrClosed
 		}
 		remoteIP := remoteIPv4(conn)
-		if remoteIP == nil {
-			return conn, nil // non-IPv4 (test doubles): business path
+		if remoteIP == nil || g.mgr == nil {
+			return conn, nil // non-IPv4 or unconfigured probe plane: business path
 		}
 		if !g.mgr.hasArmedBySource(*remoteIP, g.opts.ForwardID) {
 			return conn, nil // not the provider source: straight to business
@@ -679,24 +874,50 @@ func (g *ProbeGate) Accept() (net.Conn, error) {
 }
 
 // Close closes the underlying listener, all active provider connections, and
-// joins their ingress workers before returning.
+// joins their ingress workers before returning. A failed listener close remains
+// retryable so its owner can eventually release the registry lease.
 func (g *ProbeGate) Close() error {
-	g.once.Do(func() {
-		g.mu.Lock()
-		g.closed = true
-		active := make([]net.Conn, 0, len(g.active))
-		for conn := range g.active {
-			active = append(active, conn)
-		}
-		g.mu.Unlock()
+	g.closeMu.Lock()
+	if g.closeComplete {
+		err := g.closeErr
+		g.closeMu.Unlock()
+		return err
+	}
+	if g.closeInProgress {
+		done := g.closeDone
+		g.closeMu.Unlock()
+		<-done
+		g.closeMu.Lock()
+		err := g.closeErr
+		g.closeMu.Unlock()
+		return err
+	}
+	g.closeInProgress = true
+	g.closeDone = make(chan struct{})
+	done := g.closeDone
+	g.closeMu.Unlock()
 
-		g.err = g.inner.Close()
-		for _, conn := range active {
-			_ = conn.Close()
-		}
-		g.wg.Wait()
-	})
-	return g.err
+	g.mu.Lock()
+	g.closed = true
+	active := make([]net.Conn, 0, len(g.active))
+	for conn := range g.active {
+		active = append(active, conn)
+	}
+	g.mu.Unlock()
+
+	err := g.inner.Close()
+	for _, conn := range active {
+		_ = conn.Close()
+	}
+	g.wg.Wait()
+
+	g.closeMu.Lock()
+	g.closeErr = err
+	g.closeComplete = err == nil || errors.Is(err, net.ErrClosed)
+	g.closeInProgress = false
+	close(done)
+	g.closeMu.Unlock()
+	return err
 }
 
 func (g *ProbeGate) isClosed() bool {

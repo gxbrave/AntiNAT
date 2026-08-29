@@ -60,7 +60,8 @@ func (s *Server) handleForwards(w http.ResponseWriter, r *http.Request) {
 		for _, f := range forwards {
 			spec, err := s.latestSpec(f.ID)
 			if err != nil {
-				continue
+				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "spec read failed")
+				return
 			}
 			states, stateErr := s.store.GetForwardRuntimeStatus(f.ID)
 			var statesPtr *store.ForwardRuntimeStatus
@@ -400,7 +401,7 @@ func (s *Server) buildDesiredState(nodeID, newForwardID string, newSpec protocol
 		}
 		spec, err := s.latestSpec(f.ID)
 		if err != nil {
-			continue
+			return protocol.DesiredState{}, fmt.Errorf("latest spec for forward %q: %w", f.ID, err)
 		}
 		d.Forwards = append(d.Forwards, spec)
 	}
@@ -429,6 +430,11 @@ func (s *Server) buildDeleteDesired(nodeID, forwardID, deletionOpID string) (pro
 			if err != nil {
 				return protocol.DesiredState{}, err
 			}
+			// Deletion is a new desired revision, not a rewrite of the
+			// latest PRESENT revision. Keeping the same revision would
+			// make the Agent reject the changed PRESENT -> ABSENT
+			// specification as conflicting intent.
+			last.DesiredRevision++
 			last.Presence = protocol.PresenceAbsent
 			last.DeletionOperationID = deletionOpID
 			d.Forwards = append(d.Forwards, last)
@@ -436,7 +442,7 @@ func (s *Server) buildDeleteDesired(nodeID, forwardID, deletionOpID string) (pro
 		}
 		spec, err := s.latestSpec(f.ID)
 		if err != nil {
-			continue
+			return protocol.DesiredState{}, fmt.Errorf("latest spec for forward %q: %w", f.ID, err)
 		}
 		d.Forwards = append(d.Forwards, spec)
 	}

@@ -246,34 +246,21 @@ func (a *App) watchDeletions(ctx context.Context) {
 	}
 }
 
-// completeFinishedDeletions drains RECEIVED delete-result inbox rows in
-// ascending durable-id order. Each completion rechecks the exact envelope,
-// operation, node, and forward binding inside one store transaction.
+// completeFinishedDeletions drains only durably correlated dedicated deletion
+// results. Ordinary operation_complete rows remain RECEIVED for their normal
+// result consumer; payload shape alone never makes a row a deletion candidate.
 func (a *App) completeFinishedDeletions() {
-	rows, err := a.store.ListControlInboxByTypeStateLimit("", "RECEIVED", 500,
-		"operation_complete", "desired_result", "forward_delete_ack")
+	rows, err := a.store.ListForwardDeletionResultCandidates(500)
 	if err != nil {
 		return
 	}
 	for _, row := range rows {
-		var res struct {
-			ForwardID           string `json:"forward_id"`
-			DeletionOperationID string `json:"deletion_operation_id"`
-			Deleted             bool   `json:"deleted"`
-		}
-		if err := protocol.DecodeStrictJSONInto([]byte(row.SemanticPayload), &res); err != nil ||
-			!res.Deleted || res.ForwardID == "" || res.DeletionOperationID == "" {
-			// Malformed or non-deletion results cannot become valid later; mark
-			// them processed so one poison row cannot pin the recovery cursor.
-			_ = a.store.SetControlInboxState(row.MessageID, "PROCESSED")
-			continue
-		}
-		if err := a.store.CompleteForwardDeletionResult(row.MessageID, res.DeletionOperationID, res.ForwardID); err != nil {
-			// A permanent identity mismatch is consumed fail-closed. Other
-			// store errors remain RECEIVED for a later retry.
-			if errors.Is(err, store.ErrCASConflict) || errors.Is(err, store.ErrForwardNotFound) {
-				_ = a.store.SetControlInboxState(row.MessageID, "PROCESSED")
-			}
+		err := a.store.CompleteForwardDeletionMessage(row.MessageID)
+		if errors.Is(err, store.ErrPermanentDeletionResult) {
+			// Only an authenticated, durably correlated deletion result whose
+			// identity is permanently impossible may be terminalized. An ordinary
+			// generic result returns ErrNotFound and remains available elsewhere.
+			_ = a.store.RejectControlInbox(row.MessageID)
 		}
 	}
 }
@@ -389,21 +376,23 @@ func (a *App) closeResourcesContext(ctx context.Context) error {
 			firstErr = err
 		}
 	}
-	if firstErr != nil {
-		return firstErr
-	}
 	if a.hub != nil {
 		a.closeOrder = append(a.closeOrder, "hub")
 		if err := a.hub.CloseContext(ctx); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
-	if firstErr != nil {
-		return firstErr
-	}
 	if a.probe != nil {
 		a.closeOrder = append(a.closeOrder, "probe")
-		_ = a.probe.Close()
+		if err := a.probe.CloseContext(ctx); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	// Never close the store while an upstream resource (especially the probe
+	// manager's manager-owned finalizer) may still be using it. A caller whose
+	// context expired can retry Shutdown and join the same close cycle first.
+	if firstErr != nil {
+		return firstErr
 	}
 	if a.store != nil {
 		a.closeOrder = append(a.closeOrder, "store")

@@ -68,6 +68,41 @@ type ProbeSink interface {
 	HandleProbeMessage(nodeID, messageType string, payload []byte) error
 }
 
+type deliveryLockSet struct {
+	mu    sync.Mutex
+	locks map[string]*deliveryLock
+}
+
+type deliveryLock struct {
+	refs int
+	mu   sync.Mutex
+}
+
+func (s *deliveryLockSet) acquire(key string) func() {
+	s.mu.Lock()
+	if s.locks == nil {
+		s.locks = make(map[string]*deliveryLock)
+	}
+	lock := s.locks[key]
+	if lock == nil {
+		lock = &deliveryLock{}
+		s.locks[key] = lock
+	}
+	lock.refs++
+	s.mu.Unlock()
+
+	lock.mu.Lock()
+	return func() {
+		lock.mu.Unlock()
+		s.mu.Lock()
+		lock.refs--
+		if lock.refs == 0 {
+			delete(s.locks, key)
+		}
+		s.mu.Unlock()
+	}
+}
+
 // ActivationStatusSink consumes durable agent evidence-loss snapshots. It is
 // optional so older non-P10 sinks remain source-compatible.
 type ActivationStatusSink interface {
@@ -87,7 +122,14 @@ type Hub struct {
 	sessions    map[string]*ControlSession
 	pending     map[*websocket.Conn]struct{}
 	handshakeWG sync.WaitGroup
-	closed      bool
+	// probeDeliveryLocks serialize each exact durable probe delivery while its
+	// downstream sink is running. A takeover may close the old WebSocket, but
+	// it must not let a replacement handler invoke the same sink concurrently.
+	// The lock is keyed and process-local; the inbox row remains the durable
+	// retry record across process restarts, while exact completion below lets
+	// the admitted old handler finish safely after a takeover.
+	probeDeliveryLocks deliveryLockSet
+	closed             bool
 }
 
 // NewHub validates the configuration and builds the hub.

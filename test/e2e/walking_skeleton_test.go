@@ -229,8 +229,9 @@ func TestLinuxDirectV4WalkingSkeleton(t *testing.T) {
 		if !delLogged && err == nil && op.Status != "COMPLETED" {
 			ctrlOutbox, ctrlOutboxErr := h.Store.ControlOutboxItemByOperation(delOp, "forward_delete")
 			ctrlDesired, ctrlDesiredErr := h.Store.ControlOutboxItemByOperation(delOp, "desired")
-			ctrlRows, ctrlRowsErr := h.Store.ListControlOutboxByState("", "PENDING", "CLAIMED", "SENT", "SEMANTIC_ACKED")
-			received, receivedErr := h.Store.ListControlInboxByTypeStateLimit("", "RECEIVED", 20, "operation_complete", "desired_result", "forward_delete_ack")
+			nodeID := ctrlDesired.NodeID
+			ctrlRows, ctrlRowsErr := h.Store.ListControlOutboxByState(nodeID, "PENDING", "CLAIMED", "SENT", "SEMANTIC_ACKED")
+			received, receivedErr := h.Store.ListControlInboxByTypeStateLimit(nodeID, "RECEIVED", 20, "operation_complete", "desired_result", "forward_delete_ack")
 			agentOutbox, agentOutboxErr := app2.Store().OutboxOperationIDs()
 			agentStates := make(map[string]string)
 			for _, id := range agentOutbox {
@@ -239,16 +240,16 @@ func TestLinuxDirectV4WalkingSkeleton(t *testing.T) {
 					agentStates[id] = state
 				}
 			}
-			t.Logf("delete diagnostic: delOp=%s status=%q ctrl_forward=%+v ctrl_forward_err=%v ctrl_desired=%+v ctrl_desired_err=%v ctrl_rows=%+v ctrl_rows_err=%v received=%+v received_err=%v agent_outbox=%v agent_states=%v agent_err=%v", delOp, op.Status, ctrlOutbox, ctrlOutboxErr, ctrlDesired, ctrlDesiredErr, ctrlRows, ctrlRowsErr, received, receivedErr, agentOutbox, agentStates, agentOutboxErr)
+			events, eventsErr := h.Store.AdminEventsAfter(0, 1000)
+			t.Logf("delete diagnostic: delOp=%s status=%q ctrl_forward=%+v ctrl_forward_err=%v ctrl_desired=%+v ctrl_desired_err=%v ctrl_rows=%+v ctrl_rows_err=%v received=%+v received_err=%v agent_outbox=%v agent_states=%v agent_err=%v events=%+v events_err=%v", delOp, op.Status, ctrlOutbox, ctrlOutboxErr, ctrlDesired, ctrlDesiredErr, ctrlRows, ctrlRowsErr, received, receivedErr, agentOutbox, agentStates, agentOutboxErr, events, eventsErr)
 			delLogged = true
 		}
 		return err == nil && op.Status == "COMPLETED"
 	})
-	// Listener is gone: the published endpoint refuses connections.
-	if conn, err := net.DialTimeout("tcp4", endpoint, 500*time.Millisecond); err == nil {
-		conn.Close()
-		t.Fatal("published endpoint still accepting after online delete")
-	}
+	// Listener is gone: the published endpoint refuses connections. A port
+	// rebound by an unrelated concurrent test process is tolerated; only the
+	// Forward's own echo signature would prove resurrection.
+	harness.AssertForwardGone(t, endpoint, "ping-gone", "B:")
 
 	// 13. Restart after delete: no resurrection (tombstone-before-stop).
 	h.StopAgent()
@@ -258,8 +259,5 @@ func TestLinuxDirectV4WalkingSkeleton(t *testing.T) {
 	if _, ok, _ := app3.Store().GetAppliedState(fwdID); ok {
 		t.Fatal("forward resurrected after delete + restart")
 	}
-	if conn, err := net.DialTimeout("tcp4", endpoint, 500*time.Millisecond); err == nil {
-		conn.Close()
-		t.Fatal("published endpoint resurrected after delete + restart")
-	}
+	harness.AssertForwardGone(t, endpoint, "ping-dead", "B:")
 }

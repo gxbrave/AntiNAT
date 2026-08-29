@@ -19,6 +19,7 @@ import (
 type ForwardTombstone struct {
 	ForwardID           string `json:"forward_id"`
 	DeletionOperationID string `json:"deletion_operation_id"`
+	DesiredRevision     uint64 `json:"desired_revision,omitempty"`
 	CreatedAtUnix       int64  `json:"created_at_unix"`
 }
 
@@ -34,25 +35,54 @@ var ErrTombstonedForward = fmt.Errorf("localstate: forward has a durable deletio
 func nowUnix() int64 { return time.Now().Unix() }
 
 // TombstoneExists reports whether a durable tombstone exists for forwardID.
+func loadForwardTombstoneTx(bucket *bolt.Bucket, forwardID string) (ForwardTombstone, bool, error) {
+	raw := bucket.Get([]byte(forwardID))
+	if raw == nil {
+		return ForwardTombstone{}, false, nil
+	}
+	var tombstone ForwardTombstone
+	if err := json.Unmarshal(raw, &tombstone); err != nil {
+		return ForwardTombstone{}, false, fmt.Errorf("localstate: decode tombstone %q: %w", forwardID, err)
+	}
+	if tombstone.ForwardID != forwardID || tombstone.DeletionOperationID == "" {
+		return ForwardTombstone{}, false, fmt.Errorf("localstate: invalid tombstone %q", forwardID)
+	}
+	return tombstone, true, nil
+}
+
+// TombstoneExists reports whether a durable final tombstone exists for forwardID.
 func (s *Store) TombstoneExists(forwardID string) (bool, error) {
+	_, found, err := s.GetForwardTombstone(forwardID)
+	return found, err
+}
+
+// GetForwardTombstone loads one durable final tombstone.
+func (s *Store) GetForwardTombstone(forwardID string) (ForwardTombstone, bool, error) {
+	if forwardID == "" {
+		return ForwardTombstone{}, false, fmt.Errorf("localstate: tombstone forward id is required")
+	}
+	var tombstone ForwardTombstone
 	var found bool
 	err := s.db.View(func(tx *bolt.Tx) error {
-		found = tx.Bucket([]byte(bucketTombstones)).Get([]byte(forwardID)) != nil
-		return nil
+		var err error
+		tombstone, found, err = loadForwardTombstoneTx(tx.Bucket([]byte(bucketTombstones)), forwardID)
+		return err
 	})
-	return found, err
+	return tombstone, found, err
 }
 
 // ListTombstones returns every durable forward tombstone.
 func (s *Store) ListTombstones() ([]ForwardTombstone, error) {
 	var tombstones []ForwardTombstone
 	err := s.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket([]byte(bucketTombstones)).ForEach(func(_, raw []byte) error {
-			var ts ForwardTombstone
-			if err := json.Unmarshal(raw, &ts); err != nil {
-				return fmt.Errorf("localstate: decode tombstone: %w", err)
+		return tx.Bucket([]byte(bucketTombstones)).ForEach(func(key, raw []byte) error {
+			ts, found, err := loadForwardTombstoneTx(tx.Bucket([]byte(bucketTombstones)), string(key))
+			if err != nil {
+				return err
 			}
-			tombstones = append(tombstones, ts)
+			if found {
+				tombstones = append(tombstones, ts)
+			}
 			return nil
 		})
 	})
@@ -66,13 +96,17 @@ func (s *Store) ListTombstones() ([]ForwardTombstone, error) {
 func (s *Store) GCForwardTombstone(forwardID string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(bucketTombstones))
-		raw := bucket.Get([]byte(forwardID))
-		if raw == nil {
+		ts, found, err := loadForwardTombstoneTx(bucket, forwardID)
+		if err != nil {
+			return err
+		}
+		if !found {
 			return nil // already GC'd
 		}
-		var ts ForwardTombstone
-		if err := json.Unmarshal(raw, &ts); err != nil {
-			return fmt.Errorf("localstate: decode tombstone %q: %w", forwardID, err)
+		if _, pending, err := loadForwardDeleteIntentTx(tx.Bucket([]byte(bucketForwardDeleteIntents)), forwardID); err != nil {
+			return err
+		} else if pending {
+			return fmt.Errorf("%w: forward %q still has pending cleanup", ErrTombstoneNotGCReady, forwardID)
 		}
 		ops := tx.Bucket([]byte(bucketOperations))
 		if ops.Get(receiptKey(ts.DeletionOperationID)) == nil {

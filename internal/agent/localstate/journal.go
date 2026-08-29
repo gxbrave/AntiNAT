@@ -17,11 +17,14 @@ package localstate
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 
+	"github.com/gxbrave/AntiNAT/internal/protocol"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -101,12 +104,32 @@ type inboxEntry struct {
 	OperationID string `json:"operation_id"`
 }
 
+// ForwardDeletionLink is the durable classification of one Forward deletion
+// carried by a received desired/forward_delete command. The generic command
+// identity C (the message/operation ID) stays the journal key; the semantic
+// deletion identity D (DeletionOperationID) is the key the dedicated
+// DeleteForwardResult is later recorded under, so the two identities never
+// collide or alias each other.
+type ForwardDeletionLink struct {
+	ForwardID           string `json:"forward_id"`
+	DeletionOperationID string `json:"deletion_operation_id"`
+	DesiredRevision     uint64 `json:"desired_revision"`
+}
+
 // operationJournal is the per-operation inbox FSM row.
 type operationJournal struct {
 	Kind      string `json:"kind"`
 	MessageID string `json:"message_id"`
 	Phase     string `json:"phase"`
 	Reason    string `json:"reason,omitempty"`
+	// Payload is the raw command payload for the kinds whose deletion
+	// semantics must survive a crash between RECEIVE and the apply pipeline
+	// (desired, forward_delete). Other kinds persist only the payload hash.
+	Payload []byte `json:"payload,omitempty"`
+	// ForwardDeletions classifies every ABSENT Forward in Payload so recovery
+	// can re-assert the durable deletion fence without decoding the payload
+	// again.
+	ForwardDeletions []ForwardDeletionLink `json:"forward_deletions,omitempty"`
 }
 
 // CurrentSession returns the accepted connection epoch and session ID.
@@ -182,51 +205,130 @@ func operationPhaseError(operationID, want string, j operationJournal) error {
 func (s *Store) ReceiveCommand(epoch uint64, sessionID, operationID, messageID, messageType, payloadHash, kind string) (bool, error) {
 	duplicate := false
 	err := s.db.Update(func(tx *bolt.Tx) error {
-		if err := checkSession(tx, epoch, sessionID); err != nil {
-			return err
-		}
-		ops := tx.Bucket([]byte(bucketOperations))
-		if ops.Get(receiptKey(operationID)) != nil {
-			return fmt.Errorf("%w: operation %q", ErrAlreadyReceipted, operationID)
-		}
-		inbox := tx.Bucket([]byte(bucketInbox))
-		key := []byte(messageID)
-		if existing := inbox.Get(key); existing != nil {
-			var entry inboxEntry
-			if err := json.Unmarshal(existing, &entry); err != nil {
-				return fmt.Errorf("localstate: decode inbox entry %q: %w", messageID, err)
-			}
-			if entry.MessageType != messageType || entry.PayloadHash != payloadHash {
-				return fmt.Errorf("%w: message %q (type=%s hash=%s) vs persisted (type=%s hash=%s)", ErrMessageConflict, messageID, messageType, payloadHash, entry.MessageType, entry.PayloadHash)
-			}
-			duplicate = true
-			return nil
-		}
-		if j, ok, err := s.loadOperationJournal(tx, operationID); err != nil {
-			return err
-		} else if ok {
-			if j.Kind != kind || j.MessageID != messageID {
-				return fmt.Errorf("%w: operation %q (kind=%s msg=%s) vs persisted (kind=%s msg=%s)", ErrOperationConflict, operationID, kind, messageID, j.Kind, j.MessageID)
-			}
-			duplicate = true
-			return nil
-		}
-		entry := inboxEntry{MessageType: messageType, PayloadHash: payloadHash, OperationID: operationID}
-		rawEntry, err := json.Marshal(entry)
-		if err != nil {
-			return err
-		}
-		if err := inbox.Put(key, rawEntry); err != nil {
-			return err
-		}
-		journal := operationJournal{Kind: kind, MessageID: messageID, Phase: phaseReceived}
-		rawJournal, err := json.Marshal(journal)
-		if err != nil {
-			return err
-		}
-		return ops.Put(opJournalKey(operationID), rawJournal)
+		var err error
+		duplicate, err = s.receiveCommandTx(tx, epoch, sessionID, operationID, messageID, messageType, payloadHash, kind, nil, nil)
+		return err
 	})
 	return duplicate, err
+}
+
+// ReceiveCommandWithPayload is ReceiveCommand for commands whose payload must
+// be durable before the apply pipeline runs (desired, forward_delete). Besides
+// the generic C journal row it atomically persists the raw payload and, for
+// every ABSENT Forward, the deletion classification and the durable pending
+// Forward delete intent. A crash after this call therefore still fences
+// resurrection even though no desired snapshot has been committed yet. The
+// classification is best effort: a payload that fails strict decode or
+// validation carries no links here and is rejected later by the apply
+// pipeline's own validation, preserving the NACK semantics for malformed
+// commands. A conflicting deletion identity keeps the already-durable fence
+// (the older deletion wins) and lets the apply pipeline fail the command with
+// the fence conflict instead of tearing down the session.
+func (s *Store) ReceiveCommandWithPayload(epoch uint64, sessionID, operationID, messageID, messageType string, payload []byte, kind string) (bool, error) {
+	sum := sha256.Sum256(payload)
+	payloadHash := hex.EncodeToString(sum[:])
+	links, ok := classifyForwardDeletions(messageType, payload)
+	var durablePayload []byte
+	if ok {
+		durablePayload = append([]byte(nil), payload...)
+	} else {
+		links = nil
+	}
+	duplicate := false
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		var err error
+		duplicate, err = s.receiveCommandTx(tx, epoch, sessionID, operationID, messageID, messageType, payloadHash, kind, durablePayload, links)
+		return err
+	})
+	return duplicate, err
+}
+
+// classifyForwardDeletions extracts the deletion links from one command
+// payload. ok is false when the payload is not a strictly valid desired
+// snapshot; the caller then persists no classification.
+func classifyForwardDeletions(messageType string, payload []byte) (links []ForwardDeletionLink, ok bool) {
+	if messageType != "desired" && messageType != "forward_delete" {
+		return nil, false
+	}
+	var d protocol.DesiredState
+	if err := protocol.DecodeStrictJSONInto(payload, &d); err != nil {
+		return nil, false
+	}
+	if err := d.Validate(); err != nil {
+		return nil, false
+	}
+	for _, spec := range d.Forwards {
+		if spec.Presence != protocol.PresenceAbsent {
+			continue
+		}
+		links = append(links, ForwardDeletionLink{
+			ForwardID:           spec.ForwardID,
+			DeletionOperationID: spec.DeletionOperationID,
+			DesiredRevision:     spec.DesiredRevision,
+		})
+	}
+	return links, true
+}
+
+// receiveCommandTx is the shared receive path: inbox dedup row plus the C
+// operation journal row, one transaction. For payload-bearing commands the
+// raw payload, its deletion classification, and every deletion fence land in
+// the same transaction as the journal row.
+func (s *Store) receiveCommandTx(tx *bolt.Tx, epoch uint64, sessionID, operationID, messageID, messageType, payloadHash, kind string, payload []byte, links []ForwardDeletionLink) (bool, error) {
+	if err := checkSession(tx, epoch, sessionID); err != nil {
+		return false, err
+	}
+	ops := tx.Bucket([]byte(bucketOperations))
+	if ops.Get(receiptKey(operationID)) != nil {
+		return false, fmt.Errorf("%w: operation %q", ErrAlreadyReceipted, operationID)
+	}
+	inbox := tx.Bucket([]byte(bucketInbox))
+	key := []byte(messageID)
+	if existing := inbox.Get(key); existing != nil {
+		var entry inboxEntry
+		if err := json.Unmarshal(existing, &entry); err != nil {
+			return false, fmt.Errorf("localstate: decode inbox entry %q: %w", messageID, err)
+		}
+		if entry.MessageType != messageType || entry.PayloadHash != payloadHash {
+			return false, fmt.Errorf("%w: message %q (type=%s hash=%s) vs persisted (type=%s hash=%s)", ErrMessageConflict, messageID, messageType, payloadHash, entry.MessageType, entry.PayloadHash)
+		}
+		return true, nil
+	}
+	if j, ok, err := s.loadOperationJournal(tx, operationID); err != nil {
+		return false, err
+	} else if ok {
+		if j.Kind != kind || j.MessageID != messageID {
+			return false, fmt.Errorf("%w: operation %q (kind=%s msg=%s) vs persisted (kind=%s msg=%s)", ErrOperationConflict, operationID, kind, messageID, j.Kind, j.MessageID)
+		}
+		return true, nil
+	}
+	entry := inboxEntry{MessageType: messageType, PayloadHash: payloadHash, OperationID: operationID}
+	rawEntry, err := json.Marshal(entry)
+	if err != nil {
+		return false, err
+	}
+	if err := inbox.Put(key, rawEntry); err != nil {
+		return false, err
+	}
+	journal := operationJournal{Kind: kind, MessageID: messageID, Phase: phaseReceived, Payload: payload, ForwardDeletions: links}
+	rawJournal, err := json.Marshal(journal)
+	if err != nil {
+		return false, err
+	}
+	if err := ops.Put(opJournalKey(operationID), rawJournal); err != nil {
+		return false, err
+	}
+	for _, link := range links {
+		if _, err := putForwardDeleteIntentTx(tx, ForwardDeleteIntent{
+			ForwardID:           link.ForwardID,
+			DeletionOperationID: link.DeletionOperationID,
+			DesiredRevision:     link.DesiredRevision,
+			CreatedAtUnix:       nowUnix(),
+		}); err != nil && !errors.Is(err, ErrForwardDeleteConflict) {
+			return false, err
+		}
+	}
+	return false, nil
 }
 
 // PersistOperationIntent advances an operation RECEIVED -> INTENT_PERSISTED.
@@ -270,7 +372,12 @@ func (s *Store) MarkOperationApplying(epoch uint64, sessionID, operationID strin
 // and CompleteOperation/NackOperation. APPLYING is not safe to replay because
 // the handler may already have performed an external side effect, so recovery
 // emits a durable NACK and lets the Controller decide whether to issue a new
-// operation id.
+// operation id. For a deletion-classified command (desired/forward_delete) the
+// NACK stays keyed by the generic command identity C: the semantic deletion
+// identity D never receives a fabricated result here, because recovery cannot
+// know how far the cleanup side effect actually progressed. Before the NACK is
+// recorded, the deletion classification is re-asserted so the durable pending
+// fence exists even for a legacy journal row whose receive never persisted one.
 func (s *Store) RecoverApplyingOperations(epoch uint64, sessionID string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		if err := checkSession(tx, epoch, sessionID); err != nil {
@@ -301,6 +408,16 @@ func (s *Store) RecoverApplyingOperations(epoch uint64, sessionID string) error 
 			}
 			if !ok || j.Phase != phaseApplying {
 				continue
+			}
+			for _, link := range j.ForwardDeletions {
+				if _, err := putForwardDeleteIntentTx(tx, ForwardDeleteIntent{
+					ForwardID:           link.ForwardID,
+					DeletionOperationID: link.DeletionOperationID,
+					DesiredRevision:     link.DesiredRevision,
+					CreatedAtUnix:       nowUnix(),
+				}); err != nil && !errors.Is(err, ErrForwardDeleteConflict) {
+					return err
+				}
 			}
 			j.Phase = phaseNacked
 			j.Reason = "recovered APPLYING operation after restart"
@@ -343,6 +460,8 @@ func (s *Store) CompleteOperation(epoch uint64, sessionID, operationID string, r
 }
 
 // NackOperation advances an operation APPLYING -> NACKED with a reason.
+// Callers that have a semantic result to deliver should use
+// NackOperationWithResult so the phase and result are one durable transition.
 func (s *Store) NackOperation(epoch uint64, sessionID, operationID, reason string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		if err := checkSession(tx, epoch, sessionID); err != nil {
@@ -358,6 +477,53 @@ func (s *Store) NackOperation(epoch uint64, sessionID, operationID, reason strin
 		j.Phase = phaseNacked
 		j.Reason = reason
 		return s.putOperationJournal(tx, operationID, j)
+	})
+}
+
+// NackOperationWithResult atomically advances APPLYING -> NACKED and records
+// the semantic result in the Agent outbox. A crash cannot leave a NACKED
+// operation without a result that can be retried to the Controller.
+func (s *Store) NackOperationWithResult(epoch uint64, sessionID, operationID, reason string, result []byte) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		if err := checkSession(tx, epoch, sessionID); err != nil {
+			return err
+		}
+		j, ok, err := s.loadOperationJournal(tx, operationID)
+		if err != nil {
+			return err
+		}
+		if !ok || j.Phase != phaseApplying {
+			return operationPhaseError(operationID, phaseApplying, j)
+		}
+		j.Phase = phaseNacked
+		j.Reason = reason
+		if err := s.putOperationJournal(tx, operationID, j); err != nil {
+			return err
+		}
+		return s.recordResultAndQueue(tx, operationID, result)
+	})
+}
+
+// QueueNackedResult repairs a NACKED operation whose semantic result was not
+// durably queued, such as a row created by an older client between its NACK
+// and result transactions. It is idempotent and never changes the NACK reason.
+func (s *Store) QueueNackedResult(epoch uint64, sessionID, operationID string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		if err := checkSession(tx, epoch, sessionID); err != nil {
+			return err
+		}
+		j, ok, err := s.loadOperationJournal(tx, operationID)
+		if err != nil {
+			return err
+		}
+		if !ok || j.Phase != phaseNacked {
+			return operationPhaseError(operationID, phaseNacked, j)
+		}
+		result, err := json.Marshal(map[string]any{"status": "nacked", "reason": j.Reason})
+		if err != nil {
+			return err
+		}
+		return s.recordResultAndQueue(tx, operationID, result)
 	})
 }
 

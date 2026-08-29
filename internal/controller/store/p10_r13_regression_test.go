@@ -219,8 +219,13 @@ func TestR13RuntimeStatusExistingRowCASUsesCurrentActivation(t *testing.T) {
 
 func createR13TerminalProbe(t *testing.T, s *Store, id, forwardID, activationID string, updatedAt int64) {
 	t.Helper()
+	createR13TerminalProbeForNode(t, s, id, "node-delivery-r13", forwardID, activationID, updatedAt)
+}
+
+func createR13TerminalProbeForNode(t *testing.T, s *Store, id, nodeID, forwardID, activationID string, updatedAt int64) {
+	t.Helper()
 	if _, err := s.CreateProbeOperation(ProbeOperation{
-		ID: id, NodeID: "node-delivery-r13", ForwardID: forwardID, ActivationID: activationID,
+		ID: id, NodeID: nodeID, ForwardID: forwardID, ActivationID: activationID,
 		ProviderID: "provider-r13", Status: string(protocol.OutcomeRejected), Endpoint: "198.51.100.7:8080",
 		ExpiresAt: updatedAt + 100,
 	}); err != nil {

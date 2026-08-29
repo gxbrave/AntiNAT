@@ -359,6 +359,31 @@ func TestForwardCreateListDelete(t *testing.T) {
 		t.Fatalf("delete response missing operation_id: %s", body5)
 	}
 	operationID := op["operation_id"].(string)
+	// Deletion is a new desired revision. Reusing the latest PRESENT revision
+	// would be rejected by the Agent's equal-revision conflict fence.
+	deleteOutbox, err := st.ControlOutboxItemByOperation(operationID, "desired")
+	if err != nil {
+		t.Fatalf("read deletion desired outbox: %v", err)
+	}
+	var deleteDesired struct {
+		Forwards []struct {
+			ForwardID           string `json:"ForwardID"`
+			DesiredRevision     uint64 `json:"DesiredRevision"`
+			Presence            string `json:"Presence"`
+			DeletionOperationID string `json:"DeletionOperationID"`
+		} `json:"Forwards"`
+	}
+	if err := json.Unmarshal([]byte(deleteOutbox.SemanticPayload), &deleteDesired); err != nil {
+		t.Fatalf("decode deletion desired outbox: %v", err)
+	}
+	if len(deleteDesired.Forwards) != 1 {
+		t.Fatalf("deletion desired forwards = %d, want one", len(deleteDesired.Forwards))
+	}
+	deleteSpec := deleteDesired.Forwards[0]
+	if deleteSpec.ForwardID != fwdID || deleteSpec.DesiredRevision != 3 ||
+		deleteSpec.Presence != "ABSENT" || deleteSpec.DeletionOperationID != operationID {
+		t.Fatalf("deletion desired spec = %+v, want forward %s revision 3 ABSENT bound to %s", deleteSpec, fwdID, operationID)
+	}
 	// Repeating the same delete with the original parent ETag replays the
 	// existing operation rather than creating another command.
 	retryReq, _ := http.NewRequest(http.MethodDelete, srv.URL+"/api/v1/forwards/"+fwdID, nil)

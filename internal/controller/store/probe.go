@@ -174,11 +174,24 @@ func (s *Store) CreateProbeOperation(op ProbeOperation) (ProbeOperation, error) 
 // command. A store failure cannot leave an arm without its durable intent or
 // leave an intent that the outbox cannot retry.
 func (s *Store) CreateProbeOperationBundle(op ProbeOperation, outbox ControlOutboxItem) (ProbeOperation, error) {
-	tx, err := s.db.Begin()
+	// Arm creation is a read-then-write CAS against the forward and deletion
+	// intent. Reserve the writer before reading so concurrent control-plane
+	// writers cannot invalidate the snapshot and surface SQLITE_BUSY_SNAPSHOT.
+	conn, err := s.db.Conn(context.Background())
 	if err != nil {
+		return ProbeOperation{}, fmt.Errorf("store: probe bundle conn: %w", err)
+	}
+	defer conn.Close()
+	ctx := context.Background()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return ProbeOperation{}, fmt.Errorf("store: begin probe bundle: %w", err)
 	}
-	defer tx.Rollback()
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
 	ts := s.currentUnix()
 	// Bind the durable arm to the forward's current activation at the same
 	// transaction boundary as the operation/outbox insert. The Manager checks
@@ -186,7 +199,7 @@ func (s *Store) CreateProbeOperationBundle(op ProbeOperation, outbox ControlOutb
 	// race fence when an activation changes between those two steps.
 	var forwardNodeID, currentActivationID sql.NullString
 	var currentRevision uint64
-	if err := tx.QueryRow(`SELECT node_id, current_activation_id, revision FROM forwards WHERE id = ?`, op.ForwardID).
+	if err := conn.QueryRowContext(ctx, `SELECT node_id, current_activation_id, revision FROM forwards WHERE id = ?`, op.ForwardID).
 		Scan(&forwardNodeID, &currentActivationID, &currentRevision); errors.Is(err, sql.ErrNoRows) {
 		return ProbeOperation{}, ErrForwardNotFound
 	} else if err != nil {
@@ -202,13 +215,13 @@ func (s *Store) CreateProbeOperationBundle(op ProbeOperation, outbox ControlOutb
 		return ProbeOperation{}, ErrCASConflict
 	}
 	var deletionIntent int
-	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM forward_deletion_operations WHERE forward_id = ? AND status = 'PENDING')`, op.ForwardID).Scan(&deletionIntent); err != nil {
+	if err := conn.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM forward_deletion_operations WHERE forward_id = ? AND status = 'PENDING')`, op.ForwardID).Scan(&deletionIntent); err != nil {
 		return ProbeOperation{}, fmt.Errorf("store: read probe bundle deletion intent: %w", err)
 	}
 	if deletionIntent != 0 {
 		return ProbeOperation{}, ErrCASConflict
 	}
-	if _, err := tx.Exec(`INSERT INTO probe_operations
+	if _, err := conn.ExecContext(ctx, `INSERT INTO probe_operations
 		(id, node_id, forward_id, activation_id, expected_forward_revision, provider_id, status, endpoint,
 		 arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -216,12 +229,13 @@ func (s *Store) CreateProbeOperationBundle(op ProbeOperation, outbox ControlOutb
 		op.Endpoint, op.ArmHex, op.ChallengeHash, op.TTLMS, op.ExpiryOpaque, op.ExpiresAt, ts, ts); err != nil {
 		return ProbeOperation{}, fmt.Errorf("store: probe bundle operation: %w", err)
 	}
-	if err := insertOutboxTx(tx, outbox); err != nil {
+	if err := insertOutboxExec(ctx, conn, outbox); err != nil {
 		return ProbeOperation{}, fmt.Errorf("store: probe bundle outbox: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return ProbeOperation{}, fmt.Errorf("store: commit probe bundle: %w", err)
 	}
+	committed = true
 	return s.GetProbeOperation(op.ID)
 }
 
@@ -252,6 +266,9 @@ var (
 	ErrProbeJoinIncomplete    = errors.New("store: probe join evidence is incomplete")
 	ErrProbeJoinRequired      = errors.New("store: OPEN_FROM_VANTAGE requires a complete probe join")
 	ErrProbeChallengeConflict = errors.New("store: probe challenge evidence conflicts")
+	ErrProbeLookupBudget      = errors.New("store: probe lookup budget exhausted")
+	ErrProbeAmbiguous         = errors.New("store: probe arm digest matches multiple live operations")
+	ErrProbeCorrupt           = errors.New("store: persisted probe operation is corrupt")
 )
 
 func probeTerminal(status string) bool {
@@ -317,14 +334,27 @@ func (s *Store) RequeueProbeOperationForRecovery(id string) error {
 }
 
 func (s *Store) setProbeOperationStatusCAS(id, expected, status string) error {
-	tx, err := s.db.Begin()
+	// Reserve the SQLite writer before reading the row. A deferred transaction
+	// can read a snapshot that becomes stale while the AgentHub outbox pump or
+	// another lifecycle writer commits, surfacing SQLITE_BUSY_SNAPSHOT on CAS.
+	conn, err := s.db.Conn(context.Background())
 	if err != nil {
+		return fmt.Errorf("store: probe status conn: %w", err)
+	}
+	defer conn.Close()
+	ctx := context.Background()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return fmt.Errorf("store: begin probe status: %w", err)
 	}
-	defer tx.Rollback()
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
 	var current string
 	var expiresAt int64
-	if err := tx.QueryRow(`SELECT status, expires_at FROM probe_operations WHERE id = ?`, id).Scan(&current, &expiresAt); errors.Is(err, sql.ErrNoRows) {
+	if err := conn.QueryRowContext(ctx, `SELECT status, expires_at FROM probe_operations WHERE id = ?`, id).Scan(&current, &expiresAt); errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return fmt.Errorf("store: read probe status: %w", err)
@@ -354,7 +384,7 @@ func (s *Store) setProbeOperationStatusCAS(id, expected, status string) error {
 	if expiresAt <= nowUnix && status != string(protocol.OutcomeTimeout) {
 		return ErrProbeExpired
 	}
-	res, err := tx.Exec(`UPDATE probe_operations SET status = ?, updated_at = ?
+	res, err := conn.ExecContext(ctx, `UPDATE probe_operations SET status = ?, updated_at = ?
 		WHERE id = ? AND status = ?`, status, nowUnix, id, current)
 	if err != nil {
 		return fmt.Errorf("store: set probe operation status: %w", err)
@@ -364,9 +394,10 @@ func (s *Store) setProbeOperationStatusCAS(id, expected, status string) error {
 	} else if n != 1 {
 		return ErrCASConflict
 	}
-	if err := tx.Commit(); err != nil {
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return fmt.Errorf("store: commit probe status: %w", err)
 	}
+	committed = true
 	return nil
 }
 
@@ -374,15 +405,29 @@ func (s *Store) setProbeOperationStatusCAS(id, expected, status string) error {
 // operation is still live. A terminal/expired row cannot be rewritten by a
 // late provider response.
 func (s *Store) SetProbeOperationChallenge(id, challengeHash string) error {
-	tx, err := s.db.Begin()
+	// Acquire the writer reservation before reading the operation. A deferred
+	// read snapshot can become SQLITE_BUSY_SNAPSHOT when a concurrent joiner
+	// commits before this challenge write; that storage race must remain
+	// retryable rather than being mistaken for conflicting evidence.
+	conn, err := s.db.Conn(context.Background())
 	if err != nil {
+		return fmt.Errorf("store: probe challenge conn: %w", err)
+	}
+	defer conn.Close()
+	ctx := context.Background()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return fmt.Errorf("store: begin probe challenge: %w", err)
 	}
-	defer tx.Rollback()
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
 	ts := s.currentUnix()
 	var status, existing string
 	var expiresAt int64
-	if err := tx.QueryRow(`SELECT status, challenge_hash, expires_at FROM probe_operations WHERE id = ?`, id).
+	if err := conn.QueryRowContext(ctx, `SELECT status, challenge_hash, expires_at FROM probe_operations WHERE id = ?`, id).
 		Scan(&status, &existing, &expiresAt); errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
@@ -397,19 +442,15 @@ func (s *Store) SetProbeOperationChallenge(id, challengeHash string) error {
 	if existing != "" && !strings.EqualFold(existing, challengeHash) {
 		return ErrProbeChallengeConflict
 	}
-	if challengeHash == "" {
-		return fmt.Errorf("%w: challenge hash must be non-empty hexadecimal text", ErrProbeJoinIncomplete)
-	}
-	for _, r := range challengeHash {
-		if !strings.ContainsRune("0123456789abcdefABCDEF", r) {
-			return fmt.Errorf("%w: challenge hash must be non-empty hexadecimal text", ErrProbeJoinIncomplete)
-		}
+	decodedChallenge, decodeErr := hex.DecodeString(challengeHash)
+	if decodeErr != nil || len(decodedChallenge) != protocol.ProbeDigestLen {
+		return fmt.Errorf("%w: challenge hash must be exactly %d bytes of hexadecimal", ErrProbeJoinIncomplete, protocol.ProbeDigestLen)
 	}
 	// Store one canonical representation so later comparisons cannot be
 	// bypassed by casing. The final join boundary additionally requires the
 	// provider challenge hash to decode to the protocol's 32-byte digest.
 	challengeHash = strings.ToLower(challengeHash)
-	res, err := tx.Exec(`UPDATE probe_operations SET challenge_hash = ?, updated_at = ?
+	res, err := conn.ExecContext(ctx, `UPDATE probe_operations SET challenge_hash = ?, updated_at = ?
 		WHERE id = ? AND status IN ('PENDING','ARMED','IN_FLIGHT') AND expires_at > ?`,
 		challengeHash, ts, id, ts)
 	if err != nil {
@@ -420,9 +461,10 @@ func (s *Store) SetProbeOperationChallenge(id, challengeHash string) error {
 	} else if n != 1 {
 		return ErrProbeTerminal
 	}
-	if err := tx.Commit(); err != nil {
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return fmt.Errorf("store: commit probe challenge: %w", err)
 	}
+	committed = true
 	return nil
 }
 
@@ -507,6 +549,61 @@ func (r storedProviderResult) verify(publicKeyHex string) bool {
 	return ed25519.Verify(ed25519.PublicKey(publicKey), r.canonical(), signature)
 }
 
+// probeJoinTx is a dedicated connection with an IMMEDIATE transaction. A
+// deferred transaction can take a read snapshot and later fail with
+// SQLITE_BUSY when it upgrades to a writer after another joiner commits. The
+// join boundary must acquire its writer reservation before reading evidence so
+// contention waits under the configured busy timeout instead of becoming a
+// false lifecycle decision.
+type probeJoinTx struct {
+	conn *sql.Conn
+	done bool
+}
+
+func (tx *probeJoinTx) QueryRow(query string, args ...any) *sql.Row {
+	return tx.conn.QueryRowContext(context.Background(), query, args...)
+}
+
+func (tx *probeJoinTx) Exec(query string, args ...any) (sql.Result, error) {
+	return tx.conn.ExecContext(context.Background(), query, args...)
+}
+
+func (tx *probeJoinTx) Commit() error {
+	if tx.done {
+		return nil
+	}
+	_, err := tx.conn.ExecContext(context.Background(), "COMMIT")
+	if err == nil {
+		tx.done = true
+	}
+	return err
+}
+
+func (tx *probeJoinTx) Rollback() error {
+	if tx.done {
+		return nil
+	}
+	_, err := tx.conn.ExecContext(context.Background(), "ROLLBACK")
+	tx.done = true
+	return err
+}
+
+func (tx *probeJoinTx) Close() error {
+	return tx.conn.Close()
+}
+
+func (s *Store) beginProbeJoinTx() (*probeJoinTx, error) {
+	conn, err := s.db.Conn(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("store: probe join conn: %w", err)
+	}
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("store: begin probe join: %w", err)
+	}
+	return &probeJoinTx{conn: conn}, nil
+}
+
 // PublishProbeJoin atomically transitions the operation to OPEN_FROM_VANTAGE
 // and persists its legal activation mirror. Observers can never see an OPEN
 // operation without its corresponding frozen snapshot.
@@ -527,10 +624,11 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 		return fmt.Errorf("%w: node public key is required to verify ACK1 and RCT1", ErrProbeJoinIncomplete)
 	}
 	nodePublicKey := nodePublicKeys[0]
-	tx, err := s.db.Begin()
+	tx, err := s.beginProbeJoinTx()
 	if err != nil {
-		return fmt.Errorf("store: begin probe join: %w", err)
+		return err
 	}
+	defer tx.Close()
 	defer tx.Rollback()
 	var current, storedForwardID, storedActivationID, providerID, providerPublicKey, storedEndpoint, storedExpiryOpaque, operationArmHex string
 	var expiresAt, createdAt int64
@@ -777,48 +875,93 @@ func (s *Store) PublishProbeJoin(operationID, expectedStatus, forwardID, activat
 	return nil
 }
 
-// ProbeOperationByArmDigest finds the operation whose canonical ARM1 frame
-// has the given digest. The digest uniquely identifies the arm; the scan is
-// bounded by the operation TTL (probe state is bounded and expirable).
+// ProbeOperationByArmDigest finds a live operation whose canonical ARM1 frame
+// has the given digest. Expired nonterminal rows are handled by the explicit
+// include-expired lookup; they must not be selected by this compatibility path.
 func (s *Store) ProbeOperationByArmDigest(digest [32]byte) (ProbeOperation, error) {
 	const query = `SELECT id, node_id, forward_id, activation_id, expected_forward_revision, provider_id, status,
 		endpoint, arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
-		FROM probe_operations WHERE 1 = 1 ORDER BY expires_at, id LIMIT ?`
-	return s.findProbeOperationByArmDigest(digest, query, defaultProbeLookupLimit)
+		FROM probe_operations INDEXED BY idx_probe_live_expiry
+		WHERE status IN ('PENDING','ARMED','IN_FLIGHT') AND expires_at > ?
+		ORDER BY expires_at, id LIMIT ?`
+	return s.findProbeOperationByArmDigest(digest, query, s.currentUnix(), defaultProbeLookupBudget)
 }
 
 // ProbeOperationByArmDigestForNode resolves only live operations belonging to
 // nodeID. The node/status/deadline fence is part of the lookup rather than a
 // caller convention, so a late frame cannot operate on another node's row.
 func (s *Store) ProbeOperationByArmDigestForNode(digest [32]byte, nodeID string, nowUnix int64) (ProbeOperation, error) {
-	const query = `SELECT id, node_id, forward_id, activation_id, expected_forward_revision, provider_id, status,
-		endpoint, arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
-		FROM probe_operations
-		WHERE node_id = ? AND status IN ('PENDING','ARMED','IN_FLIGHT') AND expires_at > ?
-		ORDER BY expires_at, id LIMIT ?`
-	return s.findProbeOperationByArmDigest(digest, query, nodeID, nowUnix, defaultProbeLookupLimit)
+	return s.ProbeOperationByArmDigestForNodeWithLimit(digest, nodeID, nowUnix, defaultProbeLookupBudget)
 }
 
-// ProbeOperationByArmDigestForNodeIncludingExpired resolves an operation for
-// nodeID without applying status or deadline predicates. The caller uses the
-// returned row to terminalize a receipt that crossed the deadline, or to ignore
-// evidence that arrived after the sweeper already wrote a terminal tombstone.
-func (s *Store) ProbeOperationByArmDigestForNodeIncludingExpired(digest [32]byte, nodeID string) (ProbeOperation, error) {
+// ProbeOperationByArmDigestForNodeWithLimit is the manager-facing lookup. Its
+// limit must match the manager's durable active-operation admission bound;
+// without an indexed digest column, the fallback can only prove completeness
+// within that caller-supplied bounded live set.
+func (s *Store) ProbeOperationByArmDigestForNodeWithLimit(digest [32]byte, nodeID string, nowUnix int64, limit int) (ProbeOperation, error) {
 	const query = `SELECT id, node_id, forward_id, activation_id, expected_forward_revision, provider_id, status,
 		endpoint, arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
-		FROM probe_operations
-		WHERE node_id = ? ORDER BY updated_at DESC, id DESC LIMIT ?`
-	return s.findProbeOperationByArmDigest(digest, query, nodeID, defaultProbeLookupLimit)
+		FROM probe_operations INDEXED BY idx_probe_live_expiry
+		WHERE node_id = ? AND status IN ('PENDING','ARMED','IN_FLIGHT') AND expires_at > ?
+		ORDER BY expires_at, id LIMIT ?`
+	return s.findProbeOperationByArmDigest(digest, query, nodeID, nowUnix, probeLookupLimit(limit))
+}
+
+// ProbeOperationByArmDigestForNodeIncludingExpired resolves only the bounded
+// live-operation set for nodeID, including rows that crossed their deadline.
+// Terminal history is not a receipt-correlation source: late frames may
+// terminalize a still-live row, but they must never resurrect a terminal row.
+func (s *Store) ProbeOperationByArmDigestForNodeIncludingExpired(digest [32]byte, nodeID string) (ProbeOperation, error) {
+	return s.ProbeOperationByArmDigestForNodeIncludingExpiredWithLimit(digest, nodeID, defaultProbeLookupBudget)
+}
+
+// ProbeOperationByArmDigestForNodeIncludingExpiredWithLimit is the bounded
+// receipt-correlation lookup used by Manager. The limit is coupled to the
+// manager's MaxActiveOperations admission setting.
+func (s *Store) ProbeOperationByArmDigestForNodeIncludingExpiredWithLimit(digest [32]byte, nodeID string, limit int) (ProbeOperation, error) {
+	const query = `SELECT id, node_id, forward_id, activation_id, expected_forward_revision, provider_id, status,
+		endpoint, arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
+		FROM probe_operations INDEXED BY idx_probe_live_expiry
+		WHERE node_id = ? AND status IN ('PENDING','ARMED','IN_FLIGHT')
+		ORDER BY expires_at, id LIMIT ?`
+	return s.findProbeOperationByArmDigest(digest, query, nodeID, probeLookupLimit(limit))
+}
+
+// ProbeOperationByArmDigestForNodeOpenWithinReplayWithLimit finds a recently
+// joined OPEN_FROM_VANTAGE operation without making terminal history a general
+// receipt-correlation source. expiresAfterUnix is the lower bound for the
+// operation deadline: an exact RCT1 replay is admissible only while that
+// deadline remains within the protocol replay window.
+func (s *Store) ProbeOperationByArmDigestForNodeOpenWithinReplayWithLimit(digest [32]byte, nodeID string, expiresAfterUnix int64, limit int) (ProbeOperation, error) {
+	const query = `SELECT id, node_id, forward_id, activation_id, expected_forward_revision, provider_id, status,
+		endpoint, arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
+		FROM probe_operations INDEXED BY idx_probe_terminal_updated
+		WHERE node_id = ?
+		  AND status IN ('OPEN_FROM_VANTAGE', 'REJECTED', 'DROPPED', 'TIMEOUT', 'NO_INDEPENDENT_VANTAGE', 'PROBE_INFRA_UNAVAILABLE')
+		  AND status = 'OPEN_FROM_VANTAGE' AND expires_at > ?
+		ORDER BY updated_at DESC, id DESC LIMIT ?`
+	return s.findProbeOperationByArmDigest(digest, query, nodeID, expiresAfterUnix, probeLookupLimit(limit))
+}
+
+func probeLookupLimit(limit int) int {
+	if limit <= 0 {
+		return defaultProbeLookupLimit
+	}
+	return limit
 }
 
 // findProbeOperationByArmDigest scans one bounded page at a time. The arm
 // bytes are intentionally parsed in Go because SQLite stores the canonical
 // frame as text; paging keeps the lookup bounded without silently making rows
-// beyond the first page unreachable.
+// beyond the admitted active set unreachable.
 func (s *Store) findProbeOperationByArmDigest(digest [32]byte, query string, args ...any) (ProbeOperation, error) {
 	want := hex.EncodeToString(digest[:])
 	if len(args) == 0 {
 		return ProbeOperation{}, fmt.Errorf("store: probe lookup query has no page limit")
+	}
+	lookupLimit, ok := args[len(args)-1].(int)
+	if !ok || lookupLimit <= 0 {
+		return ProbeOperation{}, fmt.Errorf("store: probe lookup query has invalid page limit")
 	}
 	baseQuery := query
 	baseArgs := append([]any(nil), args[:len(args)-1]...)
@@ -826,7 +969,21 @@ func (s *Store) findProbeOperationByArmDigest(digest [32]byte, query string, arg
 	var afterExpires, afterUpdated int64
 	var afterID string
 	haveCursor := false
-	for {
+	scanned := 0
+	var corruptErr error
+	var matched ProbeOperation
+	matchCount := 0
+	// Read one look-ahead row beyond the caller's admission budget. A full
+	// page-sized result proves only that more rows may exist; the extra row
+	// distinguishes an exact-boundary finite set (ErrNotFound) from a genuinely
+	// truncated search (ErrProbeLookupBudget). Matches beyond lookupLimit are
+	// never accepted.
+	scanCeiling := lookupLimit + 1
+	for scanned < scanCeiling {
+		pageLimit := defaultProbeLookupLimit
+		if remaining := scanCeiling - scanned; remaining < pageLimit {
+			pageLimit = remaining
+		}
 		pageQuery := baseQuery
 		pageArgs := append([]any(nil), baseArgs...)
 		if haveCursor {
@@ -838,7 +995,7 @@ func (s *Store) findProbeOperationByArmDigest(digest [32]byte, query string, arg
 				pageArgs = append(pageArgs, afterUpdated, afterUpdated, afterID)
 			}
 		}
-		pageArgs = append(pageArgs, defaultProbeLookupLimit)
+		pageArgs = append(pageArgs, pageLimit)
 		rows, err := s.db.Query(pageQuery, pageArgs...)
 		if err != nil {
 			return ProbeOperation{}, fmt.Errorf("store: scan probe operations: %w", err)
@@ -855,13 +1012,30 @@ func (s *Store) findProbeOperationByArmDigest(digest [32]byte, query string, arg
 				return ProbeOperation{}, fmt.Errorf("store: scan probe operation: %w", err)
 			}
 			count++
+			scanned++
 			lastExpires, lastUpdated, lastID = op.ExpiresAt, op.UpdatedAt, op.ID
 			armBytes, err := hex.DecodeString(op.ArmHex)
-			if err == nil {
-				arm, parseErr := ParseProbeArmLite(armBytes)
-				if parseErr == nil && hex.EncodeToString(arm[:]) == want {
-					rows.Close()
-					return op, nil
+			if err != nil {
+				if corruptErr == nil {
+					corruptErr = fmt.Errorf("%w: operation %q has malformed arm_hex: %v", ErrProbeCorrupt, op.ID, err)
+				}
+				continue
+			}
+			armDigest, parseErr := ParseProbeArmLite(armBytes)
+			if parseErr != nil {
+				if corruptErr == nil {
+					corruptErr = fmt.Errorf("%w: operation %q has invalid ARM1: %v", ErrProbeCorrupt, op.ID, parseErr)
+				}
+				continue
+			}
+			if hex.EncodeToString(armDigest[:]) == want {
+				// Count a matching look-ahead row for ambiguity, but never
+				// admit it as the selected operation. A duplicate exactly at
+				// the budget boundary must fail closed rather than being
+				// mistaken for a unique in-budget match.
+				matchCount++
+				if scanned <= lookupLimit {
+					matched = op
 				}
 			}
 		}
@@ -870,12 +1044,45 @@ func (s *Store) findProbeOperationByArmDigest(digest [32]byte, query string, arg
 		if rowErr != nil {
 			return ProbeOperation{}, fmt.Errorf("store: scan probe operation rows: %w", rowErr)
 		}
-		if count < defaultProbeLookupLimit {
-			return ProbeOperation{}, ErrNotFound
+		if count < pageLimit {
+			// The query is exhausted. Corruption is terminal only when the
+			// complete caller-bounded candidate set has been examined; a
+			// look-ahead row is handled as budget exhaustion below. A digest
+			// match is accepted only after the complete admitted set has been
+			// scanned, so duplicate live rows fail closed instead of selecting
+			// whichever row happens to sort first.
+			if scanned <= lookupLimit {
+				if matchCount > 1 {
+					return ProbeOperation{}, ErrProbeAmbiguous
+				}
+				if matchCount == 1 && matched.ID != "" {
+					return matched, nil
+				}
+				if corruptErr != nil {
+					return ProbeOperation{}, corruptErr
+				}
+				return ProbeOperation{}, ErrNotFound
+			}
+			return ProbeOperation{}, ErrProbeLookupBudget
+		}
+		if scanned >= scanCeiling {
+			// The look-ahead row proves that the candidate set extends beyond
+			// the caller's bound. A single match is not proven unique until the
+			// admitted candidate set is exhausted, so fail closed with budget
+			// exhaustion rather than silently selecting it.
+			if matchCount > 1 {
+				return ProbeOperation{}, ErrProbeAmbiguous
+			}
+			return ProbeOperation{}, ErrProbeLookupBudget
 		}
 		haveCursor = true
 		afterExpires, afterUpdated, afterID = lastExpires, lastUpdated, lastID
 	}
+	// The look-ahead row proves that the search was truncated. Corruption in
+	// the prefix cannot be classified as terminal here because a valid target
+	// may exist beyond the caller's budget; callers must retry after the bounded
+	// candidate set changes.
+	return ProbeOperation{}, ErrProbeLookupBudget
 }
 
 // ParseProbeArmLite computes the canonical-arm digest without full validation
@@ -895,6 +1102,21 @@ func (s *Store) ListProbeOperationsByStatus(statuses ...string) ([]ProbeOperatio
 }
 
 func (s *Store) ListProbeOperationsByStatusLimit(limit int, statuses ...string) ([]ProbeOperation, error) {
+	return s.listProbeOperationsByStatusLimit(limit, nil, statuses...)
+}
+
+// ListProbeOperationsByStatusLimitAt returns only nonterminal rows whose
+// expiry is after nowUnix. Recovery uses this live-first form so expired
+// history cannot consume the bounded recovery page.
+func (s *Store) ListProbeOperationsByStatusLimitAt(limit int, nowUnix int64, statuses ...string) ([]ProbeOperation, error) {
+	return s.ListProbeOperationsByStatusLimitAtAfter(limit, nowUnix, 0, "", statuses...)
+}
+
+// ListProbeOperationsByStatusLimitAtAfter returns one fair, keyset-paged live
+// recovery page. The cursor follows the indexed expiry/id order, so a small
+// per-pass limit cannot permanently pin the oldest offline operation ahead of
+// later live work. A caller resets the cursor after an empty or short page.
+func (s *Store) ListProbeOperationsByStatusLimitAtAfter(limit int, nowUnix, afterExpires int64, afterID string, statuses ...string) ([]ProbeOperation, error) {
 	if limit <= 0 {
 		limit = defaultProbeLookupLimit
 	}
@@ -903,15 +1125,59 @@ func (s *Store) ListProbeOperationsByStatusLimit(limit int, statuses ...string) 
 	}
 	placeholders := strings.Repeat("?,", len(statuses))
 	placeholders = placeholders[:len(placeholders)-1]
-	args := make([]any, 0, len(statuses))
+	args := make([]any, 0, len(statuses)+5)
 	for _, st := range statuses {
 		args = append(args, st)
+	}
+	args = append(args, nowUnix, afterExpires, afterExpires, afterID, limit)
+	rows, err := s.db.Query(
+		`SELECT id, node_id, forward_id, activation_id, expected_forward_revision, provider_id, status, endpoint,
+		        arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
+		   FROM probe_operations INDEXED BY idx_probe_live_expiry
+		  WHERE status IN ('PENDING', 'ARMED', 'IN_FLIGHT') AND status IN (`+placeholders+`) AND expires_at > ?
+		    AND (expires_at > ? OR (expires_at = ? AND id > ?))
+		  ORDER BY expires_at, id LIMIT ?`,
+		args...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: list live probe operations page: %w", err)
+	}
+	defer rows.Close()
+	var out []ProbeOperation
+	for rows.Next() {
+		var op ProbeOperation
+		if err := rows.Scan(&op.ID, &op.NodeID, &op.ForwardID, &op.ActivationID, &op.ExpectedForwardRevision, &op.ProviderID, &op.Status, &op.Endpoint,
+			&op.ArmHex, &op.ChallengeHash, &op.TTLMS, &op.ExpiryOpaque, &op.ExpiresAt, &op.CreatedAt, &op.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("store: scan live probe operation page: %w", err)
+		}
+		out = append(out, op)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) listProbeOperationsByStatusLimit(limit int, liveAfter *int64, statuses ...string) ([]ProbeOperation, error) {
+	if limit <= 0 {
+		limit = defaultProbeLookupLimit
+	}
+	if len(statuses) == 0 {
+		return nil, nil
+	}
+	placeholders := strings.Repeat("?,", len(statuses))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, 0, len(statuses)+2)
+	for _, st := range statuses {
+		args = append(args, st)
+	}
+	where := "status IN (" + placeholders + ")"
+	if liveAfter != nil {
+		where += " AND expires_at > ?"
+		args = append(args, *liveAfter)
 	}
 	args = append(args, limit)
 	rows, err := s.db.Query(
 		`SELECT id, node_id, forward_id, activation_id, expected_forward_revision, provider_id, status, endpoint,
 		        arm_hex, challenge_hash, ttl_ms, expiry_opaque, expires_at, created_at, updated_at
-		   FROM probe_operations WHERE status IN (`+placeholders+`) ORDER BY created_at LIMIT ?`,
+		   FROM probe_operations WHERE `+where+` ORDER BY created_at, id LIMIT ?`,
 		args...,
 	)
 	if err != nil {
@@ -938,16 +1204,33 @@ func (s *Store) QueueProbeOutcome(probeID string, outcome protocol.ProbeOutcome)
 	if probeID == "" {
 		return "", ErrNotFound
 	}
-	tx, err := s.db.Begin()
+	// Outcome queuing reads the operation/forward/deletion state and then writes
+	// both the terminal-delivery decision and, for current activations, the
+	// outbox row. A deferred transaction can read a WAL snapshot that becomes
+	// stale before the first write and surface SQLITE_BUSY_SNAPSHOT during
+	// recovery. Reserve the writer before those reads so one caller observes a
+	// deterministic serialized decision and all storage contention remains a
+	// retryable error.
+	ctx := context.Background()
+	conn, err := s.db.Conn(ctx)
 	if err != nil {
+		return "", fmt.Errorf("store: probe outcome conn: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return "", fmt.Errorf("store: begin probe outcome delivery: %w", err)
 	}
-	defer tx.Rollback()
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
 	nowUnix := s.currentUnix()
 	var nodeID, forwardID, activationID, status string
 	var expectedForwardRevision uint64
 	var operationUpdatedAt int64
-	err = tx.QueryRow(`SELECT node_id, forward_id, activation_id, expected_forward_revision, status, updated_at FROM probe_operations WHERE id = ?`, probeID).
+	err = conn.QueryRowContext(ctx, `SELECT node_id, forward_id, activation_id, expected_forward_revision, status, updated_at FROM probe_operations WHERE id = ?`, probeID).
 		Scan(&nodeID, &forwardID, &activationID, &expectedForwardRevision, &status, &operationUpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrNotFound
@@ -960,8 +1243,8 @@ func (s *Store) QueueProbeOutcome(probeID string, outcome protocol.ProbeOutcome)
 	}
 
 	var existing string
-	if err := tx.QueryRow(`SELECT disposition FROM probe_terminal_deliveries WHERE probe_id = ?`, probeID).Scan(&existing); err == nil {
-		if err := tx.Commit(); err != nil {
+	if err := conn.QueryRowContext(ctx, `SELECT disposition FROM probe_terminal_deliveries WHERE probe_id = ?`, probeID).Scan(&existing); err == nil {
+		if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 			return "", fmt.Errorf("store: commit existing probe outcome delivery: %w", err)
 		}
 		return existing, nil
@@ -972,7 +1255,7 @@ func (s *Store) QueueProbeOutcome(probeID string, outcome protocol.ProbeOutcome)
 	disposition := "ENQUEUED"
 	var currentActivation sql.NullString
 	var forwardRevision uint64
-	if err := tx.QueryRow(`SELECT current_activation_id, revision FROM forwards WHERE id = ?`, forwardID).Scan(&currentActivation, &forwardRevision); errors.Is(err, sql.ErrNoRows) {
+	if err := conn.QueryRowContext(ctx, `SELECT current_activation_id, revision FROM forwards WHERE id = ?`, forwardID).Scan(&currentActivation, &forwardRevision); errors.Is(err, sql.ErrNoRows) {
 		disposition = "MISSING"
 	} else if err != nil {
 		return "", fmt.Errorf("store: read probe outcome forward: %w", err)
@@ -981,7 +1264,7 @@ func (s *Store) QueueProbeOutcome(probeID string, outcome protocol.ProbeOutcome)
 		disposition = "STALE"
 	} else {
 		var deletionIntent int
-		if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM forward_deletion_operations WHERE forward_id = ? AND status = 'PENDING')`, forwardID).Scan(&deletionIntent); err != nil {
+		if err := conn.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM forward_deletion_operations WHERE forward_id = ? AND status = 'PENDING')`, forwardID).Scan(&deletionIntent); err != nil {
 			return "", fmt.Errorf("store: read probe outcome deletion intent: %w", err)
 		}
 		if deletionIntent != 0 {
@@ -991,7 +1274,7 @@ func (s *Store) QueueProbeOutcome(probeID string, outcome protocol.ProbeOutcome)
 	if operationUpdatedAt == 0 {
 		operationUpdatedAt = nowUnix
 	}
-	result, err := tx.Exec(`INSERT INTO probe_terminal_deliveries
+	result, err := conn.ExecContext(ctx, `INSERT INTO probe_terminal_deliveries
 		(probe_id, disposition, outcome, node_id, forward_id, activation_id, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(probe_id) DO NOTHING`, probeID, disposition, string(outcome), nodeID, forwardID, activationID, operationUpdatedAt, operationUpdatedAt)
@@ -1002,10 +1285,10 @@ func (s *Store) QueueProbeOutcome(probeID string, outcome protocol.ProbeOutcome)
 		return "", fmt.Errorf("store: probe outcome disposition rows: %w", err)
 	} else if affected == 0 {
 		var winner string
-		if err := tx.QueryRow(`SELECT disposition FROM probe_terminal_deliveries WHERE probe_id = ?`, probeID).Scan(&winner); err != nil {
+		if err := conn.QueryRowContext(ctx, `SELECT disposition FROM probe_terminal_deliveries WHERE probe_id = ?`, probeID).Scan(&winner); err != nil {
 			return "", fmt.Errorf("store: read winning probe outcome disposition: %w", err)
 		}
-		if err := tx.Commit(); err != nil {
+		if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 			return "", fmt.Errorf("store: commit winning probe outcome disposition: %w", err)
 		}
 		return winner, nil
@@ -1024,7 +1307,7 @@ func (s *Store) QueueProbeOutcome(probeID string, outcome protocol.ProbeOutcome)
 		commandID := deterministicMessageID(item.OperationID, item.MessageType)
 		resultID := deterministicMessageID(commandID, "operation_complete")
 		controllerResultID := deterministicMessageID(item.OperationID, "operation_complete")
-		if _, err := tx.Exec(`INSERT INTO control_outbox
+		if _, err := conn.ExecContext(ctx, `INSERT INTO control_outbox
 			(operation_id, message_type, node_id, semantic_payload, state, attempt_count,
 			 created_at, updated_at, command_message_id, operation_complete_message_id,
 			 controller_operation_complete_message_id)
@@ -1033,7 +1316,7 @@ func (s *Store) QueueProbeOutcome(probeID string, outcome protocol.ProbeOutcome)
 			return "", fmt.Errorf("store: enqueue probe outcome: %w", err)
 		}
 	}
-	if err := tx.Commit(); err != nil {
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return "", fmt.Errorf("store: commit probe outcome delivery: %w", err)
 	}
 	return disposition, nil
@@ -1174,6 +1457,11 @@ const (
 	probeTerminalSQL         = `status IN ('OPEN_FROM_VANTAGE','REJECTED','DROPPED','TIMEOUT','NO_INDEPENDENT_VANTAGE','PROBE_INFRA_UNAVAILABLE')`
 	defaultProbeCleanupBatch = 256
 	defaultProbeLookupLimit  = 256
+	// Probe operations are admitted under a 1024-row active budget. Four
+	// 256-row pages therefore cover the complete valid live set while making
+	// unknown receipt work finite even when terminal history is unbounded.
+	maxProbeLookupPages      = 4
+	defaultProbeLookupBudget = maxProbeLookupPages * defaultProbeLookupLimit
 )
 
 func probeCleanupLimit(limit int) int {
@@ -1400,12 +1688,11 @@ func (s *Store) RecordProbeResult(probeID, kind, payloadHex string) error {
 	} else if err != nil {
 		return fmt.Errorf("store: read probe result operation: %w", err)
 	}
-	if probeTerminal(status) {
-		return ErrProbeTerminal
-	}
-	if expiresAt <= s.currentUnix() {
-		return ErrProbeExpired
-	}
+	// Check exact evidence before lifecycle admission. A concurrent join may
+	// have published the operation after another caller durably inserted this
+	// same artifact; accepting that exact replay is idempotent and does not
+	// reopen or rewrite a terminal operation. Conflicting evidence remains a
+	// fail-closed error.
 	var existingPayload string
 	if err := conn.QueryRowContext(context.Background(),
 		`SELECT payload_hex FROM probe_results WHERE probe_id = ? AND kind = ?`, probeID, kind,
@@ -1420,6 +1707,12 @@ func (s *Store) RecordProbeResult(probeID, kind, payloadHex string) error {
 		return fmt.Errorf("%w: %s", ErrProbeDuplicateEvidence, kind)
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("store: check duplicate probe result: %w", err)
+	}
+	if probeTerminal(status) {
+		return ErrProbeTerminal
+	}
+	if expiresAt <= s.currentUnix() {
+		return ErrProbeExpired
 	}
 	if _, err := conn.ExecContext(context.Background(),
 		`INSERT INTO probe_results (probe_id, kind, payload_hex, created_at) VALUES (?, ?, ?, ?)`,

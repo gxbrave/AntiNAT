@@ -15,14 +15,31 @@ type ActivationSnapshot struct {
 	States     protocol.ActivationStates `json:"states"`
 }
 
+func validateActivationSnapshot(key string, snapshot ActivationSnapshot) error {
+	if snapshot.ForwardID == "" || snapshot.Activation == "" {
+		return fmt.Errorf("localstate: activation snapshot identity is required")
+	}
+	if key != "" && snapshot.ForwardID != key {
+		return fmt.Errorf("localstate: activation forward_id %q does not match storage key %q", snapshot.ForwardID, key)
+	}
+	if snapshot.Generation == 0 {
+		return fmt.Errorf("localstate: activation snapshot generation must be non-zero")
+	}
+	want := protocol.ActivationID(snapshot.ForwardID, snapshot.Generation)
+	if snapshot.Activation != fmt.Sprintf("%x", want[:]) {
+		return fmt.Errorf("localstate: activation snapshot identity does not match forward %q generation %d", snapshot.ForwardID, snapshot.Generation)
+	}
+	if err := snapshot.States.Validate(); err != nil {
+		return fmt.Errorf("localstate: activation snapshot for %q: %w", snapshot.ForwardID, err)
+	}
+	return nil
+}
+
 // SaveActivationSnapshot durably records the local activation mirror before a
 // reconnect/restart can reopen a listener. The key is the forward identity so
 // stale events cannot overwrite another forward's evidence.
 func (s *Store) SaveActivationSnapshot(snapshot ActivationSnapshot) error {
-	if snapshot.ForwardID == "" || snapshot.Activation == "" {
-		return fmt.Errorf("localstate: activation snapshot identity is required")
-	}
-	if err := snapshot.States.Validate(); err != nil {
+	if err := validateActivationSnapshot(snapshot.ForwardID, snapshot); err != nil {
 		return err
 	}
 	raw, err := json.Marshal(snapshot)
@@ -35,6 +52,9 @@ func (s *Store) SaveActivationSnapshot(snapshot ActivationSnapshot) error {
 }
 
 func (s *Store) LoadActivationSnapshot(forwardID string) (ActivationSnapshot, bool, error) {
+	if forwardID == "" {
+		return ActivationSnapshot{}, false, fmt.Errorf("localstate: activation snapshot forward id is required")
+	}
 	var snapshot ActivationSnapshot
 	var present bool
 	err := s.db.View(func(tx *bolt.Tx) error {
@@ -43,9 +63,23 @@ func (s *Store) LoadActivationSnapshot(forwardID string) (ActivationSnapshot, bo
 			return nil
 		}
 		present = true
-		return json.Unmarshal(append([]byte(nil), raw...), &snapshot)
+		if err := json.Unmarshal(append([]byte(nil), raw...), &snapshot); err != nil {
+			return fmt.Errorf("localstate: decode activation snapshot for %q: %w", forwardID, err)
+		}
+		return validateActivationSnapshot(forwardID, snapshot)
 	})
 	return snapshot, present, err
+}
+
+// DeleteActivationSnapshot removes a local activation mirror when a probe
+// admission transaction is compensated before its first snapshot was written.
+func (s *Store) DeleteActivationSnapshot(forwardID string) error {
+	if forwardID == "" {
+		return fmt.Errorf("localstate: activation snapshot forward id is required")
+	}
+	return s.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte(bucketActivation)).Delete([]byte(forwardID))
+	})
 }
 
 func (s *Store) ListActivationSnapshots(limit int) ([]ActivationSnapshot, error) {
@@ -77,6 +111,9 @@ func (s *Store) ListActivationSnapshotsPage(limit int, after string) ([]Activati
 			if raw != nil {
 				var snapshot ActivationSnapshot
 				if err := json.Unmarshal(raw, &snapshot); err != nil {
+					return fmt.Errorf("localstate: decode activation snapshot for %q: %w", string(key), err)
+				}
+				if err := validateActivationSnapshot(string(key), snapshot); err != nil {
 					return err
 				}
 				out = append(out, snapshot)

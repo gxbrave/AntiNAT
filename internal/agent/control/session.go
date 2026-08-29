@@ -67,21 +67,73 @@ type Operation struct {
 }
 
 // Client is one Agent control session loop.
+type sessionIdentity struct {
+	generation uint64
+	conn       *websocket.Conn
+	epoch      uint64
+	session    string
+
+	// inSeq belongs to this transport, not to Client. A stale frame handler can
+	// remain in an application sink after its socket is replaced; keeping the
+	// receive sequence on the immutable session identity prevents that old
+	// handler from resetting or advancing the new session's sequence.
+	inSeqMu sync.Mutex
+	inSeq   uint64
+}
+
+type sessionWorkers struct {
+	mu        sync.Mutex
+	remaining int
+	done      chan struct{}
+}
+
+func newSessionWorkers(count int) *sessionWorkers {
+	return &sessionWorkers{remaining: count, done: make(chan struct{})}
+}
+
+func (w *sessionWorkers) complete() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.remaining <= 0 {
+		return
+	}
+	w.remaining--
+	if w.remaining == 0 {
+		close(w.done)
+	}
+}
+
+func (w *sessionWorkers) wait(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-w.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 type Client struct {
 	opts ClientOptions
 
 	connectMu sync.Mutex
 	mu        sync.Mutex
 	conn      *websocket.Conn
+	active    *sessionIdentity
+	workers   *sessionWorkers
 	writeMu   sync.Mutex
 	wg        sync.WaitGroup
 	// outSeq is the agent's outbound sequence (A2C).
 	outSeq uint64
-	// inSeq is the last accepted inbound sequence (C2A).
-	inSeq uint64
 	// epoch/session are the ACTIVE session (persisted before activation).
 	epoch   uint64
 	session string
+	// sessionGeneration changes for every successfully handshaken transport.
+	// Transport goroutines retain their generation so an old connection cannot
+	// tear down or write through a newer session after reconnect.
+	sessionGeneration uint64
 
 	closed        chan struct{}
 	once          sync.Once
@@ -137,25 +189,86 @@ func defaultDialer(ctx context.Context, endpoint string) (*websocket.Conn, error
 	return conn, nil
 }
 
-// Close terminates only the active transport session. The Client remains
-// reusable for a later Connect after a network failure or test disconnect.
-func (c *Client) Close() { c.stopSession() }
+// CloseContext terminates only the active transport session and waits for its
+// workers, without allowing a stuck application callback to bypass ctx. The
+// Client remains reusable for a later Connect; a later caller may retry the
+// same close after a deadline.
+func (c *Client) CloseContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	c.connectMu.Lock()
+	c.stopSession(0, nil)
+	workers := c.currentWorkers()
+	c.connectMu.Unlock()
+	if workers == nil {
+		return nil
+	}
+	return workers.wait(ctx)
+}
+
+// Close terminates only the active transport session and waits for all of its
+// workers to leave. The Client remains reusable for a later Connect.
+func (c *Client) Close() {
+	_ = c.CloseContext(context.Background())
+}
 
 // Shutdown permanently closes the Client and prevents further reconnects.
-// App lifecycle teardown uses this terminal operation.
+// App lifecycle teardown uses ShutdownContext so a blocked application callback
+// cannot bypass the caller's shutdown deadline. Direct callers retain the
+// historical blocking behavior through a background context.
 func (c *Client) Shutdown() {
+	_ = c.ShutdownContext(context.Background())
+}
+
+// ShutdownContext permanently closes the Client and waits for its current
+// transport workers without holding up the caller past ctx's deadline. The
+// transport is stopped before waiting, but the caller must not close resources
+// used by callbacks when this returns a context error; those workers may still
+// be running.
+func (c *Client) ShutdownContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	c.connectMu.Lock()
 	c.once.Do(func() {
 		close(c.closed)
 	})
-	c.stopSession()
+	c.stopSession(0, nil)
+	workers := c.currentWorkers()
+	c.connectMu.Unlock()
+	if workers == nil {
+		return nil
+	}
+	return workers.wait(ctx)
 }
 
-// stopSession tears down only the current transport. Unlike Close, it keeps
-// the Client reusable for a later handshake on the same process.
-func (c *Client) stopSession() {
+func (c *Client) currentWorkers() *sessionWorkers {
 	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.workers
+}
+
+func (c *Client) waitWorkers(ctx context.Context) error {
+	if workers := c.currentWorkers(); workers != nil {
+		return workers.wait(ctx)
+	}
+	return nil
+}
+
+// stopSession tears down only the current transport. A non-zero generation and
+// connection identify a goroutine-owned transport; stale goroutines become
+// no-ops once a later handshake has installed a new session.
+func (c *Client) stopSession(generation uint64, ownedConn *websocket.Conn) {
+	c.mu.Lock()
+	if generation != 0 &&
+		(c.sessionGeneration != generation || c.conn != ownedConn) {
+		c.mu.Unlock()
+		return
+	}
 	conn := c.conn
 	c.conn = nil
+	c.active = nil
 	cancel := c.sessionCancel
 	c.sessionCancel = nil
 	c.mu.Unlock()
@@ -220,7 +333,8 @@ func (c *Client) Connect(ctx context.Context) error {
 		return err
 	}
 	conn.SetReadLimit(maxEnvelopeBytes)
-	if err := c.handshake(ctx, conn, pin); err != nil {
+	epoch, session, err := c.handshake(ctx, conn, pin)
+	if err != nil {
 		_ = conn.CloseNow()
 		return err
 	}
@@ -232,33 +346,58 @@ func (c *Client) Connect(ctx context.Context) error {
 	}
 
 	// Requeue any un-receipted outbox rows for the new session (semantic
-	// resend) and start the pumps. A session context is cancelled on a
+	// resend) and start the pumps. Connect's context bounds only dialing and
+	// the handshake; it must not cancel a successfully established session
+	// when a caller used a startup timeout. A session context is cancelled on
 	// transport failure; the terminal client channel is reserved for Shutdown.
-	sessionCtx, sessionCancel := context.WithCancel(ctx)
+	sessionCtx, sessionCancel := context.WithCancel(context.Background())
+	workerCount := 2
+	if c.opts.Heartbeat > 0 {
+		workerCount++
+	}
+	workers := newSessionWorkers(workerCount)
 	c.mu.Lock()
+	c.sessionGeneration++
+	generation := c.sessionGeneration
+	identity := &sessionIdentity{
+		generation: generation,
+		conn:       conn,
+		epoch:      epoch,
+		session:    session,
+	}
+	// Keep the legacy fields for package-local diagnostics and compatibility;
+	// transport workers use the immutable identity above.
+	c.epoch = epoch
+	c.session = session
+	c.active = identity
 	c.conn = conn
 	c.sessionCancel = sessionCancel
-	c.inSeq = 0
+	identity.inSeq = 0
 	c.outSeq = 0
 	c.mu.Unlock()
-	if _, err := c.opts.Store.RequeueOutboxForSession(c.epoch, c.session); err != nil {
-		c.stopSession()
+	if _, err := c.opts.Store.RequeueOutboxForSession(identity.epoch, identity.session); err != nil {
+		c.stopSession(generation, conn)
 		return fmt.Errorf("control: requeue outbox: %w", err)
 	}
-	c.wg.Add(2)
+	c.mu.Lock()
+	c.workers = workers
+	c.mu.Unlock()
+	c.wg.Add(workerCount)
 	go func() {
 		defer c.wg.Done()
-		c.frameLoop(sessionCtx, conn)
+		defer workers.complete()
+		c.frameLoop(sessionCtx, identity)
 	}()
 	go func() {
 		defer c.wg.Done()
-		c.outboxPump(sessionCtx)
+		defer workers.complete()
+		c.outboxPump(sessionCtx, identity)
 	}()
 	if c.opts.Heartbeat > 0 {
-		c.wg.Add(1)
 		go func() {
 			defer c.wg.Done()
-			c.heartbeatLoop(sessionCtx)
+			defer workers.complete()
+			c.heartbeatLoop(sessionCtx, identity)
 		}()
 	}
 	return nil
@@ -267,10 +406,10 @@ func (c *Client) Connect(ctx context.Context) error {
 // handshake runs hello -> welcome -> final. The agent verifies the welcome
 // against the PINNED controller key and persists the granted epoch/session
 // BEFORE sending the final (v0.8 §6.3: persist before socket activation).
-func (c *Client) handshake(ctx context.Context, conn *websocket.Conn, pin localstate.ControllerPin) error {
+func (c *Client) handshake(ctx context.Context, conn *websocket.Conn, pin localstate.ControllerPin) (uint64, string, error) {
 	curEpoch, curSession, err := c.opts.Store.CurrentSession()
 	if err != nil {
-		return fmt.Errorf("control: current session: %w", err)
+		return 0, "", fmt.Errorf("control: current session: %w", err)
 	}
 	instance := [16]byte{}
 	if b, err := hex.DecodeString(pin.InstanceID); err == nil && len(b) == 16 {
@@ -280,7 +419,7 @@ func (c *Client) handshake(ctx context.Context, conn *websocket.Conn, pin locals
 	copy(node[:], c.opts.NodeID)
 	var nonce [security.SessionNonceSize]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
-		return err
+		return 0, "", err
 	}
 	hello := security.SessionHello{
 		ControllerInstanceID: instance,
@@ -293,41 +432,39 @@ func (c *Client) handshake(ctx context.Context, conn *websocket.Conn, pin locals
 	}
 	sig, err := hello.Sign(c.opts.Key.PrivateKey())
 	if err != nil {
-		return err
+		return 0, "", err
 	}
 	if err := conn.Write(ctx, websocket.MessageBinary, append(hello.Canonical(), sig...)); err != nil {
-		return fmt.Errorf("control: write hello: %w", err)
+		return 0, "", fmt.Errorf("control: write hello: %w", err)
 	}
 
 	_, rawWelcome, err := conn.Read(ctx)
 	if err != nil {
-		return fmt.Errorf("control: read welcome: %w", err)
+		return 0, "", fmt.Errorf("control: read welcome: %w", err)
 	}
 	welcome, err := security.ParseSessionWelcome(rawWelcome, pin.PublicKey())
 	if err != nil {
-		return fmt.Errorf("control: verify welcome: %w (wrong pinned controller?)", err)
+		return 0, "", fmt.Errorf("control: verify welcome: %w (wrong pinned controller?)", err)
 	}
 	if welcome.ControllerInstanceID != instance {
-		return errors.New("control: welcome from a different controller instance")
+		return 0, "", errors.New("control: welcome from a different controller instance")
 	}
 	if welcome.ControllerKeyID != pin.KeyID {
-		return errors.New("control: welcome key id does not match the pinned key")
+		return 0, "", errors.New("control: welcome key id does not match the pinned key")
 	}
 	if welcome.ConnectionEpoch < curEpoch {
-		return fmt.Errorf("control: welcome epoch %d below accepted %d (downgrade)", welcome.ConnectionEpoch, curEpoch)
+		return 0, "", fmt.Errorf("control: welcome epoch %d below accepted %d (downgrade)", welcome.ConnectionEpoch, curEpoch)
 	}
 	if curSession != "" && welcome.ConnectionEpoch == curEpoch && welcome.SessionID != curSession {
-		return errors.New("control: same-epoch welcome with a different session (split brain)")
+		return 0, "", errors.New("control: same-epoch welcome with a different session (split brain)")
 	}
 
 	// PERSIST before activation (v0.8 §6.3).
 	if err := c.opts.Store.AdvanceSession(welcome.ConnectionEpoch, welcome.SessionID); err != nil {
-		return fmt.Errorf("control: persist epoch: %w", err)
+		return 0, "", fmt.Errorf("control: persist epoch: %w", err)
 	}
-	c.epoch = welcome.ConnectionEpoch
-	c.session = welcome.SessionID
-	if err := c.opts.Store.RecoverApplyingOperations(c.epoch, c.session); err != nil {
-		return fmt.Errorf("control: recover applying operations: %w", err)
+	if err := c.opts.Store.RecoverApplyingOperations(welcome.ConnectionEpoch, welcome.SessionID); err != nil {
+		return 0, "", fmt.Errorf("control: recover applying operations: %w", err)
 	}
 
 	final := security.SessionFinal{
@@ -339,34 +476,51 @@ func (c *Client) handshake(ctx context.Context, conn *websocket.Conn, pin locals
 	}
 	fsig, err := final.Sign(c.opts.Key.PrivateKey())
 	if err != nil {
-		return err
+		return 0, "", err
 	}
 	if err := conn.Write(ctx, websocket.MessageBinary, append(final.Canonical(), fsig...)); err != nil {
-		return fmt.Errorf("control: write final: %w", err)
+		return 0, "", fmt.Errorf("control: write final: %w", err)
 	}
-	return nil
+	return welcome.ConnectionEpoch, welcome.SessionID, nil
 }
 
 // frameLoop reads C2A envelopes until the session dies. Any verification
 // failure closes the session (fail closed).
-func (c *Client) frameLoop(ctx context.Context, conn *websocket.Conn) {
+func (c *Client) frameLoop(ctx context.Context, identity *sessionIdentity) {
 	for {
 		readCtx, cancel := context.WithTimeout(ctx, sessionIdleTimeout)
-		_, frame, err := conn.Read(readCtx)
+		_, frame, err := identity.conn.Read(readCtx)
 		cancel()
 		if err != nil {
-			c.stopSession()
+			c.stopSession(identity.generation, identity.conn)
 			return
 		}
-		if err := c.handleInboundFrame(ctx, frame); err != nil {
-			c.stopSession()
+		if err := c.handleInboundFrameOnSession(ctx, identity, frame); err != nil {
+			c.stopSession(identity.generation, identity.conn)
 			return
 		}
 	}
 }
 
-// handleInboundFrame verifies and dispatches one C2A envelope.
+// handleInboundFrame verifies and dispatches one C2A envelope using the
+// currently active session. Production workers call the session-bound variant.
 func (c *Client) handleInboundFrame(ctx context.Context, frame []byte) error {
+	c.mu.Lock()
+	identity := c.active
+	if identity == nil && (c.epoch != 0 || c.session != "") {
+		// Package-local protocol tests may seed the legacy diagnostic fields
+		// without installing a socket. Production workers always pass the
+		// immutable identity directly.
+		identity = &sessionIdentity{epoch: c.epoch, session: c.session}
+	}
+	c.mu.Unlock()
+	if identity == nil {
+		return errors.New("control: session is not connected")
+	}
+	return c.handleInboundFrameOnSession(ctx, identity, frame)
+}
+
+func (c *Client) handleInboundFrameOnSession(ctx context.Context, identity *sessionIdentity, frame []byte) error {
 	pins, err := c.opts.Store.ListControllerPins()
 	if err != nil || len(pins) != 1 {
 		return errors.New("control: pinned controller lost")
@@ -379,23 +533,23 @@ func (c *Client) handleInboundFrame(ctx context.Context, frame []byte) error {
 	if hdr.Direction != protocol.DirectionC2A {
 		return errors.New("control: wrong direction: expected C2A")
 	}
-	if hdr.ConnectionEpoch != c.epoch || hdr.SessionID != c.session {
+	if hdr.ConnectionEpoch != identity.epoch || hdr.SessionID != identity.session {
 		return errors.New("control: stale epoch/session in frame")
 	}
-	c.mu.Lock()
-	expectedSeq := c.inSeq + 1
+	identity.inSeqMu.Lock()
+	expectedSeq := identity.inSeq + 1
 	if hdr.Sequence != expectedSeq {
-		c.mu.Unlock()
+		identity.inSeqMu.Unlock()
 		return fmt.Errorf("control: sequence %d, want %d", hdr.Sequence, expectedSeq)
 	}
-	c.inSeq = hdr.Sequence
-	c.mu.Unlock()
+	identity.inSeq = hdr.Sequence
+	identity.inSeqMu.Unlock()
 
 	switch hdr.MessageType {
 	case "desired", "forward_delete", "node_decommission", "probe_arm", "probe_outcome":
-		return c.handleCommand(ctx, env)
+		return c.handleCommandOnSession(ctx, identity, env)
 	case "message_receipt":
-		return c.handleReceipt(ctx, env)
+		return c.handleReceiptOnSession(ctx, identity, env)
 	case "heartbeat", "status":
 		return nil
 	default:
@@ -408,22 +562,86 @@ func (c *Client) handleInboundFrame(ctx context.Context, frame []byte) error {
 // queued to the outbox; a handler error NACKs the operation and queues the
 // nack payload so the controller still learns the outcome.
 func (c *Client) handleCommand(ctx context.Context, env protocol.Envelope) error {
+	c.mu.Lock()
+	identity := c.active
+	c.mu.Unlock()
+	if identity == nil {
+		return errors.New("control: session is not connected")
+	}
+	return c.handleCommandOnSession(ctx, identity, env)
+}
+
+func (c *Client) handleCommandOnSession(ctx context.Context, identity *sessionIdentity, env protocol.Envelope) error {
 	hdr := env.Header
 	msgID := hex.EncodeToString(hdr.MessageID[:])
-	sum := sha256.Sum256(env.Payload)
-	payloadHash := hex.EncodeToString(sum[:])
 
-	dup, err := c.opts.Store.ReceiveCommand(c.epoch, c.session, msgID, msgID, hdr.MessageType, payloadHash, hdr.MessageType)
+	// Payload-aware receive: the generic command identity C (msgID) journals
+	// the command, while desired/forward_delete payloads additionally persist
+	// their deletion classification and the durable pending delete fence in
+	// the same transaction. The semantic deletion identity D stays separate -
+	// dedicated delete results are queued under D by the reconcile layer, not
+	// under C.
+	dup, err := c.opts.Store.ReceiveCommandWithPayload(identity.epoch, identity.session, msgID, msgID, hdr.MessageType, env.Payload, hdr.MessageType)
 	if err != nil {
 		return err
 	}
 	if dup {
-		return nil // cached duplicate: result already queued (resend path)
+		phase, found, err := c.opts.Store.OperationPhase(msgID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return fmt.Errorf("control: duplicate command %q has no operation journal", msgID)
+		}
+		switch phase {
+		case "APPLIED":
+			// CompleteOperation atomically records the result and queues it.
+			// A missing outbox row means the durable state is inconsistent;
+			// fail closed rather than invoking the side effect again.
+			if _, present, err := c.opts.Store.OutboxState(msgID); err != nil {
+				return err
+			} else if !present {
+				return fmt.Errorf("control: applied duplicate command %q has no queued result", msgID)
+			}
+			return nil
+		case "NACKED":
+			return c.opts.Store.QueueNackedResult(identity.epoch, identity.session, msgID)
+		case "APPLYING":
+			// An APPLYING operation may already have performed an external side
+			// effect. Never invoke OnCommand a second time; convert it to the
+			// durable recovery NACK and let the outbox pump resend the result.
+			if err := c.opts.Store.RecoverApplyingOperations(identity.epoch, identity.session); err != nil {
+				return err
+			}
+			return nil
+		case "RECEIVED":
+			// ReceiveCommand is atomic with the RECEIVED journal. No external
+			// side effect is allowed before the next transition, so the replay
+			// may safely resume the normal pipeline below.
+		case "INTENT_PERSISTED":
+			// Intent persistence precedes every external side effect; resume at
+			// APPLYING rather than losing the redelivered command.
+		default:
+			return fmt.Errorf("control: duplicate command %q has unknown phase %q", msgID, phase)
+		}
 	}
-	if err := c.opts.Store.PersistOperationIntent(c.epoch, c.session, msgID); err != nil {
+	if phase, found, err := c.opts.Store.OperationPhase(msgID); err != nil {
 		return err
+	} else if found {
+		switch phase {
+		case "RECEIVED":
+			if err := c.opts.Store.PersistOperationIntent(identity.epoch, identity.session, msgID); err != nil {
+				return err
+			}
+		case "INTENT_PERSISTED":
+			// Continue below.
+		default:
+			return fmt.Errorf("control: command %q is not applyable from phase %q", msgID, phase)
+		}
+	} else {
+		return fmt.Errorf("control: command %q has no operation journal", msgID)
 	}
-	if err := c.opts.Store.MarkOperationApplying(c.epoch, c.session, msgID); err != nil {
+	if err := c.opts.Store.MarkOperationApplying(identity.epoch, identity.session, msgID); err != nil {
 		return err
 	}
 
@@ -438,24 +656,33 @@ func (c *Client) handleCommand(ctx context.Context, env protocol.Envelope) error
 		})
 	}
 	if applyErr != nil {
-		if err := c.opts.Store.NackOperation(c.epoch, c.session, msgID, applyErr.Error()); err != nil {
-			return err
-		}
 		nackPayload, _ := json.Marshal(map[string]any{"status": "nacked", "reason": applyErr.Error()})
-		return c.opts.Store.QueueResult(c.epoch, c.session, msgID, nackPayload)
+		return c.opts.Store.NackOperationWithResult(identity.epoch, identity.session, msgID, applyErr.Error(), nackPayload)
 	}
 	if result == nil {
 		result = []byte(`{"status":"applied"}`)
 	}
-	return c.opts.Store.CompleteOperation(c.epoch, c.session, msgID, result)
+	return c.opts.Store.CompleteOperation(identity.epoch, identity.session, msgID, result)
 }
 
-// handleReceipt applies the controller's durable receipt for one of the
-// agent's outbox results: the receipt both semantically acks and durably
+// handleReceipt applies the controller's durable receipt using the active
+// transport identity. The wrapper is retained for package-local callers.
+func (c *Client) handleReceipt(ctx context.Context, env protocol.Envelope) error {
+	c.mu.Lock()
+	identity := c.active
+	c.mu.Unlock()
+	if identity == nil {
+		return errors.New("control: session is not connected")
+	}
+	return c.handleReceiptOnSession(ctx, identity, env)
+}
+
+// handleReceiptOnSession applies the controller's durable receipt for one of
+// the agent's outbox results: the receipt both semantically acks and durably
 // receipts the row (the controller persists the result before sending it).
 // On reconnect the receipt can beat the agent's own pump, so a PENDING row is
 // advanced legally before the ack.
-func (c *Client) handleReceipt(ctx context.Context, env protocol.Envelope) error {
+func (c *Client) handleReceiptOnSession(ctx context.Context, identity *sessionIdentity, env protocol.Envelope) error {
 	var v struct {
 		OperationID string `json:"operation_id"`
 	}
@@ -475,17 +702,17 @@ func (c *Client) handleReceipt(ctx context.Context, env protocol.Envelope) error
 	}
 	switch state {
 	case "PENDING":
-		if err := c.opts.Store.ClaimOutbox(c.epoch, c.session, op); err != nil {
+		if err := c.opts.Store.ClaimOutbox(identity.epoch, identity.session, op); err != nil {
 			if errors.Is(err, localstate.ErrIllegalPhase) {
 				return nil
 			}
 			return err
 		}
-		if err := c.opts.Store.MarkOutboxSent(c.epoch, c.session, op); err != nil {
+		if err := c.opts.Store.MarkOutboxSent(identity.epoch, identity.session, op); err != nil {
 			return err
 		}
 	case "CLAIMED":
-		if err := c.opts.Store.MarkOutboxSent(c.epoch, c.session, op); err != nil {
+		if err := c.opts.Store.MarkOutboxSent(identity.epoch, identity.session, op); err != nil {
 			return err
 		}
 	case "SENT", "SEMANTIC_ACKED":
@@ -493,13 +720,13 @@ func (c *Client) handleReceipt(ctx context.Context, env protocol.Envelope) error
 	default:
 		return nil
 	}
-	if err := c.opts.Store.AcceptSemanticACK(c.epoch, c.session, op); err != nil {
+	if err := c.opts.Store.AcceptSemanticACK(identity.epoch, identity.session, op); err != nil {
 		if errors.Is(err, localstate.ErrIllegalPhase) {
 			return nil // already receipted/GC'd (idempotent redelivery)
 		}
 		return err
 	}
-	if err := c.opts.Store.AcceptReceipt(c.epoch, c.session, op); err != nil {
+	if err := c.opts.Store.AcceptReceipt(identity.epoch, identity.session, op); err != nil {
 		if errors.Is(err, localstate.ErrAlreadyReceipted) {
 			return nil
 		}
@@ -509,23 +736,68 @@ func (c *Client) handleReceipt(ctx context.Context, env protocol.Envelope) error
 }
 
 // writeEnvelope signs and writes one A2C envelope with the next sequence.
+// Agent-initiated sends use the currently active transport.
 func (c *Client) writeEnvelope(ctx context.Context, messageID [16]byte, messageType string, payload []byte) error {
+	c.mu.Lock()
+	identity := c.active
+	if identity == nil || identity.generation == 0 || identity.conn == nil {
+		c.mu.Unlock()
+		return errors.New("control: session is not connected")
+	}
+	generation, conn := identity.generation, identity.conn
+	c.mu.Unlock()
+	return c.writeEnvelopeOnSession(ctx, generation, conn, messageID, messageType, payload)
+}
+
+// writeEnvelopeOnSession binds a transport-owned send to its connection
+// generation. A stale pump or heartbeat must not write a frame using the
+// newer session's epoch/session, nor consume the newer session's sequence.
+// Sequence reservation happens only after trust-header lookup and envelope
+// construction succeed; failed local preparation therefore cannot create a
+// sequence gap in an otherwise-live session.
+func (c *Client) writeEnvelopeOnSession(ctx context.Context, generation uint64, ownedConn *websocket.Conn, messageID [16]byte, messageType string, payload []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
+
 	c.mu.Lock()
-	c.outSeq++
-	seq := c.outSeq
+	if generation != 0 && (c.sessionGeneration != generation || c.conn != ownedConn) {
+		c.mu.Unlock()
+		return errors.New("control: stale session transport")
+	}
+	identity := c.active
+	if generation != 0 && identity != nil && identity.generation != generation {
+		c.mu.Unlock()
+		return errors.New("control: stale session transport")
+	}
 	conn := c.conn
+	epoch := c.epoch
+	session := c.session
+	if identity != nil {
+		epoch = identity.epoch
+		session = identity.session
+	}
+	if generation != 0 {
+		conn = ownedConn
+	}
+	if conn == nil {
+		c.mu.Unlock()
+		return errors.New("control: session is not connected")
+	}
+	seq := c.outSeq + 1
 	c.mu.Unlock()
 
-	pins, _ := c.opts.Store.ListControllerPins()
+	pins, err := c.opts.Store.ListControllerPins()
+	if err != nil {
+		return fmt.Errorf("control: load controller pin for envelope: %w", err)
+	}
+	if len(pins) != 1 {
+		return fmt.Errorf("control: expected exactly one pinned controller, found %d", len(pins))
+	}
 	var instance [16]byte
-	keyID := ""
-	if len(pins) == 1 {
-		if b, err := hex.DecodeString(pins[0].InstanceID); err == nil && len(b) == 16 {
-			copy(instance[:], b)
-		}
-		keyID = pins[0].KeyID
+	if b, err := hex.DecodeString(pins[0].InstanceID); err != nil || len(b) != 16 {
+		return errors.New("control: pinned controller instance id is invalid")
+	} else {
+		copy(instance[:], b)
 	}
 	var node [16]byte
 	copy(node[:], c.opts.NodeID)
@@ -533,10 +805,10 @@ func (c *Client) writeEnvelope(ctx context.Context, messageID [16]byte, messageT
 		ProtocolDomain:       protocol.ProtocolDomain,
 		ControllerInstanceID: instance,
 		NodeID:               node,
-		ControllerKeyID:      keyID,
+		ControllerKeyID:      pins[0].KeyID,
 		AgentCredentialVer:   c.opts.Key.CredentialVersion(),
-		ConnectionEpoch:      c.epoch,
-		SessionID:            c.session,
+		ConnectionEpoch:      epoch,
+		SessionID:            session,
 		Direction:            protocol.DirectionA2C,
 		Sequence:             seq,
 		MessageID:            messageID,
@@ -547,16 +819,28 @@ func (c *Client) writeEnvelope(ctx context.Context, messageID [16]byte, messageT
 	if err != nil {
 		return fmt.Errorf("control: build envelope: %w", err)
 	}
-	if conn == nil {
-		return errors.New("control: session is not connected")
+
+	// writeMu still excludes every other writer, so reserve exactly this
+	// sequence immediately before the owned connection write. A failed socket
+	// write tears down this generation; local preparation failures above do not.
+	c.mu.Lock()
+	if generation != 0 && (c.sessionGeneration != generation || c.conn != ownedConn) {
+		c.mu.Unlock()
+		return errors.New("control: stale session transport")
 	}
+	if c.outSeq+1 != seq {
+		c.mu.Unlock()
+		return errors.New("control: outbound sequence changed during envelope preparation")
+	}
+	c.outSeq = seq
+	c.mu.Unlock()
 	return conn.Write(ctx, websocket.MessageBinary, frame)
 }
 
 // outboxPump claims queued results and sends them as A2C operation_complete
 // envelopes; each result is followed by a message_receipt for the command it
 // answers so the controller can GC its outbox row.
-func (c *Client) outboxPump(ctx context.Context) {
+func (c *Client) outboxPump(ctx context.Context, identity *sessionIdentity) {
 	ticker := time.NewTicker(outboxPumpInterval)
 	defer ticker.Stop()
 	for {
@@ -566,64 +850,75 @@ func (c *Client) outboxPump(ctx context.Context) {
 		case <-c.closed:
 			return
 		case <-ticker.C:
-			if err := c.pumpOnce(ctx); err != nil {
-				c.stopSession()
+			if err := c.pumpOnce(ctx, identity); err != nil {
+				c.stopSession(identity.generation, identity.conn)
 				return
 			}
 		}
 	}
 }
 
-func (c *Client) pumpOnce(ctx context.Context) error {
-	ids, err := c.opts.Store.OutboxOperationIDs()
-	if err != nil {
-		return err
-	}
-	for _, op := range ids {
-		state, present, err := c.opts.Store.OutboxState(op)
-		if err != nil || !present {
-			continue
-		}
-		if state != "PENDING" {
-			continue
-		}
-		result, err := c.opts.Store.ResultForOperation(c.epoch, c.session, op)
+func (c *Client) pumpOnce(ctx context.Context, identity *sessionIdentity) error {
+	const pageSize = 256
+	lastKey := ""
+	for {
+		ids, err := c.opts.Store.OutboxOperationIDsAfter(lastKey, pageSize)
 		if err != nil {
-			continue // receipted concurrently
-		}
-		if err := c.opts.Store.ClaimOutbox(c.epoch, c.session, op); err != nil {
-			if errors.Is(err, localstate.ErrIllegalPhase) {
-				continue // racing receipt already advanced/GC'd the row
-			}
 			return err
 		}
-		// Result envelope: deterministic message id (resend dedup).
-		msgID := security.MessageID(op, "operation_complete")
-		if err := c.writeEnvelope(ctx, msgID, "operation_complete", result); err != nil {
-			return err
+		if len(ids) == 0 {
+			return nil
 		}
-		// A racing receipt may have advanced the row (SEMANTIC_ACKED/GC);
-		// tolerate the loss — the receipt proves the result is durable.
-		if err := c.opts.Store.MarkOutboxSent(c.epoch, c.session, op); err != nil {
-			if errors.Is(err, localstate.ErrIllegalPhase) {
+		for _, op := range ids {
+			lastKey = op
+			state, present, err := c.opts.Store.OutboxState(op)
+			if err != nil || !present {
 				continue
 			}
-			return err
+			if state != "PENDING" {
+				continue
+			}
+			result, err := c.opts.Store.ResultForOperation(identity.epoch, identity.session, op)
+			if err != nil {
+				continue // receipted concurrently
+			}
+			if err := c.opts.Store.ClaimOutbox(identity.epoch, identity.session, op); err != nil {
+				if errors.Is(err, localstate.ErrIllegalPhase) {
+					continue // racing receipt already advanced/GC'd the row
+				}
+				return err
+			}
+			// Result envelope: deterministic message id (resend dedup).
+			msgID := security.MessageID(op, "operation_complete")
+			if err := c.writeEnvelopeOnSession(ctx, identity.generation, identity.conn, msgID, "operation_complete", result); err != nil {
+				return err
+			}
+			// A racing receipt may have advanced the row (SEMANTIC_ACKED/GC);
+			// tolerate the transition loss, but still send the Agent receipt. The
+			// controller's receipt proves the semantic result is durable; the Agent
+			// receipt is the independent proof that lets the controller GC its row.
+			if err := c.opts.Store.MarkOutboxSent(identity.epoch, identity.session, op); err != nil &&
+				!errors.Is(err, localstate.ErrIllegalPhase) &&
+				!errors.Is(err, localstate.ErrAlreadyReceipted) {
+				return err
+			}
+			// Durable receipt for the answered command so the controller can GC
+			// its outbox row (the controller correlates via the receipt's
+			// operation_id = the command message id hex).
+			receiptID := security.MessageID(op, "message_receipt")
+			payload := []byte(fmt.Sprintf(`{"operation_id":%q}`, op))
+			if err := c.writeEnvelopeOnSession(ctx, identity.generation, identity.conn, receiptID, "message_receipt", payload); err != nil {
+				return err
+			}
 		}
-		// Durable receipt for the answered command so the controller can GC
-		// its outbox row (the controller correlates via the receipt's
-		// operation_id = the command message id hex).
-		receiptID := security.MessageID(op, "message_receipt")
-		payload := []byte(fmt.Sprintf(`{"operation_id":%q}`, op))
-		if err := c.writeEnvelope(ctx, receiptID, "message_receipt", payload); err != nil {
-			return err
+		if len(ids) < pageSize {
+			return nil
 		}
 	}
-	return nil
 }
 
 // heartbeatLoop sends A2C heartbeat envelopes.
-func (c *Client) heartbeatLoop(ctx context.Context) {
+func (c *Client) heartbeatLoop(ctx context.Context, identity *sessionIdentity) {
 	ticker := time.NewTicker(c.opts.Heartbeat)
 	defer ticker.Stop()
 	for {
@@ -634,9 +929,12 @@ func (c *Client) heartbeatLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			var msgID [16]byte
-			rand.Read(msgID[:])
-			if err := c.writeEnvelope(ctx, msgID, "heartbeat", []byte(`{}`)); err != nil {
-				c.stopSession()
+			if _, err := rand.Read(msgID[:]); err != nil {
+				c.stopSession(identity.generation, identity.conn)
+				return
+			}
+			if err := c.writeEnvelopeOnSession(ctx, identity.generation, identity.conn, msgID, "heartbeat", []byte(`{}`)); err != nil {
+				c.stopSession(identity.generation, identity.conn)
 				return
 			}
 		}

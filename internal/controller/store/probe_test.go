@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -113,18 +114,19 @@ func TestProbeOperationLifecycle(t *testing.T) {
 		t.Fatalf("status = %q, want ARMED", got.Status)
 	}
 
-	if err := s.SetProbeOperationChallenge("probe-1", "cafe"); err != nil {
+	challengeHash := strings.Repeat("ca", protocol.ProbeDigestLen)
+	if err := s.SetProbeOperationChallenge("probe-1", challengeHash); err != nil {
 		t.Fatalf("set challenge: %v", err)
 	}
 	got, _ = s.GetProbeOperation("probe-1")
-	if got.ChallengeHash != "cafe" {
+	if got.ChallengeHash != challengeHash {
 		t.Fatalf("challenge hash not persisted")
 	}
-	if err := s.SetProbeOperationChallenge("probe-1", "different"); !errors.Is(err, ErrProbeChallengeConflict) {
+	if err := s.SetProbeOperationChallenge("probe-1", strings.Repeat("be", protocol.ProbeDigestLen)); !errors.Is(err, ErrProbeChallengeConflict) {
 		t.Fatalf("contradictory challenge update = %v, want ErrProbeChallengeConflict", err)
 	}
 	got, _ = s.GetProbeOperation("probe-1")
-	if got.ChallengeHash != "cafe" {
+	if got.ChallengeHash != challengeHash {
 		t.Fatalf("contradictory challenge update overwrote evidence: %q", got.ChallengeHash)
 	}
 
@@ -328,5 +330,50 @@ func TestProbeMigrationVersion(t *testing.T) {
 	}
 	if v != 6 {
 		t.Fatalf("SchemaVersion = %d, want 6 (0001_core + 0002_control + 0003_enrollment + 0004_probe + 0005_probe_hardening + 0006_r13_hardening)", v)
+	}
+}
+
+// Exact provider/WAN1/ACK1/RCT1 replay is idempotent, but a different payload
+// for the same operation/kind is conflicting evidence. The conflict must not
+// overwrite the original journal row or be mistaken for a harmless retry.
+func TestRecordProbeResultExactReplayAndConflict(t *testing.T) {
+	s := openTestStore(t)
+	mustCreateNode(t, s, "n-probe-result")
+	mustCreateForward(t, s, Forward{ID: "f-probe-result", NodeID: "n-probe-result", Name: "probe", Protocol: "tcp"})
+	if _, err := s.CreateProbeOperation(ProbeOperation{
+		ID: "probe-result-replay", NodeID: "n-probe-result", ForwardID: "f-probe-result",
+		ActivationID: "act-1", ProviderID: "provider-1", Status: "IN_FLIGHT",
+		Endpoint: "198.51.100.7:8080", ArmHex: "41524d31", TTLMS: 30_000,
+		ExpiryOpaque: "00112233445566778899aabbccddeeff", ExpiresAt: time.Now().Add(time.Hour).Unix(),
+	}); err != nil {
+		t.Fatalf("create operation: %v", err)
+	}
+
+	for _, kind := range []string{"provider", "wan1", "ack1", "rct1"} {
+		first := "first-" + kind
+		second := "conflict-" + kind
+		if err := s.RecordProbeResult("probe-result-replay", kind, first); err != nil {
+			t.Fatalf("record %s: %v", kind, err)
+		}
+		if err := s.RecordProbeResult("probe-result-replay", kind, first); err != nil {
+			t.Fatalf("identical %s replay: %v", kind, err)
+		}
+		if err := s.RecordProbeResult("probe-result-replay", kind, second); !errors.Is(err, ErrProbeDuplicateEvidence) {
+			t.Fatalf("conflicting %s replay = %v, want ErrProbeDuplicateEvidence", kind, err)
+		}
+	}
+
+	results, err := s.ListProbeResults("probe-result-replay")
+	if err != nil {
+		t.Fatalf("list results: %v", err)
+	}
+	if len(results) != 4 {
+		t.Fatalf("result row count = %d, want 4", len(results))
+	}
+	for _, result := range results {
+		want := "first-" + result.Kind
+		if result.PayloadHex != want {
+			t.Errorf("%s payload = %q, want %q", result.Kind, result.PayloadHex, want)
+		}
 	}
 }

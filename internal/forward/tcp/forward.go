@@ -62,6 +62,20 @@ type Forward struct {
 
 	closed atomic.Bool
 
+	// listenerMu serializes Close calls from the context cancellation watcher
+	// and the explicit owner cleanup path. A listener may be a test or platform
+	// implementation whose Close is not internally idempotent.
+	listenerMu sync.Mutex
+
+	// closeMu makes Close single-flight while still allowing a failed listener
+	// close to be retried. A listener is not considered fully closed until the
+	// underlying close and all session joins have completed successfully.
+	closeMu         sync.Mutex
+	closeInProgress bool
+	closeDone       chan struct{}
+	closeComplete   bool
+	closeErr        error
+
 	sessions map[*session]struct{}
 
 	accepted atomic.Int64
@@ -148,15 +162,34 @@ func (f *Forward) Run(ctx context.Context) error {
 	f.runMu.Lock()
 	defer f.runMu.Unlock()
 
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// A listener's Accept method is not required to observe ctx directly. This
+	// watcher closes it on cancellation so an idle accept loop can exit; the
+	// explicit CloseContext path remains serialized by listenerMu.
+	acceptDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			f.closeListener()
+		case <-acceptDone:
+		}
+	}()
+	defer close(acceptDone)
+
 	backoff := f.backoffMin
 	for {
 		conn, err := f.listener.Accept()
 		if err != nil {
-			if f.closed.Load() || errors.Is(err, net.ErrClosed) {
+			if f.closed.Load() {
 				return nil
 			}
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return ctxErr
+			}
+			if errors.Is(err, net.ErrClosed) {
+				return err
 			}
 			if isTransientAcceptError(err) {
 				select {
@@ -185,6 +218,14 @@ func (f *Forward) Run(ctx context.Context) error {
 			}
 		}
 		f.mu.Lock()
+		if f.closed.Load() {
+			f.mu.Unlock()
+			if f.budget != nil {
+				f.budget.Release()
+			}
+			_ = conn.Close()
+			return nil
+		}
 		f.sessions[sess] = struct{}{}
 		f.mu.Unlock()
 		f.accepted.Add(1)
@@ -210,16 +251,69 @@ func (f *Forward) untrack(sess *session) {
 // Close is the delete hook: it closes the listener, waits for the accept
 // loop to exit, then closes every tracked session and waits for them. It is
 // idempotent and safe to call from another goroutine while Run is active
-// (or before Run ever starts).
+// (or before Run ever starts). It uses a background context for compatibility;
+// callers with a lifecycle deadline should use CloseContext.
 func (f *Forward) Close() error {
-	f.mu.Lock()
-	if f.closed.Swap(true) {
-		f.mu.Unlock()
-		return nil
-	}
-	f.mu.Unlock()
+	return f.CloseContext(context.Background())
+}
 
-	err := f.listener.Close()
+// CloseContext starts one close attempt and waits for its result, bounded by
+// ctx. The actual attempt continues in its own goroutine after a caller
+// deadline, so a later caller can join the same attempt rather than racing a
+// second listener/session teardown. A listener-close failure leaves the
+// Forward retryable; a successful close is permanently idempotent.
+func (f *Forward) CloseContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	f.closeMu.Lock()
+	if f.closeComplete {
+		err := f.closeErr
+		f.closeMu.Unlock()
+		return err
+	}
+	if f.closeInProgress {
+		done := f.closeDone
+		f.closeMu.Unlock()
+		select {
+		case <-done:
+			f.closeMu.Lock()
+			err := f.closeErr
+			f.closeMu.Unlock()
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	f.closeInProgress = true
+	f.closeDone = make(chan struct{})
+	done := f.closeDone
+	f.closeMu.Unlock()
+
+	go f.finishClose(done)
+	select {
+	case <-done:
+		f.closeMu.Lock()
+		err := f.closeErr
+		f.closeMu.Unlock()
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (f *Forward) closeListener() error {
+	f.listenerMu.Lock()
+	defer f.listenerMu.Unlock()
+	return f.listener.Close()
+}
+
+func (f *Forward) finishClose(done chan struct{}) {
+	// Mark the Forward closed before touching the listener so Run treats any
+	// resulting accept error as a normal shutdown boundary. Do not make this
+	// marker permanent: a failed listener close must be retryable below.
+	f.closed.Store(true)
+	err := f.closeListener()
 	// Wait until the accept loop has exited (no further session Adds),
 	// then close every tracked session. runMu is free when Run never ran.
 	f.runMu.Lock()
@@ -234,7 +328,20 @@ func (f *Forward) Close() error {
 	}
 	f.wg.Wait()
 	f.runMu.Unlock()
-	return err
+
+	f.closeMu.Lock()
+	f.closeErr = err
+	if err == nil || errors.Is(err, net.ErrClosed) {
+		f.closeComplete = true
+	}
+	f.closeInProgress = false
+	close(done)
+	// A failed close remains retryable; waiters from this attempt still observe
+	// its error, while the next caller gets a fresh close attempt.
+	if f.closeComplete {
+		f.closeDone = done
+	}
+	f.closeMu.Unlock()
 }
 
 // Stats returns cumulative accept/reject counters and the active session
