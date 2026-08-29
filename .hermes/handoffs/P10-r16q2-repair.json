@@ -1,6 +1,6 @@
 {
-  "schema_version": "P10-r16q2-canonical/v1",
-  "artifact_role": "canonical P10 exact-candidate handoff",
+  "schema_version": "P10-r16q2-repair/v1",
+  "artifact_role": "P10 R16Q2 immutable implementation candidate handoff",
   "plan": "P10",
   "stage": "IMPLEMENTATION_FROZEN_REVIEW_REQUIRED",
   "recorded_at_utc": "2026-08-29T17:10:21Z",
@@ -405,12 +405,5 @@
     "candidate_code_changed_by_metadata_packaging": false,
     "metadata_tip_sha": "TO_BE_RECORDED_EXTERNALLY_AFTER_C2",
     "self_hash_policy": "The handoff hash and C2 identity cannot be embedded without self-reference; C1 head/tree is fully pinned here and C2 is verified after commit."
-  },
-  "canonical_repair_handoff": ".hermes/handoffs/P10-r16q2-repair.json",
-  "preserved_prior_handoffs": [
-    ".hermes/handoffs/P10-r16q-repair.json",
-    ".hermes/handoffs/P10-r16-repair.json",
-    ".hermes/handoffs/P10-r15-reconciliation.json",
-    ".hermes/handoffs/P10-r13-rejected-archive.json"
-  ]
+  }
 }
