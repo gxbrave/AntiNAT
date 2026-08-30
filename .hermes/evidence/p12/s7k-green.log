@@ -1,0 +1,43 @@
+# S7k focused GREEN MA21/DE8 race x10
+=== RUN   TestManagerAcquireContainsJournalPutPanic
+--- PASS: TestManagerAcquireContainsJournalPutPanic (0.00s)
+=== RUN   TestDetectionContainsTempDeletePanic
+--- PASS: TestDetectionContainsTempDeletePanic (0.00s)
+=== RUN   TestManagerAcquireContainsJournalPutPanic
+--- PASS: TestManagerAcquireContainsJournalPutPanic (0.00s)
+=== RUN   TestDetectionContainsTempDeletePanic
+--- PASS: TestDetectionContainsTempDeletePanic (0.00s)
+=== RUN   TestManagerAcquireContainsJournalPutPanic
+--- PASS: TestManagerAcquireContainsJournalPutPanic (0.00s)
+=== RUN   TestDetectionContainsTempDeletePanic
+--- PASS: TestDetectionContainsTempDeletePanic (0.00s)
+=== RUN   TestManagerAcquireContainsJournalPutPanic
+--- PASS: TestManagerAcquireContainsJournalPutPanic (0.00s)
+=== RUN   TestDetectionContainsTempDeletePanic
+--- PASS: TestDetectionContainsTempDeletePanic (0.00s)
+=== RUN   TestManagerAcquireContainsJournalPutPanic
+--- PASS: TestManagerAcquireContainsJournalPutPanic (0.00s)
+=== RUN   TestDetectionContainsTempDeletePanic
+--- PASS: TestDetectionContainsTempDeletePanic (0.00s)
+=== RUN   TestManagerAcquireContainsJournalPutPanic
+--- PASS: TestManagerAcquireContainsJournalPutPanic (0.00s)
+=== RUN   TestDetectionContainsTempDeletePanic
+--- PASS: TestDetectionContainsTempDeletePanic (0.00s)
+=== RUN   TestManagerAcquireContainsJournalPutPanic
+--- PASS: TestManagerAcquireContainsJournalPutPanic (0.00s)
+=== RUN   TestDetectionContainsTempDeletePanic
+--- PASS: TestDetectionContainsTempDeletePanic (0.00s)
+=== RUN   TestManagerAcquireContainsJournalPutPanic
+--- PASS: TestManagerAcquireContainsJournalPutPanic (0.00s)
+=== RUN   TestDetectionContainsTempDeletePanic
+--- PASS: TestDetectionContainsTempDeletePanic (0.00s)
+=== RUN   TestManagerAcquireContainsJournalPutPanic
+--- PASS: TestManagerAcquireContainsJournalPutPanic (0.00s)
+=== RUN   TestDetectionContainsTempDeletePanic
+--- PASS: TestDetectionContainsTempDeletePanic (0.00s)
+=== RUN   TestManagerAcquireContainsJournalPutPanic
+--- PASS: TestManagerAcquireContainsJournalPutPanic (0.00s)
+=== RUN   TestDetectionContainsTempDeletePanic
+--- PASS: TestDetectionContainsTempDeletePanic (0.00s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/traversal	1.056s
