@@ -1,0 +1,35 @@
+# S7h RED: MA16 TestManagerCallbackPanicContainedAndDeliveryContinues against prior candidate d95d06d (drain has no per-callback containment)
+=== RUN   TestManagerCallbackPanicContainedAndDeliveryContinues
+panic: consumer callback bug
+	fatal error: sync: unlock of unlocked mutex
+
+goroutine 9 [running]:
+internal/sync.fatal({0x682d70?, 0x202841c55a8?})
+	/root/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.linux-amd64/src/runtime/panic.go:1191 +0x18
+internal/sync.(*Mutex).unlockSlow(0x2028428d0e0, 0xffffffff)
+	/root/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.linux-amd64/src/internal/sync/mutex.go:204 +0x35
+internal/sync.(*Mutex).Unlock(...)
+	/root/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.linux-amd64/src/internal/sync/mutex.go:198
+sync.(*Mutex).Unlock(...)
+	/root/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.linux-amd64/src/sync/mutex.go:65
+panic({0x625500?, 0x691180?})
+	/root/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.linux-amd64/src/runtime/panic.go:860 +0x13a
+github.com/gxbrave/AntiNAT/internal/traversal.TestManagerCallbackPanicContainedAndDeliveryContinues.func1.1()
+	/tmp/s7h-red/internal/traversal/manager_test.go:843 +0x25
+sync.(*Once).doSlow(0x202841fc780?, 0x202841c5720?)
+	/root/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.linux-amd64/src/sync/once.go:78 +0xac
+sync.(*Once).Do(...)
+	/root/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.linux-amd64/src/sync/once.go:69
+github.com/gxbrave/AntiNAT/internal/traversal.TestManagerCallbackPanicContainedAndDeliveryContinues.func1({0x0?, 0x754?}, {0x2028419cac0?, 0x2028419cad0?})
+	/tmp/s7h-red/internal/traversal/manager_test.go:843 +0x25
+github.com/gxbrave/AntiNAT/internal/traversal.(*Manager).startRenewal.func1.2({0x0?, {0x20284310030?, 0x202841c5750?}})
+	/tmp/s7h-red/internal/traversal/manager.go:600 +0x43
+github.com/gxbrave/AntiNAT/internal/traversal.(*lifecycleQueue).drain(0x2028428d0e0, 0x202841c57a8)
+	/tmp/s7h-red/internal/traversal/manager.go:554 +0x149
+github.com/gxbrave/AntiNAT/internal/traversal.(*Manager).startRenewal.func1()
+	/tmp/s7h-red/internal/traversal/manager.go:596 +0x67
+created by github.com/gxbrave/AntiNAT/internal/traversal.(*Manager).startRenewal in goroutine 8
+	/tmp/s7h-red/internal/traversal/manager.go:592 +0x269
+FAIL	github.com/gxbrave/AntiNAT/internal/traversal	0.109s
+FAIL
+exit=1

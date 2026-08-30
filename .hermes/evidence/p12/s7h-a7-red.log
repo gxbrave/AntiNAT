@@ -1,0 +1,8 @@
+# S7h RED: A7 TestAdapterDefaultsGatewayPort against prior candidate d95d06d (portless Gateway zeroed into discover failure)
+=== RUN   TestAdapterDefaultsGatewayPort
+    adapter_test.go:223: gateway port = 0, want the registered 5351
+--- FAIL: TestAdapterDefaultsGatewayPort (0.00s)
+FAIL
+FAIL	github.com/gxbrave/AntiNAT/internal/traversal/pcp	0.001s
+FAIL
+exit=1

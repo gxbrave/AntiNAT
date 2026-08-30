@@ -1,0 +1,4 @@
+# S7h gate: gofmt + vet, tree 90a98ea3922db883d34f766664dfd7aa9e490805
+--- gofmt -l . (no output = clean)
+--- go vet ./internal/traversal/...
+vet-exit=0

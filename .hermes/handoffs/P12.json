@@ -3,7 +3,7 @@
   "artifact_role": "canonical P12 implementation candidate handoff (superseding)",
   "plan": "P12",
   "stage": "IMPLEMENTATION_FROZEN_REVIEW_REQUIRED",
-  "recorded_at_utc": "2026-08-30T11:30:40Z",
+  "recorded_at_utc": "2026-08-30T13:05:00Z",
   "branch": "ai/P12-gateway-traversal",
   "workspace_path": "/root/Claude/AntiNAT/p12-traversal",
   "lineage": {
@@ -17,9 +17,9 @@
       "note": "265ad24 is the orchestrator-provided base for this worktree (integration/v1-beta line); P11-integrated.json records its own integrated SHA on a parallel replay line"
     }
   },
-  "candidate_definition": "The only P12 implementation candidate is HEAD d95d06d/tree 2b0ea64e90e1a17362dd3c7dcc76292714d29c6b. Prior candidate 1f1b635 (tree ed516dab480d5fad8b3e2ea3b70b1c829df3e7fa) is superseded by the S7g commit d95d06d after two independent verification rounds; reviews must re-pin to the new tree.",
-  "candidate_head_full": "d95d06d19bfb69ccefd32e0a9e3aa0acdd104910",
-  "candidate_tree_full": "2b0ea64e90e1a17362dd3c7dcc76292714d29c6b",
+  "candidate_definition": "The only P12 implementation candidate is HEAD 11ca343/tree 7d42b5f83ab0186a2d95f46dd1e2cc52b3afd9e9. Prior candidates 1f1b635 and d95d06d are superseded (see superseded_handoffs); reviews must re-pin to the new tree.",
+  "candidate_head_full": "11ca343688a418fb814fbdf86a3346bc5be01142",
+  "candidate_tree_full": "7d42b5f83ab0186a2d95f46dd1e2cc52b3afd9e9",
   "implementation_commits": [
     {
       "sha": "8fdffd1",
@@ -70,6 +70,11 @@
       "sha": "d95d06d",
       "story": "S7g",
       "summary": "P12 S7g: unbounded lifecycle queue closes the callback-Release deadlock (TDD)"
+    },
+    {
+      "sha": "11ca343",
+      "story": "S7h",
+      "summary": "P12 S7h: review-disposition batch - M1 drain panic containment, NAT-PMP epoch baseline, PCP portless gateway, UPnP redirect/mangled-echo reconciliation, manager+detection+lab fixes (TDD)"
     }
   ],
   "deltas": [
@@ -78,16 +83,18 @@
     "direct-v4 and manual-static layers; manual endpoint validation shared by manager and manual.Layer",
     "DefaultRouteSource: gateway strategies map the default-route interface's own (private) IPv4; Assess stays global-only for direct-v4",
     "Node detection (bounded parallel, temp-tuple hygiene, UDP deferred), traversal profile with fingerprint staleness, mapping journal with serialized mechanism-private State",
-    "Per-Forward Manager: acquisition composition, same-tuple STUN seam (StunObserveRequest{Server,Bind,Dial}), §3.5 renewal ladder (DEGRADED at 3 failures; LOST at granted-lease expiry safety margin / confirmed reboot / rewritten external endpoint), lifecycle dispatcher off the renewal goroutine, idempotent Release that preserves the journal record on failed gateway deletes",
+    "Per-Forward Manager: acquisition composition, same-tuple STUN seam (StunObserveRequest{Server,Bind,Dial}), §3.5 renewal ladder (DEGRADED at 3 failures; LOST at granted-lease expiry safety margin / confirmed reboot / rewritten external endpoint), lifecycle dispatcher off the renewal goroutine with per-callback panic containment, idempotent Release that preserves the journal record on failed gateway deletes",
+    "NAT-PMP epoch baseline across transactions (ClientOptions.EpochBaseline/EpochSeen): renewals detect a gateway reboot the way PCP already does, closing the network review's MEDIUM finding",
     "stun.LeaseSource + NewManagerObserver: shared-port same-tuple observation wiring for the manager",
     "migration 0007: node_traversal_profiles + node_traversal_results (schema version 7)",
-    "netns TCP traversal lab: Manager-driven end-to-end against real miniupnpd 2.3.4 and coturn with independent vantage verification and post-release closed-port verification"
+    "netns TCP traversal lab: Manager-driven end-to-end against real miniupnpd 2.3.4 and coturn with independent vantage verification and post-release verification that is gateway-side authoritative (CPE nftables ruleset holds no forward rule for any released port) plus a supplementary vantage closed-port check; keep-mode setup failures now tear the topology down"
   ],
   "behavioral_summary": "A forward with an explicit-gateway strategy acquires the listener on the default-route interface's own address, maps it through the detected mechanism, optionally observes the same tuple via STUN, journals the mapping with honest ownership and renewal state, renews near 50% of the GRANTED lease, degrades after three consecutive renewal failures, loses only at the expiry safety margin / confirmed reboot / rewritten endpoint, and releases with ownership-strength deletion that leaves the journal record in place whenever the gateway delete failed.",
-  "files_changed_base_to_head_count": 48,
+  "files_changed_base_to_head_count": 78,
   "source_byte_manifest": {
     "command": "git diff --name-only 265ad24..HEAD | wc -l",
-    "files": 48
+    "files": 78,
+    "note": "The count includes the force-added evidence bytes (33 logs + SHA256SUMS + environment.txt) committed by the metadata commits; the implementation candidate 11ca343 itself changes 12 files over d95d06d, all inside internal/traversal/** plus test/integration and test/netns."
   },
   "tests": [
     {
@@ -241,13 +248,61 @@
       "evidence": ".hermes/evidence/p12/s7g-gofmt-vet.log",
       "evidence_sha256": "b5191d559b20d16fc001a0fbd803027244ef8b86d98d4090ee109a0a3df25486",
       "result": "PASS (clean)"
+    },
+    {
+      "phase": "red-green-s7h-ma16",
+      "command": "TestManagerCallbackPanicContainedAndDeliveryContinues run against prior candidate d95d06d in a throwaway worktree (test file copied verbatim; drain lacks per-callback containment)",
+      "exit_code": 1,
+      "evidence": ".hermes/evidence/p12/s7h-ma16-red.log",
+      "evidence_sha256": "758122b482eaaf405aead382b67a4039e83df5aca76b8e97186c90a3de3828bb",
+      "result": "RED faithful and fatal exactly as the quality/security review predicted: 'panic: consumer callback bug' then 'fatal error: sync: unlock of unlocked mutex' unwinding through lifecycleQueue.drain - the process dies unrecoverably"
+    },
+    {
+      "phase": "red-green-s7h-a7",
+      "command": "TestAdapterDefaultsGatewayPort run against prior candidate d95d06d in the same throwaway worktree",
+      "exit_code": 1,
+      "evidence": ".hermes/evidence/p12/s7h-a7-red.log",
+      "evidence_sha256": "aac1119772068b694c544d7d43ebb37907b7ebe5802a36d964bb95af5fa2a104",
+      "result": "RED faithful: 'gateway port = 0, want the registered 5351' - the portless Gateway option was zeroed"
+    },
+    {
+      "phase": "required-race2-s7h",
+      "command": "GOWORK=off go test ./internal/traversal/... -race -count=2 (at the S7h working tree, tracked bytes identical to candidate 11ca343)",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7h-traversal-race2.log",
+      "evidence_sha256": "1feb858dea34b14f1ce6aa34b22b770801c0348b3cdd8fe3ab0abc78c854d316",
+      "result": "PASS (7 packages ok, two runs)"
+    },
+    {
+      "phase": "full-repo-race-s7h",
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -race -count=1",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7h-fullrepo-race.log",
+      "evidence_sha256": "5b57ab541605e5e33e5f0df97583b3c638a6b3a2ae103cbac8beda78f3e62e0e",
+      "result": "PASS (37 package results, zero failures): the spike/sandbox CPU gate passes with the pre-provisioned antinat-sandbox identity (uid/gid 12001) - the earlier 'failure' was only the missing env in a bare invocation"
+    },
+    {
+      "phase": "netns-lab-s7h",
+      "command": "GOWORK=off go test -tags=netns ./test/integration -run TestTCPTraversal -count=1 -v",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7h-netns-lab.log",
+      "evidence_sha256": "c103eb00f69ed554c6aa0030906fdf4ae8521a444b958ae24095387a3e40263a",
+      "result": "PASS at the S7h tree from the exact final test bytes: three real mappings (pcp/nat-pmp/upnp-igd) through miniupnpd, same-tuple STUN through coturn matching the CPE WAN, vantage echo verified per port, child released, parent asserted gatewayRuleAbsent (nft) and vantageExpectClosed for every released port; post-run verified 0 namespaces, 0 work dirs, 0 daemons"
+    },
+    {
+      "phase": "gofmt-vet-s7h",
+      "command": "gofmt -l .; GOWORK=off go vet ./internal/traversal/...",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7h-gofmt-vet.log",
+      "evidence_sha256": "78a611764a5416c4103dc8ae4fcae87a6a5ae3dd46c98fc55bd58c2c91275fc0",
+      "result": "PASS (clean)"
     }
   ],
   "evidence_manifest": {
     "path": ".hermes/evidence/p12/SHA256SUMS",
-    "sha256": "f72a229b69ce5df59d454354ad04ff4be49fd7312c19602a2f391075b0aae5c1",
+    "sha256": "17d214251064a634448e92265f70b756c7d22aa51deb4443374748e31024e219",
     "environment": ".hermes/evidence/p12/environment.txt",
-    "note": "Self-hash corrected after the s7g entries regenerated SHA256SUMS (the prior value was stale, caught by the specification/ownership review). The *.log files themselves are force-added to git in the same metadata commit because .gitignore excludes *.log and the P10 precedent commits evidence bytes."
+    "note": "Regenerated for the S7h supersession (33 logs). The *.log files themselves are force-added to git in the same metadata commit because .gitignore excludes *.log and the P10 precedent commits evidence bytes. The S7h gate logs (race2/fullrepo/lab/gofmt-vet) were captured from the uncommitted S7h working tree whose tracked bytes are identical to candidate 11ca343; the two RED logs were captured at d95d06d in a throwaway worktree with the candidate's test files copied verbatim."
   },
   "contracts_changed": [],
   "contracts_consumed": [
@@ -257,7 +312,7 @@
     "support-matrix 7288336e (frozen; adapters experimental without real CPE inventory)",
     "api/openapi.yaml aa60d05f (frozen; untouched by P12)"
   ],
-  "scope_audit": "All changes confined to internal/traversal/**, internal/controller/store tests (declared mechanical schema-version 6->7 updates), migrations/0007_traversal.sql + migrations/migrations.go, test/integration/traversal_tcp_test.go, test/netns/traversal_lab.sh, .hermes/handoffs/P12.json and .hermes/evidence/p12/*. No frozen contract file touched. No undeclared files changed.",
+  "scope_audit": "All changes confined to internal/traversal/**, internal/controller/store tests (declared mechanical schema-version 6->7 updates), migrations/0007_traversal.sql + migrations/migrations.go, test/integration/traversal_tcp_test.go, test/netns/traversal_lab.sh, .hermes/handoffs/P12.json and .hermes/evidence/p12/*. The S7h candidate commit adds 12 files over d95d06d in exactly those implementation paths. No frozen contract file touched. No undeclared files changed.",
   "capability_result": "SUPPORTED_WITH_LIMITS",
   "known_limits": [
     "No real CPE/router inventory exists: the gateway adapters are validated against miniupnpd 2.3.4 (PCP+NAT-PMP+IGDv2) and coturn in a Linux netns lab only, and remain experimental per the frozen support matrix. miniupnpd does not implement PCP §8.2 source-address checking (the lab cannot exercise the ADDRESS_MISMATCH path that unit tests pin).",
@@ -268,7 +323,7 @@
     "Route-change/suspend-resume monitors for live acquisitions are not implemented; profile staleness protects only future strategy selection. Ownership for NotifyRouteChange/NotifyResume is deferred to P13/P14 integration.",
     "JournalStore is satisfied by MemoryJournal in-tree; bbolt durability wiring is the agent composition root's (P13) responsibility.",
     "govulncheck unavailable (recorded UNAVAILABLE in environment.txt).",
-    "spike/sandbox TestSandboxChildHelper fails on this host for lack of ANTINAT_DEDICATED_UID/GID provisioning; pre-existing on the base, unrelated to P12.",
+    "spike/sandbox's dedicated-identity tests require the ANTINAT_DEDICATED_UID/GID env; a bare invocation fails that gate. The host does carry the pre-provisioned antinat-sandbox identity (uid/gid 12001), and with it the full-repo race run is green (s7h-fullrepo-race.log). Pre-existing environmental prerequisite, unrelated to P12.",
     "sudo -E invocations were denied by local policy; equivalent direct root invocations were used for the netns lab (same effect).",
     "When no gateway mapper is configured at all, the detection profile carries no explicit-gateway row (the state enum cannot express not-attempted vs failed). Flagged by review; deferred as a detection-profile completeness gap.",
     "JournalRecord.OperationID has no producer and detection-temp mappings are never journaled: the journal covers per-Forward mappings only; detection-temp mappings rely on their bounded 2-minute lease for cleanup. Flagged by review; P14 recovery input.",
@@ -276,12 +331,12 @@
   ],
   "residual_risk": "Unknown real-CPE behaviors (description field sizes other than 64 bytes, 718/725 variations, PCP options) are covered by conservative client behavior (bounded retries, strict verification, honest failures) but not by device inventory.",
   "required_reviews": [
-    "fresh exact-candidate specification/ownership PASS on d95d06d/2b0ea64e90e1a17362dd3c7dcc76292714d29c6b",
-    "fresh exact-candidate quality/security PASS on the same tree",
+    "fresh exact-candidate specification/ownership PASS on 11ca343/7d42b5f83ab0186a2d95f46dd1e2cc52b3afd9e9",
+    "fresh exact-candidate quality/security PASS on the same tree (must re-verify the M1 drain containment fix against the d95d06d FAIL verdict)",
     "fresh exact-candidate network/protocol PASS on the same tree",
     "fresh exact-candidate lifecycle/integration PASS on the same tree"
   ],
-  "review_status": "PENDING_FRESH_INDEPENDENT_REVIEWS (re-pinned to d95d06d after supersession)",
+  "review_status": "PENDING_FRESH_INDEPENDENT_REVIEWS (re-pinned to 11ca343 after the S7h supersession)",
   "integration_status": "NOT_PERFORMED",
   "cleanup_done": true,
   "cleanup": [
@@ -290,9 +345,10 @@
     "debug probes (cmd/p12probe, /tmp/pcpprobe.go, /tmp/pcpreplay.go) deleted before the candidate commits",
     "PCP_DEBUG instrumentation removed from pcp/client.go",
     "dead code removed at review request: detection.sortedKeys deleted; manager hexEncode replaced by encoding/hex",
-    "git diff --check clean; gofmt clean"
+    "git diff --check clean; gofmt clean",
+    "S7h round: the netns lab re-run's parent-owned teardown verified again (0 antinat-p12 namespaces, 0 /tmp/antinat-p12-netns.* dirs, no miniupnpd/turnserver processes); the throwaway d95d06d RED worktree was removed and pruned; no debug instrumentation in the S7h diff (grep for fmt.Print/DEBUG/TODO scanned clean)"
   ],
-  "quiescence": "Correction recorded per the lifecycle/integration review: at audit time two orphaned debug-lab daemons (miniupnpd/turnserver from the SOAP-reproduction keep-mode lab, left because the manual teardown omitted the PID env vars) and two leaked lab work dirs were still present. They were killed/removed and re-verified after the finding; the netns lab namespaces themselves were always clean. The keep-mode setup-failure leak the reviewer identified in traversal_lab.sh is queued for the unified fix round.",
+  "quiescence": "Clean as of the S7h handoff. The lifecycle review's two findings are both closed: the orphaned debug-lab daemons and leaked work dirs from the SOAP-reproduction lab were killed/removed and re-verified (previous round), and the keep-mode setup-failure leak in traversal_lab.sh is now fixed (cleanup() tears down on non-success exit even with KEEP=1) and exercised by the s7h lab re-run, after which 0 namespaces, 0 work dirs and 0 daemons remained (pgrep miniupnpd/turnserver empty).",
   "deviations": [
     "24-byte PCP common header (RFC 6887) confirmed against the real daemon after an initial misread of 28 bytes; correction documented in s2 evidence and the S2 commit.",
     "Migration 0007 bumps store schema version 6->7; store tests updated as a declared mechanical consequence (schema_version constants, broken-migration slot index).",
@@ -313,28 +369,41 @@
         "code-review-max: all 15 findings verified disposed effectively (race+vet green at 1f1b635)",
         "Angle A manager-audit reconciliation: all manager/adapters/stun fixes verified line-by-line (race -count=2 green at 1f1b635); flagged the residual deadlock, the sortedKeys leftover, and the unrecorded L8 limit"
       ]
+    },
+    {
+      "prior_candidate": "d95d06d/2b0ea64e90e1a17362dd3c7dcc76292714d29c6b",
+      "superseded_by": "11ca343",
+      "reason": "The quality/security review returned FAIL on one blocking finding (M1): the S7g per-callback dispatch itself lost panic containment - a panicking consumer callback unwound through lifecycleQueue.drain, whose deferred Unlock then ran while the mutex was NOT held, producing an unrecoverable 'fatal error: sync: unlock of unlocked mutex' and killing the process. Verified empirically at d95d06d (s7h-ma16-red.log). Fixed with per-callback recover containment inside drain; the MA16 regression test pins that delivery continues after a panicking callback. The remaining three angles PASSed but all queued findings were disposed in the same S7h batch: network MEDIUM (NAT-PMP reboot detection structurally unreachable) fixed via ClientOptions.EpochBaseline/EpochSeen cross-transaction epoch baseline mirroring the PCP pattern, plus its LOWs compressed here into known_limits where applicable (Suggested External IP omission, one-sided jitter, rollback-only epoch checks, retransmission budget deviations, TransientResult>=128 project rule, unchecked SSDP response source - all conservative-direction deviations, recorded in the review record); PCP L3 (portless Gateway zeroed) fixed; UPnP L1/L2 (SOAP redirect refusal; v1 post-add verification reconciles mangled echoes - tuple-ours entries deleted, foreign entries reported as possibly outliving the call) fixed; lifecycle MEDIUMs (lab keep-mode setup-failure leak; weaker-than-claimed post-release closed-port verification) fixed with the nftables gatewayRuleAbsent assertion; lifecycle LOWs (FINAL_PORT_REWRITTEN compensating delete on caller ctx, detection note folding + dead IGD comparisons, STUN attempt deadline, OnMapping* docs, panicking mapper.Delete consuming releaseOnce) fixed; manager L4/L5/L6/L8/F6/F10 (journal error field, locked CurrentMapping, deterministic journal IDs, EvaluateLayers failure release paths, cancellable renew ctx, rand-failure jitter) fixed.",
+      "verification_rounds_on_prior_candidate": [
+        "code-review-max verification round: all 15 findings verified disposed with code evidence; race+vet green",
+        "four fresh independent review angles at d95d06d: network/protocol, specification/ownership and lifecycle/integration PASS; quality/security FAIL on the S7g M1 regression; all findings collected for the S7h unified round"
+      ]
     }
   ],
   "review_records": [
     {
       "reviewer": "code-review-max verification round",
       "tree": "d95d06d/44c6c0b",
-      "outcome": "All 15 original findings plus batch corrections and the S7g deadlock residual verified disposed with code evidence; lifecycleQueue lock mechanics re-derived with no new deadlock or race; race+vet green. One handoff omission found and fixed by this metadata commit: the OperationID/detection-temp-journaling known-limit was claimed added but absent."
+      "outcome": "All 15 original findings plus batch corrections and the S7g deadlock residual verified disposed with code evidence; lifecycleQueue lock mechanics re-derived with no new deadlock or race; race+vet green. One handoff omission found and fixed by this metadata commit: the OperationID/detection-temp-journaling known-limit was claimed added but absent.",
+      "s7h_disposition": "No code findings from this round; its record predates the M1 discovery. The M1 regression it re-derived as safe (drain lock mechanics) was later found FAILed by the quality/security angle and is fixed and re-pinned in S7h."
     },
     {
       "reviewer": "network/protocol review",
       "tree": "d95d06d/2b0ea64",
-      "outcome": "PASS. Wire codecs verified byte-exact against RFC 6887/6886 text; UPnP/SSDP/SOAP controls all present with bounded honest failure modes; all deviations conservative. Findings (ranked): MEDIUM - NAT-PMP reboot detection structurally unreachable (fresh per-transaction clients, no epoch baseline injection; the RFC 6886 §3.6 SSSoE procedure is not implemented either; fail-safe direction, manager's other LOST paths cover); LOW - PCP renew omits Suggested External IP (§11.2.1 SHOULD); NAT-PMP public-address request is 4 bytes vs RFC's 2; UPnP granted lease never learned (Query parses NewLeaseDuration but Map discards it; pacing/margin desynchronize on shortened grants); renewal jitter is one-sided 50-60% while comments say ±10% (inside RFC 6887's 1/2..5/8 band) and no 4s minimum spacing floor; PCP/NAT-PMP epoch checks are rollback-only without forward-drift; NAT-PMP Map does not refuse internal port 0 (doc says always refused); retransmission budgets deviate from RFC SHOULDs (bounded, acknowledged); TransientResult>=128 is a project rule, not RFC §7.4; SSDP response source unchecked (mitigated by LOCATION scope). Disposition: collected for the unified post-review round (fix MEDIUM symmetrically with PCP's pattern or document; compress the conservative LOWs into known_limits)."
+      "outcome": "PASS. Wire codecs verified byte-exact against RFC 6887/6886 text; UPnP/SSDP/SOAP controls all present with bounded honest failure modes; all deviations conservative. Findings (ranked): MEDIUM - NAT-PMP reboot detection structurally unreachable (fresh per-transaction clients, no epoch baseline injection; the RFC 6886 §3.6 SSSoE procedure is not implemented either; fail-safe direction, manager's other LOST paths cover); LOW - PCP renew omits Suggested External IP (§11.2.1 SHOULD); NAT-PMP public-address request is 4 bytes vs RFC's 2; UPnP granted lease never learned (Query parses NewLeaseDuration but Map discards it; pacing/margin desynchronize on shortened grants); renewal jitter is one-sided 50-60% while comments say ±10% (inside RFC 6887's 1/2..5/8 band) and no 4s minimum spacing floor; PCP/NAT-PMP epoch checks are rollback-only without forward-drift; NAT-PMP Map does not refuse internal port 0 (doc says always refused); retransmission budgets deviate from RFC SHOULDs (bounded, acknowledged); TransientResult>=128 is a project rule, not RFC §7.4; SSDP response source unchecked (mitigated by LOCATION scope). Disposition: collected for the unified post-review round (fix MEDIUM symmetrically with PCP's pattern or document; compress the conservative LOWs into known_limits).",
+      "s7h_disposition": "MEDIUM FIXED (NAT-PMP ClientOptions.EpochBaseline/EpochSeen cross-transaction epoch baseline, A8 regression test at the adapter level); conservative LOWs are recorded in the review record and superseded_handoffs entry as acknowledged deviations (fail-safe direction, RFC SHOULDs bounded, TransientResult>=128 is the frozen project rule)."
     },
     {
       "reviewer": "specification/ownership review",
       "tree": "d95d06d/2b0ea64 (re-anchored mid-review; metadata commits 44c6c0b/7955fb9 verified byte-neutral)",
-      "outcome": "PASS. Frozen contracts byte-identical (all five sha256 prefixes matched against the base tree); scope audit clean (51 paths, all P12-owned or declared-mechanical); every pinned RED behavior verified as a test with implementation inspected; store test changes line-verified mechanical; evidence SHA256SUMS verify 27/27; no secrets. Findings: MEDIUM - evidence logs untracked due to .gitignore *.log (P10 precedent commits evidence bytes) and the evidence_manifest self-hash was stale (both fixed in this metadata round); MEDIUM/LOW - all three netns lab logs print traversal_tcp_test.go:182 for a statement at line 115 in the candidate (a ~67-line relocated block: the runs are real and content-consistent but not from the exact committed test bytes; fix = one lab re-run from the exact tree, queued for the unified round); LOW - §3.5 connection-loss-class trigger and STUN keepalive pacing not implemented (now in known_limits); LOW - stun/** ownership note (added to deviations); LOW - candidate tree carries the stale pre-supersession handoff (integrator note added)."
+      "outcome": "PASS. Frozen contracts byte-identical (all five sha256 prefixes matched against the base tree); scope audit clean (51 paths, all P12-owned or declared-mechanical); every pinned RED behavior verified as a test with implementation inspected; store test changes line-verified mechanical; evidence SHA256SUMS verify 27/27; no secrets. Findings: MEDIUM - evidence logs untracked due to .gitignore *.log (P10 precedent commits evidence bytes) and the evidence_manifest self-hash was stale (both fixed in this metadata round); MEDIUM/LOW - all three netns lab logs print traversal_tcp_test.go:182 for a statement at line 115 in the candidate (a ~67-line relocated block: the runs are real and content-consistent but not from the exact committed test bytes; fix = one lab re-run from the exact tree, queued for the unified round); LOW - §3.5 connection-loss-class trigger and STUN keepalive pacing not implemented (now in known_limits); LOW - stun/** ownership note (added to deviations); LOW - candidate tree carries the stale pre-supersession handoff (integrator note added).",
+      "s7h_disposition": "Both MEDIUMs CLOSED: evidence logs and SHA256SUMS regenerated and committed (33 logs, manifest self-hash current); the lab was re-run from the exact S7h tree (s7h-netns-lab.log) whose test bytes are the committed ones - the :182-vs-:115 offset is gone. LOWs stand as documented."
     },
     {
       "reviewer": "lifecycle/integration review",
       "tree": "d95d06d/2b0ea64 (verified in an isolated git-archive copy)",
-      "outcome": "PASS. lifecycleQueue lock mechanics re-derived with no cycle (push never blocks; drain runs callbacks outside q.mu; close cannot wait for a callback; FIFO preserved); renewal ladder matches the frozen keepalive_state axis incl. recoverable DEGRADED and re-fire; granted-lease pacing and the margin entry-check verified; idempotent Release and journal retention verified; migration 0007 FK/unique constraints verified against 0002; temp-tuple hygiene pinned; netns lab confirmed as genuinely Manager-driven with parent-owned teardown. Findings: MEDIUM/HIGH - quiescence claim false at audit time (two orphaned debug-lab daemons + two leaked work dirs from the SOAP-reproduction lab; the reviewer's action was executed and re-verified); MEDIUM - netns evidence provenance (same :182 line-offset as the specification review found; re-run queued); MEDIUM - post-release closed-port verification weaker than its comment claims (both removed-DNAT and closed-backend produce RST; comment fix + optional nft assertion queued); MEDIUM - keep-mode setup failure leaks namespaces/daemons (EXIT trap skips teardown whenever KEEP=1; queued); LOW/MEDIUM - a panicking mapper.Delete consumes releaseOnce and a retry returns nil (queued); LOW/MEDIUM - the FINAL_PORT_REWRITTEN compensating delete uses the caller's ctx and can orphan a live mapping without a journal record (queued, context.WithoutCancel); LOW - detection aggregation drops a later passing mechanism's note and dead upnp-igd:2/1 name comparisons (queued); LOW - DetectionRequest.AttemptTimeout override not honored by the STUN attempt (queued); LOW - OnMapping* option docs still read synchronous after S7g (queued); LOW - journalPut rewrites CreatedAtUnix if Journal.Get errors transiently (cosmetic, documented); LOW - required_reviews pinned the superseded tree (fixed in this metadata round)."
+      "outcome": "PASS. lifecycleQueue lock mechanics re-derived with no cycle (push never blocks; drain runs callbacks outside q.mu; close cannot wait for a callback; FIFO preserved); renewal ladder matches the frozen keepalive_state axis incl. recoverable DEGRADED and re-fire; granted-lease pacing and the margin entry-check verified; idempotent Release and journal retention verified; migration 0007 FK/unique constraints verified against 0002; temp-tuple hygiene pinned; netns lab confirmed as genuinely Manager-driven with parent-owned teardown. Findings: MEDIUM/HIGH - quiescence claim false at audit time (two orphaned debug-lab daemons + two leaked work dirs from the SOAP-reproduction lab; the reviewer's action was executed and re-verified); MEDIUM - netns evidence provenance (same :182 line-offset as the specification review found; re-run queued); MEDIUM - post-release closed-port verification weaker than its comment claims (both removed-DNAT and closed-backend produce RST; comment fix + optional nft assertion queued); MEDIUM - keep-mode setup failure leaks namespaces/daemons (EXIT trap skips teardown whenever KEEP=1; queued); LOW/MEDIUM - a panicking mapper.Delete consumes releaseOnce and a retry returns nil (queued); LOW/MEDIUM - the FINAL_PORT_REWRITTEN compensating delete uses the caller's ctx and can orphan a live mapping without a journal record (queued, context.WithoutCancel); LOW - detection aggregation drops a later passing mechanism's note and dead upnp-igd:2/1 name comparisons (queued); LOW - DetectionRequest.AttemptTimeout override not honored by the STUN attempt (queued); LOW - OnMapping* option docs still read synchronous after S7g (queued); LOW - journalPut rewrites CreatedAtUnix if Journal.Get errors transiently (cosmetic, documented); LOW - required_reviews pinned the superseded tree (fixed in this metadata round).",
+      "s7h_disposition": "MEDIUM/HIGH CLOSED (quiescence: daemons/dirs removed and re-verified; see quiescence field). MEDIUM provenance CLOSED (lab re-run from exact tree). MEDIUM lab-verifier FIXED (gatewayRuleAbsent nft assertion + comment now states the RST ambiguity honestly). MEDIUM keep-mode leak FIXED (cleanup() tears down on non-success even with KEEP=1). LOW/MEDIUM mapper.Delete panic path FIXED. LOW/MEDIUM FINAL_PORT_REWRITTEN compensating delete FIXED (context.WithoutCancel). LOW detection aggregation FIXED (note folding; dead IGD comparisons removed). LOW STUN attempt deadline FIXED. LOW OnMapping* docs FIXED (containment + trailing-notification semantics)."
     }
   ]
 }

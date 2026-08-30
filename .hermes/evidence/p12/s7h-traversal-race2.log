@@ -1,0 +1,9 @@
+# S7h gate: traversal tree race x2, tree 90a98ea3922db883d34f766664dfd7aa9e490805
+ok  	github.com/gxbrave/AntiNAT/internal/traversal	14.898s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/direct	1.016s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/manual	1.009s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/natpmp	1.518s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/pcp	1.522s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/stun	1.940s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/upnp	1.650s
+exit=0
