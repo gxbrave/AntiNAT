@@ -1,0 +1,12 @@
+gate=01-diff-check
+description=Reject whitespace errors in complete repair working tree
+started_at_utc=2026-08-30T04:12:44Z
+workspace=/root/Claude/AntiNAT/p10-r16q2-resume
+branch=handoff/P10-r16q2-resume
+pre_freeze_head=676c6b60a8431ead4a3820a5830843526ecffdab
+pre_freeze_head_tree=c34f55d1c62d7c9686175739ecc0d1e6621c9986
+command=git diff --check plus untracked checks
+--- output ---
+--- result ---
+ended_at_utc=2026-08-30T04:12:44Z
+exit_code=0

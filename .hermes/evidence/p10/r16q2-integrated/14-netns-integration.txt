@@ -1,0 +1,13 @@
+gate=14-netns-integration
+description=Run native Linux netns integration tests when present
+started_at_utc=2026-08-30T04:15:42Z
+workspace=/root/Claude/AntiNAT/p10-r16q2-resume
+branch=handoff/P10-r16q2-resume
+pre_freeze_head=676c6b60a8431ead4a3820a5830843526ecffdab
+pre_freeze_head_tree=c34f55d1c62d7c9686175739ecc0d1e6621c9986
+command=ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -tags=netns ./test/integration/... -count=1 -v
+--- output ---
+SKIPPED: test/integration directory is absent in this candidate
+--- result ---
+ended_at_utc=2026-08-30T04:15:42Z
+exit_code=125

@@ -383,8 +383,8 @@
     "fresh exact-C3 lifecycle/integration-boundary PASS on 256c91046a00c6c18a43facf1f6ff73b576f3b23/576a3d683ee78cbacba427a6055a2a925a2d8725",
     "integration is prohibited unless all four explicitly PASS the unchanged C3 identity"
   ],
-  "review_status": "REVIEW_REQUIRED_NOT_APPROVED",
-  "integration_status": "CANDIDATE_ONLY_NOT_INTEGRATED",
+  "review_status": "APPROVED_FOUR_INDEPENDENT_PASS_ON_UNCHANGED_CANDIDATE",
+  "integration_status": "INTEGRATED",
   "cleanup_done": true,
   "cleanup": [
     "Removed root diagnostic diff/text artifacts and the temporary debug test after inspection.",
@@ -456,5 +456,12 @@
   ],
   "superseded_handoffs": [
     ".hermes/handoffs/P10-r16q2-repair.json"
+  ],
+  "integrated_record": ".hermes/handoffs/P10-integrated.json",
+  "review_reports": [
+    ".hermes/evidence/p10/reviews/r16q2-c3-1-specification-ownership.md",
+    ".hermes/evidence/p10/reviews/r16q2-c3-2-quality-security.md",
+    ".hermes/evidence/p10/reviews/r16q2-c3-3-network-protocol.md",
+    ".hermes/evidence/p10/reviews/r16q2-c3-4-lifecycle-integration.md"
   ]
 }

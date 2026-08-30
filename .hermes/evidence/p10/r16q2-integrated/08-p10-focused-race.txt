@@ -1,0 +1,20 @@
+gate=08-p10-focused-race
+description=Run P10 focused race suite including repaired control/localstate paths
+started_at_utc=2026-08-30T04:13:59Z
+workspace=/root/Claude/AntiNAT/p10-r16q2-resume
+branch=handoff/P10-r16q2-resume
+pre_freeze_head=676c6b60a8431ead4a3820a5830843526ecffdab
+pre_freeze_head_tree=c34f55d1c62d7c9686175739ecc0d1e6621c9986
+command=GOWORK=off go test -race ./internal/agent/... ./internal/controller/probe ./internal/controller/api ./cmd/antinatctl ./test/e2e/harness -count=1
+--- output ---
+ok  	github.com/gxbrave/AntiNAT/internal/agent	5.154s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/control	6.257s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/localstate	3.969s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	6.237s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	24.690s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/api	6.425s
+ok  	github.com/gxbrave/AntiNAT/cmd/antinatctl	2.783s
+ok  	github.com/gxbrave/AntiNAT/test/e2e/harness	1.163s
+--- result ---
+ended_at_utc=2026-08-30T04:14:24Z
+exit_code=0

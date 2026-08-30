@@ -1,0 +1,170 @@
+{
+  "schema_version": "P10-integrated/v1",
+  "plan": "P10",
+  "stage": "INTEGRATED_ACCEPTED",
+  "recorded_at_utc": "2026-08-30T04:25:00Z",
+  "branch": "handoff/P10-r16q2-resume",
+  "candidate": {
+    "identity": "C3",
+    "head_sha": "256c91046a00c6c18a43facf1f6ff73b576f3b23",
+    "tree_sha": "576a3d683ee78cbacba427a6055a2a925a2d8725",
+    "definition": "The only R16Q2 implementation candidate; supersedes audit-blocked C1 b9d8ca0cca75e74e40d9d39009a2f72a19dbbbb1/tree e8346a7f715888f33cf71bfe12fa88234ff754fa."
+  },
+  "review_state": {
+    "reviewed_head_sha": "676c6b60a8431ead4a3820a5830843526ecffdab",
+    "reviewed_tree_sha": "c34f55d1c62d7c9686175739ecc0d1e6621c9986",
+    "identity_protocol": "Corrected four-check protocol: HEAD==metadata tip; 256c9104^{tree}==candidate tree; porcelain clean; diff candidate..tip touches ONLY .hermes/handoffs/ paths. Each reviewer verified all four checks independently; implementation bytes reviewed from the working tree are byte-identical to C3 for every path outside .hermes/handoffs/.",
+    "reviews": [
+      {
+        "angle": "SPECIFICATION/OWNERSHIP",
+        "verdict": "PASS",
+        "blockers": 0,
+        "report": ".hermes/evidence/p10/reviews/r16q2-c3-1-specification-ownership.md",
+        "report_sha256": "2ddb378de5b539da8b341d15dcbee6ecf46f1d719d19fb32895746f0001899fa"
+      },
+      {
+        "angle": "QUALITY/SECURITY",
+        "verdict": "PASS",
+        "blockers": 0,
+        "report": ".hermes/evidence/p10/reviews/r16q2-c3-2-quality-security.md",
+        "report_sha256": "9b9d60076bd186fefc075fb0c29595ede1b24ee3d15952ed949994635f125657"
+      },
+      {
+        "angle": "NETWORK/PROTOCOL",
+        "verdict": "PASS",
+        "blockers": 0,
+        "report": ".hermes/evidence/p10/reviews/r16q2-c3-3-network-protocol.md",
+        "report_sha256": "858d78626025a95432c7cbdd3a2c89b4143051caca478003f37ba413fa889326"
+      },
+      {
+        "angle": "LIFECYCLE/INTEGRATION-BOUNDARY",
+        "verdict": "PASS",
+        "blockers": 0,
+        "report": ".hermes/evidence/p10/reviews/r16q2-c3-4-lifecycle-integration.md",
+        "report_sha256": "2f55f62a7e4501bbb678dadb6a8b10c084ba5fbb0202babcd78a02c98f2c166e"
+      }
+    ],
+    "review_status": "APPROVED_FOUR_INDEPENDENT_PASS_ON_UNCHANGED_CANDIDATE",
+    "non_blocking_minors": [
+      "Legacy payload-less deletion row never exactly redelivered strands in APPLYING (fail-closed per state-model \u00a73.2; deletion still converges via re-issued command fences).",
+      "Deterministically failing recovered-deletion convergence loops teardown/reconnect without backoff (deliberate trade-off; C never NACKed before convergence).",
+      "Window 1e (NACKED+pending convergence) lacks a direct test; window 1c verified at store level only."
+    ]
+  },
+  "integration": {
+    "integration_mode": "in-place on handoff branch: four reviews PASSed the unchanged candidate at the metadata tip; no cherry-pick or merge required; implementation bytes unchanged since candidate freeze (verified by reviewers and by integrated validation binding).",
+    "conflicts": "none",
+    "integrated_head_sha": "676c6b60a8431ead4a3820a5830843526ecffdab",
+    "integrated_tree_sha": "c34f55d1c62d7c9686175739ecc0d1e6621c9986",
+    "implementation_bytes_changed_since_candidate": 0
+  },
+  "integrated_validation": {
+    "evidence_dir": ".hermes/evidence/p10/r16q2-integrated",
+    "bound_head_sha": "676c6b60a8431ead4a3820a5830843526ecffdab",
+    "results": [
+      {
+        "phase": "diff-check",
+        "exit_code": 0,
+        "result": "PASS"
+      },
+      {
+        "phase": "gofmt",
+        "exit_code": 0,
+        "result": "PASS"
+      },
+      {
+        "phase": "affected-controller",
+        "exit_code": 0,
+        "result": "PASS"
+      },
+      {
+        "phase": "full-race",
+        "exit_code": 0,
+        "result": "PASS"
+      },
+      {
+        "phase": "make-test",
+        "exit_code": 0,
+        "result": "PASS"
+      },
+      {
+        "phase": "periodic-receipt-recheck",
+        "exit_code": 0,
+        "result": "PASS"
+      },
+      {
+        "phase": "make-check",
+        "exit_code": 0,
+        "result": "PASS"
+      },
+      {
+        "phase": "make-build",
+        "exit_code": 0,
+        "result": "PASS"
+      },
+      {
+        "phase": "p10-focused-race",
+        "exit_code": 0,
+        "result": "PASS"
+      },
+      {
+        "phase": "m1-walking-skeleton",
+        "exit_code": 0,
+        "result": "PASS"
+      },
+      {
+        "phase": "agent-race-stress",
+        "exit_code": 0,
+        "result": "PASS"
+      },
+      {
+        "phase": "controller-stress",
+        "exit_code": 0,
+        "result": "PASS"
+      },
+      {
+        "phase": "m1-stress",
+        "exit_code": 0,
+        "result": "PASS"
+      },
+      {
+        "phase": "govulncheck",
+        "exit_code": 125,
+        "result": "SKIPPED"
+      },
+      {
+        "phase": "netns-integration",
+        "exit_code": 125,
+        "result": "SKIPPED"
+      }
+    ],
+    "gates_passed": 12,
+    "gates_skipped": [
+      "13-govulncheck (not installed)",
+      "14-netns-integration (test/integration absent)"
+    ],
+    "manifest_sha256": "58c34bb40e0c20bffd40197979d49bcf74d772fb7269bfb8624948c9bbf35c37",
+    "summary": "Gates 01-12 exit 0 (full race suite, make test/check/build, P10 focused race, M1 walking skeleton, stress reruns x5). Gates 13/14 honestly SKIPPED (exit 125) with recorded reasons."
+  },
+  "capability_result": "M1 Linux direct-v4 walking skeleton passes locally (aliased global-class literal on loopback; explicitly non-independent). Independent public-WAN reachability is NOT claimed and remains for a later milestone.",
+  "known_limits": [
+    "govulncheck unavailable on this host.",
+    "test/integration netns suite absent in this tree.",
+    "Local M1 evidence is not independent public-WAN evidence."
+  ],
+  "cleanup_done": true,
+  "cleanup": [
+    "Working tree clean at integration; review reports and integrated evidence tracked with SHA-256 manifests."
+  ],
+  "contracts_changed": [],
+  "remote_push": false,
+  "release_performed": false,
+  "self_approval": "NONE \u2014 acceptance rests solely on the four independent PASS records above; implementer did not self-review.",
+  "milestone_status": "P10 COMPLETE \u2014 dependencies for P12 (P10, P11) both satisfied; P12 (12-gateway-traversal-detection.md) may begin.",
+  "next_milestone": "P12",
+  "preserved_handoffs": [
+    ".hermes/handoffs/P10.json",
+    ".hermes/handoffs/P10-r16q2-superseding.json",
+    ".hermes/handoffs/P10-r16q2-repair.json"
+  ]
+}

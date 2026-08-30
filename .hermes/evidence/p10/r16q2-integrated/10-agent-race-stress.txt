@@ -1,0 +1,16 @@
+gate=10-agent-race-stress
+description=Repeat Agent race tests five times
+started_at_utc=2026-08-30T04:14:26Z
+workspace=/root/Claude/AntiNAT/p10-r16q2-resume
+branch=handoff/P10-r16q2-resume
+pre_freeze_head=676c6b60a8431ead4a3820a5830843526ecffdab
+pre_freeze_head_tree=c34f55d1c62d7c9686175739ecc0d1e6621c9986
+command=ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./internal/agent/... -count=5
+--- output ---
+ok  	github.com/gxbrave/AntiNAT/internal/agent	16.340s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/control	22.189s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/localstate	9.105s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	19.227s
+--- result ---
+ended_at_utc=2026-08-30T04:14:48Z
+exit_code=0

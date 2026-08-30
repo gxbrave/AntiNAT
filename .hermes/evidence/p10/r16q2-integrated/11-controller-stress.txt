@@ -1,0 +1,15 @@
+gate=11-controller-stress
+description=Repeat critical Controller packages five times
+started_at_utc=2026-08-30T04:14:48Z
+workspace=/root/Claude/AntiNAT/p10-r16q2-resume
+branch=handoff/P10-r16q2-resume
+pre_freeze_head=676c6b60a8431ead4a3820a5830843526ecffdab
+pre_freeze_head_tree=c34f55d1c62d7c9686175739ecc0d1e6621c9986
+command=GOWORK=off go test ./internal/controller/store ./internal/controller/probe ./internal/controller/agenthub -count=5
+--- output ---
+ok  	github.com/gxbrave/AntiNAT/internal/controller/store	40.527s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	47.420s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/agenthub	42.899s
+--- result ---
+ended_at_utc=2026-08-30T04:15:36Z
+exit_code=0
