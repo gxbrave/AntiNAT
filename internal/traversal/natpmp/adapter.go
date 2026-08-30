@@ -32,8 +32,36 @@ type Adapter struct {
 	gateway netip.AddrPort
 	opts    ClientOptions
 
-	mu       sync.Mutex
-	publicIP netip.Addr // discovered WAN address; zero until Discover
+	mu        sync.Mutex
+	publicIP  netip.Addr // discovered WAN address; zero until Discover
+	lastEpoch uint32     // cross-transaction epoch baseline (RFC 6886 §3.6)
+	epochSeen bool
+}
+
+// epochState snapshots the last observed server epoch for the next
+// transaction's client: reboot detection compares each response against the
+// PREVIOUS response's epoch, which per-transaction sockets cannot remember
+// on their own.
+func (a *Adapter) epochState() (uint32, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.lastEpoch, a.epochSeen
+}
+
+// observeEpoch records the epoch a transaction observed.
+func (a *Adapter) observeEpoch(epoch uint32) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.lastEpoch = epoch
+	a.epochSeen = true
+}
+
+// clientFor opens the transaction client for one socket with the adapter's
+// epoch baseline carried into the client options.
+func (a *Adapter) clientFor(conn net.PacketConn) *Client {
+	opts := a.opts
+	opts.EpochBaseline, opts.EpochSeen = a.epochState()
+	return NewClient(conn, a.gateway, opts)
 }
 
 // NewAdapter builds the NAT-PMP adapter.
@@ -78,11 +106,12 @@ func (a *Adapter) Discover(ctx context.Context) (traversal.ControlServer, error)
 	}
 	defer closeConn()
 
-	client := NewClient(conn, a.gateway, a.opts)
-	publicIP, _, err := client.PublicAddress(ctx)
+	client := a.clientFor(conn)
+	publicIP, epoch, err := client.PublicAddress(ctx)
 	if err != nil {
 		return traversal.ControlServer{}, err
 	}
+	a.observeEpoch(epoch)
 	a.mu.Lock()
 	a.publicIP = publicIP
 	a.mu.Unlock()
@@ -103,7 +132,7 @@ func (a *Adapter) Map(ctx context.Context, req traversal.GatewayMapRequest) (tra
 	}
 	defer closeConn()
 
-	client := NewClient(conn, a.gateway, a.opts)
+	client := a.clientFor(conn)
 	result, err := client.Map(ctx, MapRequest{
 		Protocol:              ProtocolTCP,
 		InternalPort:          req.InternalPort,
@@ -113,6 +142,7 @@ func (a *Adapter) Map(ctx context.Context, req traversal.GatewayMapRequest) (tra
 	if err != nil {
 		return traversal.GatewayMapping{}, err
 	}
+	a.observeEpoch(result.Epoch)
 	return a.normalize(req, result), nil
 }
 
@@ -124,7 +154,7 @@ func (a *Adapter) Renew(ctx context.Context, mapping traversal.GatewayMapping, l
 	}
 	defer closeConn()
 
-	client := NewClient(conn, a.gateway, a.opts)
+	client := a.clientFor(conn)
 	result, err := client.Renew(ctx, MapResult{
 		Protocol:             ProtocolTCP,
 		InternalPort:         mapping.InternalPort,
@@ -133,6 +163,7 @@ func (a *Adapter) Renew(ctx context.Context, mapping traversal.GatewayMapping, l
 	if err != nil {
 		return traversal.GatewayMapping{}, err
 	}
+	a.observeEpoch(result.Epoch)
 	return a.normalize(traversal.GatewayMapRequest{
 		InternalIP:   mapping.InternalIP,
 		InternalPort: mapping.InternalPort,
@@ -148,12 +179,15 @@ func (a *Adapter) Delete(ctx context.Context, mapping traversal.GatewayMapping) 
 	}
 	defer closeConn()
 
-	client := NewClient(conn, a.gateway, a.opts)
-	_, err = client.Delete(ctx, MapResult{
+	client := a.clientFor(conn)
+	result, err := client.Delete(ctx, MapResult{
 		Protocol:             ProtocolTCP,
 		InternalPort:         mapping.InternalPort,
 		AssignedExternalPort: mapping.External.Port(),
 	})
+	if err == nil {
+		a.observeEpoch(result.Epoch)
+	}
 	return err
 }
 

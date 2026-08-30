@@ -37,6 +37,7 @@ type lab struct {
 	prefix       string
 	script       string
 	agentNS      string
+	cpeNS        string
 	vantageNS    string
 	gateway      string
 	stun         string
@@ -99,6 +100,8 @@ func startLab(t *testing.T) *lab {
 			l.vantageIP = value
 		case "AGENT_NS":
 			l.agentNS = value
+		case "CPE_NS":
+			l.cpeNS = value
 		case "VANTAGE_NS":
 			l.vantageNS = value
 		case "WORK_DIR":
@@ -153,8 +156,10 @@ func (l *lab) vantageConnect(port uint16, send string, timeout time.Duration) (s
 }
 
 // vantageExpectClosed verifies a released external port no longer accepts
-// connections from the vantage: the gateway-side mapping must be gone, not
-// only the local listener.
+// connections from the vantage. Note the limit: from outside, a removed
+// DNAT rule and a closed backend are indistinguishable (both RST) — the
+// authoritative gateway-side evidence is gatewayRuleAbsent below; the
+// adapters' own delete verification is the ownership proof.
 func (l *lab) vantageExpectClosed(port uint16, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -166,6 +171,22 @@ func (l *lab) vantageExpectClosed(port uint16, timeout time.Duration) error {
 	}
 	if ctx.Err() != nil {
 		return fmt.Errorf("port %d connect hung after release (still filtered open?)", port)
+	}
+	return nil
+}
+
+// gatewayRuleAbsent asserts the CPE's nftables ruleset holds no forward
+// rule for the released external port: the gateway-side mapping is really
+// gone, not merely unreachable (lifecycle review finding).
+func (l *lab) gatewayRuleAbsent(port uint16) error {
+	out, err := exec.Command("ip", "netns", "exec", l.cpeNS, "nft", "list", "ruleset").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("list gateway ruleset: %v\n%s", err, out)
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.Contains(line, fmt.Sprintf("tcp dport %d", port)) {
+			return fmt.Errorf("gateway still holds a forward rule for port %d: %s", port, strings.TrimSpace(line))
+		}
 	}
 	return nil
 }
@@ -276,9 +297,13 @@ func TestTCPTraversal(t *testing.T) {
 	}
 
 	// Ownership evidence through the real gateway: after the child released
-	// its mappings, every external port must be closed from the vantage —
-	// the DNAT rule is gone, not only the local listener.
+	// its mappings, the CPE's nftables ruleset must hold no forward rule
+	// for any released port (gateway-side truth), and the ports must be
+	// closed from the vantage (supplementary reachability check).
 	for _, port := range recordedPorts {
+		if err := labEnv.gatewayRuleAbsent(port); err != nil {
+			t.Errorf("release verification: %v", err)
+		}
 		if err := labEnv.vantageExpectClosed(port, 3*time.Second); err != nil {
 			t.Errorf("release verification: %v", err)
 		}

@@ -109,14 +109,15 @@ func (s *scriptedMapper) Renew(ctx context.Context, mapping GatewayMapping, life
 	renewErr, rebootAfter, rewriteAfter, granted := s.renewErr, s.rebootAfter, s.rewriteExternalAfter, s.grantedLease
 	s.mu.Unlock()
 	if renewErr != nil {
-		return GatewayMapping{}, renewErr
+		// With an oscillation period the scripted failure alternates: odd
+		// windows fail, even windows succeed (degrade/recover cycles).
+		if !(s.oscillatePeriod > 0 && (renewals/s.oscillatePeriod)%2 == 0) {
+			return GatewayMapping{}, renewErr
+		}
 	}
 	mapping.Lease = lifetime
 	if granted > 0 {
 		mapping.Lease = granted
-	}
-	if s.oscillatePeriod > 0 && (renewals/s.oscillatePeriod)%2 == 1 {
-		return GatewayMapping{}, renewErr
 	}
 	if rebootAfter > 0 && renewals >= rebootAfter {
 		mapping.ServerRebooted = true
@@ -820,5 +821,37 @@ func TestManagerReleaseFromBlockingCallbackCompletes(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Release called from within a lifecycle callback deadlocked")
+	}
+}
+
+// MA16 (quality/security review M1): a panicking lifecycle callback must be
+// contained and later events must still flow. Regression for the S7g drain
+// lock-out: a panic unwinding through drain ran its deferred Unlock while
+// the mutex was NOT held - an unrecoverable fatal that killed the process.
+func TestManagerCallbackPanicContainedAndDeliveryContinues(t *testing.T) {
+	mapper := gatewayMapperFixture()
+	mapper.renewErr = errors.New("gateway gone")
+	mapper.oscillatePeriod = 3
+	recovered := make(chan string, 4)
+	var panicOnce sync.Once
+	manager := NewManager(ManagerOptions{
+		RouteTable: managerRouteTable(),
+		Listeners:  &fakeListenerSource{},
+		Mappers:    map[MappingLayerKind]GatewayMapper{LayerPCP: mapper},
+		Journal:    NewMemoryJournal(),
+		OnMappingDegraded: func(forwardID string, reason string) {
+			panicOnce.Do(func() { panic("consumer callback bug") })
+		},
+		OnMappingRecovered: func(forwardID string) { recovered <- forwardID },
+	})
+	acquisition, err := manager.Acquire(t.Context(), withPacing(gatewayAcquireRequest("forward-panic"), 20*time.Millisecond))
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	defer acquisition.Release(t.Context())
+	select {
+	case <-recovered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a panicking callback must be contained and later events must still be delivered")
 	}
 }

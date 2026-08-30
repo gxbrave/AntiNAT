@@ -98,6 +98,11 @@ type ManagerOptions struct {
 	// OnMappingDegraded fires once when three consecutive renewals failed
 	// (keepalive_state DEGRADED): the mapping may still recover, and
 	// renewals continue.
+	//
+	// All three callbacks run off the renewal goroutine in publication
+	// order, are contained per event (a panicking callback cannot affect
+	// the loop or later events), and may still be in flight when Release
+	// returns — consumers must tolerate a trailing notification.
 	OnMappingDegraded func(forwardID string, reason string)
 	// OnMappingLost fires when the mapping is LOST: the lease expiry safety
 	// margin was crossed, a gateway reboot was confirmed, or a renewal
@@ -154,7 +159,10 @@ type Acquisition struct {
 	Verdict PipelineVerdict
 	// Layers is the structured evidence in composition order.
 	Layers []LayerEvidence
-	// Mapping is the live gateway mapping; nil for direct/manual.
+	// Mapping is the live gateway mapping; nil for direct/manual. The
+	// renewal goroutine rewrites it in place under renewMu: direct readers
+	// race with it, so treat the field as a wiring handle and use
+	// CurrentMapping for a locked snapshot.
 	Mapping *GatewayMapping
 	// JournalID references the journal record (mapping_journal_ref); empty
 	// when the record was never durably written.
@@ -164,6 +172,12 @@ type Acquisition struct {
 	// failure). A failed observation is never silently dropped; the gateway
 	// evidence stands alone.
 	StunObserveError error
+	// JournalError records a failed journal write. The JournalID reference
+	// stays honest (never set for a record that was not durably written),
+	// but the durable-state loss is surfaced here instead of staying
+	// silent. Written by the acquisition and by the renewal goroutine;
+	// readers treat it as advisory.
+	JournalError error
 
 	manager   *Manager
 	mapper    GatewayMapper
@@ -285,6 +299,7 @@ func (m *Manager) acquireDirect(ctx context.Context, req AcquireRequest, acquisi
 	}}
 	verdict, err := EvaluateLayers(acquisition.Layers, PortPolicyAcceptAssigned)
 	if err != nil {
+		m.releaseListenerQuietly(acquisition)
 		return err
 	}
 	acquisition.Verdict = verdict
@@ -326,6 +341,7 @@ func (m *Manager) acquireManual(ctx context.Context, req AcquireRequest, plan St
 	}}
 	verdict, err := EvaluateLayers(acquisition.Layers, plan.FinalEndpointConstraint)
 	if err != nil {
+		m.releaseListenerQuietly(acquisition)
 		return err
 	}
 	acquisition.Verdict = verdict
@@ -434,14 +450,16 @@ func (m *Manager) acquireGateway(ctx context.Context, req AcquireRequest, plan S
 	verdict, err := EvaluateLayers(acquisition.Layers, plan.FinalEndpointConstraint)
 	if err != nil {
 		// Release the mapping before failing: ownership strength applies
-		// on the failure path too.
-		if deleteErr := mapper.Delete(ctx, mapping); deleteErr != nil {
+		// on the failure path too. The compensating delete must survive a
+		// cancelled caller context — a live gateway mapping with no
+		// durable journal record is the worst outcome (lifecycle review).
+		if deleteErr := mapper.Delete(context.WithoutCancel(ctx), mapping); deleteErr != nil {
 			return errors.Join(err, deleteErr)
 		}
 		return err
 	}
 	acquisition.Verdict = verdict
-	acquisition.JournalID = m.journalPut(req.ForwardID, acquisition.JournalID, mapping)
+	acquisition.JournalID, acquisition.JournalError = m.journalPut(req.ForwardID, acquisition.JournalID, mapping)
 	m.startRenewal(req.ForwardID, acquisition, lease, req.RenewalInterval, req.RenewalJitterMax)
 	return nil
 }
@@ -551,7 +569,16 @@ func (q *lifecycleQueue) drain(fn func(lifecycleEvent)) {
 			event := q.events[0]
 			q.events = q.events[1:]
 			q.mu.Unlock()
-			fn(event)
+			// Contain callback panics HERE, not at the dispatcher: a panic
+			// unwinding through drain would run drain's deferred Unlock
+			// while the mutex is NOT held — an unrecoverable fatal error
+			// that kills the process (quality/security review, empirically
+			// confirmed). Per-event containment also keeps later events
+			// flowing past a broken callback.
+			func() {
+				defer func() { _ = recover() }()
+				fn(event)
+			}()
 			q.mu.Lock()
 		}
 		if q.closed {
@@ -590,8 +617,8 @@ func (m *Manager) startRenewal(forwardID string, acquisition *Acquisition, lease
 	acquisition.events = newLifecycleQueue()
 
 	go func() {
-		// A panicking callback must not wedge the manager; the remaining
-		// queued events are dropped with it.
+		// Callback panics are contained per event inside drain; this
+		// recover is belt-and-braces for anything above the queue.
 		defer func() { _ = recover() }()
 		acquisition.events.drain(func(event lifecycleEvent) {
 			switch event.kind {
@@ -710,7 +737,7 @@ func (m *Manager) renewOnce(forwardID string, acquisition *Acquisition, requeste
 	}
 	renewedCopy := renewed
 	acquisition.Mapping = &renewedCopy
-	acquisition.JournalID = m.journalPut(forwardID, acquisition.JournalID, renewedCopy)
+	acquisition.JournalID, acquisition.JournalError = m.journalPut(forwardID, acquisition.JournalID, renewedCopy)
 	if productionPacing && renewedCopy.Lease > 0 {
 		return renewedCopy.Lease / 2, renewedCopy.Lease / 10
 	}
@@ -747,15 +774,28 @@ func (a *Acquisition) grantedLeaseOrDefault(fallback time.Duration) time.Duratio
 	return fallback
 }
 
+// CurrentMapping returns a locked snapshot of the live mapping. The renewal
+// goroutine rewrites the Mapping field in place; readers must not take the
+// field directly.
+func (a *Acquisition) CurrentMapping() *GatewayMapping {
+	a.renewMu.Lock()
+	defer a.renewMu.Unlock()
+	if a.Mapping == nil {
+		return nil
+	}
+	snapshot := *a.Mapping
+	return &snapshot
+}
+
 // journalPut persists one mapping record under a stable ID (first write
 // derives it, renewals reuse it so the journal updates in place and never
 // rewrite the creation time). Journaling failures never break a live
-// mapping, but the returned reference is honest: a failed first write
-// leaves no mapping_journal_ref, and a failed renewal update keeps the
-// reference to the already-durable record.
-func (m *Manager) journalPut(forwardID string, existingID string, mapping GatewayMapping) string {
+// mapping, but they are surfaced as an error alongside the honest
+// reference: a failed first write leaves no mapping_journal_ref, and a
+// failed renewal update keeps the reference to the already-durable record.
+func (m *Manager) journalPut(forwardID string, existingID string, mapping GatewayMapping) (string, error) {
 	if m.opts.Journal == nil {
-		return ""
+		return "", nil
 	}
 	now := m.opts.Clock()
 	createdAt := now.Unix()
@@ -786,9 +826,9 @@ func (m *Manager) journalPut(forwardID string, existingID string, mapping Gatewa
 		UpdatedAtUnix:   now.Unix(),
 	}
 	if err := m.opts.Journal.Put(record); err != nil {
-		return existingID
+		return existingID, fmt.Errorf("traversal: journal put %s: %w", recordID, err)
 	}
-	return recordID
+	return recordID, nil
 }
 
 // ownershipStateJSON serializes the mechanism-private renewal state for the
@@ -809,7 +849,11 @@ func ownershipStateJSON(mapping GatewayMapping) []byte {
 // journalIDFor derives a stable journal record ID per forward.
 func journalIDFor(forwardID string, mapping GatewayMapping) string {
 	var b [8]byte
-	_, _ = rand.Read(b[:])
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand failure: a wall-clock suffix instead of a predictable
+		// zeroed ID (quality/security review).
+		binary.BigEndian.PutUint64(b[:], uint64(time.Now().UnixNano()))
+	}
 	return forwardID + "-" + string(mapping.Mechanism) + "-" + hex.EncodeToString(b[:])
 }
 
@@ -860,7 +904,10 @@ func jitterTime(max time.Duration) time.Duration {
 	}
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return 0
+		// crypto/rand failure: a deterministic mid-window jitter loses
+		// anti-synchronization for at most one interval instead of
+		// collapsing to always-zero (quality/security review).
+		return max / 2
 	}
 	return time.Duration(binary.BigEndian.Uint64(b[:]) % uint64(max))
 }

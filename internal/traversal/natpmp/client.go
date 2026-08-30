@@ -99,6 +99,13 @@ type ClientOptions struct {
 	MaxAttempts int
 	// Backoff is the delay between attempts; default 500ms.
 	Backoff time.Duration
+	// EpochBaseline / EpochSeen carry the adapter's cross-transaction epoch
+	// baseline: reboot detection (RFC 6886 §3.6) compares a response against
+	// the PREVIOUS response's epoch, which a per-transaction client cannot
+	// know on its own. The adapter snapshots the baseline before every
+	// transaction and records the observed epoch after it.
+	EpochBaseline uint32
+	EpochSeen     bool
 }
 
 // Client is a single-transaction NAT-PMP client over UDP. It owns no
@@ -124,7 +131,13 @@ func NewClient(conn net.PacketConn, server netip.AddrPort, opts ClientOptions) *
 	if opts.Backoff <= 0 {
 		opts.Backoff = 500 * time.Millisecond
 	}
-	return &Client{conn: conn, server: server, opts: opts}
+	return &Client{
+		conn:      conn,
+		server:    server,
+		opts:      opts,
+		lastEpoch: opts.EpochBaseline,
+		sawEpoch:  opts.EpochSeen,
+	}
 }
 
 // publicResult carries the public-address response payload.

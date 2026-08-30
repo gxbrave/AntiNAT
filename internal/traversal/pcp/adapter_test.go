@@ -212,3 +212,17 @@ func TestAdapterDeleteRoundTrip(t *testing.T) {
 		t.Fatalf("delete must carry the owning nonce (seen=%v nonce=%v)", deleteSeen, seenNonce)
 	}
 }
+
+// A7 (quality/security review L3): a Gateway given as an address without a
+// port takes the registered PCP port 5351 instead of being zeroed into a
+// discover failure.
+func TestAdapterDefaultsGatewayPort(t *testing.T) {
+	addrOnly := netip.AddrPortFrom(netip.MustParseAddr("10.0.0.1"), 0)
+	adapter := NewAdapter(AdapterOptions{Gateway: addrOnly})
+	if adapter.gateway.Port() != DefaultServerPort {
+		t.Fatalf("gateway port = %d, want the registered %d", adapter.gateway.Port(), DefaultServerPort)
+	}
+	if adapter.gateway.Addr().String() != "10.0.0.1" {
+		t.Fatalf("gateway address = %s, want the given address preserved", adapter.gateway.Addr())
+	}
+}

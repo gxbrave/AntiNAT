@@ -173,10 +173,19 @@ func (d *Detector) Run(ctx context.Context, req DetectionRequest) (Profile, erro
 		result := results[i]
 		switch {
 		case attempt.name == string(LayerPCP) || attempt.name == string(LayerNATPMP) ||
-			attempt.name == string(LayerUPnP) || attempt.name == "upnp-igd:2" || attempt.name == "upnp-igd:1":
+			attempt.name == string(LayerUPnP):
 			if gatewayPassed {
-				// A later mechanism's evidence folds into the winning
-				// result's note trail only.
+				// Fold later mechanisms' evidence into the winning result's
+				// note trail instead of dropping it (lifecycle review).
+				for i := range profile.Results {
+					if profile.Results[i].Strategy != protocol.StrategyExplicitGateway {
+						continue
+					}
+					if note := strings.TrimSpace(attempt.name + ": " + result.Note); note != "" {
+						profile.Results[i].Note = strings.TrimSpace(profile.Results[i].Note + " " + note)
+					}
+					break
+				}
 				continue
 			}
 			if result.State == DetectionPassed {
@@ -361,7 +370,16 @@ func (d *Detector) stunAttempt(ctx context.Context) StrategyResult {
 		if err != nil {
 			continue
 		}
-		observed, err := d.opts.StunObserve(ctx, address, d.opts.AttemptTimeout)
+		// The observation timeout honors the request-level attempt budget
+		// via the context deadline (lifecycle review): the default only
+		// applies when the attempt context carries none.
+		timeout := d.opts.AttemptTimeout
+		if deadline, ok := ctx.Deadline(); ok {
+			if remaining := time.Until(deadline); remaining > 0 && remaining < timeout {
+				timeout = remaining
+			}
+		}
+		observed, err := d.opts.StunObserve(ctx, address, timeout)
 		if err != nil {
 			result.Note = strings.TrimSpace(result.Note + " " + server + ": " + err.Error())
 			continue

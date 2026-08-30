@@ -53,7 +53,10 @@ cleanup() {
         return "$status"
     fi
     cleaned=1
-    if [[ "$teardown" == "1" || "$keep" != "1" ]]; then
+    # Keep mode leaves the topology running ONLY on success: a setup
+    # failure (readiness poll, interrupted setup) must still tear down,
+    # otherwise namespaces and daemons leak (lifecycle review finding).
+    if [[ "$teardown" == "1" || "$keep" != "1" || $status -ne 0 ]]; then
         teardown_all
     fi
     return "$status"
@@ -159,6 +162,7 @@ STUN=11.0.0.1:3478
 CPE_WAN=11.0.0.2
 VANTAGE=11.0.0.1
 AGENT_NS=$agent_ns
+CPE_NS=$cpe_ns
 VANTAGE_NS=$vantage_ns
 WORK_DIR=$work_dir
 MINIUPNPD_PID=$miniupnpd_pid

@@ -632,3 +632,74 @@ func TestDefaultAttemptTimeoutFitsSSDPDiscovery(t *testing.T) {
 			traversal.DefaultAttemptTimeout, budget)
 	}
 }
+
+// R3f (quality/security review L1): a SOAP POST that redirects is refused —
+// the envelope carries the internal tuple, so a redirect would replay it to
+// a foreign host. Pins postSOAP's CheckRedirect, which the description
+// tests do not cover.
+func TestSOAPPostRefusesRedirect(t *testing.T) {
+	redirectTarget := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		soapOK(w, "AddAnyPortMapping", `<NewReservedPort>43111</NewReservedPort>`)
+	}))
+	defer redirectTarget.Close()
+
+	// The control server answers every POST with a redirect to the foreign
+	// target; Map must surface the refusal, never follow it.
+	redirectingControl := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, redirectTarget.URL+"/steal", http.StatusFound)
+	}))
+	defer redirectingControl.Close()
+
+	service := Service{
+		Type:       "urn:schemas-upnp-org:service:WANIPConnection:2",
+		ControlURL: redirectingControl.URL + "/ctl/IPConn",
+		IGDv2:      true,
+	}
+	client := NewClient(http.DefaultClient, service, ClientOptions{})
+	_, err := client.Map(t.Context(), MapRequest{
+		Protocol: "TCP", InternalAddress: "10.0.0.2", InternalPort: 3111,
+		RequestedExternalPort: 43111, Lease: time.Hour, Description: "AntiNAT",
+	})
+	if !errors.Is(err, ErrRedirectRefused) {
+		t.Fatalf("error = %v, want ErrRedirectRefused (the POST must never be replayed)", err)
+	}
+}
+
+// R5f (quality/security review L2): a post-add query revealing OUR tuple
+// with a mangled description echo deletes the just-created entry instead of
+// leaking it; a genuinely foreign tuple is never touched.
+func TestMapV1MangledDescriptionEchoDeletesCreatedEntry(t *testing.T) {
+	var mu sync.Mutex
+	deleted := 0
+	client := newTestIGD(t, false, func(action string, r *http.Request, w http.ResponseWriter) {
+		switch action {
+		case "AddPortMapping":
+			soapOK(w, "AddPortMapping", "")
+		case "GetSpecificPortMappingEntry":
+			// Our tuple, but the device truncated the description echo
+			// (miniupnpd-style).
+			soapOK(w, "GetSpecificPortMappingEntry",
+				`<NewInternalPort>3111</NewInternalPort><NewInternalClient>10.0.0.2</NewInternalClient><NewPortMappingDescription>AntiNAT uuid:trunc</NewPortMappingDescription><NewLeaseDuration>3600</NewLeaseDuration>`)
+		case "DeletePortMapping":
+			mu.Lock()
+			deleted++
+			mu.Unlock()
+			soapOK(w, "DeletePortMapping", "")
+		default:
+			writeSOAPFault(w, 401, "Invalid Action")
+		}
+	})
+
+	_, err := client.Map(t.Context(), MapRequest{
+		Protocol: "TCP", InternalAddress: "10.0.0.2", InternalPort: 3111,
+		RequestedExternalPort: 43111, Lease: time.Hour, Description: "AntiNAT uuid:truncated-by-device",
+	})
+	if err == nil {
+		t.Fatal("a mangled description echo must fail the verification")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if deleted != 1 {
+		t.Fatalf("deletes = %d, want exactly 1 (the just-created entry must not leak)", deleted)
+	}
+}

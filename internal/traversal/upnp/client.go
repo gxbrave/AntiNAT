@@ -157,13 +157,29 @@ func (c *Client) Map(ctx context.Context, req MapRequest) (MapResult, error) {
 		// a different mapping than the request asked for.
 		entry, err := c.Query(ctx, candidate, req.Protocol)
 		if err != nil {
-			return MapResult{}, fmt.Errorf("upnp: post-add verification: %w", err)
+			// The device accepted the add but the entry cannot be verified,
+			// so it also cannot be safely located for deletion: fail with
+			// the residue risk stated instead of pretending cleanup
+			// happened.
+			return MapResult{}, fmt.Errorf("upnp: post-add verification: %w (the created entry may outlive this call and must be reconciled)", err)
 		}
 		if entry == nil {
-			return MapResult{}, fmt.Errorf("upnp: post-add verification: device holds no entry for port %d", candidate)
+			return MapResult{}, fmt.Errorf("upnp: post-add verification: device holds no entry for port %d (it may have been created at another port)", candidate)
 		}
-		if entry.InternalPort != req.InternalPort || entry.InternalAddr != req.InternalAddress || entry.Description != req.Description {
-			return MapResult{}, ErrForeignMapping
+		if entry.InternalPort == req.InternalPort && entry.InternalAddr == req.InternalAddress && entry.Description != req.Description {
+			// The tuple is ours but the device mangled the description echo
+			// (e.g. truncated it): the just-created entry is ours by tuple,
+			// so delete it rather than leaking it.
+			if deleteErr := c.deletePortMapping(ctx, candidate, req.Protocol); deleteErr != nil {
+				return MapResult{}, errors.Join(errors.New("upnp: post-add verification: device mangled the description echo"), deleteErr)
+			}
+			return MapResult{}, fmt.Errorf("upnp: post-add verification: device mangled the description echo; the just-created entry was deleted")
+		}
+		if entry.InternalPort != req.InternalPort || entry.InternalAddr != req.InternalAddress {
+			// A genuinely foreign entry holds the candidate port: never
+			// touched, and our own entry — wherever the device put it — is
+			// flagged for reconciliation.
+			return MapResult{}, fmt.Errorf("upnp: post-add verification: %w (the created entry may outlive this call and must be reconciled)", ErrForeignMapping)
 		}
 		return MapResult{
 			Protocol:             req.Protocol,
@@ -261,6 +277,18 @@ func (c *Client) Delete(ctx context.Context, mapping MapResult) error {
 		return ErrForeignMapping
 	}
 	envelope := buildDeleteMapping(c.world, mapping.AssignedExternalPort, mapping.Protocol)
+	return c.postDelete(ctx, envelope)
+}
+
+// deletePortMapping issues a bare DeletePortMapping for one external port.
+// The query-then-delete discipline lives in Delete; this helper serves the
+// paths that have already established ownership of the entry.
+func (c *Client) deletePortMapping(ctx context.Context, externalPort uint16, protocol string) error {
+	envelope := buildDeleteMapping(c.world, externalPort, protocol)
+	return c.postDelete(ctx, envelope)
+}
+
+func (c *Client) postDelete(ctx context.Context, envelope string) error {
 	body, err := postSOAP(ctx, c.http, c.world, "DeletePortMapping", envelope)
 	if err != nil {
 		return err

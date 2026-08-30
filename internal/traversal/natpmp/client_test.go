@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/gxbrave/AntiNAT/internal/traversal"
 )
 
 func newPacketConn(t *testing.T) net.PacketConn {
@@ -464,5 +466,38 @@ func TestMapUnsupportedOpcode(t *testing.T) {
 		Protocol: ProtocolTCP, InternalPort: 3111, Lifetime: time.Hour,
 	}); !errors.Is(err, ErrUnsupportedOpcode) {
 		t.Fatalf("error = %v, want ErrUnsupportedOpcode", err)
+	}
+}
+
+// A8 (network review MEDIUM): reboot detection must survive the adapter's
+// per-transaction sockets — the epoch baseline observed by the first
+// transaction is the baseline of the next, so an epoch rollback in a
+// renewal reports ServerRebooted (RFC 6886 §3.6).
+func TestAdapterRenewDetectsRebootAcrossTransactions(t *testing.T) {
+	server := newFakeServer(t)
+	server.handle(func(seq int, request []byte) []byte {
+		epoch := uint32(0x1000)
+		if seq >= 2 {
+			epoch = 0x10 // rollback far beyond the tolerance
+		}
+		return mapResponseBytes(request, 43111, 3600, epoch)
+	})
+
+	adapter := NewAdapter(AdapterOptions{Gateway: server.peer, Timeout: 300 * time.Millisecond})
+	mapping, err := adapter.Map(t.Context(), traversal.GatewayMapRequest{
+		InternalPort: 3111, Lease: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("Map: %v", err)
+	}
+	if mapping.ServerRebooted {
+		t.Fatal("the first transaction has no baseline and must not claim a reboot")
+	}
+	renewed, err := adapter.Renew(t.Context(), mapping, time.Hour)
+	if err != nil {
+		t.Fatalf("Renew: %v", err)
+	}
+	if !renewed.ServerRebooted {
+		t.Fatal("an epoch rollback across transactions must report ServerRebooted")
 	}
 }

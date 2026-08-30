@@ -65,7 +65,7 @@ func NewAdapter(opts AdapterOptions) *Adapter {
 		Backoff:     opts.Backoff,
 	}
 	gateway := opts.Gateway
-	if !gateway.IsValid() || gateway.Port() == 0 {
+	if !gateway.IsValid() {
 		// Gateway address is required for real use; an invalid address
 		// fails Discover rather than guessing the default gateway here.
 		gateway = netip.AddrPort{}
