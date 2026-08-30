@@ -22,6 +22,7 @@
 package traversal
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -422,4 +423,108 @@ func parseEndpoint(endpoint string) (netip.AddrPort, error) {
 		return netip.AddrPort{}, fmt.Errorf("invalid endpoint %q: %w", endpoint, err)
 	}
 	return netip.AddrPortFrom(addr.Addr().Unmap(), addr.Port()), nil
+}
+
+// ---------------------------------------------------------------------------
+// Gateway mapper contract (Story 5 composition).
+//
+// Adapters wrap their protocol clients and surface the normalized contract
+// the Manager and Detector consume. Dependency direction: adapter packages
+// import traversal; traversal never imports an adapter, so the composition
+// root (the consumer wiring the manager) constructs adapters explicitly.
+// ---------------------------------------------------------------------------
+
+// ControlServer is one gateway control endpoint discovered for a mechanism.
+type ControlServer struct {
+	Mechanism MappingLayerKind
+	// Address is the control endpoint: "ip:port" for PCP/NAT-PMP, the
+	// absolute control URL for UPnP.
+	Address string
+	// Identity is the stable gateway identity (UPnP USN; empty otherwise).
+	Identity string
+	// IGDv2 records the UPnP service version for the capability table.
+	IGDv2 bool
+}
+
+// GatewayMapRequest is the mechanism-neutral mapping request. v1 maps TCP
+// tuples; UDP arrives with P13 through the same contract.
+type GatewayMapRequest struct {
+	InternalIP            netip.Addr
+	InternalPort          uint16
+	RequestedExternalPort uint16
+	Lease                 time.Duration
+	// StrictPort demands the exact external port where the mechanism can
+	// express it (PCP PREFER_FAILURE, UPnP IGDv2 request). Mechanisms that
+	// cannot request exact ports reject StrictPort at planning.
+	StrictPort bool
+}
+
+// GatewayMapping is the normalized live mapping state.
+type GatewayMapping struct {
+	Mechanism    MappingLayerKind
+	Ownership    OwnershipStrength
+	InternalIP   netip.Addr
+	InternalPort uint16
+	External     netip.AddrPort
+	Lease        time.Duration
+	Epoch        uint32
+	// Identity is the stable gateway identity for journal records (UPnP
+	// USN, empty otherwise).
+	Identity string
+	// State is the mechanism-private renewal state (PCP nonce, NAT-PMP
+	// tuple, UPnP mapping record). It is opaque to the Manager and only
+	// ever passed back to the same adapter's Renew/Delete.
+	State any
+}
+
+// Evidence renders the structured layer record (v0.8 §3.1 step 4) for this
+// mapping: scope classifies the external endpoint against IsGlobalV4, so a
+// non-global assignment carries FIRST_HOP scope and never advertises
+// itself as a public candidate.
+func (m GatewayMapping) Evidence(control ControlServer) LayerEvidence {
+	scope := ScopeFirstHop
+	if IsGlobalV4Endpoint(m.External) {
+		scope = ScopeGlobalPublic
+	}
+	return LayerEvidence{
+		Kind:             LayerKindGateway,
+		Mechanism:        m.Mechanism,
+		ControlServer:    control.Address,
+		InternalEndpoint: netip.AddrPortFrom(m.InternalIP, m.InternalPort).String(),
+		AssignedEndpoint: m.External.String(),
+		Scope:            scope,
+		LeaseLifetime:    m.Lease,
+		Epoch:            m.Epoch,
+		Ownership:        m.Ownership,
+		ParentLayer:      -1,
+	}
+}
+
+// Description renders the journal mapping description for this record: a
+// stable, owner-tagged string the delete verification compares.
+func (m GatewayMapping) Description() string {
+	if m.Identity != "" {
+		return "AntiNAT " + m.Identity
+	}
+	return "AntiNAT"
+}
+
+// GatewayMapper is one explicit NAT control mechanism (v0.8 §3.4): PCP with
+// strong nonce ownership, NAT-PMP with weak leases, UPnP IGD with
+// best-effort query-then-delete. Implementations must be safe for
+// sequential use; renewals and deletes carry the State they produced.
+type GatewayMapper interface {
+	Mechanism() MappingLayerKind
+	Ownership() OwnershipStrength
+	Capability() PortControlCapability
+	// Discover probes whether a gateway of this mechanism controls the
+	// first hop. Silence or refusal is evidence of absence, not an error
+	// to retry forever.
+	Discover(ctx context.Context) (ControlServer, error)
+	// Map acquires one external mapping for the internal TCP tuple.
+	Map(ctx context.Context, req GatewayMapRequest) (GatewayMapping, error)
+	// Renew extends the lease carrying the owning state.
+	Renew(ctx context.Context, mapping GatewayMapping, lifetime time.Duration) (GatewayMapping, error)
+	// Delete releases the mapping per its ownership strength.
+	Delete(ctx context.Context, mapping GatewayMapping) error
 }

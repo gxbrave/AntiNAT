@@ -151,6 +151,83 @@ func cryptoRandNonce() ([12]byte, error) {
 	return nonce, nil
 }
 
+// Announce probes gateway reachability with no side effects (RFC 6887
+// §8.4). This is the PCP discovery probe: success carries the server epoch;
+// UNSUPPORTED_VERSION or silence means no PCP gateway controls the first
+// hop.
+func (c *Client) Announce(ctx context.Context, clientAddr netip.Addr) (uint32, error) {
+	packet, err := buildAnnounceRequest(clientAddr)
+	if err != nil {
+		return 0, err
+	}
+	peer := net.UDPAddrFromAddrPort(c.server)
+	for attempt := 1; attempt <= c.opts.MaxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		if _, err := c.conn.WriteTo(packet, peer); err != nil {
+			return 0, fmt.Errorf("pcp: send: %w", err)
+		}
+		epoch, err, done := c.awaitAnnounce(ctx, clientAddr)
+		if done {
+			if err != nil {
+				return 0, err
+			}
+			return epoch, nil
+		}
+		if attempt < c.opts.MaxAttempts {
+			select {
+			case <-time.After(c.opts.Backoff):
+			case <-ctx.Done():
+				return 0, ctx.Err()
+			}
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	return 0, ErrNoResponse
+}
+
+// awaitAnnounce is the ANNOUNCE counterpart of awaitMap.
+func (c *Client) awaitAnnounce(ctx context.Context, clientAddr netip.Addr) (uint32, error, bool) {
+	deadline := time.Now().Add(c.opts.Timeout)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		deadline = ctxDeadline
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return 0, err, true
+		}
+		if err := c.conn.SetReadDeadline(deadline); err != nil {
+			return 0, err, true
+		}
+		buf := make([]byte, 1500)
+		n, from, err := c.conn.ReadFrom(buf)
+		if err != nil {
+			return 0, errTransientRetry, false
+		}
+		if fromAddr, ok := addrPortOf(from); !ok || fromAddr != c.server {
+			continue
+		}
+		response, err := parseAnnounceResponse(buf[:n], clientAddr)
+		if err != nil {
+			return 0, err, true
+		}
+		if response.ResultCode != ResultSuccess {
+			if TransientResult(response.ResultCode) {
+				return 0, errTransientRetry, false
+			}
+			if sentinel, known := resultErrors[response.ResultCode]; known {
+				return 0, sentinel, true
+			}
+			return 0, fmt.Errorf("pcp: gateway permanent failure, result code %d", response.ResultCode), true
+		}
+		c.observeEpoch(response.Epoch)
+		return response.Epoch, nil, true
+	}
+}
+
 // Map acquires or renews one mapping with a fresh nonce. The caller persists
 // the returned nonce (mapping journal) as the ownership state.
 func (c *Client) Map(ctx context.Context, req MapRequest) (MapResult, error) {

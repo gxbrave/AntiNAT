@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -70,8 +71,12 @@ type MapResult struct {
 	InternalAddress      string
 	InternalPort         uint16
 	AssignedExternalPort uint16
-	Lease                time.Duration
-	Description          string
+	// AssignedExternalAddress is filled from GetExternalIPAddress by the
+	// adapter (the add actions do not return it) and stays invalid when the
+	// device lacks that action.
+	AssignedExternalAddress netip.Addr
+	Lease                   time.Duration
+	Description             string
 }
 
 // soapEnvelope is the request envelope skeleton.
@@ -109,6 +114,11 @@ func buildAddMapping(service Service, req MapRequest, externalPort uint16) strin
 	fields.WriteString(soapField("NewPortMappingDescription", req.Description))
 	fields.WriteString(soapField("NewLeaseDuration", strconv.FormatUint(uint64(req.Lease/time.Second), 10)))
 	return fmt.Sprintf(soapEnvelope, action, service.Type, fields.String(), action)
+}
+
+// buildExternalAddress renders GetExternalIPAddress.
+func buildExternalAddress(service Service) string {
+	return fmt.Sprintf(soapEnvelope, "GetExternalIPAddress", service.Type, "", "GetExternalIPAddress")
 }
 
 // buildQueryMapping renders GetSpecificPortMappingEntry.

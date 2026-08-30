@@ -14,7 +14,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -152,6 +154,27 @@ func (c *Client) Map(ctx context.Context, req MapRequest) (MapResult, error) {
 		}, nil
 	}
 	return MapResult{}, ErrNoMappingPort
+}
+
+// ExternalAddress fetches the gateway's WAN IPv4 via
+// GetExternalIPAddress. Devices without the action surface the SOAP fault;
+// callers fall back to STUN classification in that case.
+func (c *Client) ExternalAddress(ctx context.Context) (netip.Addr, error) {
+	envelope := buildExternalAddress(c.world)
+	body, err := postSOAP(ctx, c.http, c.world, "GetExternalIPAddress", envelope)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	fields, err := parseSOAPResponse(body, "GetExternalIPAddress")
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	text := fields["NewExternalIPAddress"]
+	addr, err := netip.ParseAddr(strings.TrimSpace(text))
+	if err != nil || !addr.Is4() {
+		return netip.Addr{}, fmt.Errorf("upnp: gateway external address %q is not IPv4", text)
+	}
+	return addr, nil
 }
 
 // Query fetches one mapping entry as the gateway sees it. A missing entry

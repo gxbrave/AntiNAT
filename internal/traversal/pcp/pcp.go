@@ -25,6 +25,9 @@ const (
 
 	// OpCodeMap is the MAP opcode (RFC 6887 §11).
 	OpCodeMap byte = 1
+	// OpCodeAnnounce is the ANNOUNCE opcode (RFC 6887 §8.4): the
+	// discovery/reachability probe with no side effects.
+	OpCodeAnnounce byte = 0
 
 	// RequestFlag marks an opcode byte as a request (R bit clear).
 	RequestFlag byte = 0x00
@@ -144,6 +147,49 @@ func buildMapRequest(req MapRequest, nonce [12]byte) ([]byte, error) {
 		packet = append(packet, opt...)
 	}
 	return packet, nil
+}
+
+// buildAnnounceRequest encodes one ANNOUNCE request (header only).
+func buildAnnounceRequest(clientAddr netip.Addr) ([]byte, error) {
+	if !clientAddr.IsValid() || !clientAddr.Is4() {
+		return nil, fmt.Errorf("pcp: ANNOUNCE requires a concrete IPv4 client address, got %v", clientAddr)
+	}
+	packet := make([]byte, HeaderSize)
+	packet[0] = Version
+	packet[1] = RequestFlag | OpCodeAnnounce
+	copy(packet[12:28], v4Mapped(clientAddr))
+	return packet, nil
+}
+
+// parseAnnounceResponse decodes and validates an ANNOUNCE response.
+func parseAnnounceResponse(packet []byte, wantClient netip.Addr) (mapResponse, error) {
+	var zero mapResponse
+	if len(packet) < HeaderSize {
+		return zero, fmt.Errorf("%w: %d bytes", ErrTruncated, len(packet))
+	}
+	if packet[0] != Version {
+		return zero, fmt.Errorf("%w: got %d", ErrWrongVersion, packet[0])
+	}
+	if packet[1] != ResponseFlag|OpCodeAnnounce {
+		return zero, fmt.Errorf("%w: got %02x", ErrWrongOpcode, packet[1])
+	}
+	if len(packet) != HeaderSize {
+		return zero, fmt.Errorf("%w: %d extra bytes", ErrTrailingBytes, len(packet)-HeaderSize)
+	}
+	response := mapResponse{
+		ResultCode:      packet[3],
+		LifetimeSeconds: readUint32(packet[4:8]),
+		Epoch:           readUint32(packet[8:12]),
+	}
+	clientAddr, err := mappedToV4(packet[12:28])
+	if err != nil {
+		return zero, err
+	}
+	response.ClientAddress = clientAddr
+	if response.ResultCode == ResultSuccess && wantClient.IsValid() && response.ClientAddress != wantClient {
+		return zero, fmt.Errorf("pcp: response client address %s does not match %s", response.ClientAddress, wantClient)
+	}
+	return response, nil
 }
 
 // mapResponse is the decoded MAP response.
