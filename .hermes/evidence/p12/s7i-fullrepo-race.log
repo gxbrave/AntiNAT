@@ -1,0 +1,40 @@
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-agent	1.025s
+?   	github.com/gxbrave/AntiNAT/cmd/antinat-controller	[no test files]
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-probe	1.021s
+ok  	github.com/gxbrave/AntiNAT/cmd/antinatctl	2.724s
+ok  	github.com/gxbrave/AntiNAT/internal/agent	5.235s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/control	7.903s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/localstate	4.527s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	8.439s
+ok  	github.com/gxbrave/AntiNAT/internal/buildinfo	2.068s
+ok  	github.com/gxbrave/AntiNAT/internal/config	1.016s
+ok  	github.com/gxbrave/AntiNAT/internal/controller	7.596s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/agenthub	21.424s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/api	7.573s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/auth	6.922s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	26.185s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/store	50.551s
+?   	github.com/gxbrave/AntiNAT/internal/controller/web	[no test files]
+ok  	github.com/gxbrave/AntiNAT/internal/forward	1.012s
+ok  	github.com/gxbrave/AntiNAT/internal/forward/tcp	2.165s
+ok  	github.com/gxbrave/AntiNAT/internal/protocol	4.921s
+ok  	github.com/gxbrave/AntiNAT/internal/security	1.033s
+ok  	github.com/gxbrave/AntiNAT/internal/security/framecrypto	1.012s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal	8.069s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/direct	1.008s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/manual	1.008s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/natpmp	1.264s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/pcp	1.263s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/stun	1.474s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/upnp	1.335s
+?   	github.com/gxbrave/AntiNAT/migrations	[no test files]
+ok  	github.com/gxbrave/AntiNAT/scripts	1.016s
+ok  	github.com/gxbrave/AntiNAT/spike/datapath	1.128s
+ok  	github.com/gxbrave/AntiNAT/spike/network	4.122s
+ok  	github.com/gxbrave/AntiNAT/spike/sandbox	12.323s
+ok  	github.com/gxbrave/AntiNAT/spike/sqlite	2.056s
+ok  	github.com/gxbrave/AntiNAT/spike/state	2.677s
+ok  	github.com/gxbrave/AntiNAT/spike/windows-identity	1.102s
+ok  	github.com/gxbrave/AntiNAT/test/contracts	3.788s
+ok  	github.com/gxbrave/AntiNAT/test/e2e	2.973s
+ok  	github.com/gxbrave/AntiNAT/test/e2e/harness	1.163s

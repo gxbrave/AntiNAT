@@ -1,0 +1,6 @@
+# S7i RED: MA17/MA18 against S7h candidate 11ca343
+# github.com/gxbrave/AntiNAT/internal/traversal [github.com/gxbrave/AntiNAT/internal/traversal.test]
+internal/traversal/manager_test.go:923:25: acquisition.CurrentJournalError undefined (type *Acquisition has no field or method CurrentJournalError)
+FAIL	github.com/gxbrave/AntiNAT/internal/traversal [build failed]
+FAIL
+exit=1

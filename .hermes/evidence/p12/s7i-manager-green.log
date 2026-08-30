@@ -1,0 +1,7 @@
+# S7i manager focused GREEN
+=== RUN   TestManagerReleaseContainsDeletePanicAndFinishesTeardown
+--- PASS: TestManagerReleaseContainsDeletePanicAndFinishesTeardown (0.00s)
+=== RUN   TestManagerCurrentJournalErrorConcurrentRead
+--- PASS: TestManagerCurrentJournalErrorConcurrentRead (0.10s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/traversal	1.107s

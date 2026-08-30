@@ -3,7 +3,7 @@
   "artifact_role": "canonical P12 implementation candidate handoff (superseding)",
   "plan": "P12",
   "stage": "IMPLEMENTATION_FROZEN_REVIEW_REQUIRED",
-  "recorded_at_utc": "2026-08-30T13:05:00Z",
+  "recorded_at_utc": "2026-08-30T14:10:00Z",
   "branch": "ai/P12-gateway-traversal",
   "workspace_path": "/root/Claude/AntiNAT/p12-traversal",
   "lineage": {
@@ -17,9 +17,9 @@
       "note": "265ad24 is the orchestrator-provided base for this worktree (integration/v1-beta line); P11-integrated.json records its own integrated SHA on a parallel replay line"
     }
   },
-  "candidate_definition": "The only P12 implementation candidate is HEAD 11ca343/tree 7d42b5f83ab0186a2d95f46dd1e2cc52b3afd9e9. Prior candidates 1f1b635 and d95d06d are superseded (see superseded_handoffs); reviews must re-pin to the new tree.",
-  "candidate_head_full": "11ca343688a418fb814fbdf86a3346bc5be01142",
-  "candidate_tree_full": "7d42b5f83ab0186a2d95f46dd1e2cc52b3afd9e9",
+  "candidate_definition": "The only P12 implementation candidate is HEAD 22b17d3/tree eff27fc6de3a5df0cb9644695efef56457d4606d. Prior candidates 1f1b635, d95d06d and 11ca343 are superseded (see superseded_handoffs); all four independent reviews must re-pin to the new tree.",
+  "candidate_head_full": "22b17d3e232bdf6ed9d8d7d0afcda452f6055c3a",
+  "candidate_tree_full": "eff27fc6de3a5df0cb9644695efef56457d4606d",
   "implementation_commits": [
     {
       "sha": "8fdffd1",
@@ -75,6 +75,11 @@
       "sha": "11ca343",
       "story": "S7h",
       "summary": "P12 S7h: review-disposition batch - M1 drain panic containment, NAT-PMP epoch baseline, PCP portless gateway, UPnP redirect/mangled-echo reconciliation, manager+detection+lab fixes (TDD)"
+    },
+    {
+      "sha": "22b17d3",
+      "story": "S7i",
+      "summary": "P12 S7i: contain mapper.Delete panic while completing teardown, lock journal status access, and make KEEP=1 SIGTERM cleanup reliable (TDD)"
     }
   ],
   "deltas": [
@@ -87,14 +92,16 @@
     "NAT-PMP epoch baseline across transactions (ClientOptions.EpochBaseline/EpochSeen): renewals detect a gateway reboot the way PCP already does, closing the network review's MEDIUM finding",
     "stun.LeaseSource + NewManagerObserver: shared-port same-tuple observation wiring for the manager",
     "migration 0007: node_traversal_profiles + node_traversal_results (schema version 7)",
-    "netns TCP traversal lab: Manager-driven end-to-end against real miniupnpd 2.3.4 and coturn with independent vantage verification and post-release verification that is gateway-side authoritative (CPE nftables ruleset holds no forward rule for any released port) plus a supplementary vantage closed-port check; keep-mode setup failures now tear the topology down"
+    "netns TCP traversal lab: Manager-driven end-to-end against real miniupnpd 2.3.4 and coturn with independent vantage verification and post-release verification that is gateway-side authoritative (CPE nftables ruleset holds no forward rule for any released port) plus a supplementary vantage closed-port check; keep-mode setup failures now tear the topology down",
+    "S7i release hardening: mapper.Delete panics become failed-delete errors; listener cleanup still completes, journal retention remains honest, and idempotent retries return the stable first error; CurrentJournalError provides race-free journal status",
+    "S7i signal hardening: EXIT exclusively owns teardown while INT/TERM force nonzero exit; a real netns regression interrupts KEEP=1 only after all namespaces and daemons exist and asserts zero leakage"
   ],
   "behavioral_summary": "A forward with an explicit-gateway strategy acquires the listener on the default-route interface's own address, maps it through the detected mechanism, optionally observes the same tuple via STUN, journals the mapping with honest ownership and renewal state, renews near 50% of the GRANTED lease, degrades after three consecutive renewal failures, loses only at the expiry safety margin / confirmed reboot / rewritten endpoint, and releases with ownership-strength deletion that leaves the journal record in place whenever the gateway delete failed.",
-  "files_changed_base_to_head_count": 78,
+  "files_changed_base_to_head_count": 84,
   "source_byte_manifest": {
-    "command": "git diff --name-only 265ad24..HEAD | wc -l",
-    "files": 78,
-    "note": "The count includes the force-added evidence bytes (33 logs + SHA256SUMS + environment.txt) committed by the metadata commits; the implementation candidate 11ca343 itself changes 12 files over d95d06d, all inside internal/traversal/** plus test/integration and test/netns."
+    "command": "git diff --name-only 265ad24..22b17d3 | wc -l",
+    "files": 84,
+    "note": "The candidate lineage includes committed P12 evidence/handoff metadata. The S7i implementation commit itself changes exactly 4 files over its parent d30cd73: internal/traversal/manager.go, manager_test.go, test/integration/traversal_tcp_test.go and test/netns/traversal_lab.sh."
   },
   "tests": [
     {
@@ -296,13 +303,61 @@
       "evidence": ".hermes/evidence/p12/s7h-gofmt-vet.log",
       "evidence_sha256": "78a611764a5416c4103dc8ae4fcae87a6a5ae3dd46c98fc55bd58c2c91275fc0",
       "result": "PASS (clean)"
+    },
+    {
+      "phase": "red-s7i-manager",
+      "command": "GOWORK=off go test ./internal/traversal -run 'TestManager(ReleaseContainsDeletePanicAndFinishesTeardown|CurrentJournalErrorConcurrentRead)' -race -count=1 -v (before S7i fix)",
+      "exit_code": 1,
+      "evidence": ".hermes/evidence/p12/s7i-manager-red.log",
+      "evidence_sha256": "3abf7f95815ab6742fb82c0d2fc2d1b15dcf5dbb5cabc1cabb84d4dbb70e473b",
+      "result": "RED compile failure: CurrentJournalError undefined; reviewer throwaway reproductions independently established the runtime panic leak and direct-field race against candidate 11ca343"
+    },
+    {
+      "phase": "green-s7i-manager",
+      "command": "same focused tests after S7i fix, -race -count=1",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7i-manager-green.log",
+      "evidence_sha256": "4b208be5d1b54dd0171a517add18e6dffa92560f3b1c1de05c99991ea444ce6a",
+      "result": "PASS: Delete panic contained with teardown/journal semantics; concurrent CurrentJournalError reads race-free"
+    },
+    {
+      "phase": "required-race2-s7i",
+      "command": "GOWORK=off go test ./internal/traversal/... -race -count=2 -timeout 900s",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7i-traversal-race2.log",
+      "evidence_sha256": "66be84348816230ca83a8942157e2789a6bba9ac013c9e7d90de99c68e7d0df9",
+      "result": "PASS (7 packages, two runs)"
+    },
+    {
+      "phase": "full-repo-race-s7i",
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -race -count=1",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7i-fullrepo-race.log",
+      "evidence_sha256": "d5f59348cb215a64b7cd1fa131376959d927d205f14c412e5032b5d3e3744804",
+      "result": "PASS; zero FAIL lines"
+    },
+    {
+      "phase": "netns-s7i",
+      "command": "GOWORK=off go test -tags=netns ./test/integration -run 'TestTraversalLabSignalCleanup|TestTCPTraversal$' -count=1 -v",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7i-netns.log",
+      "evidence_sha256": "d8ab7d9bf9c8ab7884b998d21830f809a48540bc3ff89c37c501828a08af001a",
+      "result": "PASS: held live topology SIGTERM cleanup regression plus complete traversal lab; post-run 0 namespaces, 0 work dirs, 0 daemons"
+    },
+    {
+      "phase": "gofmt-vet-s7i",
+      "command": "gofmt -l .; GOWORK=off go vet ./internal/traversal/...",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7i-gofmt-vet.log",
+      "evidence_sha256": "b95134f2bac5f4df1eb565d000611ab92f5beed257523124ffa71119432efed5",
+      "result": "PASS (clean)"
     }
   ],
   "evidence_manifest": {
     "path": ".hermes/evidence/p12/SHA256SUMS",
-    "sha256": "17d214251064a634448e92265f70b756c7d22aa51deb4443374748e31024e219",
+    "sha256": "ee9728422c7f389b18c0e9abf2dff0a8a05d3b25f8d169d19f7ab02a3dad7462",
     "environment": ".hermes/evidence/p12/environment.txt",
-    "note": "Regenerated for the S7h supersession (33 logs). The *.log files themselves are force-added to git in the same metadata commit because .gitignore excludes *.log and the P10 precedent commits evidence bytes. The S7h gate logs (race2/fullrepo/lab/gofmt-vet) were captured from the uncommitted S7h working tree whose tracked bytes are identical to candidate 11ca343; the two RED logs were captured at d95d06d in a throwaway worktree with the candidate's test files copied verbatim."
+    "note": "Regenerated for S7i supersession (39 logs). All *.log files are force-added because .gitignore excludes them. S7i includes reviewer empirical reproductions in review records plus formal MA17/MA18 and netns SIGTERM regression evidence."
   },
   "contracts_changed": [],
   "contracts_consumed": [
@@ -331,12 +386,12 @@
   ],
   "residual_risk": "Unknown real-CPE behaviors (description field sizes other than 64 bytes, 718/725 variations, PCP options) are covered by conservative client behavior (bounded retries, strict verification, honest failures) but not by device inventory.",
   "required_reviews": [
-    "fresh exact-candidate specification/ownership PASS on 11ca343/7d42b5f83ab0186a2d95f46dd1e2cc52b3afd9e9",
-    "fresh exact-candidate quality/security PASS on the same tree (must re-verify the M1 drain containment fix against the d95d06d FAIL verdict)",
+    "fresh exact-candidate specification/ownership PASS on 22b17d3/eff27fc6de3a5df0cb9644695efef56457d4606d",
+    "fresh exact-candidate quality/security PASS on the same tree (must re-verify the two 11ca343 MEDIUM findings)",
     "fresh exact-candidate network/protocol PASS on the same tree",
-    "fresh exact-candidate lifecycle/integration PASS on the same tree"
+    "fresh exact-candidate lifecycle/integration PASS on the same tree (must re-verify SIGTERM cleanup plus both manager findings)"
   ],
-  "review_status": "PENDING_FRESH_INDEPENDENT_REVIEWS (re-pinned to 11ca343 after the S7h supersession)",
+  "review_status": "PENDING_FRESH_INDEPENDENT_REVIEWS (re-pinned to 22b17d3 after S7i supersession)",
   "integration_status": "NOT_PERFORMED",
   "cleanup_done": true,
   "cleanup": [
@@ -348,7 +403,7 @@
     "git diff --check clean; gofmt clean",
     "S7h round: the netns lab re-run's parent-owned teardown verified again (0 antinat-p12 namespaces, 0 /tmp/antinat-p12-netns.* dirs, no miniupnpd/turnserver processes); the throwaway d95d06d RED worktree was removed and pruned; no debug instrumentation in the S7h diff (grep for fmt.Print/DEBUG/TODO scanned clean)"
   ],
-  "quiescence": "Clean as of the S7h handoff. The lifecycle review's two findings are both closed: the orphaned debug-lab daemons and leaked work dirs from the SOAP-reproduction lab were killed/removed and re-verified (previous round), and the keep-mode setup-failure leak in traversal_lab.sh is now fixed (cleanup() tears down on non-success exit even with KEEP=1) and exercised by the s7h lab re-run, after which 0 namespaces, 0 work dirs and 0 daemons remained (pgrep miniupnpd/turnserver empty).",
+  "quiescence": "Clean after S7i gates: the signal-cleanup regression created all three namespaces plus miniupnpd/turnserver, sent SIGTERM in KEEP=1, and verified teardown; the following full lab also cleaned up. Post-run checks: 0 antinat-p12 namespaces, 0 /tmp/antinat-p12-netns.* dirs, no miniupnpd/turnserver processes.",
   "deviations": [
     "24-byte PCP common header (RFC 6887) confirmed against the real daemon after an initial misread of 28 bytes; correction documented in s2 evidence and the S2 commit.",
     "Migration 0007 bumps store schema version 6->7; store tests updated as a declared mechanical consequence (schema_version constants, broken-migration slot index).",
@@ -378,6 +433,17 @@
         "code-review-max verification round: all 15 findings verified disposed with code evidence; race+vet green",
         "four fresh independent review angles at d95d06d: network/protocol, specification/ownership and lifecycle/integration PASS; quality/security FAIL on the S7g M1 regression; all findings collected for the S7h unified round"
       ]
+    },
+    {
+      "prior_candidate": "11ca343688a418fb814fbdf86a3346bc5be01142/7d42b5f83ab0186a2d95f46dd1e2cc52b3afd9e9",
+      "superseded_by": "22b17d3",
+      "reason": "Four-angle review concluded specification/ownership PASS, network/protocol PASS, quality/security FAIL and lifecycle/integration FAIL. Both failing angles independently reproduced mapper.Delete panic unwinding through releaseOnce and an unsynchronized JournalError race. Lifecycle also reproduced KEEP=1 SIGTERM leaking the full topology. S7i contains Delete panic while continuing cleanup, replaces the racing field with CurrentJournalError under renewMu, separates signal traps from EXIT teardown, and adds MA17/MA18 plus a live netns signal regression.",
+      "verification_rounds_on_prior_candidate": [
+        "specification/ownership PASS",
+        "network/protocol PASS",
+        "quality/security FAIL (two MEDIUM findings)",
+        "lifecycle/integration FAIL (one HIGH, two MEDIUM)"
+      ]
     }
   ],
   "review_records": [
@@ -404,6 +470,26 @@
       "tree": "d95d06d/2b0ea64 (verified in an isolated git-archive copy)",
       "outcome": "PASS. lifecycleQueue lock mechanics re-derived with no cycle (push never blocks; drain runs callbacks outside q.mu; close cannot wait for a callback; FIFO preserved); renewal ladder matches the frozen keepalive_state axis incl. recoverable DEGRADED and re-fire; granted-lease pacing and the margin entry-check verified; idempotent Release and journal retention verified; migration 0007 FK/unique constraints verified against 0002; temp-tuple hygiene pinned; netns lab confirmed as genuinely Manager-driven with parent-owned teardown. Findings: MEDIUM/HIGH - quiescence claim false at audit time (two orphaned debug-lab daemons + two leaked work dirs from the SOAP-reproduction lab; the reviewer's action was executed and re-verified); MEDIUM - netns evidence provenance (same :182 line-offset as the specification review found; re-run queued); MEDIUM - post-release closed-port verification weaker than its comment claims (both removed-DNAT and closed-backend produce RST; comment fix + optional nft assertion queued); MEDIUM - keep-mode setup failure leaks namespaces/daemons (EXIT trap skips teardown whenever KEEP=1; queued); LOW/MEDIUM - a panicking mapper.Delete consumes releaseOnce and a retry returns nil (queued); LOW/MEDIUM - the FINAL_PORT_REWRITTEN compensating delete uses the caller's ctx and can orphan a live mapping without a journal record (queued, context.WithoutCancel); LOW - detection aggregation drops a later passing mechanism's note and dead upnp-igd:2/1 name comparisons (queued); LOW - DetectionRequest.AttemptTimeout override not honored by the STUN attempt (queued); LOW - OnMapping* option docs still read synchronous after S7g (queued); LOW - journalPut rewrites CreatedAtUnix if Journal.Get errors transiently (cosmetic, documented); LOW - required_reviews pinned the superseded tree (fixed in this metadata round).",
       "s7h_disposition": "MEDIUM/HIGH CLOSED (quiescence: daemons/dirs removed and re-verified; see quiescence field). MEDIUM provenance CLOSED (lab re-run from exact tree). MEDIUM lab-verifier FIXED (gatewayRuleAbsent nft assertion + comment now states the RST ambiguity honestly). MEDIUM keep-mode leak FIXED (cleanup() tears down on non-success even with KEEP=1). LOW/MEDIUM mapper.Delete panic path FIXED. LOW/MEDIUM FINAL_PORT_REWRITTEN compensating delete FIXED (context.WithoutCancel). LOW detection aggregation FIXED (note folding; dead IGD comparisons removed). LOW STUN attempt deadline FIXED. LOW OnMapping* docs FIXED (containment + trailing-notification semantics)."
+    },
+    {
+      "reviewer": "S7h specification/ownership review",
+      "tree": "11ca343/7d42b5f",
+      "outcome": "PASS. Frozen contracts, scope, metadata, 33/33 evidence and RED provenance verified. LOW-only metadata observations."
+    },
+    {
+      "reviewer": "S7h network/protocol review",
+      "tree": "11ca343/7d42b5f",
+      "outcome": "PASS. NAT-PMP prior MEDIUM and PCP/UPnP fixes closed; accepted conservative LOWs recorded."
+    },
+    {
+      "reviewer": "S7h quality/security review",
+      "tree": "11ca343/7d42b5f",
+      "outcome": "FAIL. MEDIUM: panicking mapper.Delete consumes releaseOnce and skips cleanup; MEDIUM: exported JournalError races renewal writes. M1 CLOSED."
+    },
+    {
+      "reviewer": "S7h lifecycle/integration review",
+      "tree": "11ca343/7d42b5f",
+      "outcome": "FAIL. HIGH: same Release panic defect; MEDIUM: KEEP=1 SIGTERM leaks full topology; MEDIUM: same JournalError race. M1 CLOSED."
     }
   ]
 }
