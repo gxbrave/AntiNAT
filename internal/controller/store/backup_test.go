@@ -63,7 +63,9 @@ func TestConcurrentWALWritesAndBackupRestore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BackupTo: %v", err)
 	}
-	if manifest.ControllerInstanceID == "" || manifest.SchemaVersion != 6 {
+	// SchemaVersion 7 = migration 0007_traversal (P12); the manifest must
+	// always carry the current highest applied version.
+	if manifest.ControllerInstanceID == "" || manifest.SchemaVersion != 7 {
 		t.Fatalf("returned manifest incomplete: %+v", manifest)
 	}
 	wg.Wait()
@@ -84,8 +86,8 @@ func TestConcurrentWALWritesAndBackupRestore(t *testing.T) {
 		t.Fatalf("OpenBackup: %v", err)
 	}
 	defer bs.Close()
-	if m.SchemaVersion != 6 {
-		t.Fatalf("backup schema version = %d, want 6", m.SchemaVersion)
+	if m.SchemaVersion != 7 {
+		t.Fatalf("backup schema version = %d, want 7 (0007_traversal)", m.SchemaVersion)
 	}
 	if m.ControllerInstanceID == "" {
 		t.Fatal("backup manifest missing controller instance id")

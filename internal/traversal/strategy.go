@@ -231,8 +231,10 @@ func EvaluateLayers(layers []LayerEvidence, finalConstraint PortPolicy) (Pipelin
 	}
 
 	// Pick the best candidate: an observed STUN endpoint wins over the
-	// mapping layer's assigned endpoint; otherwise the deepest layer.
+	// mapping layer's assigned endpoint; a direct/manual chain's endpoint
+	// is its own assigned endpoint; otherwise the deepest layer.
 	var candidate netip.AddrPort
+	var candidateKind LayerKind
 	observed := false
 	switch {
 	case stunIdx >= 0:
@@ -241,6 +243,7 @@ func EvaluateLayers(layers []LayerEvidence, finalConstraint PortPolicy) (Pipelin
 			return PipelineVerdict{}, fmt.Errorf("traversal: stun layer endpoint: %w", err)
 		}
 		candidate = addr
+		candidateKind = LayerKindSTUN
 		observed = true
 	case gatewayIdx >= 0:
 		addr, err := parseEndpoint(layers[gatewayIdx].AssignedEndpoint)
@@ -248,8 +251,22 @@ func EvaluateLayers(layers []LayerEvidence, finalConstraint PortPolicy) (Pipelin
 			return PipelineVerdict{}, fmt.Errorf("traversal: gateway layer endpoint: %w", err)
 		}
 		candidate = addr
+		candidateKind = LayerKindGateway
 	default:
-		return PipelineVerdict{}, errors.New("traversal: layer chain produced no endpoint")
+		for i := len(layers) - 1; i >= 0; i-- {
+			if layers[i].Kind == LayerKindDirect || layers[i].Kind == LayerKindManual {
+				addr, err := parseEndpoint(layers[i].AssignedEndpoint)
+				if err != nil {
+					return PipelineVerdict{}, fmt.Errorf("traversal: %s layer endpoint: %w", layers[i].Kind, err)
+				}
+				candidate = addr
+				candidateKind = layers[i].Kind
+				break
+			}
+		}
+		if !candidate.IsValid() {
+			return PipelineVerdict{}, errors.New("traversal: layer chain produced no endpoint")
+		}
 	}
 
 	// Final endpoint constraint: only an observed layer can disagree with
@@ -270,6 +287,11 @@ func EvaluateLayers(layers []LayerEvidence, finalConstraint PortPolicy) (Pipelin
 		FinalPortObserved: observed,
 	}
 	switch {
+	case candidateKind == LayerKindManual:
+		// The operator endpoint is the probe target: probe-eligible, but
+		// the scope records the operator input explicitly.
+		verdict.Scope = ScopeOperatorInput
+		verdict.PublicCandidate = true
 	case !IsGlobalV4Endpoint(candidate):
 		verdict.Scope = ScopeFirstHop
 		verdict.MappingStateFirstHop = gatewayIdx >= 0
@@ -471,6 +493,10 @@ type GatewayMapping struct {
 	// Identity is the stable gateway identity for journal records (UPnP
 	// USN, empty otherwise).
 	Identity string
+	// ServerRebooted reports an epoch rollback beyond the protocol
+	// tolerance: the gateway may have lost every mapping and publication
+	// state must go stale (adapters copy it from the client results).
+	ServerRebooted bool
 	// State is the mechanism-private renewal state (PCP nonce, NAT-PMP
 	// tuple, UPnP mapping record). It is opaque to the Manager and only
 	// ever passed back to the same adapter's Renew/Delete.

@@ -48,8 +48,8 @@ func TestR14FreshStoreRecordsHardeningMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if version != 6 {
-		t.Fatalf("SchemaVersion = %d, want 6 (append-only 0006_r13_hardening)", version)
+	if version != 7 {
+		t.Fatalf("SchemaVersion = %d, want 7 (0006_r13_hardening + 0007_traversal)", version)
 	}
 	var name string
 	if err := st.db.QueryRow(`SELECT name FROM schema_migrations WHERE version = 6`).Scan(&name); err != nil {
@@ -88,8 +88,8 @@ func TestR14UpgradeBackfillsLegacyOutboxCorrelationIDs(t *testing.T) {
 	}
 	defer upgraded.Close()
 	version, err := upgraded.SchemaVersion()
-	if err != nil || version != 6 {
-		t.Fatalf("upgraded schema version = %d (err %v), want 6", version, err)
+	if err != nil || version != 7 {
+		t.Fatalf("upgraded schema version = %d (err %v), want 7", version, err)
 	}
 	var commandID, resultID, controllerResultID string
 	if err := upgraded.db.QueryRow(`SELECT command_message_id, operation_complete_message_id, controller_operation_complete_message_id

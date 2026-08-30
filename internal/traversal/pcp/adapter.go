@@ -158,14 +158,15 @@ func (a *Adapter) Delete(ctx context.Context, mapping traversal.GatewayMapping) 
 func (a *Adapter) normalize(req traversal.GatewayMapRequest, result MapResult) traversal.GatewayMapping {
 	external := netip.AddrPortFrom(result.AssignedExternalAddress, result.AssignedExternalPort)
 	return traversal.GatewayMapping{
-		Mechanism:    traversal.LayerPCP,
-		Ownership:    traversal.OwnershipStrong,
-		InternalIP:   req.InternalIP,
-		InternalPort: req.InternalPort,
-		External:     external,
-		Lease:        result.Lifetime,
-		Epoch:        result.Epoch,
-		State:        result,
+		Mechanism:      traversal.LayerPCP,
+		Ownership:      traversal.OwnershipStrong,
+		InternalIP:     req.InternalIP,
+		InternalPort:   req.InternalPort,
+		External:       external,
+		Lease:          result.Lifetime,
+		Epoch:          result.Epoch,
+		ServerRebooted: result.ServerRebooted,
+		State:          result,
 	}
 }
 

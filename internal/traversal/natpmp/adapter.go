@@ -150,14 +150,15 @@ func (a *Adapter) Delete(ctx context.Context, mapping traversal.GatewayMapping) 
 // normalize renders the normalized mapping from one client result.
 func (a *Adapter) normalize(req traversal.GatewayMapRequest, result MapResult) traversal.GatewayMapping {
 	return traversal.GatewayMapping{
-		Mechanism:    traversal.LayerNATPMP,
-		Ownership:    traversal.OwnershipWeakLease,
-		InternalIP:   req.InternalIP,
-		InternalPort: result.InternalPort,
-		External:     netip.AddrPortFrom(a.gateway.Addr(), result.AssignedExternalPort),
-		Lease:        result.Lifetime,
-		Epoch:        result.Epoch,
-		State:        result,
+		Mechanism:      traversal.LayerNATPMP,
+		Ownership:      traversal.OwnershipWeakLease,
+		InternalIP:     req.InternalIP,
+		InternalPort:   result.InternalPort,
+		External:       netip.AddrPortFrom(a.gateway.Addr(), result.AssignedExternalPort),
+		Lease:          result.Lifetime,
+		Epoch:          result.Epoch,
+		ServerRebooted: result.ServerRebooted,
+		State:          result,
 	}
 }
 
