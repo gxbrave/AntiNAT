@@ -172,12 +172,11 @@ type Acquisition struct {
 	// failure). A failed observation is never silently dropped; the gateway
 	// evidence stands alone.
 	StunObserveError error
-	// JournalError records a failed journal write. The JournalID reference
+	// journalError records a failed journal write. The JournalID reference
 	// stays honest (never set for a record that was not durably written),
-	// but the durable-state loss is surfaced here instead of staying
-	// silent. Written by the acquisition and by the renewal goroutine;
-	// readers treat it as advisory.
-	JournalError error
+	// but the durable-state loss is surfaced through CurrentJournalError.
+	// The renewal goroutine rewrites it under renewMu.
+	journalError error
 
 	manager   *Manager
 	mapper    GatewayMapper
@@ -459,7 +458,7 @@ func (m *Manager) acquireGateway(ctx context.Context, req AcquireRequest, plan S
 		return err
 	}
 	acquisition.Verdict = verdict
-	acquisition.JournalID, acquisition.JournalError = m.journalPut(req.ForwardID, acquisition.JournalID, mapping)
+	acquisition.JournalID, acquisition.journalError = m.journalPut(req.ForwardID, acquisition.JournalID, mapping)
 	m.startRenewal(req.ForwardID, acquisition, lease, req.RenewalInterval, req.RenewalJitterMax)
 	return nil
 }
@@ -481,7 +480,7 @@ func (a *Acquisition) release(ctx context.Context) error {
 	var errs []error
 	mappingDeleted := true
 	if a.Mapping != nil && a.mapper != nil {
-		if err := a.mapper.Delete(ctx, *a.Mapping); err != nil {
+		if err := deleteMappingContained(ctx, a.mapper, *a.Mapping); err != nil {
 			errs = append(errs, err)
 			mappingDeleted = false
 		}
@@ -497,6 +496,19 @@ func (a *Acquisition) release(ctx context.Context) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// deleteMappingContained turns an adapter panic into an ordinary failed-delete
+// outcome. Release must still close the listener and retain the journal record;
+// letting the panic unwind through sync.Once would consume the once while
+// skipping both cleanup steps and make every later Release a false success.
+func deleteMappingContained(ctx context.Context, mapper GatewayMapper, mapping GatewayMapping) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("traversal: mapping delete panicked: %v", recovered)
+		}
+	}()
+	return mapper.Delete(ctx, mapping)
 }
 
 // ---------------------------------------------------------------------------
@@ -737,7 +749,7 @@ func (m *Manager) renewOnce(forwardID string, acquisition *Acquisition, requeste
 	}
 	renewedCopy := renewed
 	acquisition.Mapping = &renewedCopy
-	acquisition.JournalID, acquisition.JournalError = m.journalPut(forwardID, acquisition.JournalID, renewedCopy)
+	acquisition.JournalID, acquisition.journalError = m.journalPut(forwardID, acquisition.JournalID, renewedCopy)
 	if productionPacing && renewedCopy.Lease > 0 {
 		return renewedCopy.Lease / 2, renewedCopy.Lease / 10
 	}
@@ -785,6 +797,16 @@ func (a *Acquisition) CurrentMapping() *GatewayMapping {
 	}
 	snapshot := *a.Mapping
 	return &snapshot
+}
+
+// CurrentJournalError returns the latest journal write failure under the same
+// lock used by renewal. A nil result means the latest write succeeded (or no
+// journal is configured); callers must not infer that an older failure did not
+// occur.
+func (a *Acquisition) CurrentJournalError() error {
+	a.renewMu.Lock()
+	defer a.renewMu.Unlock()
+	return a.journalError
 }
 
 // journalPut persists one mapping record under a stable ID (first write

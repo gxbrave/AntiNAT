@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -56,6 +57,62 @@ func requireLabPrerequisites(t *testing.T) {
 	for _, command := range []string{"ip", "nft", "miniupnpd", "turnserver", "bash"} {
 		if _, err := exec.LookPath(command); err != nil {
 			t.Skipf("netns lab prerequisite %s unavailable: %v", command, err)
+		}
+	}
+}
+
+// TestTraversalLabSignalCleanup pins keep-mode interrupt handling. The setup
+// script holds after every namespace and daemon exists; SIGTERM must make its
+// EXIT trap tear down the complete topology instead of publishing READY=1 or
+// leaving resources behind.
+func TestTraversalLabSignalCleanup(t *testing.T) {
+	requireLabPrerequisites(t)
+	script, err := filepath.Abs(filepath.Join("..", "netns", "traversal_lab.sh"))
+	if err != nil {
+		t.Fatalf("locate lab script: %v", err)
+	}
+	prefix := fmt.Sprintf("antinat-p12-signal-%d", os.Getpid())
+	holdFile := filepath.Join(t.TempDir(), "ready-hold")
+	cmd := exec.Command("bash", script)
+	cmd.Env = append(os.Environ(),
+		"ANTINAT_P12_KEEP=1",
+		"ANTINAT_P12_PREFIX="+prefix,
+		"ANTINAT_P12_READY_HOLD_FILE="+holdFile,
+	)
+	var output bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &output, &output
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start held lab setup: %v", err)
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(holdFile); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if _, err := os.Stat(holdFile); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatalf("lab never reached the signal hold: %v\n%s", err, output.String())
+	}
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("signal held lab: %v", err)
+	}
+	if err := cmd.Wait(); err == nil {
+		t.Fatal("SIGTERM setup must return a nonzero interrupted status")
+	}
+	if strings.Contains(output.String(), "READY=1") {
+		t.Fatalf("interrupted setup published READY=1:\n%s", output.String())
+	}
+	namespaces, _ := exec.Command("ip", "netns", "list").CombinedOutput()
+	if strings.Contains(string(namespaces), prefix) {
+		t.Fatalf("signal-interrupted setup leaked namespaces:\n%s", namespaces)
+	}
+	for _, process := range []string{"miniupnpd", "turnserver"} {
+		out, _ := exec.Command("pgrep", "-af", process).CombinedOutput()
+		if strings.Contains(string(out), prefix) {
+			t.Fatalf("signal-interrupted setup leaked %s: %s", process, out)
 		}
 	}
 }

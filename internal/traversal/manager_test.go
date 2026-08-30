@@ -83,6 +83,7 @@ type scriptedMapper struct {
 	deletes              int
 	renewErr             error
 	deleteErr            error
+	deletePanic          any
 	rebootAfter          int // renewal ordinal (1-based) reporting ServerRebooted; 0 = never
 	oscillatePeriod      int // failures/successes alternate every N renewals; 0 = steady
 	rewriteExternalAfter int // renewal ordinal rewriting the external endpoint; 0 = never
@@ -132,6 +133,9 @@ func (s *scriptedMapper) Delete(ctx context.Context, mapping GatewayMapping) err
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.deletes++
+	if s.deletePanic != nil {
+		panic(s.deletePanic)
+	}
 	return s.deleteErr
 }
 
@@ -853,5 +857,71 @@ func TestManagerCallbackPanicContainedAndDeliveryContinues(t *testing.T) {
 	case <-recovered:
 	case <-time.After(5 * time.Second):
 		t.Fatal("a panicking callback must be contained and later events must still be delivered")
+	}
+}
+
+// MA17 (S7h quality/lifecycle review): an adapter panic during Delete must be
+// contained as a release error. Teardown continues exactly once; the listener
+// is closed and the journal is retained because the mapping was not confirmed
+// deleted. A later Release returns the same error rather than false success.
+func TestManagerReleaseContainsDeletePanicAndFinishesTeardown(t *testing.T) {
+	listeners := &fakeListenerSource{}
+	mapper := gatewayMapperFixture()
+	mapper.deletePanic = "mapper delete panic"
+	journal := NewMemoryJournal()
+	manager := NewManager(ManagerOptions{
+		RouteTable: managerRouteTable(),
+		Listeners:  listeners,
+		Mappers:    map[MappingLayerKind]GatewayMapper{LayerPCP: mapper},
+		Journal:    journal,
+	})
+	acquisition, err := manager.Acquire(t.Context(), gatewayAcquireRequest("forward-delete-panic"))
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	firstErr := acquisition.Release(t.Context())
+	if firstErr == nil || !strings.Contains(firstErr.Error(), "mapper delete panic") {
+		t.Fatalf("first Release error = %v, want the contained adapter panic", firstErr)
+	}
+	if got := listeners.releaseCount(); got != 1 {
+		t.Fatalf("listener releases = %d, want teardown to continue exactly once", got)
+	}
+	if _, ok, err := journal.Get(acquisition.JournalID); err != nil || !ok {
+		t.Fatalf("journal after unconfirmed delete = present %v, err %v; want retained", ok, err)
+	}
+	secondErr := acquisition.Release(t.Context())
+	if secondErr == nil || secondErr.Error() != firstErr.Error() {
+		t.Fatalf("second Release error = %v, want the original %v", secondErr, firstErr)
+	}
+	if got := mapper.deleteCount(); got != 1 {
+		t.Fatalf("delete attempts = %d, want exactly one", got)
+	}
+	if got := listeners.releaseCount(); got != 1 {
+		t.Fatalf("listener releases after retry = %d, want exactly one", got)
+	}
+}
+
+// MA18 (S7h quality/lifecycle review): journal status is observed only through
+// the locked accessor while renewals overwrite it. Run with -race: a public
+// JournalError field would race this loop against renewOnce.
+func TestManagerCurrentJournalErrorConcurrentRead(t *testing.T) {
+	mapper := gatewayMapperFixture()
+	journal := &failingJournal{MemoryJournal: NewMemoryJournal(), putErr: errors.New("disk full")}
+	manager := NewManager(ManagerOptions{
+		RouteTable: managerRouteTable(),
+		Listeners:  &fakeListenerSource{},
+		Mappers:    map[MappingLayerKind]GatewayMapper{LayerPCP: mapper},
+		Journal:    journal,
+	})
+	acquisition, err := manager.Acquire(t.Context(), withPacing(gatewayAcquireRequest("forward-journal-race"), time.Millisecond))
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	defer acquisition.Release(t.Context())
+	deadline := time.Now().Add(100 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if err := acquisition.CurrentJournalError(); err == nil {
+			t.Fatal("CurrentJournalError = nil, want the failed journal write")
+		}
 	}
 }

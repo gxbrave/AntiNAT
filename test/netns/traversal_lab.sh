@@ -61,7 +61,18 @@ cleanup() {
     fi
     return "$status"
 }
-trap cleanup EXIT INT TERM
+# EXIT is the single owner of teardown. A signal trap must exit nonzero instead
+# of calling cleanup directly: with KEEP=1, cleanup would otherwise observe the
+# interrupted command's status as zero, mark itself cleaned, skip teardown and
+# let the eventual EXIT trap become a no-op (lifecycle review finding).
+on_signal() {
+    local signal_status="$1"
+    trap - INT TERM
+    exit "$signal_status"
+}
+trap cleanup EXIT
+trap 'on_signal 130' INT
+trap 'on_signal 143' TERM
 
 if [[ "$teardown" == "1" ]]; then
     for command in ip; do
@@ -152,6 +163,14 @@ if [[ $ready -ne 1 ]]; then
     echo "coturn log:" >&2
     cat "$work_dir/turn.log" >&2
     exit 1
+fi
+
+# Test seam for signal-cleanup verification: announce that all resources and
+# daemons exist, then wait to be interrupted before publishing READY markers.
+# Production invocations leave the variable empty and never enter this block.
+if [[ -n "${ANTINAT_P12_READY_HOLD_FILE:-}" ]]; then
+    : >"$ANTINAT_P12_READY_HOLD_FILE"
+    while true; do sleep 1; done
 fi
 
 cat <<ENVEOF
