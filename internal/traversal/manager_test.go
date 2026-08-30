@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -83,6 +84,7 @@ type scriptedMapper struct {
 	renewErr             error
 	deleteErr            error
 	rebootAfter          int // renewal ordinal (1-based) reporting ServerRebooted; 0 = never
+	oscillatePeriod      int // failures/successes alternate every N renewals; 0 = steady
 	rewriteExternalAfter int // renewal ordinal rewriting the external endpoint; 0 = never
 	rewrittenExternal    netip.AddrPort
 	grantedLease         time.Duration // granted lease overriding the request; 0 = grant the request
@@ -112,6 +114,9 @@ func (s *scriptedMapper) Renew(ctx context.Context, mapping GatewayMapping, life
 	mapping.Lease = lifetime
 	if granted > 0 {
 		mapping.Lease = granted
+	}
+	if s.oscillatePeriod > 0 && (renewals/s.oscillatePeriod)%2 == 1 {
+		return GatewayMapping{}, renewErr
 	}
 	if rebootAfter > 0 && renewals >= rebootAfter {
 		mapping.ServerRebooted = true
@@ -772,5 +777,48 @@ func TestManagerReleaseKeepsJournalOnDeleteFailure(t *testing.T) {
 	}
 	if _, ok, _ := journal.Get(acquisition.JournalID); !ok {
 		t.Fatal("the journal record must survive a failed mapping delete")
+	}
+}
+
+// MA15 (Angle A reconciliation finding): a consumer callback that calls
+// Release must always complete, even while the renewal loop keeps producing
+// lifecycle events behind it. The oscillating mapper degrades and recovers
+// every 3 renewals: while the degraded callback blocks, events queue up;
+// a bounded delivery channel would fill, block the renewal goroutine under
+// renewMu, and deadlock the Release join against the blocked callback.
+func TestManagerReleaseFromBlockingCallbackCompletes(t *testing.T) {
+	mapper := gatewayMapperFixture()
+	mapper.renewErr = errors.New("gateway gone")
+	mapper.oscillatePeriod = 3
+	releaseDone := make(chan error, 1)
+	var callbackOnce sync.Once
+	var acquired atomic.Pointer[Acquisition]
+	manager := NewManager(ManagerOptions{
+		RouteTable: managerRouteTable(),
+		Listeners:  &fakeListenerSource{},
+		Mappers:    map[MappingLayerKind]GatewayMapper{LayerPCP: mapper},
+		Journal:    NewMemoryJournal(),
+		OnMappingDegraded: func(forwardID string, reason string) {
+			callbackOnce.Do(func() {
+				// Simulate a slow consumer: keep it blocked while the
+				// oscillating loop produces well beyond any bounded buffer.
+				time.Sleep(900 * time.Millisecond)
+				releaseDone <- acquired.Load().Release(t.Context())
+			})
+		},
+	})
+	acquisition, err := manager.Acquire(t.Context(), withPacing(gatewayAcquireRequest("forward-callback"), 20*time.Millisecond))
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	acquired.Store(acquisition) // released by the callback; no deferred
+	// release here — a deadlocked Release in a defer would hang the test.
+	select {
+	case err := <-releaseDone:
+		if err != nil {
+			t.Fatalf("Release from within a callback failed: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Release called from within a lifecycle callback deadlocked")
 	}
 }

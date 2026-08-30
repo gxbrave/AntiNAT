@@ -14,7 +14,6 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -446,15 +445,4 @@ func replaceOrAppend(results []StrategyResult, strategy protocol.Strategy, resul
 		}
 	}
 	return append(results, result)
-}
-
-// sortedKeys is a helper for deterministic maps (kept for reviewer clarity;
-// mechanism order above is explicit, so this only serves tests).
-func sortedKeys(m map[MappingLayerKind]GatewayMapper) []MappingLayerKind {
-	keys := make([]MappingLayerKind, 0, len(m))
-	for key := range m {
-		keys = append(keys, key)
-	}
-	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
-	return keys
 }

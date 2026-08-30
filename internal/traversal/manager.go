@@ -19,6 +19,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -176,8 +177,7 @@ type Acquisition struct {
 	renewDone     chan struct{}
 	renewCancel   context.CancelFunc
 	renewCtx      context.Context
-	events        chan lifecycleEvent
-	eventsDone    chan struct{}
+	events        *lifecycleQueue
 	renewOnceOnce sync.Once
 	failedRenew   int
 	degraded      bool
@@ -499,15 +499,76 @@ type lifecycleEvent struct {
 	reason string
 }
 
+// lifecycleQueue is an unbounded, ordered event queue between the renewal
+// goroutine and the lifecycle dispatcher. Delivery NEVER blocks: a consumer
+// callback runs on the dispatcher goroutine and may call Release, whose
+// stopRenewal joins the renewal goroutine — a bounded send under renewMu
+// could deadlock that join against the blocked callback (lab-review
+// finding). The event rate is bounded by state transitions, so unbounded
+// memory is not a practical risk.
+type lifecycleQueue struct {
+	mu     sync.Mutex
+	cond   *sync.Cond
+	events []lifecycleEvent
+	closed bool
+}
+
+func newLifecycleQueue() *lifecycleQueue {
+	q := &lifecycleQueue{}
+	q.cond = sync.NewCond(&q.mu)
+	return q
+}
+
+// push enqueues one event without ever blocking.
+func (q *lifecycleQueue) push(event lifecycleEvent) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.closed {
+		return // post-close transitions have no consumer left
+	}
+	q.events = append(q.events, event)
+	q.cond.Signal()
+}
+
+// close marks the queue finished; a draining dispatcher returns after it
+// has handled every queued event.
+func (q *lifecycleQueue) close() {
+	q.mu.Lock()
+	q.closed = true
+	q.cond.Broadcast()
+	q.mu.Unlock()
+}
+
+// drain runs fn for every queued event in publication order and returns
+// once the queue is closed and drained. fn runs OUTSIDE the queue lock: a
+// callback may call Release, and close (on the renewal goroutine's exit
+// path) must never wait for a callback to finish.
+func (q *lifecycleQueue) drain(fn func(lifecycleEvent)) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for {
+		for len(q.events) > 0 {
+			event := q.events[0]
+			q.events = q.events[1:]
+			q.mu.Unlock()
+			fn(event)
+			q.mu.Lock()
+		}
+		if q.closed {
+			return
+		}
+		q.cond.Wait()
+	}
+}
+
 // deliver queues one lifecycle transition for the dispatcher. The renewal
-// goroutine never runs option callbacks on its own stack: a callback that
-// releases the acquisition would join this goroutine (stopRenewal waits for
-// renewDone) and deadlock.
+// goroutine never runs option callbacks on its own stack and never blocks
+// on delivery.
 func (a *Acquisition) deliver(event lifecycleEvent) {
 	if a.events == nil {
 		return
 	}
-	a.events <- event // buffered; the dispatcher always drains
+	a.events.push(event)
 }
 
 // startRenewal launches the renewal goroutine and its lifecycle dispatcher.
@@ -526,14 +587,13 @@ func (m *Manager) startRenewal(forwardID string, acquisition *Acquisition, lease
 	acquisition.renewCtx, acquisition.renewCancel = context.WithCancel(context.Background())
 	acquisition.renewStop = make(chan struct{})
 	acquisition.renewDone = make(chan struct{})
-	acquisition.events = make(chan lifecycleEvent, 8)
-	acquisition.eventsDone = make(chan struct{})
+	acquisition.events = newLifecycleQueue()
 
 	go func() {
 		// A panicking callback must not wedge the manager; the remaining
-		// buffered events are dropped with it.
-		defer func() { _ = recover(); close(acquisition.eventsDone) }()
-		for event := range acquisition.events {
+		// queued events are dropped with it.
+		defer func() { _ = recover() }()
+		acquisition.events.drain(func(event lifecycleEvent) {
 			switch event.kind {
 			case eventDegraded:
 				if m.opts.OnMappingDegraded != nil {
@@ -548,14 +608,12 @@ func (m *Manager) startRenewal(forwardID string, acquisition *Acquisition, lease
 					m.opts.OnMappingRecovered(forwardID)
 				}
 			}
-		}
+		})
 	}()
 
 	go func() {
 		defer close(acquisition.renewDone)
-		// LIFO: the events channel closes before renewDone, so the
-		// dispatcher has drained every event before stopRenewal returns.
-		defer close(acquisition.events)
+		defer acquisition.events.close()
 		timer := time.NewTimer(interval + jitterTime(jitter))
 		defer timer.Stop()
 		for {
@@ -752,16 +810,7 @@ func ownershipStateJSON(mapping GatewayMapping) []byte {
 func journalIDFor(forwardID string, mapping GatewayMapping) string {
 	var b [8]byte
 	_, _ = rand.Read(b[:])
-	return forwardID + "-" + string(mapping.Mechanism) + "-" + hexEncode(b[:])
-}
-
-func hexEncode(b []byte) string {
-	const hexDigits = "0123456789abcdef"
-	out := make([]byte, 0, len(b)*2)
-	for _, v := range b {
-		out = append(out, hexDigits[v>>4], hexDigits[v&0x0f])
-	}
-	return string(out)
+	return forwardID + "-" + string(mapping.Mechanism) + "-" + hex.EncodeToString(b[:])
 }
 
 // sourceAddress resolves the gateway acquisition source: the default-route
@@ -785,8 +834,11 @@ func (m *Manager) releaseListenerQuietly(acquisition *Acquisition) {
 }
 
 // stopRenewal stops the renewal goroutine exactly once: the in-flight
-// renewal is cancelled first (a hung mapper must not bound Release), then
-// the loop exit and the drained lifecycle dispatcher are joined.
+// renewal is cancelled first (a hung mapper must not bound Release) and the
+// loop exit is joined. The lifecycle dispatcher drains its remaining events
+// asynchronously — joining it here would self-deadlock when Release is
+// called from inside a callback, so consumers must tolerate a trailing
+// notification arriving after Release returns.
 func (a *Acquisition) stopRenewal() {
 	a.renewOnceOnce.Do(func() {
 		if a.renewCancel != nil {
@@ -798,9 +850,6 @@ func (a *Acquisition) stopRenewal() {
 	})
 	if a.renewDone != nil {
 		<-a.renewDone
-	}
-	if a.eventsDone != nil {
-		<-a.eventsDone
 	}
 }
 
