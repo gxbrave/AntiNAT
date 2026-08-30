@@ -160,10 +160,18 @@ func (s *scriptedMapper) setRenewErr(err error) {
 // failingJournal fails every Put (durable-store IO error).
 type failingJournal struct {
 	*MemoryJournal
-	putErr error
+	putErr      error
+	deletePanic any
 }
 
 func (f *failingJournal) Put(record JournalRecord) error { return f.putErr }
+
+func (f *failingJournal) Delete(id string) error {
+	if f.deletePanic != nil {
+		panic(f.deletePanic)
+	}
+	return f.MemoryJournal.Delete(id)
+}
 
 // stepClock advances a fixed step on every read: journal timestamps and
 // lease deadlines become observable without real-time waits.
@@ -923,5 +931,54 @@ func TestManagerCurrentJournalErrorConcurrentRead(t *testing.T) {
 		if err := acquisition.CurrentJournalError(); err == nil {
 			t.Fatal("CurrentJournalError = nil, want the failed journal write")
 		}
+	}
+}
+
+// MA19 (S7i lifecycle review): a panic from Journal.Delete is a cleanup
+// failure, not a process panic. Listener teardown must still run and repeated
+// Release calls must return the stable first error.
+func TestManagerReleaseContainsJournalDeletePanic(t *testing.T) {
+	listeners := &fakeListenerSource{}
+	journal := &failingJournal{MemoryJournal: NewMemoryJournal(), deletePanic: "journal delete panic"}
+	manager := NewManager(ManagerOptions{
+		RouteTable: managerRouteTable(), Listeners: listeners,
+		Mappers: map[MappingLayerKind]GatewayMapper{LayerPCP: gatewayMapperFixture()}, Journal: journal,
+	})
+	acquisition, err := manager.Acquire(t.Context(), gatewayAcquireRequest("forward-journal-delete-panic"))
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	firstErr := acquisition.Release(t.Context())
+	if firstErr == nil || !strings.Contains(firstErr.Error(), "journal delete panic") {
+		t.Fatalf("Release error = %v, want contained journal panic", firstErr)
+	}
+	if got := listeners.releaseCount(); got != 1 {
+		t.Fatalf("listener releases = %d, want cleanup to continue", got)
+	}
+	if secondErr := acquisition.Release(t.Context()); secondErr == nil || secondErr.Error() != firstErr.Error() {
+		t.Fatalf("second Release error = %v, want stable %v", secondErr, firstErr)
+	}
+}
+
+// MA20 (S7i lifecycle review): a listener ReleaseFunc panic is contained and
+// becomes the stable idempotent Release outcome rather than escaping through
+// sync.Once and turning later calls into false success.
+func TestManagerReleaseContainsListenerPanic(t *testing.T) {
+	listeners := &fakeListenerSource{}
+	manager := NewManager(ManagerOptions{
+		RouteTable: managerRouteTable(), Listeners: listeners,
+		Mappers: map[MappingLayerKind]GatewayMapper{LayerPCP: gatewayMapperFixture()}, Journal: NewMemoryJournal(),
+	})
+	acquisition, err := manager.Acquire(t.Context(), gatewayAcquireRequest("forward-listener-panic"))
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	acquisition.releaseFn = func() error { panic("listener release panic") }
+	firstErr := acquisition.Release(t.Context())
+	if firstErr == nil || !strings.Contains(firstErr.Error(), "listener release panic") {
+		t.Fatalf("Release error = %v, want contained listener panic", firstErr)
+	}
+	if secondErr := acquisition.Release(t.Context()); secondErr == nil || secondErr.Error() != firstErr.Error() {
+		t.Fatalf("second Release error = %v, want stable %v", secondErr, firstErr)
 	}
 }

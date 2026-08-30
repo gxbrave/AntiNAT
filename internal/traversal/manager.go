@@ -452,7 +452,7 @@ func (m *Manager) acquireGateway(ctx context.Context, req AcquireRequest, plan S
 		// on the failure path too. The compensating delete must survive a
 		// cancelled caller context — a live gateway mapping with no
 		// durable journal record is the worst outcome (lifecycle review).
-		if deleteErr := mapper.Delete(context.WithoutCancel(ctx), mapping); deleteErr != nil {
+		if deleteErr := deleteMappingContained(context.WithoutCancel(ctx), mapper, mapping); deleteErr != nil {
 			return errors.Join(err, deleteErr)
 		}
 		return err
@@ -486,12 +486,14 @@ func (a *Acquisition) release(ctx context.Context) error {
 		}
 	}
 	if mappingDeleted && a.manager != nil && a.JournalID != "" && a.manager.opts.Journal != nil {
-		if err := a.manager.opts.Journal.Delete(a.JournalID); err != nil {
+		if err := cleanupContained("journal delete", func() error {
+			return a.manager.opts.Journal.Delete(a.JournalID)
+		}); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	if a.releaseFn != nil {
-		if err := a.releaseFn(); err != nil {
+		if err := cleanupContained("listener release", a.releaseFn); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -502,13 +504,21 @@ func (a *Acquisition) release(ctx context.Context) error {
 // outcome. Release must still close the listener and retain the journal record;
 // letting the panic unwind through sync.Once would consume the once while
 // skipping both cleanup steps and make every later Release a false success.
-func deleteMappingContained(ctx context.Context, mapper GatewayMapper, mapping GatewayMapping) (err error) {
+func deleteMappingContained(ctx context.Context, mapper GatewayMapper, mapping GatewayMapping) error {
+	return cleanupContained("mapping delete", func() error { return mapper.Delete(ctx, mapping) })
+}
+
+// cleanupContained is the single panic boundary for manager-owned external
+// cleanup callbacks. A faulty adapter or store must become an ordinary cleanup
+// error so the Manager can continue the remaining teardown steps and preserve
+// Release's stable sync.Once outcome.
+func cleanupContained(operation string, cleanup func() error) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("traversal: mapping delete panicked: %v", recovered)
+			err = fmt.Errorf("traversal: %s panicked: %v", operation, recovered)
 		}
 	}()
-	return mapper.Delete(ctx, mapping)
+	return cleanup()
 }
 
 // ---------------------------------------------------------------------------
@@ -895,7 +905,7 @@ func (m *Manager) sourceAddress() (netip.Addr, error) {
 // releaseListenerQuietly releases the listener on failed acquisition paths.
 func (m *Manager) releaseListenerQuietly(acquisition *Acquisition) {
 	if acquisition.releaseFn != nil {
-		_ = acquisition.releaseFn() //nolint:errcheck
+		_ = cleanupContained("listener release", acquisition.releaseFn) //nolint:errcheck
 	}
 }
 
