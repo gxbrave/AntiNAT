@@ -161,10 +161,16 @@ func (s *scriptedMapper) setRenewErr(err error) {
 type failingJournal struct {
 	*MemoryJournal
 	putErr      error
+	putPanic    any
 	deletePanic any
 }
 
-func (f *failingJournal) Put(record JournalRecord) error { return f.putErr }
+func (f *failingJournal) Put(record JournalRecord) error {
+	if f.putPanic != nil {
+		panic(f.putPanic)
+	}
+	return f.putErr
+}
 
 func (f *failingJournal) Delete(id string) error {
 	if f.deletePanic != nil {
@@ -980,5 +986,38 @@ func TestManagerReleaseContainsListenerPanic(t *testing.T) {
 	}
 	if secondErr := acquisition.Release(t.Context()); secondErr == nil || secondErr.Error() != firstErr.Error() {
 		t.Fatalf("second Release error = %v, want stable %v", secondErr, firstErr)
+	}
+}
+
+// MA21 (S7j lifecycle review): Journal.Put panic has the same advisory
+// contract as an ordinary journal write error. Acquire returns the live,
+// releasable binding, keeps JournalID honest, and exposes the failure through
+// CurrentJournalError rather than leaking a mapping/listener via panic.
+func TestManagerAcquireContainsJournalPutPanic(t *testing.T) {
+	listeners := &fakeListenerSource{}
+	mapper := gatewayMapperFixture()
+	journal := &failingJournal{MemoryJournal: NewMemoryJournal(), putPanic: "journal put panic"}
+	manager := NewManager(ManagerOptions{
+		RouteTable: managerRouteTable(), Listeners: listeners,
+		Mappers: map[MappingLayerKind]GatewayMapper{LayerPCP: mapper}, Journal: journal,
+	})
+	acquisition, err := manager.Acquire(t.Context(), gatewayAcquireRequest("forward-journal-put-panic"))
+	if err != nil {
+		t.Fatalf("Acquire: %v; journal failures are advisory", err)
+	}
+	if acquisition == nil {
+		t.Fatal("Acquire returned nil binding after contained journal panic")
+	}
+	if acquisition.JournalID != "" {
+		t.Fatalf("JournalID = %q, want empty after failed first write", acquisition.JournalID)
+	}
+	if journalErr := acquisition.CurrentJournalError(); journalErr == nil || !strings.Contains(journalErr.Error(), "journal put panic") {
+		t.Fatalf("CurrentJournalError = %v, want contained panic", journalErr)
+	}
+	if err := acquisition.Release(t.Context()); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	if mapper.deleteCount() != 1 || listeners.releaseCount() != 1 {
+		t.Fatalf("cleanup deletes/releases = %d/%d, want 1/1", mapper.deleteCount(), listeners.releaseCount())
 	}
 }

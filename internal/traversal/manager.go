@@ -832,7 +832,7 @@ func (m *Manager) journalPut(forwardID string, existingID string, mapping Gatewa
 	now := m.opts.Clock()
 	createdAt := now.Unix()
 	if existingID != "" {
-		if existing, ok, err := m.opts.Journal.Get(existingID); err == nil && ok {
+		if existing, ok, err := journalGetContained(m.opts.Journal, existingID); err == nil && ok {
 			createdAt = existing.CreatedAtUnix
 		}
 	}
@@ -857,10 +857,24 @@ func (m *Manager) journalPut(forwardID string, existingID string, mapping Gatewa
 		CreatedAtUnix:   createdAt,
 		UpdatedAtUnix:   now.Unix(),
 	}
-	if err := m.opts.Journal.Put(record); err != nil {
+	if err := cleanupContained("journal put", func() error {
+		return m.opts.Journal.Put(record)
+	}); err != nil {
 		return existingID, fmt.Errorf("traversal: journal put %s: %w", recordID, err)
 	}
 	return recordID, nil
+}
+
+// journalGetContained gives journal reads the same fault boundary as writes.
+// A faulty store's panic is treated like its ordinary Get error: renewal falls
+// back to the current timestamp without taking down the renewal goroutine.
+func journalGetContained(journal JournalStore, id string) (record JournalRecord, ok bool, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("traversal: journal get panicked: %v", recovered)
+		}
+	}()
+	return journal.Get(id)
 }
 
 // ownershipStateJSON serializes the mechanism-private renewal state for the

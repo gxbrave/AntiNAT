@@ -47,6 +47,7 @@ type fakeGatewayMapper struct {
 	control     traversal.ControlServer
 	discoverErr error
 	mapErr      error
+	deletePanic any
 	external    netip.AddrPort
 	deleted     bool
 	mu          sync.Mutex
@@ -81,7 +82,11 @@ func (f *fakeGatewayMapper) Renew(ctx context.Context, mapping traversal.Gateway
 func (f *fakeGatewayMapper) Delete(ctx context.Context, mapping traversal.GatewayMapping) error {
 	f.mu.Lock()
 	f.deleted = true
+	panicValue := f.deletePanic
 	f.mu.Unlock()
+	if panicValue != nil {
+		panic(panicValue)
+	}
 	return nil
 }
 
@@ -295,6 +300,41 @@ func TestDetectionTempTuplesDistinct(t *testing.T) {
 	}
 	if result.Candidate != "100.64.0.2:55555" {
 		t.Fatalf("candidate = %q", result.Candidate)
+	}
+}
+
+// DE8 (S7j network review): a panic while deleting a temp mapping is recorded
+// as bounded cleanup damage instead of escaping a detection goroutine and
+// crashing the process. The short lease still bounds the unconfirmed mapping.
+func TestDetectionContainsTempDeletePanic(t *testing.T) {
+	rt := detectionRouteTable{
+		defaultGateway: netip.MustParseAddr("127.0.0.1"), defaultIface: "lo", hasDefault: true,
+		addresses: []traversal.IPv4Address{{Interface: "lo", Addr: netip.MustParseAddr("127.0.0.1")}},
+	}
+	mapper := &recordingMapper{fakeGatewayMapper: fakeGatewayMapper{
+		mechanism: traversal.LayerPCP, ownership: traversal.OwnershipStrong,
+		control:  traversal.ControlServer{Mechanism: traversal.LayerPCP, Address: "127.0.0.1:5351"},
+		external: netip.MustParseAddrPort("100.64.0.2:43111"), deletePanic: "temp delete panic",
+	}}
+	registry := traversal.NewPortRegistry()
+	detector := traversal.NewDetector(traversal.DetectorOptions{
+		RouteTable: rt, Registry: registry,
+		Mappers:   map[traversal.MappingLayerKind]traversal.GatewayMapper{traversal.LayerPCP: mapper},
+		AutoOrder: []protocol.Strategy{protocol.StrategyExplicitGateway},
+	})
+	profile, err := detector.Run(t.Context(), traversal.DetectionRequest{Protocol: traversal.ProtocolTCP})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	result, ok := profile.ResultFor(protocol.StrategyExplicitGateway)
+	if !ok || result.State != traversal.DetectionPassed {
+		t.Fatalf("gateway result = %+v, want capability PASSED with bounded cleanup damage", result)
+	}
+	if !strings.Contains(result.Note, "temp delete panic") {
+		t.Fatalf("note = %q, want the contained cleanup panic", result.Note)
+	}
+	if got := registry.Len(); got != 0 {
+		t.Fatalf("temp tuples leaked: registry holds %d", got)
 	}
 }
 

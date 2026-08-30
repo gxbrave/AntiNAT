@@ -332,8 +332,9 @@ func (d *Detector) gatewayAttempt(mechanism MappingLayerKind, mapper GatewayMapp
 			result.Note = "map: " + err.Error()
 			return result
 		}
-		// Cleanup: release the temp mapping right away.
-		deleteErr := mapper.Delete(ctx, mapping)
+		// Cleanup: release the temp mapping right away. Adapter panics are
+		// bounded cleanup damage, not process crashes from an attempt goroutine.
+		deleteErr := deleteMappingContained(ctx, mapper, mapping)
 		switch {
 		case deleteErr == nil:
 		default:
