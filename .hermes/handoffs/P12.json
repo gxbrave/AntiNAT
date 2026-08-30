@@ -3,7 +3,7 @@
   "artifact_role": "canonical P12 implementation candidate handoff (superseding)",
   "plan": "P12",
   "stage": "IMPLEMENTATION_FROZEN_REVIEW_REQUIRED",
-  "recorded_at_utc": "2026-08-30T15:30:00Z",
+  "recorded_at_utc": "2026-08-30T16:20:00Z",
   "branch": "ai/P12-gateway-traversal",
   "workspace_path": "/root/Claude/AntiNAT/p12-traversal",
   "lineage": {
@@ -17,9 +17,9 @@
       "note": "265ad24 is the orchestrator-provided base for this worktree (integration/v1-beta line); P11-integrated.json records its own integrated SHA on a parallel replay line"
     }
   },
-  "candidate_definition": "The only P12 implementation candidate is HEAD 45b0019/tree 87cd3af6175a0ae975f679985b4bf42f1b35d06d. All earlier candidates through 36dd00e are superseded; all four reviews must re-pin.",
-  "candidate_head_full": "45b0019569761090e13751f3f5be69a9c6856c0f",
-  "candidate_tree_full": "87cd3af6175a0ae975f679985b4bf42f1b35d06d",
+  "candidate_definition": "The only P12 implementation candidate is HEAD ce54c0c/tree ef269468aefa997c60fe524282a0d06f6aac4a34. All earlier candidates through 45b0019 are superseded; all four reviews must re-pin to this tree.",
+  "candidate_head_full": "ce54c0cd5a966ca7a37329161a94af1ea78f83a0",
+  "candidate_tree_full": "ef269468aefa997c60fe524282a0d06f6aac4a34",
   "implementation_commits": [
     {
       "sha": "8fdffd1",
@@ -90,6 +90,11 @@
       "sha": "45b0019",
       "story": "S7k",
       "summary": "P12 S7k: contain Journal.Get/Put and detector temp-delete panics with advisory semantics (TDD)"
+    },
+    {
+      "sha": "ce54c0c",
+      "story": "S7l",
+      "summary": "P12 S7l: unify every injected-callback boundary in manager and detector; reconcile ambiguous journal Put outcomes; ladder-following Renew panics (TDD)"
     }
   ],
   "deltas": [
@@ -107,14 +112,17 @@
     "S7i signal hardening: EXIT exclusively owns teardown while INT/TERM force nonzero exit; a real netns regression interrupts KEEP=1 only after all namespaces and daemons exist and asserts zero leakage",
     "S7j cleanup boundary: every Manager-owned external cleanup callback (mapping delete, journal delete, listener ReleaseFunc, including acquisition-failure cleanup) runs through cleanupContained; panic becomes an aggregated error and cannot skip later teardown or consume releaseOnce into false success",
     "S7k journal boundary: Journal.Get/Put panics become ordinary advisory journal errors; initial Acquire remains live/releasable with honest empty JournalID and CurrentJournalError, renewal updates error observability",
-    "S7k detector boundary: temp mapping Delete panic is recorded as bounded cleanup damage instead of crashing an attempt goroutine"
+    "S7k detector boundary: temp mapping Delete panic is recorded as bounded cleanup damage instead of crashing an attempt goroutine",
+    "S7l unified boundaries: one externalCallContained panic boundary wraps listener Acquire, mapper Discover/Map/Renew, the STUN observer, the injected clock, Journal Get/Put/state serialization and every detector attempt call; a runAttempt backstop degrades residual panics to failed results in parallel detection",
+    "S7l journal integrity: renewals no longer Get (createdAt cached on the acquisition); ambiguous Put outcomes reconcile by read-back at the stable private attempt ID; persist-then-panic publishes the durable row and Release deletes it; Get faults can no longer clear CurrentJournalError or rewrite CreatedAtUnix; Renew panics follow the §3.5 ladder",
+    "S7l detector cleanup: temp deletes run on a fresh bounded context detached from the attempt budget; bounded-latency contracts documented on GatewayMapper/ListenerSource/JournalStore"
   ],
   "behavioral_summary": "A forward with an explicit-gateway strategy acquires the listener on the default-route interface's own address, maps it through the detected mechanism, optionally observes the same tuple via STUN, journals the mapping with honest ownership and renewal state, renews near 50% of the GRANTED lease, degrades after three consecutive renewal failures, loses only at the expiry safety margin / confirmed reboot / rewritten endpoint, and releases with ownership-strength deletion that leaves the journal record in place whenever the gateway delete failed.",
-  "files_changed_base_to_head_count": 96,
+  "files_changed_base_to_head_count": 102,
   "source_byte_manifest": {
-    "command": "git diff --name-only 265ad24..45b0019 | wc -l",
-    "files": 96,
-    "note": "S7k implementation changes exactly manager.go/manager_test.go/detection.go/detection_test.go over b0484ca."
+    "command": "git diff --name-only 265ad24..ce54c0c | wc -l",
+    "files": 102,
+    "note": "S7l implementation changes manager.go, manager_test.go, detection.go, detection_test.go, strategy.go (interface contract docs) and mapping_journal.go (JournalStore contract docs) over b66e14d."
   },
   "tests": [
     {
@@ -460,13 +468,69 @@
       "evidence": ".hermes/evidence/p12/s7k-gofmt-vet.log",
       "evidence_sha256": "a029172708c0f27dd695f13f8d6afc23c33addab10f13c41d96f623abeb6109c",
       "result": "PASS"
+    },
+    {
+      "phase": "red-s7l",
+      "command": "s7l-red.log",
+      "exit_code": 1,
+      "evidence": ".hermes/evidence/p12/s7l-red.log",
+      "evidence_sha256": "4e741f3a6171e00f4aff229cca72ae5f1d59274b17202c437e2019749da5a1f9",
+      "result": "RED at S7k 45b0019: listener-acquire panic escapes Acquire and kills the test binary (process-fatal, faithful)"
+    },
+    {
+      "phase": "green-s7l",
+      "command": "s7l-green.log",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7l-green.log",
+      "evidence_sha256": "551f0aa61fd6d00878a29dcd74dd81e007fbc90049479791f3da179e04829f99",
+      "result": "PASS: MA22-29 + DE9/DE10 under -race -count=10"
+    },
+    {
+      "phase": "manager-race2-s7l",
+      "command": "s7l-manager-race2.log",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7l-manager-race2.log",
+      "evidence_sha256": "09323579e2c2761109aa82deb622015d09ca60487e9979824c8106e29ce16f71",
+      "result": "PASS"
+    },
+    {
+      "phase": "race2-s7l",
+      "command": "s7l-traversal-race2.log",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7l-traversal-race2.log",
+      "evidence_sha256": "81df649f082f24b0f13e0dabc15edf4108d68154edabadaf80b80b378d827049",
+      "result": "PASS (7 packages, two runs)"
+    },
+    {
+      "phase": "fullrepo-race-s7l",
+      "command": "s7l-fullrepo-race.log",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7l-fullrepo-race.log",
+      "evidence_sha256": "5bce5be4ad4279bb43057e7aca3ebc157a04e5e8badcb4160a178f4153a2c438",
+      "result": "PASS (zero failures). Two earlier load-induced flakes in P12-untouched packages (test/e2e timed out while the netns lab ran concurrently; internal/controller/agenthub timing) both passed in isolation and in this clean run"
+    },
+    {
+      "phase": "netns-s7l",
+      "command": "s7l-netns.log",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7l-netns.log",
+      "evidence_sha256": "b2691c289ebe1f53392dc172db64d00668d07c979fe26ebf64677ae1b5c4269a",
+      "result": "PASS; post-run 0 namespaces/workdirs/daemons"
+    },
+    {
+      "phase": "gofmt-vet-s7l",
+      "command": "s7l-gofmt-vet.log",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7l-gofmt-vet.log",
+      "evidence_sha256": "88dde06cd3560cec8c4f3bc7a700cd40079a7381d0a26106667c666e51984348",
+      "result": "PASS (clean)"
     }
   ],
   "evidence_manifest": {
     "path": ".hermes/evidence/p12/SHA256SUMS",
-    "sha256": "6c1bd10548162e11d71b16cbbff228ad1654b15d7dbc10c4abbd39091717d05b",
+    "sha256": "8d9f17c20abd99c1ae78c6a3bc89b9be1f2530ee313992f7831e2be90703e7a4",
     "environment": ".hermes/evidence/p12/environment.txt",
-    "note": "Regenerated for S7k supersession (51 logs), force-added because *.log is ignored."
+    "note": "Regenerated for S7l supersession (58 logs), force-added because *.log is ignored."
   },
   "contracts_changed": [],
   "contracts_consumed": [
@@ -495,12 +559,12 @@
   ],
   "residual_risk": "Unknown real-CPE behaviors (description field sizes other than 64 bytes, 718/725 variations, PCP options) are covered by conservative client behavior (bounded retries, strict verification, honest failures) but not by device inventory.",
   "required_reviews": [
-    "fresh specification/ownership PASS on 45b0019/87cd3af6175a0ae975f679985b4bf42f1b35d06d",
-    "fresh quality/security PASS on same tree",
-    "fresh network/protocol PASS on same tree",
-    "fresh lifecycle/integration PASS on same tree (must verify initial/renewal Journal.Put and detector temp-delete containment)"
+    "fresh exact-candidate specification/ownership PASS on ce54c0c/ef269468aefa997c60fe524282a0d06f6aac4a34",
+    "fresh exact-candidate quality/security PASS on the same tree (must re-verify the two journal HIGH findings and the callback-gap inventory)",
+    "fresh exact-candidate network/protocol PASS on the same tree",
+    "fresh exact-candidate lifecycle/integration PASS on the same tree (must re-verify the journal and detector boundaries end to end)"
   ],
-  "review_status": "PENDING_FRESH_INDEPENDENT_REVIEWS (re-pinned to 45b0019 after S7k supersession)",
+  "review_status": "PENDING_FRESH_INDEPENDENT_REVIEWS (re-pinned to ce54c0c after S7l supersession)",
   "integration_status": "NOT_PERFORMED",
   "cleanup_done": true,
   "cleanup": [
@@ -512,7 +576,7 @@
     "git diff --check clean; gofmt clean",
     "S7h round: the netns lab re-run's parent-owned teardown verified again (0 antinat-p12 namespaces, 0 /tmp/antinat-p12-netns.* dirs, no miniupnpd/turnserver processes); the throwaway d95d06d RED worktree was removed and pruned; no debug instrumentation in the S7h diff (grep for fmt.Print/DEBUG/TODO scanned clean)"
   ],
-  "quiescence": "Clean after S7k gates: signal-cleanup and full traversal lab passed; post-run 0 antinat-p12 namespaces, 0 work dirs, 0 miniupnpd/turnserver processes.",
+  "quiescence": "Clean after S7l gates: the netns signal-cleanup and full traversal lab passed; post-run 0 antinat-p12 namespaces, 0 work dirs, 0 miniupnpd/turnserver processes. No leftover review worktrees.",
   "deviations": [
     "24-byte PCP common header (RFC 6887) confirmed against the real daemon after an initial misread of 28 bytes; correction documented in s2 evidence and the S2 commit.",
     "Migration 0007 bumps store schema version 6->7; store tests updated as a declared mechanical consequence (schema_version constants, broken-migration slot index).",
@@ -574,6 +638,17 @@
         "specification PASS",
         "quality PASS with two LOWs",
         "lifecycle FAIL with BLOCKING initial Journal.Put leak"
+      ]
+    },
+    {
+      "prior_candidate": "45b0019569761090e13751f3f5be69a9c6856c0f/87cd3af6175a0ae975f679985b4bf42f1b35d06d",
+      "superseded_by": "ce54c0c",
+      "reason": "S7k review outcome: network PASS, specification PASS, quality/security FAIL (formal), lifecycle FAIL (probes confirmed both blockers; the formal verdict was interrupted by a gateway outage). Confirmed defects: (1) HIGH renewal Journal.Get panic/error silently ignored, then a successful Put cleared CurrentJournalError and rewrote CreatedAtUnix; (2) HIGH Journal.Put persist-then-panic left JournalID empty, so renewals generated duplicate random IDs and Release skipped deletion (four orphan rows observed in 40ms); (3) adjacent injected-callback panic gaps (Manager Map/StunObserve/Listener Acquire/Discover, Detector Discover/Map/StunObserve) could crash goroutines or leak resources. S7l unifies every injected callback behind one externalCallContained boundary, removes the renewOnce blanket recover so Renew panics follow the degradation ladder, eliminates the per-renewal Get (createdAt cached), reconciles ambiguous Put outcomes by read-back at the stable private attempt ID, detaches detector cleanup contexts from the attempt budget, and documents the bounded-latency injected-implementation contract.",
+      "verification_rounds_on_prior_candidate": [
+        "network PASS (zero findings)",
+        "specification PASS (zero findings, evidence 51/51)",
+        "quality/security FAIL (two journal HIGHs + callback-gap inventory; MA16-21/DE8 mutation-verified)",
+        "lifecycle FAIL (same blockers confirmed by probes; formal report cut off by gateway outage)"
       ]
     }
   ],
@@ -661,6 +736,26 @@
       "reviewer": "S7j lifecycle review",
       "tree": "36dd00e/f4cb5f79",
       "outcome": "FAIL BLOCKING: initial Journal.Put panic leaks mapping/listener and no journal; S7j cleanup targets otherwise closed."
+    },
+    {
+      "reviewer": "S7k network final review",
+      "tree": "45b0019/87cd3af6",
+      "outcome": "PASS. Zero new findings; advisory journal semantics and detector cleanup judged correct; prior closures intact."
+    },
+    {
+      "reviewer": "S7k specification final review",
+      "tree": "45b0019/87cd3af6",
+      "outcome": "PASS. Zero findings; contracts/scope/evidence 51/51 verified."
+    },
+    {
+      "reviewer": "S7k quality final review",
+      "tree": "45b0019/87cd3af6",
+      "outcome": "FAIL. Two HIGH journal findings (persist-then-panic orphans with duplicate renewal IDs; renewal Get fault silently clearing CurrentJournalError and rewriting CreatedAt) plus the adjacent injected-callback panic-gap inventory (Manager Map/StunObserve/Acquire/Discover, Detector attempt calls, Renew swallowed by blanket recover)."
+    },
+    {
+      "reviewer": "S7k lifecycle final review",
+      "tree": "45b0019/87cd3af6",
+      "outcome": "FAIL. Probes reproduced both journal blockers (Get-panic observability loss with CreatedAt rewrite; persist-then-panic producing 1 orphan row on Acquire and 4 rows under renewal with Release deleting none); formal report interrupted by a gateway outage after confirming MA16-21/DE8 closed."
     }
   ]
 }

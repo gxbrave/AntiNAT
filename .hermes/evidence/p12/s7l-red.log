@@ -1,0 +1,6 @@
+# S7l RED: MA22-29 + DE9/DE10 against S7k candidate 45b0019
+=== RUN   TestManagerAcquireContainsListenerAcquirePanic
+--- FAIL: TestManagerAcquireContainsListenerAcquirePanic (0.00s)
+panic: listener acquire panic [recovered, repanicked]
+panic({0x631660?, 0x69e8d0?})
+exit=0
