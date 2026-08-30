@@ -246,12 +246,15 @@ func TestLinuxDirectV4WalkingSkeleton(t *testing.T) {
 		}
 		return err == nil && op.Status == "COMPLETED"
 	})
-	// Listener is gone: the published endpoint refuses connections. A port
-	// rebound by an unrelated concurrent test process is tolerated; only the
-	// Forward's own echo signature would prove resurrection.
-	harness.AssertForwardGone(t, endpoint, "ping-gone", "B:")
+	// Listener ownership is gone: the exact published endpoint becomes bindable
+	// at the OS boundary. This cannot false-pass when a stale listener still
+	// accepts connections but its target is unavailable.
+	reservation := harness.ReserveReleasedEndpoint(t, endpoint)
+	defer reservation.Close()
 
-	// 13. Restart after delete: no resurrection (tombstone-before-stop).
+	// 13. Restart after delete: no resurrection (tombstone-before-stop). Keep the
+	// exact endpoint reserved throughout restart so parallel port reuse cannot
+	// impersonate the deleted Forward or make the ownership oracle flaky.
 	h.StopAgent()
 	app3 := h.StartAgent(agentDir, nodeID, "")
 	defer h.StopAgent()
@@ -259,5 +262,4 @@ func TestLinuxDirectV4WalkingSkeleton(t *testing.T) {
 	if _, ok, _ := app3.Store().GetAppliedState(fwdID); ok {
 		t.Fatal("forward resurrected after delete + restart")
 	}
-	harness.AssertForwardGone(t, endpoint, "ping-dead", "B:")
 }

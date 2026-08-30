@@ -126,6 +126,12 @@ type operationJournal struct {
 	// semantics must survive a crash between RECEIVE and the apply pipeline
 	// (desired, forward_delete). Other kinds persist only the payload hash.
 	Payload []byte `json:"payload,omitempty"`
+	// PayloadPresent distinguishes a modern exact payload (including an empty
+	// payload) from a legacy journal written before payload persistence existed.
+	PayloadPresent bool `json:"payload_present,omitempty"`
+	// RecoveredDeletionPending remains durable until deletion-only convergence
+	// succeeds. It makes a transient callback failure retryable across reconnects.
+	RecoveredDeletionPending bool `json:"recovered_deletion_pending,omitempty"`
 	// ForwardDeletions classifies every ABSENT Forward in Payload so recovery
 	// can re-assert the durable deletion fence without decoding the payload
 	// again.
@@ -203,13 +209,13 @@ func operationPhaseError(operationID, want string, j operationJournal) error {
 // message ID with the same type and payload hash is a cached duplicate; the
 // same message ID (or operation ID) with different material fails closed.
 func (s *Store) ReceiveCommand(epoch uint64, sessionID, operationID, messageID, messageType, payloadHash, kind string) (bool, error) {
-	duplicate := false
+	var outcome receiveCommandOutcome
 	err := s.db.Update(func(tx *bolt.Tx) error {
 		var err error
-		duplicate, err = s.receiveCommandTx(tx, epoch, sessionID, operationID, messageID, messageType, payloadHash, kind, nil, nil)
+		outcome, err = s.receiveCommandTx(tx, epoch, sessionID, operationID, messageID, messageType, payloadHash, kind, nil, false, nil)
 		return err
 	})
-	return duplicate, err
+	return outcome.Duplicate, err
 }
 
 // ReceiveCommandWithPayload is ReceiveCommand for commands whose payload must
@@ -225,27 +231,56 @@ func (s *Store) ReceiveCommand(epoch uint64, sessionID, operationID, messageID, 
 // (the older deletion wins) and lets the apply pipeline fail the command with
 // the fence conflict instead of tearing down the session.
 func (s *Store) ReceiveCommandWithPayload(epoch uint64, sessionID, operationID, messageID, messageType string, payload []byte, kind string) (bool, error) {
+	duplicate, _, err := s.ReceiveCommandWithPayloadStatus(epoch, sessionID, operationID, messageID, messageType, payload, kind)
+	return duplicate, err
+}
+
+// ReceiveCommandWithPayloadStatus additionally reports when this exact
+// redelivery upgraded a legacy payload-less journal. Callers use that signal to
+// converge only deletion cleanup; an ordinary modern NACK duplicate must not be
+// mistaken for crash migration and replayed.
+func (s *Store) ReceiveCommandWithPayloadStatus(epoch uint64, sessionID, operationID, messageID, messageType string, payload []byte, kind string) (duplicate, recoveredDeletionPending bool, err error) {
 	sum := sha256.Sum256(payload)
 	payloadHash := hex.EncodeToString(sum[:])
 	links, ok := classifyForwardDeletions(messageType, payload)
+	payloadPresent := messageType == "desired" || messageType == "forward_delete"
 	var durablePayload []byte
-	if ok {
-		durablePayload = append([]byte(nil), payload...)
-	} else {
+	if payloadPresent {
+		// Persist the exact payload even when strict deletion classification fails.
+		// PayloadPresent preserves the distinction for a zero-byte payload.
+		durablePayload = append([]byte{}, payload...)
+	}
+	if !ok {
 		links = nil
 	}
-	duplicate := false
-	err := s.db.Update(func(tx *bolt.Tx) error {
-		var err error
-		duplicate, err = s.receiveCommandTx(tx, epoch, sessionID, operationID, messageID, messageType, payloadHash, kind, durablePayload, links)
-		return err
+	var outcome receiveCommandOutcome
+	err = s.db.Update(func(tx *bolt.Tx) error {
+		var receiveErr error
+		outcome, receiveErr = s.receiveCommandTx(tx, epoch, sessionID, operationID, messageID, messageType, payloadHash, kind, durablePayload, payloadPresent, links)
+		return receiveErr
 	})
-	return duplicate, err
+	return outcome.Duplicate, outcome.RecoveredDeletionPending, err
+}
+
+func isDeletionCommandKind(kind string) bool {
+	return kind == "desired" || kind == "forward_delete"
 }
 
 // classifyForwardDeletions extracts the deletion links from one command
 // payload. ok is false when the payload is not a strictly valid desired
 // snapshot; the caller then persists no classification.
+func equalForwardDeletionLinks(a, b []ForwardDeletionLink) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func classifyForwardDeletions(messageType string, payload []byte) (links []ForwardDeletionLink, ok bool) {
 	if messageType != "desired" && messageType != "forward_delete" {
 		return nil, false
@@ -270,65 +305,123 @@ func classifyForwardDeletions(messageType string, payload []byte) (links []Forwa
 	return links, true
 }
 
+type receiveCommandOutcome struct {
+	Duplicate                bool
+	RecoveredDeletionPending bool
+}
+
 // receiveCommandTx is the shared receive path: inbox dedup row plus the C
 // operation journal row, one transaction. For payload-bearing commands the
 // raw payload, its deletion classification, and every deletion fence land in
 // the same transaction as the journal row.
-func (s *Store) receiveCommandTx(tx *bolt.Tx, epoch uint64, sessionID, operationID, messageID, messageType, payloadHash, kind string, payload []byte, links []ForwardDeletionLink) (bool, error) {
+func (s *Store) receiveCommandTx(tx *bolt.Tx, epoch uint64, sessionID, operationID, messageID, messageType, payloadHash, kind string, payload []byte, payloadPresent bool, links []ForwardDeletionLink) (receiveCommandOutcome, error) {
 	if err := checkSession(tx, epoch, sessionID); err != nil {
-		return false, err
+		return receiveCommandOutcome{}, err
 	}
 	ops := tx.Bucket([]byte(bucketOperations))
 	if ops.Get(receiptKey(operationID)) != nil {
-		return false, fmt.Errorf("%w: operation %q", ErrAlreadyReceipted, operationID)
+		return receiveCommandOutcome{}, fmt.Errorf("%w: operation %q", ErrAlreadyReceipted, operationID)
 	}
 	inbox := tx.Bucket([]byte(bucketInbox))
 	key := []byte(messageID)
 	if existing := inbox.Get(key); existing != nil {
 		var entry inboxEntry
 		if err := json.Unmarshal(existing, &entry); err != nil {
-			return false, fmt.Errorf("localstate: decode inbox entry %q: %w", messageID, err)
+			return receiveCommandOutcome{}, fmt.Errorf("localstate: decode inbox entry %q: %w", messageID, err)
 		}
 		if entry.MessageType != messageType || entry.PayloadHash != payloadHash {
-			return false, fmt.Errorf("%w: message %q (type=%s hash=%s) vs persisted (type=%s hash=%s)", ErrMessageConflict, messageID, messageType, payloadHash, entry.MessageType, entry.PayloadHash)
+			return receiveCommandOutcome{}, fmt.Errorf("%w: message %q (type=%s hash=%s) vs persisted (type=%s hash=%s)", ErrMessageConflict, messageID, messageType, payloadHash, entry.MessageType, entry.PayloadHash)
 		}
-		return true, nil
+		if entry.OperationID != operationID {
+			return receiveCommandOutcome{}, fmt.Errorf("%w: operation %q is bound to inbox operation %q", ErrOperationConflict, operationID, entry.OperationID)
+		}
+		j, ok, err := s.loadOperationJournal(tx, operationID)
+		if err != nil {
+			return receiveCommandOutcome{}, err
+		}
+		if !ok {
+			return receiveCommandOutcome{}, fmt.Errorf("%w: operation %q has no journal for message %q", ErrOperationConflict, operationID, messageID)
+		}
+		if j.Kind != kind || j.MessageID != messageID {
+			return receiveCommandOutcome{}, fmt.Errorf("%w: operation %q (kind=%s msg=%s) vs persisted (kind=%s msg=%s)", ErrOperationConflict, operationID, kind, messageID, j.Kind, j.MessageID)
+		}
+		if payloadPresent {
+			if j.PayloadPresent && !bytes.Equal(j.Payload, payload) {
+				return receiveCommandOutcome{}, fmt.Errorf("%w: operation %q carries conflicting durable payload", ErrOperationConflict, operationID)
+			}
+			if len(j.ForwardDeletions) != 0 && !equalForwardDeletionLinks(j.ForwardDeletions, links) {
+				return receiveCommandOutcome{}, fmt.Errorf("%w: operation %q carries conflicting deletion classification", ErrOperationConflict, operationID)
+			}
+			if !j.PayloadPresent {
+				j.Payload = append([]byte{}, payload...)
+				j.PayloadPresent = true
+				j.ForwardDeletions = append([]ForwardDeletionLink(nil), links...)
+				wasRecoveredApplying := j.Phase == phaseApplying ||
+					(j.Phase == phaseNacked && j.Reason == "recovered APPLYING operation after restart")
+				j.RecoveredDeletionPending = wasRecoveredApplying && len(links) != 0
+			}
+			for _, link := range links {
+				if _, err := putForwardDeleteIntentTx(tx, ForwardDeleteIntent{
+					ForwardID: link.ForwardID, DeletionOperationID: link.DeletionOperationID,
+					DesiredRevision: link.DesiredRevision, CreatedAtUnix: nowUnix(),
+				}); err != nil && !errors.Is(err, ErrForwardDeleteConflict) {
+					return receiveCommandOutcome{}, err
+				}
+			}
+			if err := s.putOperationJournal(tx, operationID, j); err != nil {
+				return receiveCommandOutcome{}, err
+			}
+		}
+		return receiveCommandOutcome{Duplicate: true, RecoveredDeletionPending: j.RecoveredDeletionPending}, nil
 	}
 	if j, ok, err := s.loadOperationJournal(tx, operationID); err != nil {
-		return false, err
+		return receiveCommandOutcome{}, err
 	} else if ok {
 		if j.Kind != kind || j.MessageID != messageID {
-			return false, fmt.Errorf("%w: operation %q (kind=%s msg=%s) vs persisted (kind=%s msg=%s)", ErrOperationConflict, operationID, kind, messageID, j.Kind, j.MessageID)
+			return receiveCommandOutcome{}, fmt.Errorf("%w: operation %q (kind=%s msg=%s) vs persisted (kind=%s msg=%s)", ErrOperationConflict, operationID, kind, messageID, j.Kind, j.MessageID)
 		}
-		return true, nil
+		return receiveCommandOutcome{Duplicate: true, RecoveredDeletionPending: j.RecoveredDeletionPending}, nil
 	}
 	entry := inboxEntry{MessageType: messageType, PayloadHash: payloadHash, OperationID: operationID}
 	rawEntry, err := json.Marshal(entry)
 	if err != nil {
-		return false, err
+		return receiveCommandOutcome{}, err
 	}
 	if err := inbox.Put(key, rawEntry); err != nil {
-		return false, err
+		return receiveCommandOutcome{}, err
 	}
-	journal := operationJournal{Kind: kind, MessageID: messageID, Phase: phaseReceived, Payload: payload, ForwardDeletions: links}
-	rawJournal, err := json.Marshal(journal)
-	if err != nil {
-		return false, err
-	}
-	if err := ops.Put(opJournalKey(operationID), rawJournal); err != nil {
-		return false, err
+	journal := operationJournal{Kind: kind, MessageID: messageID, Phase: phaseReceived, Payload: payload, PayloadPresent: payloadPresent, ForwardDeletions: links}
+	if err := s.putOperationJournal(tx, operationID, journal); err != nil {
+		return receiveCommandOutcome{}, err
 	}
 	for _, link := range links {
 		if _, err := putForwardDeleteIntentTx(tx, ForwardDeleteIntent{
-			ForwardID:           link.ForwardID,
-			DeletionOperationID: link.DeletionOperationID,
-			DesiredRevision:     link.DesiredRevision,
-			CreatedAtUnix:       nowUnix(),
+			ForwardID: link.ForwardID, DeletionOperationID: link.DeletionOperationID,
+			DesiredRevision: link.DesiredRevision, CreatedAtUnix: nowUnix(),
 		}); err != nil && !errors.Is(err, ErrForwardDeleteConflict) {
-			return false, err
+			return receiveCommandOutcome{}, err
 		}
 	}
-	return false, nil
+	return receiveCommandOutcome{}, nil
+}
+
+// CompleteRecoveredDeletion records successful deletion-only convergence. The
+// generic command remains APPLYING until RecoverApplyingOperations emits C's NACK.
+func (s *Store) CompleteRecoveredDeletion(epoch uint64, sessionID, operationID string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		if err := checkSession(tx, epoch, sessionID); err != nil {
+			return err
+		}
+		j, ok, err := s.loadOperationJournal(tx, operationID)
+		if err != nil {
+			return err
+		}
+		if !ok || (j.Phase != phaseApplying && j.Phase != phaseNacked) || !j.RecoveredDeletionPending {
+			return operationPhaseError(operationID, "APPLYING/NACKED with recovered deletion pending", j)
+		}
+		j.RecoveredDeletionPending = false
+		return s.putOperationJournal(tx, operationID, j)
+	})
 }
 
 // PersistOperationIntent advances an operation RECEIVED -> INTENT_PERSISTED.
@@ -364,6 +457,11 @@ func (s *Store) MarkOperationApplying(epoch uint64, sessionID, operationID strin
 			return operationPhaseError(operationID, phaseIntentPersisted, j)
 		}
 		j.Phase = phaseApplying
+		if len(j.ForwardDeletions) != 0 {
+			// A crash from this point may have performed PRESENT side effects and
+			// still owes bounded ABSENT cleanup. Exact redelivery retries that cleanup.
+			j.RecoveredDeletionPending = true
+		}
 		return s.putOperationJournal(tx, operationID, j)
 	})
 }
@@ -394,7 +492,12 @@ func (s *Store) RecoverApplyingOperations(epoch uint64, sessionID string) error 
 			if err != nil {
 				return err
 			}
-			if ok && j.Phase == phaseApplying {
+			if ok && j.Phase == phaseApplying &&
+				(!isDeletionCommandKind(j.Kind) || j.PayloadPresent) &&
+				!j.RecoveredDeletionPending {
+				// Only legacy desired/delete rows need exact payload redelivery before
+				// recovery. Other command kinds retain their original immediate NACK.
+				// A migrated deletion remains APPLYING until cleanup succeeds.
 				recovering = append(recovering, operationID)
 			}
 			return nil

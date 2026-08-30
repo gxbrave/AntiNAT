@@ -1,0 +1,49 @@
+gate=06-make-check
+description=Run repository tests and vet
+started_at_utc=2026-08-30T03:05:50Z
+workspace=/root/Claude/AntiNAT/p10-r16q2-resume
+branch=handoff/P10-r16q2-resume
+pre_freeze_head=8e39876d36f9170ab25ec1ebba6e3ba6c75275c4
+pre_freeze_head_tree=ddb7627468587da815de241c57b1b3217d912768
+command=ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off make check
+--- output ---
+go test ./...
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-agent	(cached)
+?   	github.com/gxbrave/AntiNAT/cmd/antinat-controller	[no test files]
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-probe	(cached)
+ok  	github.com/gxbrave/AntiNAT/cmd/antinatctl	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/agent	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/agent/control	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/agent/localstate	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/buildinfo	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/config	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/controller	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/controller/agenthub	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/controller/api	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/controller/auth	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/controller/store	(cached)
+?   	github.com/gxbrave/AntiNAT/internal/controller/web	[no test files]
+ok  	github.com/gxbrave/AntiNAT/internal/forward	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/forward/tcp	1.116s
+ok  	github.com/gxbrave/AntiNAT/internal/protocol	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/security	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/security/framecrypto	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/traversal	(cached)
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/stun	(cached)
+?   	github.com/gxbrave/AntiNAT/migrations	[no test files]
+ok  	github.com/gxbrave/AntiNAT/scripts	(cached)
+ok  	github.com/gxbrave/AntiNAT/spike/datapath	(cached)
+ok  	github.com/gxbrave/AntiNAT/spike/network	(cached)
+ok  	github.com/gxbrave/AntiNAT/spike/sandbox	(cached)
+ok  	github.com/gxbrave/AntiNAT/spike/sqlite	(cached)
+ok  	github.com/gxbrave/AntiNAT/spike/state	(cached)
+ok  	github.com/gxbrave/AntiNAT/spike/windows-identity	(cached)
+ok  	github.com/gxbrave/AntiNAT/test/contracts	(cached)
+ok  	github.com/gxbrave/AntiNAT/test/e2e	(cached)
+ok  	github.com/gxbrave/AntiNAT/test/e2e/harness	(cached)
+go vet ./...
+--- result ---
+ended_at_utc=2026-08-30T03:05:52Z
+exit_code=0

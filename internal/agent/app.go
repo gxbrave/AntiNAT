@@ -222,12 +222,13 @@ func New(cfg Config) (*App, error) {
 		a.dp.apply, a.dp.stop, a.dp.rollback, a.dp.capabilityCheck)
 
 	client, err := control.NewClient(control.ClientOptions{
-		Endpoint:  cfg.Endpoint,
-		NodeID:    cfg.NodeID,
-		Store:     st,
-		Key:       key,
-		Heartbeat: cfg.Heartbeat,
-		OnCommand: a.handleCommand,
+		Endpoint:            cfg.Endpoint,
+		NodeID:              cfg.NodeID,
+		Store:               st,
+		Key:                 key,
+		Heartbeat:           cfg.Heartbeat,
+		OnCommand:           a.handleCommand,
+		OnRecoveredDeletion: a.convergeRecoveredDeletions,
 		OnReceipt: func(ctx context.Context, operationID string) error {
 			return a.probeMgr.AcknowledgeReceipt(operationID)
 		},
@@ -688,6 +689,45 @@ func (a *App) applyProbeOutcome(op control.Operation) ([]byte, error) {
 		Activation string                    `json:"activation"`
 		Snapshot   protocol.ActivationStates `json:"snapshot"`
 	}{"applied", v.ForwardID, v.Activation, state})
+}
+
+// convergeRecoveredDeletions applies only the ABSENT subset of an exact
+// payload redelivery for a command recovered from APPLYING. Replaying the full
+// mixed snapshot would be unsafe because PRESENT side effects may already have
+// run before the crash. The deletion subset is idempotent, fenced at receive
+// time, commits tombstones before stop, and records its real D-keyed outcomes.
+func (a *App) convergeRecoveredDeletions(ctx context.Context, op control.Operation) error {
+	if op.MessageType != "desired" && op.MessageType != "forward_delete" {
+		return nil
+	}
+	var desired protocol.DesiredState
+	if err := protocol.DecodeStrictJSONInto(op.Payload, &desired); err != nil {
+		return fmt.Errorf("agent: recovered deletion decode: %w", err)
+	}
+	if err := desired.Validate(); err != nil {
+		return fmt.Errorf("agent: recovered deletion desired: %w", err)
+	}
+	absent := protocol.DesiredState{NodeID: desired.NodeID}
+	for _, spec := range desired.Forwards {
+		if spec.Presence == protocol.PresenceAbsent {
+			absent.Forwards = append(absent.Forwards, spec)
+		}
+	}
+	if len(absent.Forwards) == 0 {
+		return nil
+	}
+	epoch, session, err := a.store.CurrentSession()
+	if err != nil {
+		return err
+	}
+	report, err := a.reconciler.ReconcileOnce(ctx, absent, epoch, session)
+	if err != nil {
+		return err
+	}
+	if report.Status != localstate.ApplyStatusFull {
+		return fmt.Errorf("agent: recovered deletion did not converge: %s", report.Status)
+	}
+	return nil
 }
 
 // applyDesired reconciles a desired snapshot through the data plane and

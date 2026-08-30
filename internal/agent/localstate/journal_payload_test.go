@@ -1,11 +1,14 @@
 package localstate
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"testing"
 
 	"github.com/gxbrave/AntiNAT/internal/protocol"
+	bolt "go.etcd.io/bbolt"
 )
 
 // RED for the payload-aware receive path: a desired/forward_delete command
@@ -179,7 +182,160 @@ func TestReceiveCommandWithPayloadConflictingDeletionKeepsOldFence(t *testing.T)
 	}
 }
 
-func TestRecoverApplyingOperationsNacksUnderCAndKeepsFence(t *testing.T) {
+func TestReceiveCommandWithPayloadUpgradesLegacyRecoveredDuplicate(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.AdvanceSession(1, "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	payload := mixedDesired(t, "fwd-legacy", "del-legacy", 9)
+	sum := sha256.Sum256(payload)
+	if duplicate, err := store.ReceiveCommand(
+		1, "session-1", "msg-legacy", "msg-legacy", "desired",
+		hex.EncodeToString(sum[:]), "desired",
+	); err != nil || duplicate {
+		t.Fatalf("legacy receive duplicate=%v err=%v", duplicate, err)
+	}
+	if err := store.PersistOperationIntent(1, "session-1", "msg-legacy"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkOperationApplying(1, "session-1", "msg-legacy"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AdvanceSession(2, "session-2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecoverApplyingOperations(2, "session-2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := store.GetForwardDeleteIntent("fwd-legacy"); err != nil || ok {
+		t.Fatalf("legacy recovery unexpectedly classified deletion ok=%v err=%v", ok, err)
+	}
+
+	duplicate, err := store.ReceiveCommandWithPayload(
+		2, "session-2", "msg-legacy", "msg-legacy", "desired", payload, "desired",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !duplicate {
+		t.Fatal("matching payload-aware redelivery was not reported as duplicate")
+	}
+	intent, ok, err := store.GetForwardDeleteIntent("fwd-legacy")
+	if err != nil || !ok {
+		t.Fatalf("legacy redelivery fence ok=%v err=%v", ok, err)
+	}
+	if intent.DeletionOperationID != "del-legacy" || intent.DesiredRevision != 9 {
+		t.Fatalf("legacy redelivery fence=%+v, want del-legacy/9", intent)
+	}
+	j, ok, err := store.loadOperationJournalForTest("msg-legacy")
+	if err != nil || !ok {
+		t.Fatalf("upgraded journal ok=%v err=%v", ok, err)
+	}
+	if string(j.Payload) != string(payload) || len(j.ForwardDeletions) != 1 ||
+		j.ForwardDeletions[0].ForwardID != "fwd-legacy" ||
+		j.ForwardDeletions[0].DeletionOperationID != "del-legacy" {
+		t.Fatalf("upgraded journal=%+v, want exact payload and deletion link", j)
+	}
+	if j.Phase != phaseApplying {
+		t.Fatalf("upgraded journal phase=%q, want APPLYING until bounded cleanup converges", j.Phase)
+	}
+	if err := store.CompleteRecoveredDeletion(2, "session-2", "msg-legacy"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecoverApplyingOperations(2, "session-2"); err != nil {
+		t.Fatal(err)
+	}
+	if phase, ok, err := store.OperationPhase("msg-legacy"); err != nil || !ok || phase != phaseNacked {
+		t.Fatalf("post-upgrade recovery phase=%q ok=%v err=%v, want NACKED", phase, ok, err)
+	}
+	if store.OutboxContains("del-legacy") {
+		t.Fatal("legacy duplicate upgrade fabricated a D-keyed delete result")
+	}
+}
+
+func TestReceiveCommandWithPayloadUpgradesEmptyLegacyPayload(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.AdvanceSession(1, "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(nil)
+	if duplicate, err := store.ReceiveCommand(
+		1, "session-1", "op-empty", "msg-empty", "desired",
+		hex.EncodeToString(sum[:]), "desired",
+	); err != nil || duplicate {
+		t.Fatalf("legacy receive duplicate=%v err=%v", duplicate, err)
+	}
+	if err := store.PersistOperationIntent(1, "session-1", "op-empty"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkOperationApplying(1, "session-1", "op-empty"); err != nil {
+		t.Fatal(err)
+	}
+	duplicate, pending, err := store.ReceiveCommandWithPayloadStatus(
+		1, "session-1", "op-empty", "msg-empty", "desired", nil, "desired",
+	)
+	if err != nil || !duplicate || pending {
+		t.Fatalf("empty redelivery duplicate=%v pending=%v err=%v", duplicate, pending, err)
+	}
+	j, ok, err := store.loadOperationJournalForTest("op-empty")
+	if err != nil || !ok || !j.PayloadPresent {
+		t.Fatalf("empty payload journal ok=%v present=%v err=%v", ok, j.PayloadPresent, err)
+	}
+	if err := store.RecoverApplyingOperations(1, "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	if phase, ok, err := store.OperationPhase("op-empty"); err != nil || !ok || phase != phaseNacked {
+		t.Fatalf("empty payload recovery phase=%q ok=%v err=%v, want NACKED", phase, ok, err)
+	}
+}
+
+func TestReceiveCommandWithPayloadLegacyDuplicateValidatesOperationIdentity(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.AdvanceSession(1, "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	payload := mixedDesired(t, "fwd-legacy-conflict", "del-legacy-conflict", 3)
+	sum := sha256.Sum256(payload)
+	if _, err := store.ReceiveCommand(
+		1, "session-1", "op-original", "msg-legacy-conflict", "desired",
+		hex.EncodeToString(sum[:]), "desired",
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ReceiveCommandWithPayload(
+		1, "session-1", "op-other", "msg-legacy-conflict", "desired", payload, "desired",
+	); !errors.Is(err, ErrOperationConflict) {
+		t.Fatalf("legacy duplicate operation mismatch error=%v, want ErrOperationConflict", err)
+	}
+	if _, ok, err := store.GetForwardDeleteIntent("fwd-legacy-conflict"); err != nil || ok {
+		t.Fatalf("conflicting legacy duplicate installed fence ok=%v err=%v", ok, err)
+	}
+}
+
+func (s *Store) loadOperationJournalForTest(operationID string) (operationJournal, bool, error) {
+	var journal operationJournal
+	var found bool
+	err := s.db.View(func(tx *bolt.Tx) error {
+		var err error
+		journal, found, err = s.loadOperationJournal(tx, operationID)
+		return err
+	})
+	return journal, found, err
+}
+
+func TestRecoverApplyingDeletionWaitsForCleanupAndKeepsFence(t *testing.T) {
 	dir := t.TempDir()
 	store, err := Open(dir)
 	if err != nil {
@@ -217,18 +373,11 @@ func TestRecoverApplyingOperationsNacksUnderCAndKeepsFence(t *testing.T) {
 		t.Fatal(err)
 	}
 	phase, ok, err := store.OperationPhase("msg-1")
-	if err != nil || !ok || phase != "NACKED" {
-		t.Fatalf("recovered command phase=%q ok=%v err=%v, want NACKED", phase, ok, err)
+	if err != nil || !ok || phase != phaseApplying {
+		t.Fatalf("recovered command phase=%q ok=%v err=%v, want APPLYING pending cleanup", phase, ok, err)
 	}
-	result, err := store.ResultForOperation(2, "session-2", "msg-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var v struct {
-		Status string `json:"status"`
-	}
-	if err := json.Unmarshal(result, &v); err != nil || v.Status != "nacked" {
-		t.Fatalf("recovered C result=%s, want nacked", result)
+	if _, err := store.ResultForOperation(2, "session-2", "msg-1"); !errors.Is(err, ErrOperationNotFound) {
+		t.Fatalf("premature C result error=%v, want ErrOperationNotFound", err)
 	}
 	// No fabricated D-keyed result: the deletion cleanup outcome stays unknown
 	// until the controller retries.

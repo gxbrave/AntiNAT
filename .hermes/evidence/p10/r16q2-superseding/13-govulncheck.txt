@@ -1,0 +1,13 @@
+gate=13-govulncheck
+description=Run Go vulnerability analysis when installed
+started_at_utc=2026-08-30T03:07:36Z
+workspace=/root/Claude/AntiNAT/p10-r16q2-resume
+branch=handoff/P10-r16q2-resume
+pre_freeze_head=8e39876d36f9170ab25ec1ebba6e3ba6c75275c4
+pre_freeze_head_tree=ddb7627468587da815de241c57b1b3217d912768
+command=govulncheck ./...
+--- output ---
+SKIPPED: govulncheck is not installed on this host
+--- result ---
+ended_at_utc=2026-08-30T03:07:36Z
+exit_code=125

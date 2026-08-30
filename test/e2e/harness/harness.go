@@ -273,34 +273,33 @@ func DialEcho(t *testing.T, endpoint, send, wantTag string) {
 	}
 }
 
-// AssertForwardGone fails only when the endpoint answers with the deleted
-// Forward's target-echo signature. Under the full parallel test suite the
-// ephemeral port freed by the deleted listener can be rebound by an unrelated
-// test process; that is port reuse, not resurrection - the durable
-// applied-state/tombstone checks remain the primary no-resurrection proof.
-func AssertForwardGone(t *testing.T, endpoint, send, wantTag string) {
+// ReserveReleasedEndpoint proves listener teardown at the OS ownership boundary
+// and keeps the exact tuple reserved for the caller's no-resurrection checks.
+// Holding the listener prevents an unrelated parallel test from acquiring the
+// ephemeral port between deletion and restart verification.
+func ReserveReleasedEndpoint(t *testing.T, endpoint string) net.Listener {
 	t.Helper()
-	conn, err := net.DialTimeout("tcp4", endpoint, 500*time.Millisecond)
+	ln, err := waitForEndpointRelease(endpoint, 5*time.Second)
 	if err != nil {
-		return // connection refused: the listener is gone
+		t.Fatal(err)
 	}
-	defer conn.Close()
-	// The port answered; only the target echo signature proves the deleted
-	// Forward is still serving.
-	_, _ = conn.Write([]byte(send))
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	buf := make([]byte, len(wantTag)+len(send)+1)
-	n, readErr := conn.Read(buf)
-	if readErr != nil {
-		// An unrelated listener accepted the connection but is not the
-		// Forward's echo service.
-		t.Logf("note: %s rebound by an unrelated process after delete (accepted connection, no echo)", endpoint)
-		return
+	return ln
+}
+
+func waitForEndpointRelease(endpoint string, timeout time.Duration) (net.Listener, error) {
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for {
+		ln, err := net.Listen("tcp4", endpoint)
+		if err == nil {
+			return ln, nil
+		}
+		lastErr = err
+		if !time.Now().Before(deadline) {
+			return nil, fmt.Errorf("endpoint %s was not released within %s: %w", endpoint, timeout, lastErr)
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
-	if got := string(buf[:n]); got == wantTag+send {
-		t.Fatalf("deleted forward's echo answered on %s: %q", endpoint, got)
-	}
-	t.Logf("note: %s rebound by an unrelated process after delete (answered %q, not the forward echo)", endpoint, string(buf[:n]))
 }
 
 // HTTPGet fetches a controller admin URL (no auth needed for healthz).

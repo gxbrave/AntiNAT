@@ -48,6 +48,11 @@ type ClientOptions struct {
 	// between the journal's APPLYING and APPLIED/NACKED phases. It returns
 	// the durable semantic result or an error that NACKs the operation.
 	OnCommand func(ctx context.Context, op Operation) ([]byte, error)
+	// OnRecoveredDeletion converges only the ABSENT resources from a command
+	// recovered from APPLYING. It is invoked on an exact payload redelivery after
+	// localstate has installed the durable deletion fences; PRESENT siblings are
+	// never replayed because their external side effects may already have run.
+	OnRecoveredDeletion func(ctx context.Context, op Operation) error
 	// OnReceipt is called for controller semantic receipts that do not
 	// correspond to an agent outbox row (for example the probe receipt ack).
 	OnReceipt func(ctx context.Context, operationID string) error
@@ -581,7 +586,7 @@ func (c *Client) handleCommandOnSession(ctx context.Context, identity *sessionId
 	// the same transaction. The semantic deletion identity D stays separate -
 	// dedicated delete results are queued under D by the reconcile layer, not
 	// under C.
-	dup, err := c.opts.Store.ReceiveCommandWithPayload(identity.epoch, identity.session, msgID, msgID, hdr.MessageType, env.Payload, hdr.MessageType)
+	dup, recoveredDeletionPending, err := c.opts.Store.ReceiveCommandWithPayloadStatus(identity.epoch, identity.session, msgID, msgID, hdr.MessageType, env.Payload, hdr.MessageType)
 	if err != nil {
 		return err
 	}
@@ -605,11 +610,44 @@ func (c *Client) handleCommandOnSession(ctx context.Context, identity *sessionId
 			}
 			return nil
 		case "NACKED":
+			if recoveredDeletionPending {
+				if c.opts.OnRecoveredDeletion == nil {
+					return fmt.Errorf("control: recovered deletion %q has no convergence handler", msgID)
+				}
+				if err := c.opts.OnRecoveredDeletion(ctx, Operation{
+					OperationID: msgID,
+					MessageID:   msgID,
+					MessageType: hdr.MessageType,
+					Payload:     env.Payload,
+				}); err != nil {
+					return err
+				}
+				if err := c.opts.Store.CompleteRecoveredDeletion(identity.epoch, identity.session, msgID); err != nil {
+					return err
+				}
+			}
 			return c.opts.Store.QueueNackedResult(identity.epoch, identity.session, msgID)
 		case "APPLYING":
 			// An APPLYING operation may already have performed an external side
-			// effect. Never invoke OnCommand a second time; convert it to the
-			// durable recovery NACK and let the outbox pump resend the result.
+			// effect. Never invoke OnCommand a second time. A legacy deletion row
+			// becomes retryable only after exact redelivery atomically backfills its
+			// payload and fences; keep C APPLYING until bounded cleanup succeeds.
+			if recoveredDeletionPending {
+				if c.opts.OnRecoveredDeletion == nil {
+					return fmt.Errorf("control: recovered deletion %q has no convergence handler", msgID)
+				}
+				if err := c.opts.OnRecoveredDeletion(ctx, Operation{
+					OperationID: msgID,
+					MessageID:   msgID,
+					MessageType: hdr.MessageType,
+					Payload:     env.Payload,
+				}); err != nil {
+					return err
+				}
+				if err := c.opts.Store.CompleteRecoveredDeletion(identity.epoch, identity.session, msgID); err != nil {
+					return err
+				}
+			}
 			if err := c.opts.Store.RecoverApplyingOperations(identity.epoch, identity.session); err != nil {
 				return err
 			}

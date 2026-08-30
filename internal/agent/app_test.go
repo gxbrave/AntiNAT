@@ -339,6 +339,64 @@ func TestPrepareActivationRecoveryUnverifiesPersistedSnapshot(t *testing.T) {
 	}
 }
 
+func TestConvergeRecoveredDeletionsStopsOnlyAbsentActors(t *testing.T) {
+	st, err := localstate.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.AdvanceSession(1, "session-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	d := newDataPlane(dataPlaneConfig{Store: st, Clock: time.Now})
+	absentActor := &forwardActor{}
+	presentActor := &forwardActor{}
+	d.forwards["fwd-absent"] = absentActor
+	d.forwards["fwd-present"] = presentActor
+	latch := localstate.NewLatch()
+	r := reconcile.New(st, latch, localstate.MarkerActive, nil, d.stop)
+	a := &App{store: st, dp: d, reconciler: r, activations: make(map[string]*reconcile.Activation)}
+
+	desired := protocol.DesiredState{NodeID: "node-recovered", Forwards: []protocol.ForwardSpec{
+		{ForwardID: "fwd-absent", Protocol: protocol.ProtocolTCP, Target: "127.0.0.1:1",
+			Strategy: protocol.StrategyDirectV4, Presence: protocol.PresenceAbsent,
+			DesiredRevision: 2, DeletionOperationID: "del-recovered"},
+		{ForwardID: "fwd-present", Protocol: protocol.ProtocolTCP, Target: "127.0.0.1:2",
+			Strategy: protocol.StrategyDirectV4, Presence: protocol.PresencePresent,
+			DesiredRevision: 2},
+	}}
+	payload, err := json.Marshal(desired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.convergeRecoveredDeletions(context.Background(), control.Operation{
+		OperationID: "command-c", MessageType: "desired", Payload: payload,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	d.mu.Lock()
+	_, absentLive := d.forwards["fwd-absent"]
+	gotPresent := d.forwards["fwd-present"]
+	d.mu.Unlock()
+	if absentLive {
+		t.Fatal("recovered deletion left ABSENT actor live")
+	}
+	if gotPresent != presentActor {
+		t.Fatal("recovered deletion replayed or replaced PRESENT sibling")
+	}
+	if _, ok, err := st.GetForwardDeleteIntent("fwd-absent"); err != nil || ok {
+		t.Fatalf("completed recovered deletion pending=%v err=%v, want cleared", ok, err)
+	}
+	if _, ok, err := st.GetForwardTombstone("fwd-absent"); err != nil || !ok {
+		t.Fatalf("recovered deletion tombstone ok=%v err=%v", ok, err)
+	}
+	if !st.OutboxContains("del-recovered") {
+		t.Fatal("recovered deletion did not queue the real D-keyed cleanup result")
+	}
+}
+
 func TestDataPlaneApplyDoesNotDeadlockActivationCallback(t *testing.T) {
 	target, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
