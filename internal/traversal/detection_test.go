@@ -42,15 +42,18 @@ func observeStunTCP(ctx context.Context, server netip.AddrPort, timeout time.Dur
 
 // fakeGatewayMapper is the self-contained external-package fake.
 type fakeGatewayMapper struct {
-	mechanism   traversal.MappingLayerKind
-	ownership   traversal.OwnershipStrength
-	control     traversal.ControlServer
-	discoverErr error
-	mapErr      error
-	deletePanic any
-	external    netip.AddrPort
-	deleted     bool
-	mu          sync.Mutex
+	mechanism     traversal.MappingLayerKind
+	ownership     traversal.OwnershipStrength
+	control       traversal.ControlServer
+	discoverErr   error
+	mapErr        error
+	deletePanic   any
+	discoverPanic any
+	mapPanic      any
+	external      netip.AddrPort
+	deleted       bool
+	deleteCtxErr  error
+	mu            sync.Mutex
 }
 
 func (f *fakeGatewayMapper) Mechanism() traversal.MappingLayerKind  { return f.mechanism }
@@ -59,9 +62,15 @@ func (f *fakeGatewayMapper) Capability() traversal.PortControlCapability {
 	return traversal.PortControlCapabilityFor(f.mechanism, false)
 }
 func (f *fakeGatewayMapper) Discover(ctx context.Context) (traversal.ControlServer, error) {
+	if f.discoverPanic != nil {
+		panic(f.discoverPanic)
+	}
 	return f.control, f.discoverErr
 }
 func (f *fakeGatewayMapper) Map(ctx context.Context, req traversal.GatewayMapRequest) (traversal.GatewayMapping, error) {
+	if f.mapPanic != nil {
+		panic(f.mapPanic)
+	}
 	if f.mapErr != nil {
 		return traversal.GatewayMapping{}, f.mapErr
 	}
@@ -82,12 +91,19 @@ func (f *fakeGatewayMapper) Renew(ctx context.Context, mapping traversal.Gateway
 func (f *fakeGatewayMapper) Delete(ctx context.Context, mapping traversal.GatewayMapping) error {
 	f.mu.Lock()
 	f.deleted = true
+	f.deleteCtxErr = ctx.Err()
 	panicValue := f.deletePanic
 	f.mu.Unlock()
 	if panicValue != nil {
 		panic(panicValue)
 	}
 	return nil
+}
+
+func (f *fakeGatewayMapper) deleteContextErr() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.deleteCtxErr
 }
 
 // detectionRouteTable is the scripted route table for detection runs.
@@ -335,6 +351,110 @@ func TestDetectionContainsTempDeletePanic(t *testing.T) {
 	}
 	if got := registry.Len(); got != 0 {
 		t.Fatalf("temp tuples leaked: registry holds %d", got)
+	}
+}
+
+// DE9 (S7k audit): injected implementation panics anywhere in an attempt
+// (Discover, Map, the STUN observer) degrade to failed results — sequential
+// Run returns and parallel attempt goroutines never crash the process.
+func TestDetectionContainsAttemptPanics(t *testing.T) {
+	rt := detectionRouteTable{
+		defaultGateway: netip.MustParseAddr("127.0.0.1"), defaultIface: "lo", hasDefault: true,
+		addresses: []traversal.IPv4Address{{Interface: "lo", Addr: netip.MustParseAddr("127.0.0.1")}},
+	}
+	discoverPanic := &fakeGatewayMapper{
+		mechanism: traversal.LayerPCP, ownership: traversal.OwnershipStrong,
+		control:       traversal.ControlServer{Mechanism: traversal.LayerPCP, Address: "127.0.0.1:5351"},
+		discoverPanic: "discover panic",
+	}
+	mapPanic := &fakeGatewayMapper{
+		mechanism: traversal.LayerNATPMP, ownership: traversal.OwnershipWeakLease,
+		control:  traversal.ControlServer{Mechanism: traversal.LayerNATPMP, Address: "127.0.0.1:5351"},
+		mapPanic: "map panic",
+	}
+	for _, tc := range []struct {
+		name    string
+		mapper  traversal.GatewayMapper
+		observe func(context.Context, netip.AddrPort, time.Duration) (netip.AddrPort, error)
+		noteIn  string
+	}{
+		{name: "discover", mapper: discoverPanic, noteIn: "discover panicked"},
+		{name: "map", mapper: mapPanic, noteIn: "map panicked"},
+		{
+			name:   "stun",
+			mapper: mapPanic, // gateway row stays failed; the stun row carries the panic
+			observe: func(context.Context, netip.AddrPort, time.Duration) (netip.AddrPort, error) {
+				panic("stun observe panic")
+			},
+			noteIn: "stun observe panicked",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, parallel := range []int{0, 2} {
+				detector := traversal.NewDetector(traversal.DetectorOptions{
+					RouteTable: rt, Registry: traversal.NewPortRegistry(),
+					Mappers: map[traversal.MappingLayerKind]traversal.GatewayMapper{
+						traversal.LayerPCP: tc.mapper, traversal.LayerNATPMP: tc.mapper,
+					},
+					StunServers:    []string{"stun+tcp://127.0.0.1:3478"},
+					StunObserve:    tc.observe,
+					AutoOrder:      []protocol.Strategy{protocol.StrategyExplicitGateway, protocol.StrategyStunOnly},
+					AttemptTimeout: 2 * time.Second,
+				})
+				profile, err := detector.Run(t.Context(), traversal.DetectionRequest{
+					Protocol: traversal.ProtocolTCP, Parallel: parallel,
+				})
+				if err != nil {
+					t.Fatalf("parallel=%d Run: %v", parallel, err)
+				}
+				if tc.name == "stun" {
+					stunRow, _ := profile.ResultFor(protocol.StrategyStunOnly)
+					if stunRow.State != traversal.DetectionFailed || !strings.Contains(stunRow.Note, tc.noteIn) {
+						t.Fatalf("parallel=%d stun result = %+v, want failed with %q", parallel, stunRow, tc.noteIn)
+					}
+					continue
+				}
+				gateway, _ := profile.ResultFor(protocol.StrategyExplicitGateway)
+				if gateway.State != traversal.DetectionFailed || !strings.Contains(gateway.Note, tc.noteIn) {
+					t.Fatalf("parallel=%d gateway result = %+v, want failed with %q", parallel, gateway, tc.noteIn)
+				}
+			}
+		})
+	}
+}
+
+// DE10 (S7k audit): the temp mapping delete runs on a fresh bounded context
+// detached from the attempt budget — a Map that consumed the deadline still
+// gets a real delete attempt instead of one that sees an expired ctx.
+func TestDetectionTempDeleteSurvivesExpiredAttemptContext(t *testing.T) {
+	rt := detectionRouteTable{
+		defaultGateway: netip.MustParseAddr("127.0.0.1"), defaultIface: "lo", hasDefault: true,
+		addresses: []traversal.IPv4Address{{Interface: "lo", Addr: netip.MustParseAddr("127.0.0.1")}},
+	}
+	mapper := &fakeGatewayMapper{
+		mechanism: traversal.LayerPCP, ownership: traversal.OwnershipStrong,
+		control:  traversal.ControlServer{Mechanism: traversal.LayerPCP, Address: "127.0.0.1:5351"},
+		external: netip.MustParseAddrPort("100.64.0.2:43111"),
+	}
+	detector := traversal.NewDetector(traversal.DetectorOptions{
+		RouteTable: rt, Registry: traversal.NewPortRegistry(),
+		Mappers:        map[traversal.MappingLayerKind]traversal.GatewayMapper{traversal.LayerPCP: mapper},
+		AutoOrder:      []protocol.Strategy{protocol.StrategyExplicitGateway},
+		AttemptTimeout: time.Nanosecond, // already expired when the attempt runs
+	})
+	profile, err := detector.Run(t.Context(), traversal.DetectionRequest{Protocol: traversal.ProtocolTCP})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	result, ok := profile.ResultFor(protocol.StrategyExplicitGateway)
+	if !ok || result.State != traversal.DetectionPassed {
+		t.Fatalf("gateway result = %+v, want PASSED", result)
+	}
+	if err := mapper.deleteContextErr(); err != nil {
+		t.Fatalf("temp delete saw context error %v, want a live detached cleanup context", err)
+	}
+	if got := profile.Results[0].FinishedAtUnix; got == 0 {
+		t.Fatal("FinishedAtUnix must be recorded by the attempt defer")
 	}
 }
 

@@ -70,6 +70,10 @@ func DecodeJournalRecord(encoded []byte) (JournalRecord, error) {
 
 // JournalStore is the durable journal backing. The agent wiring satisfies
 // it with bbolt; the memory implementation serves the detector and labs.
+// Implementations must be bounded-latency: the manager invokes Get/Put/Delete
+// while holding the acquisition's renewal lock, and a call that blocks forever
+// wedges renewal, Release and the status accessors (a hung call cannot be
+// forcibly interrupted).
 type JournalStore interface {
 	Put(record JournalRecord) error
 	Get(id string) (JournalRecord, bool, error)

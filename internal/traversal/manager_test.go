@@ -82,8 +82,12 @@ type scriptedMapper struct {
 	renewals             int
 	deletes              int
 	renewErr             error
+	renewPanic           any
 	deleteErr            error
 	deletePanic          any
+	discoverPanic        any
+	mapPanic             any
+	statePanic           any
 	rebootAfter          int // renewal ordinal (1-based) reporting ServerRebooted; 0 = never
 	oscillatePeriod      int // failures/successes alternate every N renewals; 0 = steady
 	rewriteExternalAfter int // renewal ordinal rewriting the external endpoint; 0 = never
@@ -91,11 +95,31 @@ type scriptedMapper struct {
 	grantedLease         time.Duration // granted lease overriding the request; 0 = grant the request
 }
 
+// panickingState serializes by panicking: the manager must contain it as an
+// advisory journal error (S7k audit).
+type panickingState struct{}
+
+func (panickingState) MarshalJSON() ([]byte, error) { panic("state marshal panic") }
+
+// Discover shadows the embedded fake mapper for panic scripting.
+func (s *scriptedMapper) Discover(ctx context.Context) (ControlServer, error) {
+	if s.discoverPanic != nil {
+		panic(s.discoverPanic)
+	}
+	return s.fakeMapper.Discover(ctx)
+}
+
 // Map shadows the embedded fake mapper to apply the scripted grant.
 func (s *scriptedMapper) Map(ctx context.Context, req GatewayMapRequest) (GatewayMapping, error) {
+	if s.mapPanic != nil {
+		panic(s.mapPanic)
+	}
 	mapping, err := s.fakeMapper.Map(ctx, req)
 	if err != nil {
 		return mapping, err
+	}
+	if s.statePanic != nil {
+		mapping.State = panickingState{}
 	}
 	if s.grantedLease > 0 {
 		mapping.Lease = s.grantedLease
@@ -107,14 +131,19 @@ func (s *scriptedMapper) Renew(ctx context.Context, mapping GatewayMapping, life
 	s.mu.Lock()
 	s.renewals++
 	renewals := s.renewals
-	renewErr, rebootAfter, rewriteAfter, granted := s.renewErr, s.rebootAfter, s.rewriteExternalAfter, s.grantedLease
+	renewErr, renewPanic, rebootAfter, rewriteAfter, granted := s.renewErr, s.renewPanic, s.rebootAfter, s.rewriteExternalAfter, s.grantedLease
 	s.mu.Unlock()
-	if renewErr != nil {
+	failing := false
+	if renewErr != nil || renewPanic != nil {
 		// With an oscillation period the scripted failure alternates: odd
 		// windows fail, even windows succeed (degrade/recover cycles).
-		if !(s.oscillatePeriod > 0 && (renewals/s.oscillatePeriod)%2 == 0) {
-			return GatewayMapping{}, renewErr
-		}
+		failing = !(s.oscillatePeriod > 0 && (renewals/s.oscillatePeriod)%2 == 0)
+	}
+	if failing && renewPanic != nil {
+		panic(renewPanic)
+	}
+	if failing {
+		return GatewayMapping{}, renewErr
 	}
 	mapping.Lease = lifetime
 	if granted > 0 {
@@ -157,26 +186,68 @@ func (s *scriptedMapper) setRenewErr(err error) {
 	s.renewErr = err
 }
 
-// failingJournal fails every Put (durable-store IO error).
+// failingJournal fails every Put (durable-store IO error) and scripts panic
+// and Get faults. Panic flags are guarded so tests can arm them while the
+// renewal goroutine is live.
 type failingJournal struct {
 	*MemoryJournal
-	putErr      error
-	putPanic    any
-	deletePanic any
+	mu                 sync.Mutex
+	putErr             error
+	putPanic           any
+	putPanicAfterWrite any
+	getPanic           any
+	deletePanic        any
 }
 
 func (f *failingJournal) Put(record JournalRecord) error {
-	if f.putPanic != nil {
-		panic(f.putPanic)
+	f.mu.Lock()
+	putErr, putPanic, putPanicAfterWrite := f.putErr, f.putPanic, f.putPanicAfterWrite
+	f.mu.Unlock()
+	if putPanic != nil {
+		panic(putPanic)
 	}
-	return f.putErr
+	if putErr != nil {
+		return putErr
+	}
+	if err := f.MemoryJournal.Put(record); err != nil {
+		return err
+	}
+	if putPanicAfterWrite != nil {
+		panic(putPanicAfterWrite)
+	}
+	return nil
+}
+
+func (f *failingJournal) Get(id string) (JournalRecord, bool, error) {
+	f.mu.Lock()
+	getPanic := f.getPanic
+	f.mu.Unlock()
+	if getPanic != nil {
+		panic(getPanic)
+	}
+	return f.MemoryJournal.Get(id)
 }
 
 func (f *failingJournal) Delete(id string) error {
-	if f.deletePanic != nil {
-		panic(f.deletePanic)
+	f.mu.Lock()
+	deletePanic := f.deletePanic
+	f.mu.Unlock()
+	if deletePanic != nil {
+		panic(deletePanic)
 	}
 	return f.MemoryJournal.Delete(id)
+}
+
+func (f *failingJournal) armPutPanic(value any) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.putPanic = value
+}
+
+func (f *failingJournal) armGetPanic(value any) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.getPanic = value
 }
 
 // stepClock advances a fixed step on every read: journal timestamps and
@@ -1013,6 +1084,257 @@ func TestManagerAcquireContainsJournalPutPanic(t *testing.T) {
 	}
 	if journalErr := acquisition.CurrentJournalError(); journalErr == nil || !strings.Contains(journalErr.Error(), "journal put panic") {
 		t.Fatalf("CurrentJournalError = %v, want contained panic", journalErr)
+	}
+	if err := acquisition.Release(t.Context()); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	if mapper.deleteCount() != 1 || listeners.releaseCount() != 1 {
+		t.Fatalf("cleanup deletes/releases = %d/%d, want 1/1", mapper.deleteCount(), listeners.releaseCount())
+	}
+}
+
+// panickingListenerSource simulates a listener source whose Acquire panics.
+type panickingListenerSource struct{}
+
+func (panickingListenerSource) Acquire(context.Context, string, TupleKey) (net.Listener, TupleKey, ReleaseFunc, error) {
+	panic("listener acquire panic")
+}
+
+// MA22 (S7k audit): a panicking injected callback anywhere in Acquire becomes
+// an ordinary error, never a process panic escaping to the caller.
+func TestManagerAcquireContainsListenerAcquirePanic(t *testing.T) {
+	manager := NewManager(ManagerOptions{
+		RouteTable: managerRouteTable(),
+		Listeners:  panickingListenerSource{},
+		Mappers:    map[MappingLayerKind]GatewayMapper{LayerPCP: gatewayMapperFixture()},
+		Journal:    NewMemoryJournal(),
+	})
+	if _, err := manager.Acquire(t.Context(), gatewayAcquireRequest("forward-listener-acquire-panic")); err == nil || !strings.Contains(err.Error(), "listener acquire panicked") {
+		t.Fatalf("Acquire error = %v, want contained listener acquire panic", err)
+	}
+}
+
+// MA23 (S7k audit): a panicking mapper.Discover fails the acquisition before
+// any side effect.
+func TestManagerAcquireContainsDiscoverPanic(t *testing.T) {
+	mapper := gatewayMapperFixture()
+	mapper.discoverPanic = "discover panic"
+	manager := NewManager(ManagerOptions{
+		RouteTable: managerRouteTable(),
+		Listeners:  &fakeListenerSource{},
+		Mappers:    map[MappingLayerKind]GatewayMapper{LayerPCP: mapper},
+		Journal:    NewMemoryJournal(),
+	})
+	if _, err := manager.Acquire(t.Context(), gatewayAcquireRequest("forward-discover-panic")); err == nil || !strings.Contains(err.Error(), "discover panicked") {
+		t.Fatalf("Acquire error = %v, want contained discover panic", err)
+	}
+}
+
+// MA24 (S7k audit): a panicking mapper.Map after the listener bind must not
+// leak the listener; the outer Acquire releases it on the contained error.
+func TestManagerMapPanicReleasesListener(t *testing.T) {
+	listeners := &fakeListenerSource{}
+	mapper := gatewayMapperFixture()
+	mapper.mapPanic = "map panic"
+	manager := NewManager(ManagerOptions{
+		RouteTable: managerRouteTable(),
+		Listeners:  listeners,
+		Mappers:    map[MappingLayerKind]GatewayMapper{LayerPCP: mapper},
+		Journal:    NewMemoryJournal(),
+	})
+	if _, err := manager.Acquire(t.Context(), gatewayAcquireRequest("forward-map-panic")); err == nil || !strings.Contains(err.Error(), "map panicked") {
+		t.Fatalf("Acquire error = %v, want contained map panic", err)
+	}
+	if got := listeners.releaseCount(); got != 1 {
+		t.Fatalf("listener releases = %d, want the bound listener released", got)
+	}
+}
+
+// MA25 (S7k audit): a panicking STUN observer follows the ordinary advisory
+// observe-error contract — the acquisition stays live with StunObserveError.
+func TestManagerStunObservePanicIsAdvisory(t *testing.T) {
+	listeners := &fakeListenerSource{}
+	mapper := gatewayMapperFixture()
+	manager := NewManager(ManagerOptions{
+		RouteTable: managerRouteTable(),
+		Listeners:  listeners,
+		Mappers:    map[MappingLayerKind]GatewayMapper{LayerPCP: mapper},
+		Journal:    NewMemoryJournal(),
+		StunObserve: func(context.Context, StunObserveRequest) (netip.AddrPort, error) {
+			panic("stun observe panic")
+		},
+	})
+	request := gatewayAcquireRequest("forward-stun-panic")
+	request.StunServer = "stun+tcp://10.0.0.1:3478"
+	acquisition, err := manager.Acquire(t.Context(), request)
+	if err != nil {
+		t.Fatalf("Acquire: %v; a STUN panic must follow the advisory observe-error contract", err)
+	}
+	if acquisition.StunObserveError == nil || !strings.Contains(acquisition.StunObserveError.Error(), "stun observe panic") {
+		t.Fatalf("StunObserveError = %v, want the contained panic", acquisition.StunObserveError)
+	}
+	if err := acquisition.Release(t.Context()); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	if mapper.deleteCount() != 1 || listeners.releaseCount() != 1 {
+		t.Fatalf("cleanup deletes/releases = %d/%d, want 1/1", mapper.deleteCount(), listeners.releaseCount())
+	}
+}
+
+// MA26 (S7k audit): a panicking mapper.Renew counts as an ordinary failed
+// renewal — three consecutive panics degrade instead of vanishing into a
+// blanket recover, and the recovery cycle still fires.
+func TestManagerRenewPanicFollowsLadder(t *testing.T) {
+	mapper := gatewayMapperFixture()
+	mapper.renewPanic = "renew panic"
+	mapper.oscillatePeriod = 3
+	degraded := make(chan string, 1)
+	recovered := make(chan string, 1)
+	var degradedOnce, recoveredOnce sync.Once
+	manager := NewManager(ManagerOptions{
+		RouteTable: managerRouteTable(),
+		Listeners:  &fakeListenerSource{},
+		Mappers:    map[MappingLayerKind]GatewayMapper{LayerPCP: mapper},
+		Journal:    NewMemoryJournal(),
+		OnMappingDegraded: func(forwardID string, reason string) {
+			degradedOnce.Do(func() { degraded <- reason })
+		},
+		OnMappingRecovered: func(forwardID string) {
+			recoveredOnce.Do(func() { recovered <- forwardID })
+		},
+	})
+	acquisition, err := manager.Acquire(t.Context(), withPacing(gatewayAcquireRequest("forward-renew-panic"), 20*time.Millisecond))
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	defer acquisition.Release(t.Context())
+	select {
+	case reason := <-degraded:
+		if !strings.Contains(reason, "renew panic") {
+			t.Fatalf("degraded reason = %q, want the contained renew panic", reason)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("renew panics must count toward the degradation ladder")
+	}
+	select {
+	case <-recovered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("recovery must still follow the panicking-renewal episodes")
+	}
+}
+
+// MA27 (S7k audit): a renewal whose Put fails and whose reconciliation Get
+// also fails keeps the durable row untouched and keeps the failure observable:
+// CurrentJournalError stays set, no duplicate ID is generated, and the next
+// renewal retries the same private attempt ID.
+func TestManagerRenewalGetFailureObservable(t *testing.T) {
+	mapper := gatewayMapperFixture()
+	journal := &failingJournal{MemoryJournal: NewMemoryJournal()}
+	clock := &stepClock{cur: time.Unix(1_700_000_000, 0), step: time.Second}
+	manager := NewManager(ManagerOptions{
+		RouteTable: managerRouteTable(),
+		Listeners:  &fakeListenerSource{},
+		Mappers:    map[MappingLayerKind]GatewayMapper{LayerPCP: mapper},
+		Journal:    journal,
+		Clock:      clock.Now,
+	})
+	acquisition, err := manager.Acquire(t.Context(), withPacing(gatewayAcquireRequest("forward-get-panic"), 20*time.Millisecond))
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	defer acquisition.Release(t.Context())
+	if acquisition.JournalID == "" {
+		t.Fatal("the initial write must succeed before the injected faults")
+	}
+	records, err := journal.ListByForward("forward-get-panic")
+	if err != nil || len(records) != 1 {
+		t.Fatalf("journal records = %v/%v, want exactly the initial row", records, err)
+	}
+	originalCreatedAt := records[0].CreatedAtUnix
+	originalUpdatedAt := records[0].UpdatedAtUnix
+	journal.armPutPanic("journal put panic")
+	journal.armGetPanic("journal get panic")
+	deadline := time.Now().Add(400 * time.Millisecond)
+	for mapper.renewalCount() < 2 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if mapper.renewalCount() < 2 {
+		t.Fatal("expected renewals under the injected faults")
+	}
+	if journalErr := acquisition.CurrentJournalError(); journalErr == nil {
+		t.Fatal("CurrentJournalError = nil, want the ambiguous put/get failure surfaced")
+	}
+	records, err = journal.ListByForward("forward-get-panic")
+	if err != nil || len(records) != 1 {
+		t.Fatalf("journal records after renewals = %v/%v, want the single untouched row (no duplicate IDs)", records, err)
+	}
+	if records[0].CreatedAtUnix != originalCreatedAt || records[0].UpdatedAtUnix != originalUpdatedAt {
+		t.Fatalf("durable record rewritten during the fault window: created %d->%d updated %d->%d",
+			originalCreatedAt, records[0].CreatedAtUnix, originalUpdatedAt, records[0].UpdatedAtUnix)
+	}
+}
+
+// MA28 (S7k audit): a Put that commits then panics is reconciled through the
+// read-back at the unique attempt ID: the durable row is published as the
+// journal reference and Release deletes it — no orphan, no duplicate.
+func TestManagerPutPersistThenPanicReconciled(t *testing.T) {
+	listeners := &fakeListenerSource{}
+	mapper := gatewayMapperFixture()
+	journal := &failingJournal{MemoryJournal: NewMemoryJournal(), putPanicAfterWrite: "journal put panic"}
+	manager := NewManager(ManagerOptions{
+		RouteTable: managerRouteTable(),
+		Listeners:  listeners,
+		Mappers:    map[MappingLayerKind]GatewayMapper{LayerPCP: mapper},
+		Journal:    journal,
+	})
+	acquisition, err := manager.Acquire(t.Context(), gatewayAcquireRequest("forward-postcommit-panic"))
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	records, err := journal.List()
+	if err != nil || len(records) != 1 {
+		t.Fatalf("journal rows = %v/%v, want exactly the reconciled attempt", records, err)
+	}
+	if acquisition.JournalID != records[0].ID {
+		t.Fatalf("JournalID = %q, want the durable row %q published", acquisition.JournalID, records[0].ID)
+	}
+	if err := acquisition.Release(t.Context()); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	remaining, err := journal.List()
+	if err != nil || len(remaining) != 0 {
+		t.Fatalf("journal rows after release = %v/%v, want the reconciled row deleted", remaining, err)
+	}
+	if mapper.deleteCount() != 1 || listeners.releaseCount() != 1 {
+		t.Fatalf("cleanup deletes/releases = %d/%d, want 1/1", mapper.deleteCount(), listeners.releaseCount())
+	}
+}
+
+// MA29 (S7k audit): a panicking mechanism-private State serializer surfaces as
+// an advisory journal error and writes no record.
+func TestManagerStateSerializationPanicAdvisory(t *testing.T) {
+	listeners := &fakeListenerSource{}
+	mapper := gatewayMapperFixture()
+	mapper.statePanic = "state marshal panic"
+	journal := NewMemoryJournal()
+	manager := NewManager(ManagerOptions{
+		RouteTable: managerRouteTable(),
+		Listeners:  listeners,
+		Mappers:    map[MappingLayerKind]GatewayMapper{LayerPCP: mapper},
+		Journal:    journal,
+	})
+	acquisition, err := manager.Acquire(t.Context(), gatewayAcquireRequest("forward-state-panic"))
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	if acquisition.JournalID != "" {
+		t.Fatalf("JournalID = %q, want empty (no durable record written)", acquisition.JournalID)
+	}
+	if journalErr := acquisition.CurrentJournalError(); journalErr == nil || !strings.Contains(journalErr.Error(), "state marshal panic") {
+		t.Fatalf("CurrentJournalError = %v, want the serialization panic", journalErr)
+	}
+	if rows, _ := journal.List(); len(rows) != 0 {
+		t.Fatalf("journal rows = %v, want none", rows)
 	}
 	if err := acquisition.Release(t.Context()); err != nil {
 		t.Fatalf("Release: %v", err)

@@ -134,6 +134,19 @@ func (d *Detector) Run(ctx context.Context, req DetectionRequest) (Profile, erro
 	var resultMu sync.Mutex
 
 	runAttempt := func(index int) {
+		// Backstop: an uncontained panic from an injected implementation (or
+		// any residual path) must degrade to a failed result, never crash a
+		// parallel attempt goroutine or unwind Run.
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				resultMu.Lock()
+				results[index] = StrategyResult{
+					State: DetectionFailed,
+					Note:  fmt.Sprintf("attempt panicked: %v", recovered),
+				}
+				resultMu.Unlock()
+			}
+		}()
 		attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
 		defer cancel()
 		result := attempts[index].run(attemptCtx)
@@ -252,8 +265,8 @@ func (d *Detector) Run(ctx context.Context, req DetectionRequest) (Profile, erro
 }
 
 // directAttempt proves the direct-v4 capability on a temp tuple.
-func (d *Detector) directAttempt(ctx context.Context) StrategyResult {
-	result := StrategyResult{StartedAtUnix: time.Now().Unix()}
+func (d *Detector) directAttempt(ctx context.Context) (result StrategyResult) {
+	result = StrategyResult{StartedAtUnix: time.Now().Unix()}
 	defer func() { result.FinishedAtUnix = time.Now().Unix() }()
 
 	selection, capability, err := Assess(d.opts.RouteTable)
@@ -298,11 +311,13 @@ func (d *Detector) directAttempt(ctx context.Context) StrategyResult {
 
 // gatewayAttempt proves one gateway mechanism on a temp tuple.
 func (d *Detector) gatewayAttempt(mechanism MappingLayerKind, mapper GatewayMapper) func(ctx context.Context) StrategyResult {
-	return func(ctx context.Context) StrategyResult {
-		result := StrategyResult{StartedAtUnix: time.Now().Unix()}
+	return func(ctx context.Context) (result StrategyResult) {
+		result = StrategyResult{StartedAtUnix: time.Now().Unix()}
 		defer func() { result.FinishedAtUnix = time.Now().Unix() }()
 
-		control, err := mapper.Discover(ctx)
+		control, err := externalCallContained("mapper discover", func() (ControlServer, error) {
+			return mapper.Discover(ctx)
+		})
 		if err != nil {
 			result.State = DetectionFailed
 			result.Note = "discovery: " + err.Error()
@@ -322,22 +337,29 @@ func (d *Detector) gatewayAttempt(mechanism MappingLayerKind, mapper GatewayMapp
 		}
 		defer lease.Release() //nolint:errcheck // cleanup path
 
-		mapping, err := mapper.Map(ctx, GatewayMapRequest{
-			InternalIP:   source,
-			InternalPort: lease.Actual.Port,
-			Lease:        DetectionLease,
+		mapping, err := externalCallContained("mapper map", func() (GatewayMapping, error) {
+			return mapper.Map(ctx, GatewayMapRequest{
+				InternalIP:   source,
+				InternalPort: lease.Actual.Port,
+				Lease:        DetectionLease,
+			})
 		})
 		if err != nil {
 			result.State = DetectionFailed
 			result.Note = "map: " + err.Error()
 			return result
 		}
-		// Cleanup: release the temp mapping right away. Adapter panics are
-		// bounded cleanup damage, not process crashes from an attempt goroutine.
-		deleteErr := deleteMappingContained(ctx, mapper, mapping)
-		switch {
-		case deleteErr == nil:
-		default:
+		// Cleanup: release the temp mapping right away, on a fresh bounded
+		// context detached from the attempt budget — a Map that consumed the
+		// deadline must still get a real delete attempt, and an adapter panic
+		// is bounded cleanup damage rather than a process crash. A delete that
+		// ignores its context and blocks forever cannot be forcibly
+		// interrupted (injected-implementation contract); the timeout bounds
+		// only cooperative implementations.
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), DetectionLease)
+		deleteErr := deleteMappingContained(cleanupCtx, mapper, mapping)
+		cancel()
+		if deleteErr != nil {
 			// A failed temp delete is recorded but does not flip the
 			// capability result; the lease bounds the damage.
 			result.Note = "temp delete: " + deleteErr.Error()
@@ -352,8 +374,8 @@ func (d *Detector) gatewayAttempt(mechanism MappingLayerKind, mapper GatewayMapp
 }
 
 // stunAttempt proves the TCP STUN observation capability.
-func (d *Detector) stunAttempt(ctx context.Context) StrategyResult {
-	result := StrategyResult{StartedAtUnix: time.Now().Unix()}
+func (d *Detector) stunAttempt(ctx context.Context) (result StrategyResult) {
+	result = StrategyResult{StartedAtUnix: time.Now().Unix()}
 	defer func() { result.FinishedAtUnix = time.Now().Unix() }()
 
 	if len(d.opts.StunServers) == 0 {
@@ -380,7 +402,9 @@ func (d *Detector) stunAttempt(ctx context.Context) StrategyResult {
 				timeout = remaining
 			}
 		}
-		observed, err := d.opts.StunObserve(ctx, address, timeout)
+		observed, err := externalCallContained("stun observe", func() (netip.AddrPort, error) {
+			return d.opts.StunObserve(ctx, address, timeout)
+		})
 		if err != nil {
 			result.Note = strings.TrimSpace(result.Note + " " + server + ": " + err.Error())
 			continue

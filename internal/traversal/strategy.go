@@ -583,6 +583,10 @@ func (m GatewayMapping) Description() string {
 // best-effort query-then-delete. Implementations must be safe for
 // sequential use; renewals and deletes carry the State they produced.
 type GatewayMapper interface {
+	// Implementations must be bounded-latency and must honor their context:
+	// the manager and detector invoke these methods from goroutines whose
+	// hangs cannot be forcibly interrupted (an adapter fault is converted to
+	// an ordinary error, but a call that never returns wedges its caller).
 	Mechanism() MappingLayerKind
 	Ownership() OwnershipStrength
 	Capability() PortControlCapability

@@ -34,10 +34,26 @@ import (
 // ReleaseFunc releases one acquired listener.
 type ReleaseFunc func() error
 
+type listenerAcquireResult struct {
+	listener  net.Listener
+	actual    TupleKey
+	releaseFn ReleaseFunc
+}
+
+func listenerAcquireContained(ctx context.Context, source ListenerSource, owner string, key TupleKey) (listenerAcquireResult, error) {
+	return externalCallContained("listener acquire", func() (listenerAcquireResult, error) {
+		listener, actual, releaseFn, err := source.Acquire(ctx, owner, key)
+		return listenerAcquireResult{listener: listener, actual: actual, releaseFn: releaseFn}, err
+	})
+}
+
 // ListenerSource acquires the production listener for one tuple. The
 // composition root chooses the implementation: the plain PortRegistry for
 // forwards without a same-tuple STUN observation, the stun shared-port
 // registry when the upstream observation needs the same tuple (Linux gate).
+// Implementations must be bounded-latency and honor their context: a call
+// that blocks forever wedges the acquisition (injected-implementation
+// contract; faults are converted to errors, hangs cannot be interrupted).
 type ListenerSource interface {
 	Acquire(ctx context.Context, owner string, key TupleKey) (net.Listener, TupleKey, ReleaseFunc, error)
 }
@@ -167,6 +183,13 @@ type Acquisition struct {
 	// JournalID references the journal record (mapping_journal_ref); empty
 	// when the record was never durably written.
 	JournalID string
+	// journalAttemptID is the stable private identity used to reconcile and
+	// clean up an ambiguous Put outcome (the store may commit then panic).
+	// JournalID remains empty until durability is confirmed by Put or Get.
+	journalAttemptID string
+	// journalCreatedAt is the stable audit timestamp reused by renewal writes;
+	// caching it avoids an external Journal.Get under renewMu on every renewal.
+	journalCreatedAt int64
 	// StunObserveError records a configured upstream observation that could
 	// not be honored (no observer wired, no same-tuple dialer, transport
 	// failure). A failed observation is never silently dropped; the gateway
@@ -278,16 +301,16 @@ func (m *Manager) acquireDirect(ctx context.Context, req AcquireRequest, acquisi
 		return NewCapabilityError(CapabilityNoGlobalV4Source,
 			fmt.Errorf("selected interface %s has no global IPv4 source", selection.Interface))
 	}
-	listener, actual, releaseFn, err := m.listeners.Acquire(ctx, req.Owner, TupleKey{
+	listenerResult, err := listenerAcquireContained(ctx, m.listeners, req.Owner, TupleKey{
 		Family: "ipv4", Protocol: "tcp", Address: selection.Source.String(), Port: req.Spec.RequestedLocalPort,
 	})
 	if err != nil {
 		return fmt.Errorf("traversal: direct listener: %w", err)
 	}
-	acquisition.Listener = listener
-	acquisition.Bind = actual
-	acquisition.releaseFn = releaseFn
-	candidate := netip.AddrPortFrom(selection.Source, actual.Port)
+	acquisition.Listener = listenerResult.listener
+	acquisition.Bind = listenerResult.actual
+	acquisition.releaseFn = listenerResult.releaseFn
+	candidate := netip.AddrPortFrom(selection.Source, listenerResult.actual.Port)
 	acquisition.Layers = []LayerEvidence{{
 		Kind:             LayerKindDirect,
 		InternalEndpoint: candidate.String(),
@@ -321,18 +344,18 @@ func (m *Manager) acquireManual(ctx context.Context, req AcquireRequest, plan St
 	if err != nil {
 		return fmt.Errorf("traversal: manual endpoint: %w", err)
 	}
-	listener, actual, releaseFn, err := m.listeners.Acquire(ctx, req.Owner, TupleKey{
+	listenerResult, err := listenerAcquireContained(ctx, m.listeners, req.Owner, TupleKey{
 		Family: "ipv4", Protocol: "tcp", Address: "0.0.0.0", Port: req.Spec.RequestedLocalPort,
 	})
 	if err != nil {
 		return fmt.Errorf("traversal: manual listener: %w", err)
 	}
-	acquisition.Listener = listener
-	acquisition.Bind = actual
-	acquisition.releaseFn = releaseFn
+	acquisition.Listener = listenerResult.listener
+	acquisition.Bind = listenerResult.actual
+	acquisition.releaseFn = listenerResult.releaseFn
 	acquisition.Layers = []LayerEvidence{{
 		Kind:             LayerKindManual,
-		InternalEndpoint: netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), actual.Port).String(),
+		InternalEndpoint: netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), listenerResult.actual.Port).String(),
 		AssignedEndpoint: parsed.String(),
 		Scope:            ScopeOperatorInput,
 		Ownership:        OwnershipNotApplicable,
@@ -370,29 +393,35 @@ func (m *Manager) acquireGateway(ctx context.Context, req AcquireRequest, plan S
 	if err != nil {
 		return err
 	}
-	control, err := mapper.Discover(ctx)
+	control, err := externalCallContained("mapper discover", func() (ControlServer, error) {
+		return mapper.Discover(ctx)
+	})
 	if err != nil {
 		return fmt.Errorf("traversal: %s discovery: %w", plan.MappingLayer, err)
 	}
-	listener, actual, releaseFn, err := m.listeners.Acquire(ctx, req.Owner, TupleKey{
+	listenerResult, err := listenerAcquireContained(ctx, m.listeners, req.Owner, TupleKey{
 		Family: "ipv4", Protocol: "tcp", Address: source.String(), Port: req.Spec.RequestedLocalPort,
 	})
 	if err != nil {
 		return fmt.Errorf("traversal: gateway listener: %w", err)
 	}
-	acquisition.Listener = listener
-	acquisition.Bind = actual
-	acquisition.releaseFn = releaseFn
+	acquisition.Listener = listenerResult.listener
+	acquisition.Bind = listenerResult.actual
+	acquisition.releaseFn = listenerResult.releaseFn
 	acquisition.mapper = mapper
 
-	mapping, err := mapper.Map(ctx, GatewayMapRequest{
-		InternalIP:            source,
-		InternalPort:          actual.Port,
-		RequestedExternalPort: req.Spec.RequestedPublicPort,
-		Lease:                 lease,
-		StrictPort:            plan.GatewayPortPolicy == PortPolicyStrict,
+	mapping, err := externalCallContained("mapper map", func() (GatewayMapping, error) {
+		return mapper.Map(ctx, GatewayMapRequest{
+			InternalIP:            source,
+			InternalPort:          listenerResult.actual.Port,
+			RequestedExternalPort: req.Spec.RequestedPublicPort,
+			Lease:                 lease,
+			StrictPort:            plan.GatewayPortPolicy == PortPolicyStrict,
+		})
 	})
 	if err != nil {
+		// The listener is already bound; the outer Acquire releases it on this
+		// error. A panicking Map cannot leak it past this boundary.
 		return fmt.Errorf("traversal: %s map: %w", plan.MappingLayer, err)
 	}
 	acquisition.Mapping = &mapping
@@ -400,7 +429,7 @@ func (m *Manager) acquireGateway(ctx context.Context, req AcquireRequest, plan S
 	// safety margin derive from it, never from the request.
 	if mapping.Lease > 0 {
 		acquisition.leaseDuration = mapping.Lease
-		acquisition.leaseDeadline = m.opts.Clock().Add(mapping.Lease)
+		acquisition.leaseDeadline = m.clockNow().Add(mapping.Lease)
 	}
 	gatewayEvidence := mapping.Evidence(control)
 	acquisition.Layers = []LayerEvidence{gatewayEvidence}
@@ -419,16 +448,18 @@ func (m *Manager) acquireGateway(ctx context.Context, req AcquireRequest, plan S
 		default:
 			var dial func(ctx context.Context, remote string) (net.Conn, error)
 			if sameTuple, ok := m.listeners.(SameTupleDialer); ok {
-				bind := actual
+				bind := listenerResult.actual
 				dial = func(ctx context.Context, remote string) (net.Conn, error) {
 					return sameTuple.DialFrom(ctx, bind, remote)
 				}
 			}
-			observed, observeErr := m.opts.StunObserve(ctx, StunObserveRequest{
-				Server:  server,
-				Bind:    actual,
-				Dial:    dial,
-				Timeout: 5 * time.Second,
+			observed, observeErr := externalCallContained("stun observe", func() (netip.AddrPort, error) {
+				return m.opts.StunObserve(ctx, StunObserveRequest{
+					Server:  server,
+					Bind:    listenerResult.actual,
+					Dial:    dial,
+					Timeout: 5 * time.Second,
+				})
 			})
 			if observeErr != nil {
 				acquisition.StunObserveError = fmt.Errorf("upstream STUN observation %s: %w", req.StunServer, observeErr)
@@ -436,7 +467,7 @@ func (m *Manager) acquireGateway(ctx context.Context, req AcquireRequest, plan S
 				acquisition.Layers = append(acquisition.Layers, LayerEvidence{
 					Kind:             LayerKindSTUN,
 					ControlServer:    req.StunServer,
-					InternalEndpoint: netip.AddrPortFrom(source, actual.Port).String(),
+					InternalEndpoint: netip.AddrPortFrom(source, listenerResult.actual.Port).String(),
 					AssignedEndpoint: observed.String(),
 					Scope:            scopeForAddr(observed.Addr()),
 					Ownership:        OwnershipObservedOnly,
@@ -458,7 +489,9 @@ func (m *Manager) acquireGateway(ctx context.Context, req AcquireRequest, plan S
 		return err
 	}
 	acquisition.Verdict = verdict
-	acquisition.JournalID, acquisition.journalError = m.journalPut(req.ForwardID, acquisition.JournalID, mapping)
+	acquisition.JournalID, acquisition.journalAttemptID, acquisition.journalCreatedAt, acquisition.journalError = m.journalPut(
+		req.ForwardID, acquisition.JournalID, acquisition.journalAttemptID, acquisition.journalCreatedAt, mapping,
+	)
 	m.startRenewal(req.ForwardID, acquisition, lease, req.RenewalInterval, req.RenewalJitterMax)
 	return nil
 }
@@ -485,9 +518,13 @@ func (a *Acquisition) release(ctx context.Context) error {
 			mappingDeleted = false
 		}
 	}
-	if mappingDeleted && a.manager != nil && a.JournalID != "" && a.manager.opts.Journal != nil {
+	journalCleanupID := a.JournalID
+	if journalCleanupID == "" {
+		journalCleanupID = a.journalAttemptID
+	}
+	if mappingDeleted && a.manager != nil && journalCleanupID != "" && a.manager.opts.Journal != nil {
 		if err := cleanupContained("journal delete", func() error {
-			return a.manager.opts.Journal.Delete(a.JournalID)
+			return a.manager.opts.Journal.Delete(journalCleanupID)
 		}); err != nil {
 			errs = append(errs, err)
 		}
@@ -512,13 +549,27 @@ func deleteMappingContained(ctx context.Context, mapper GatewayMapper, mapping G
 // cleanup callbacks. A faulty adapter or store must become an ordinary cleanup
 // error so the Manager can continue the remaining teardown steps and preserve
 // Release's stable sync.Once outcome.
-func cleanupContained(operation string, cleanup func() error) (err error) {
+func cleanupContained(operation string, cleanup func() error) error {
+	_, err := externalCallContained(operation, func() (struct{}, error) {
+		return struct{}{}, cleanup()
+	})
+	return err
+}
+
+// externalCallContained is the package-wide panic boundary for injected
+// implementations. It converts a callback panic to the same error channel as
+// an ordinary failure so callers can run their normal compensation/state
+// transition logic; callers add their own context around the returned error.
+// Implementations must still honor their context and return: an interface
+// call that blocks forever cannot be forcibly interrupted, so injected
+// implementations must be bounded-latency (documented on the interfaces).
+func externalCallContained[T any](operation string, call func() (T, error)) (value T, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("traversal: %s panicked: %v", operation, recovered)
+			err = fmt.Errorf("%s panicked: %v", operation, recovered)
 		}
 	}()
-	return cleanup()
+	return call()
 }
 
 // ---------------------------------------------------------------------------
@@ -691,22 +742,24 @@ func (m *Manager) startRenewal(forwardID string, acquisition *Acquisition, lease
 func (m *Manager) renewOnce(forwardID string, acquisition *Acquisition, requestedLease time.Duration, productionPacing bool) (time.Duration, time.Duration) {
 	acquisition.renewMu.Lock()
 	defer acquisition.renewMu.Unlock()
-	// A panicking mapper must not wedge the renewal loop or Release (the
-	// unlock defer still runs during unwinding).
-	defer func() { _ = recover() }()
 	if acquisition.Mapping == nil || acquisition.mapper == nil {
 		return 0, 0
 	}
 	// Margin check independent of the attempt below: a long pause (GC,
 	// suspend) can push the deadline into the margin without any recorded
 	// failure.
-	if !acquisition.lostFired && acquisition.withinExpiryMarginLocked(m.opts.Clock()) {
+	if !acquisition.lostFired && acquisition.withinExpiryMarginLocked(m.clockNow()) {
 		acquisition.lostFired = true
 		acquisition.deliver(lifecycleEvent{kind: eventLost, reason: "lease expiry safety margin crossed"})
 		return 0, 0
 	}
-	renewed, err := acquisition.mapper.Renew(acquisition.renewCtx, *acquisition.Mapping, requestedLease)
+	renewed, err := externalCallContained("mapper renew", func() (GatewayMapping, error) {
+		return acquisition.mapper.Renew(acquisition.renewCtx, *acquisition.Mapping, requestedLease)
+	})
 	if err != nil {
+		// A panicking adapter is an ordinary renewal failure: it counts
+		// toward the §3.5 ladder instead of vanishing into a blanket
+		// recover (false-health behavior flagged by review).
 		acquisition.failedRenew++
 		if acquisition.failedRenew >= 3 && !acquisition.degradedFired {
 			acquisition.degradedFired = true
@@ -716,7 +769,7 @@ func (m *Manager) renewOnce(forwardID string, acquisition *Acquisition, requeste
 				reason: fmt.Sprintf("three consecutive renewals failed: %v", err),
 			})
 		}
-		if !acquisition.lostFired && acquisition.withinExpiryMarginLocked(m.opts.Clock()) {
+		if !acquisition.lostFired && acquisition.withinExpiryMarginLocked(m.clockNow()) {
 			acquisition.lostFired = true
 			acquisition.deliver(lifecycleEvent{
 				kind:   eventLost,
@@ -750,7 +803,7 @@ func (m *Manager) renewOnce(forwardID string, acquisition *Acquisition, requeste
 	}
 	if renewed.Lease > 0 {
 		acquisition.leaseDuration = renewed.Lease
-		acquisition.leaseDeadline = m.opts.Clock().Add(renewed.Lease)
+		acquisition.leaseDeadline = m.clockNow().Add(renewed.Lease)
 	}
 	if acquisition.degraded {
 		acquisition.degraded = false
@@ -759,7 +812,9 @@ func (m *Manager) renewOnce(forwardID string, acquisition *Acquisition, requeste
 	}
 	renewedCopy := renewed
 	acquisition.Mapping = &renewedCopy
-	acquisition.JournalID, acquisition.journalError = m.journalPut(forwardID, acquisition.JournalID, renewedCopy)
+	acquisition.JournalID, acquisition.journalAttemptID, acquisition.journalCreatedAt, acquisition.journalError = m.journalPut(
+		forwardID, acquisition.JournalID, acquisition.journalAttemptID, acquisition.journalCreatedAt, renewedCopy,
+	)
 	if productionPacing && renewedCopy.Lease > 0 {
 		return renewedCopy.Lease / 2, renewedCopy.Lease / 10
 	}
@@ -819,77 +874,60 @@ func (a *Acquisition) CurrentJournalError() error {
 	return a.journalError
 }
 
-// journalPut persists one mapping record under a stable ID (first write
-// derives it, renewals reuse it so the journal updates in place and never
-// rewrite the creation time). Journaling failures never break a live
-// mapping, but they are surfaced as an error alongside the honest
-// reference: a failed first write leaves no mapping_journal_ref, and a
-// failed renewal update keeps the reference to the already-durable record.
-func (m *Manager) journalPut(forwardID string, existingID string, mapping GatewayMapping) (string, error) {
+// journalPut persists one mapping record under a stable private attempt ID.
+// JournalID is published only after durability is confirmed. createdAt is
+// cached on Acquisition, so renewal never needs an external Get merely to
+// preserve audit history. A Put panic is ambiguous (the store may have
+// committed first), therefore a contained read-after-panic reconciles the
+// exact attempted ID; otherwise the private ID is retained for retry/cleanup.
+func (m *Manager) journalPut(forwardID, existingID, attemptID string, createdAt int64, mapping GatewayMapping) (string, string, int64, error) {
 	if m.opts.Journal == nil {
-		return "", nil
+		return "", "", 0, nil
 	}
-	now := m.opts.Clock()
-	createdAt := now.Unix()
-	if existingID != "" {
-		if existing, ok, err := journalGetContained(m.opts.Journal, existingID); err == nil && ok {
-			createdAt = existing.CreatedAtUnix
-		}
+	now := m.clockNow()
+	if createdAt == 0 {
+		createdAt = now.Unix()
 	}
 	recordID := existingID
 	if recordID == "" {
+		recordID = attemptID
+	}
+	if recordID == "" {
 		recordID = journalIDFor(forwardID, mapping)
 	}
-	record := JournalRecord{
-		ID:              recordID,
-		ForwardID:       forwardID,
-		Mechanism:       mapping.Mechanism,
-		Ownership:       mapping.Ownership,
-		Protocol:        "tcp",
-		InternalIP:      mapping.InternalIP.String(),
-		InternalPort:    mapping.InternalPort,
-		ExternalIP:      mapping.External.Addr().String(),
-		ExternalPort:    mapping.External.Port(),
-		LeaseExpiryUnix: now.Add(mapping.Lease).Unix(),
-		Epoch:           mapping.Epoch,
-		Identity:        mapping.Identity,
-		State:           ownershipStateJSON(mapping),
-		CreatedAtUnix:   createdAt,
-		UpdatedAtUnix:   now.Unix(),
-	}
-	if err := cleanupContained("journal put", func() error {
-		return m.opts.Journal.Put(record)
-	}); err != nil {
-		return existingID, fmt.Errorf("traversal: journal put %s: %w", recordID, err)
-	}
-	return recordID, nil
-}
-
-// journalGetContained gives journal reads the same fault boundary as writes.
-// A faulty store's panic is treated like its ordinary Get error: renewal falls
-// back to the current timestamp without taking down the renewal goroutine.
-func journalGetContained(journal JournalStore, id string) (record JournalRecord, ok bool, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("traversal: journal get panicked: %v", recovered)
+	state, stateErr := externalCallContained("journal state serialization", func() ([]byte, error) {
+		if mapping.State == nil {
+			return nil, nil
 		}
-	}()
-	return journal.Get(id)
-}
-
-// ownershipStateJSON serializes the mechanism-private renewal state for the
-// journal (recovery renews or releases after a restart). GatewayMapping
-// .State must be JSON-encodable; an unencodable state degrades to nil
-// rather than fabricating a recovery state.
-func ownershipStateJSON(mapping GatewayMapping) []byte {
-	if mapping.State == nil {
-		return nil
+		return json.Marshal(mapping.State)
+	})
+	if stateErr != nil {
+		return existingID, recordID, createdAt, fmt.Errorf("traversal: journal put %s: %w", recordID, stateErr)
 	}
-	encoded, err := json.Marshal(mapping.State)
-	if err != nil {
-		return nil
+	record := JournalRecord{
+		ID: recordID, ForwardID: forwardID, Mechanism: mapping.Mechanism,
+		Ownership: mapping.Ownership, Protocol: "tcp",
+		InternalIP: mapping.InternalIP.String(), InternalPort: mapping.InternalPort,
+		ExternalIP: mapping.External.Addr().String(), ExternalPort: mapping.External.Port(),
+		LeaseExpiryUnix: now.Add(mapping.Lease).Unix(), Epoch: mapping.Epoch,
+		Identity: mapping.Identity, State: state,
+		CreatedAtUnix: createdAt, UpdatedAtUnix: now.Unix(),
 	}
-	return encoded
+	putErr := cleanupContained("journal put", func() error { return m.opts.Journal.Put(record) })
+	if putErr == nil {
+		return recordID, recordID, createdAt, nil
+	}
+	// Reconcile an ambiguous post-commit panic/error. Presence at the unique
+	// attempt ID proves durability; field equality is unnecessary here because
+	// renewals intentionally replace that same row and first attempts use a new ID.
+	found, getErr := externalCallContained("journal get", func() (bool, error) {
+		_, ok, err := m.opts.Journal.Get(recordID)
+		return ok, err
+	})
+	if getErr == nil && found {
+		return recordID, recordID, createdAt, nil
+	}
+	return existingID, recordID, createdAt, fmt.Errorf("traversal: journal put %s: %w", recordID, putErr)
 }
 
 // journalIDFor derives a stable journal record ID per forward.
@@ -914,6 +952,15 @@ func (m *Manager) sourceAddress() (netip.Addr, error) {
 		return netip.Addr{}, fmt.Errorf("traversal: gateway source address: %w", err)
 	}
 	return selection.Source, nil
+}
+
+// clockNow reads the injected clock through the external-call boundary; the
+// clock is operator-injected like every other callback in the options.
+func (m *Manager) clockNow() time.Time {
+	now, _ := externalCallContained("clock read", func() (time.Time, error) {
+		return m.opts.Clock(), nil
+	})
+	return now
 }
 
 // releaseListenerQuietly releases the listener on failed acquisition paths.
