@@ -1,0 +1,5 @@
+# github.com/gxbrave/AntiNAT/internal/traversal/upnp [github.com/gxbrave/AntiNAT/internal/traversal/upnp.test]
+internal/traversal/upnp/client_test.go:33:18: undefined: parseSSDPResponse
+internal/traversal/upnp/client_test.go:60:16: undefined: parseSSDPResponse
+internal/traversal/upnp/client_test.go:69:16: undefined: Gateway
+internal/traversal/upnp/client_test.go:74:14: undefined: SelectGateways

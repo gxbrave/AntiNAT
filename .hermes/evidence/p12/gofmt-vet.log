@@ -1,0 +1,5 @@
+== gofmt -l internal/ test/ cmd/ migrations/ (empty output = clean)
+exit=0
+
+== go vet ./... (GOWORK=off)
+exit=0

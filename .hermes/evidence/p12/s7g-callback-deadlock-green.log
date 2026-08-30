@@ -1,0 +1,4 @@
+=== RUN   TestManagerReleaseFromBlockingCallbackCompletes
+--- PASS: TestManagerReleaseFromBlockingCallbackCompletes (0.96s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/traversal	0.965s

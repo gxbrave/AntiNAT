@@ -1,0 +1,47 @@
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-agent	1.022s
+?   	github.com/gxbrave/AntiNAT/cmd/antinat-controller	[no test files]
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-probe	1.015s
+ok  	github.com/gxbrave/AntiNAT/cmd/antinatctl	2.778s
+ok  	github.com/gxbrave/AntiNAT/internal/agent	5.166s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/control	7.972s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/localstate	4.342s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	8.343s
+ok  	github.com/gxbrave/AntiNAT/internal/buildinfo	1.844s
+ok  	github.com/gxbrave/AntiNAT/internal/config	1.019s
+ok  	github.com/gxbrave/AntiNAT/internal/controller	7.735s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/agenthub	21.387s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/api	7.772s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/auth	7.129s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	25.658s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/store	50.423s
+?   	github.com/gxbrave/AntiNAT/internal/controller/web	[no test files]
+ok  	github.com/gxbrave/AntiNAT/internal/forward	1.008s
+ok  	github.com/gxbrave/AntiNAT/internal/forward/tcp	2.176s
+ok  	github.com/gxbrave/AntiNAT/internal/protocol	4.960s
+ok  	github.com/gxbrave/AntiNAT/internal/security	1.034s
+ok  	github.com/gxbrave/AntiNAT/internal/security/framecrypto	1.012s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal	6.820s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/direct	1.009s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/manual	1.008s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/natpmp	1.266s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/pcp	1.263s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/stun	1.474s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/upnp	1.332s
+?   	github.com/gxbrave/AntiNAT/migrations	[no test files]
+ok  	github.com/gxbrave/AntiNAT/scripts	1.017s
+ok  	github.com/gxbrave/AntiNAT/spike/datapath	1.148s
+ok  	github.com/gxbrave/AntiNAT/spike/network	4.133s
+--- FAIL: TestBoundedActionRealCPULimitTermination (0.01s)
+    bounded_linux_test.go:107: real RLIMIT_CPU gate failed: {Pass:false Detail:loop failed unexpectedly: exit status 1: === RUN   TestSandboxChildHelper
+            sandbox_test.go:60: ANTINAT_DEDICATED_UID and ANTINAT_DEDICATED_GID must name a provisioned unique service identity
+        --- FAIL: TestSandboxChildHelper (0.00s)
+        FAIL}
+FAIL
+FAIL	github.com/gxbrave/AntiNAT/spike/sandbox	0.312s
+ok  	github.com/gxbrave/AntiNAT/spike/sqlite	2.074s
+ok  	github.com/gxbrave/AntiNAT/spike/state	2.744s
+ok  	github.com/gxbrave/AntiNAT/spike/windows-identity	1.104s
+ok  	github.com/gxbrave/AntiNAT/test/contracts	3.652s
+ok  	github.com/gxbrave/AntiNAT/test/e2e	2.875s
+ok  	github.com/gxbrave/AntiNAT/test/e2e/harness	1.160s
+FAIL

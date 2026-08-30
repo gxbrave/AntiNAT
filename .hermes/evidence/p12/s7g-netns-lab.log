@@ -1,0 +1,20 @@
+=== RUN   TestTCPTraversal
+    traversal_tcp_test.go:182: lab topology: gateway=10.0.0.1 stun=11.0.0.1:3478 cpe_wan=11.0.0.2 vantage=11.0.0.1
+    traversal_tcp_test.go:247: verifying pcp mapping 11.0.0.2:41205 from the vantage
+    traversal_tcp_test.go:247: verifying nat-pmp mapping 11.0.0.2:41003 from the vantage
+    traversal_tcp_test.go:247: verifying upnp-igd mapping 11.0.0.2:43762 from the vantage
+    traversal_tcp_test.go:270: agent child output:
+        === RUN   TestTCPTraversalAgentChild
+            traversal_tcp_test.go:335: agent ns internal IP: 10.0.0.2 on lan0 (private=true); direct-v4=NO_GLOBAL_V4_SOURCE
+            traversal_tcp_test.go:410: pcp acquired: internal=:41205 external=11.0.0.2:41205 observed=11.0.0.2:41205 ownership=STRONG_PROTOCOL_OWNERSHIP verdict=GLOBAL_PUBLIC
+            traversal_tcp_test.go:410: nat-pmp acquired: internal=:41003 external=11.0.0.2:41003 observed=11.0.0.2:41003 ownership=WEAK_LEASE_OWNERSHIP verdict=GLOBAL_PUBLIC
+            traversal_tcp_test.go:410: upnp-igd acquired: internal=:46143 external=11.0.0.2:43762 observed=11.0.0.2:46143 ownership=BEST_EFFORT_QUERY_THEN_DELETE verdict=GLOBAL_PUBLIC
+            traversal_tcp_test.go:441: child released all three acquisitions; gateway deletes verified by the parent
+        --- PASS: TestTCPTraversalAgentChild (7.56s)
+        PASS
+--- PASS: TestTCPTraversal (7.91s)
+=== RUN   TestTCPTraversalAgentChild
+    traversal_tcp_test.go:297: child-only: run through TestTCPTraversal
+--- SKIP: TestTCPTraversalAgentChild (0.00s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/test/integration	7.907s

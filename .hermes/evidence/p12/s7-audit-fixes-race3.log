@@ -1,0 +1,7 @@
+ok  	github.com/gxbrave/AntiNAT/internal/traversal	18.426s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/direct	1.013s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/manual	1.009s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/natpmp	1.772s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/pcp	1.778s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/stun	2.408s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/upnp	1.968s

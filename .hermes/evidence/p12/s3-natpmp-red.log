@@ -1,0 +1,5 @@
+# github.com/gxbrave/AntiNAT/internal/traversal/natpmp [github.com/gxbrave/AntiNAT/internal/traversal/natpmp.test]
+internal/traversal/natpmp/client_test.go:114:16: undefined: Version
+internal/traversal/natpmp/client_test.go:115:29: undefined: ResponseOpBase
+internal/traversal/natpmp/client_test.go:116:2: undefined: putUint16
+internal/traversal/natpmp/client_test.go:116:27: undefined: ResultSuccess

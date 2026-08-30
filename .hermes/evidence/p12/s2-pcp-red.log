@@ -1,0 +1,8 @@
+# github.com/gxbrave/AntiNAT/internal/traversal/pcp [github.com/gxbrave/AntiNAT/internal/traversal/pcp.test]
+internal/traversal/pcp/client_test.go:114:19: undefined: MapRequest
+internal/traversal/pcp/client_test.go:115:9: undefined: MapRequest
+internal/traversal/pcp/client_test.go:116:26: undefined: ProtoTCP
+internal/traversal/pcp/client_test.go:128:14: undefined: Version
+internal/traversal/pcp/client_test.go:130:14: undefined: ResultSuccess
+internal/traversal/pcp/client_test.go:131:2: undefined: putUint32
+internal/traversal/pcp/client_test.go:132:2: undefined: putUint32

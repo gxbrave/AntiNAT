@@ -1,0 +1,5 @@
+# github.com/gxbrave/AntiNAT/internal/traversal [github.com/gxbrave/AntiNAT/internal/traversal.test]
+internal/traversal/mapping_journal_test.go:15:12: undefined: JournalRecord
+internal/traversal/mapping_journal_test.go:34:18: undefined: EncodeJournalRecord
+internal/traversal/mapping_journal_test.go:38:18: undefined: DecodeJournalRecord
+internal/traversal/mapping_journal_test.go:52:13: undefined: NewMemoryJournal

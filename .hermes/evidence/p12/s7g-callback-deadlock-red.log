@@ -1,0 +1,5 @@
+--- FAIL: TestManagerReleaseFromBlockingCallbackCompletes (10.01s)
+    manager_test.go:822: Release called from within a lifecycle callback deadlocked
+FAIL
+FAIL	github.com/gxbrave/AntiNAT/internal/traversal	10.010s
+FAIL

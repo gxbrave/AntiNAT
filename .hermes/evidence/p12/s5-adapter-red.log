@@ -1,0 +1,4 @@
+# github.com/gxbrave/AntiNAT/internal/traversal/pcp [github.com/gxbrave/AntiNAT/internal/traversal/pcp.test]
+internal/traversal/pcp/adapter_test.go:13:49: undefined: traversal.ControlServer
+internal/traversal/pcp/adapter_test.go:14:19: undefined: traversal.ControlServer
+internal/traversal/pcp/adapter_test.go:22:13: undefined: NewAdapter

@@ -1,0 +1,38 @@
+=== RUN   TestParseSSDPResponse
+--- PASS: TestParseSSDPResponse (0.00s)
+=== RUN   TestParseSSDPResponseRejectsGarbage
+--- PASS: TestParseSSDPResponseRejectsGarbage (0.00s)
+=== RUN   TestGatewaySelectionStable
+--- PASS: TestGatewaySelectionStable (0.00s)
+=== RUN   TestFetchDescriptionResolvesControlURL
+--- PASS: TestFetchDescriptionResolvesControlURL (0.00s)
+=== RUN   TestFetchDescriptionRejectsCrossOriginControlURL
+--- PASS: TestFetchDescriptionRejectsCrossOriginControlURL (0.00s)
+=== RUN   TestFetchDescriptionRejectsRedirect
+--- PASS: TestFetchDescriptionRejectsRedirect (0.00s)
+=== RUN   TestFetchDescriptionRejectsOversize
+--- PASS: TestFetchDescriptionRejectsOversize (0.00s)
+=== RUN   TestValidateLocationScope
+--- PASS: TestValidateLocationScope (0.00s)
+=== RUN   TestAddAnyPortMappingReturnsReservedPort
+--- PASS: TestAddAnyPortMappingReturnsReservedPort (0.00s)
+=== RUN   TestMapV1BoundedRandomRetry
+--- PASS: TestMapV1BoundedRandomRetry (0.00s)
+=== RUN   TestMapV1BudgetExhausted
+--- PASS: TestMapV1BudgetExhausted (0.00s)
+=== RUN   TestMapPermanentOnlyUnsupported
+--- PASS: TestMapPermanentOnlyUnsupported (0.00s)
+=== RUN   TestMapSOAPFault
+--- PASS: TestMapSOAPFault (0.00s)
+=== RUN   TestDeleteVerifiesOwnershipBeforeDelete
+--- PASS: TestDeleteVerifiesOwnershipBeforeDelete (0.00s)
+=== RUN   TestDeleteRefusesForeignMapping
+--- PASS: TestDeleteRefusesForeignMapping (0.00s)
+=== RUN   TestDeleteRefusesUnownedMapping
+--- PASS: TestDeleteRefusesUnownedMapping (0.00s)
+=== RUN   TestSOAPResponseSizeCap
+--- PASS: TestSOAPResponseSizeCap (0.00s)
+=== RUN   TestSOAPActionFailed
+--- PASS: TestSOAPActionFailed (0.00s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/upnp	0.006s

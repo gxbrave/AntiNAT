@@ -1,0 +1,4 @@
+# github.com/gxbrave/AntiNAT/internal/traversal [github.com/gxbrave/AntiNAT/internal/traversal.test]
+internal/traversal/manager_test.go:31:112: undefined: ReleaseFunc
+internal/traversal/manager_test.go:94:26: undefined: detectionRouteTable
+internal/traversal/manager_test.go:95:9: undefined: detectionRouteTable

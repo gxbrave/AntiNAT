@@ -1,0 +1,140 @@
+=== RUN   TestComposeGatewayNonGlobalWithSameSourceStun
+--- PASS: TestComposeGatewayNonGlobalWithSameSourceStun (0.00s)
+=== RUN   TestComposeGatewayGlobalObservationIsProbeEligibleOnly
+--- PASS: TestComposeGatewayGlobalObservationIsProbeEligibleOnly (0.00s)
+=== RUN   TestComposeAutoWithAllMappersFailed
+--- PASS: TestComposeAutoWithAllMappersFailed (0.00s)
+=== RUN   TestComposeStrictPortPlanning
+--- PASS: TestComposeStrictPortPlanning (0.00s)
+=== RUN   TestFingerprintStableForSameRouteTable
+--- PASS: TestFingerprintStableForSameRouteTable (0.00s)
+=== RUN   TestFingerprintChangesWhenAddressChanges
+--- PASS: TestFingerprintChangesWhenAddressChanges (0.00s)
+=== RUN   TestFingerprintChangesWhenGatewayChanges
+--- PASS: TestFingerprintChangesWhenGatewayChanges (0.00s)
+=== RUN   TestFingerprintChangesWhenDefaultRouteAppears
+--- PASS: TestFingerprintChangesWhenDefaultRouteAppears (0.00s)
+=== RUN   TestFingerprintStableWithoutDefaultRoute
+--- PASS: TestFingerprintStableWithoutDefaultRoute (0.00s)
+=== RUN   TestFingerprintPropagatesReaderFailure
+--- PASS: TestFingerprintPropagatesReaderFailure (0.00s)
+=== RUN   TestFingerprintIgnoresAddressOrder
+--- PASS: TestFingerprintIgnoresAddressOrder (0.00s)
+=== RUN   TestInstanceLockBlocksSecondProcess
+--- PASS: TestInstanceLockBlocksSecondProcess (0.00s)
+=== RUN   TestInstanceLockHelper
+    instance_lock_test.go:39: subprocess helper
+--- SKIP: TestInstanceLockHelper (0.00s)
+=== RUN   TestInstanceLockRecoversAfterAbruptOwnerExit
+--- PASS: TestInstanceLockRecoversAfterAbruptOwnerExit (0.00s)
+=== RUN   TestInstanceLockCrashHelper
+    instance_lock_test.go:72: subprocess helper
+--- SKIP: TestInstanceLockCrashHelper (0.00s)
+=== RUN   TestInstanceLockRejectsSymlinkWithoutTouchingTarget
+--- PASS: TestInstanceLockRejectsSymlinkWithoutTouchingTarget (0.00s)
+=== RUN   TestInstanceLockRejectsUnsafeParentDirectory
+--- PASS: TestInstanceLockRejectsUnsafeParentDirectory (0.00s)
+=== RUN   TestJournalRecordRoundTrip
+--- PASS: TestJournalRecordRoundTrip (0.00s)
+=== RUN   TestMemoryJournalOperations
+--- PASS: TestMemoryJournalOperations (0.00s)
+=== RUN   TestJournalOwnershipVerbatim
+--- PASS: TestJournalOwnershipVerbatim (0.00s)
+=== RUN   TestIsGlobalV4Classification
+--- PASS: TestIsGlobalV4Classification (0.00s)
+=== RUN   TestAssessNoIPv4SourceReturnsStableCode
+--- PASS: TestAssessNoIPv4SourceReturnsStableCode (0.00s)
+=== RUN   TestAssessNoDefaultRouteReturnsStableCode
+--- PASS: TestAssessNoDefaultRouteReturnsStableCode (0.00s)
+=== RUN   TestAssessPrivateOnlySourceReturnsNoGlobalV4
+--- PASS: TestAssessPrivateOnlySourceReturnsNoGlobalV4 (0.00s)
+=== RUN   TestAssessGlobalOnNonDefaultInterfaceIsNoGlobalV4
+--- PASS: TestAssessGlobalOnNonDefaultInterfaceIsNoGlobalV4 (0.00s)
+=== RUN   TestAssessSelectsDeterministicGlobalSource
+--- PASS: TestAssessSelectsDeterministicGlobalSource (0.00s)
+=== RUN   TestAssessStableAcrossRepeatedCalls
+--- PASS: TestAssessStableAcrossRepeatedCalls (0.00s)
+=== RUN   TestAssessPropagatesReaderFailure
+--- PASS: TestAssessPropagatesReaderFailure (0.00s)
+=== RUN   TestAcquirePortZeroOwnsActualSocketAtomically
+--- PASS: TestAcquirePortZeroOwnsActualSocketAtomically (0.00s)
+=== RUN   TestRejectsWildcardSpecificOverlap
+=== RUN   TestRejectsWildcardSpecificOverlap/specific_then_wildcard
+=== RUN   TestRejectsWildcardSpecificOverlap/wildcard_then_specific
+--- PASS: TestRejectsWildcardSpecificOverlap (0.00s)
+    --- PASS: TestRejectsWildcardSpecificOverlap/specific_then_wildcard (0.00s)
+    --- PASS: TestRejectsWildcardSpecificOverlap/wildcard_then_specific (0.00s)
+=== RUN   TestDuplicateOwnerSameTupleRejected
+--- PASS: TestDuplicateOwnerSameTupleRejected (0.00s)
+=== RUN   TestStaleReleaseCannotCloseNewOwner
+--- PASS: TestStaleReleaseCannotCloseNewOwner (0.00s)
+=== RUN   TestReleaseAfterExternalCloseFreesTuple
+--- PASS: TestReleaseAfterExternalCloseFreesTuple (0.00s)
+=== RUN   TestConcurrentAcquireHasSingleOwner
+--- PASS: TestConcurrentAcquireHasSingleOwner (0.00s)
+=== RUN   TestUnsupportedTupleRejected
+--- PASS: TestUnsupportedTupleRejected (0.00s)
+=== RUN   TestAcquireRejectsEmptyOwner
+--- PASS: TestAcquireRejectsEmptyOwner (0.00s)
+=== RUN   TestRegistryLenAndHas
+--- PASS: TestRegistryLenAndHas (0.00s)
+=== RUN   TestProfileIsStale
+--- PASS: TestProfileIsStale (0.00s)
+=== RUN   TestProfileProtocolsSeparate
+--- PASS: TestProfileProtocolsSeparate (0.00s)
+=== RUN   TestProfileAllFailedSaves
+--- PASS: TestProfileAllFailedSaves (0.00s)
+=== RUN   TestIPv4AddressesAcceptsMappedInput
+--- PASS: TestIPv4AddressesAcceptsMappedInput (0.00s)
+=== RUN   TestUsableV4RejectsNonV4
+--- PASS: TestUsableV4RejectsNonV4 (0.00s)
+=== RUN   TestParseProcNetRouteDefault
+--- PASS: TestParseProcNetRouteDefault (0.00s)
+=== RUN   TestParseProcNetRouteNoDefault
+--- PASS: TestParseProcNetRouteNoDefault (0.00s)
+=== RUN   TestParseProcNetRoutePicksLowestMetric
+--- PASS: TestParseProcNetRoutePicksLowestMetric (0.00s)
+=== RUN   TestParseProcNetRouteTieBreaksByInterfaceName
+--- PASS: TestParseProcNetRouteTieBreaksByInterfaceName (0.00s)
+=== RUN   TestParseProcNetRouteRejectsGarbage
+--- PASS: TestParseProcNetRouteRejectsGarbage (0.00s)
+=== RUN   TestParseProcNetRouteHeaderOnlyIsEmptyTable
+--- PASS: TestParseProcNetRouteHeaderOnlyIsEmptyTable (0.00s)
+=== RUN   TestHostRouteTableDeterministic
+--- PASS: TestHostRouteTableDeterministic (0.00s)
+=== RUN   TestEvaluateLayersNonGlobalFirstHopIsNeverPublic
+--- PASS: TestEvaluateLayersNonGlobalFirstHopIsNeverPublic (0.00s)
+=== RUN   TestEvaluateLayersGlobalGatewayEndpointIsPublicCandidate
+--- PASS: TestEvaluateLayersGlobalGatewayEndpointIsPublicCandidate (0.00s)
+=== RUN   TestEvaluateLayersRejectsMultipleExplicitLayers
+--- PASS: TestEvaluateLayersRejectsMultipleExplicitLayers (0.00s)
+=== RUN   TestResolveAutoFixedStrategyDoesNotFallback
+--- PASS: TestResolveAutoFixedStrategyDoesNotFallback (0.00s)
+=== RUN   TestResolveAutoWalksOrderDeterministically
+--- PASS: TestResolveAutoWalksOrderDeterministically (0.00s)
+=== RUN   TestResolveAutoAllFailed
+--- PASS: TestResolveAutoAllFailed (0.00s)
+=== RUN   TestEvaluateLayersFinalPortConstraint
+--- PASS: TestEvaluateLayersFinalPortConstraint (0.00s)
+=== RUN   TestEvaluateLayersFinalPortWithoutStunObservation
+--- PASS: TestEvaluateLayersFinalPortWithoutStunObservation (0.00s)
+=== RUN   TestPortControlCapabilities
+--- PASS: TestPortControlCapabilities (0.00s)
+=== RUN   TestPlanStrategyRefusesExactPortWithoutCapability
+--- PASS: TestPlanStrategyRefusesExactPortWithoutCapability (0.00s)
+=== RUN   TestPlanStrategyValidation
+--- PASS: TestPlanStrategyValidation (0.00s)
+=== RUN   TestDetectionSequentialTCP
+--- PASS: TestDetectionSequentialTCP (0.00s)
+=== RUN   TestDetectionTempTuplesDistinct
+--- PASS: TestDetectionTempTuplesDistinct (0.00s)
+=== RUN   TestDetectionBoundedParallel
+--- PASS: TestDetectionBoundedParallel (0.10s)
+=== RUN   TestDetectionAllFailedStillSaves
+--- PASS: TestDetectionAllFailedStillSaves (0.00s)
+=== RUN   TestDetectionUDPDeferred
+--- PASS: TestDetectionUDPDeferred (0.00s)
+=== RUN   TestDetectionStunOnly
+--- PASS: TestDetectionStunOnly (0.00s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/traversal	0.110s

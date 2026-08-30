@@ -172,7 +172,7 @@
     },
     {
       "phase": "required-stun-race10",
-      "command": "GOWORK=off go test ./internal/traversal/stun -race -count=10 (plan S7 required)",
+      "command": "GOWORK=off go test ./internal/traversal/stun -race -count=10 (supplementary; the child plan's required list is the traversal race10 and the netns lab)",
       "exit_code": 0,
       "evidence": ".hermes/evidence/p12/required-stun-race10.log",
       "evidence_sha256": "996865f6357f51ddc312903784843fb8fcf54c2a570409600ee802cb6791d918",
@@ -245,8 +245,9 @@
   ],
   "evidence_manifest": {
     "path": ".hermes/evidence/p12/SHA256SUMS",
-    "sha256": "acfeefc3fffd5772fc5d504338b29c83a1ddd2e558b75bd7e068bdfa355670a9",
-    "environment": ".hermes/evidence/p12/environment.txt"
+    "sha256": "f72a229b69ce5df59d454354ad04ff4be49fd7312c19602a2f391075b0aae5c1",
+    "environment": ".hermes/evidence/p12/environment.txt",
+    "note": "Self-hash corrected after the s7g entries regenerated SHA256SUMS (the prior value was stale, caught by the specification/ownership review). The *.log files themselves are force-added to git in the same metadata commit because .gitignore excludes *.log and the P10 precedent commits evidence bytes."
   },
   "contracts_changed": [],
   "contracts_consumed": [
@@ -270,11 +271,12 @@
     "spike/sandbox TestSandboxChildHelper fails on this host for lack of ANTINAT_DEDICATED_UID/GID provisioning; pre-existing on the base, unrelated to P12.",
     "sudo -E invocations were denied by local policy; equivalent direct root invocations were used for the netns lab (same effect).",
     "When no gateway mapper is configured at all, the detection profile carries no explicit-gateway row (the state enum cannot express not-attempted vs failed). Flagged by review; deferred as a detection-profile completeness gap.",
-    "JournalRecord.OperationID has no producer and detection-temp mappings are never journaled: the journal covers per-Forward mappings only; detection-temp mappings rely on their bounded 2-minute lease for cleanup. Flagged by review; P14 recovery input."
+    "JournalRecord.OperationID has no producer and detection-temp mappings are never journaled: the journal covers per-Forward mappings only; detection-temp mappings rely on their bounded 2-minute lease for cleanup. Flagged by review; P14 recovery input.",
+    "The §3.5 connection-loss-class LOST trigger and the TCP/UDP STUN keepalive pacing defaults (60s/20s ±20%) are not implemented in P12: observations are one-shot at acquisition, so there is no live connection to lose, and the margin/reboot/endpoint-rewrite triggers cover the renewal path. Deferred with the route-change/suspend monitors to P13/P14 integration."
   ],
   "residual_risk": "Unknown real-CPE behaviors (description field sizes other than 64 bytes, 718/725 variations, PCP options) are covered by conservative client behavior (bounded retries, strict verification, honest failures) but not by device inventory.",
   "required_reviews": [
-    "fresh exact-candidate specification/ownership PASS on 1f1b635/ed516dab480d5fad8b3e2ea3b70b1c829df3e7fa",
+    "fresh exact-candidate specification/ownership PASS on d95d06d/2b0ea64e90e1a17362dd3c7dcc76292714d29c6b",
     "fresh exact-candidate quality/security PASS on the same tree",
     "fresh exact-candidate network/protocol PASS on the same tree",
     "fresh exact-candidate lifecycle/integration PASS on the same tree"
@@ -290,10 +292,12 @@
     "dead code removed at review request: detection.sortedKeys deleted; manager hexEncode replaced by encoding/hex",
     "git diff --check clean; gofmt clean"
   ],
-  "quiescence": "No background processes remain: miniupnpd/coturn run only inside lab namespaces and are killed by the teardown script; no leftover listeners on the host.",
+  "quiescence": "Correction recorded per the lifecycle/integration review: at audit time two orphaned debug-lab daemons (miniupnpd/turnserver from the SOAP-reproduction keep-mode lab, left because the manual teardown omitted the PID env vars) and two leaked lab work dirs were still present. They were killed/removed and re-verified after the finding; the netns lab namespaces themselves were always clean. The keep-mode setup-failure leak the reviewer identified in traversal_lab.sh is queued for the unified fix round.",
   "deviations": [
     "24-byte PCP common header (RFC 6887) confirmed against the real daemon after an initial misread of 28 bytes; correction documented in s2 evidence and the S2 commit.",
-    "Migration 0007 bumps store schema version 6->7; store tests updated as a declared mechanical consequence (schema_version constants, broken-migration slot index)."
+    "Migration 0007 bumps store schema version 6->7; store tests updated as a declared mechanical consequence (schema_version constants, broken-migration slot index).",
+    "Ownership note (specification review): internal/traversal/stun/{sharedport.go,observer.go} were touched/added although stun/** was P11's package - all additive (LeaseSource/DialFrom adapter, NewManagerObserver, Release close tolerance) and required by the same-tuple composition story; P11's tests pass unchanged. Declared here as the ownership-transfer record.",
+    "Integrator note (specification review): the candidate tree d95d06d itself contains the pre-supersession handoff snapshot; the authoritative handoff is the top metadata commit of this branch."
   ],
   "remote_push": "NONE",
   "release_performed": false,
@@ -321,6 +325,16 @@
       "reviewer": "network/protocol review",
       "tree": "d95d06d/2b0ea64",
       "outcome": "PASS. Wire codecs verified byte-exact against RFC 6887/6886 text; UPnP/SSDP/SOAP controls all present with bounded honest failure modes; all deviations conservative. Findings (ranked): MEDIUM - NAT-PMP reboot detection structurally unreachable (fresh per-transaction clients, no epoch baseline injection; the RFC 6886 §3.6 SSSoE procedure is not implemented either; fail-safe direction, manager's other LOST paths cover); LOW - PCP renew omits Suggested External IP (§11.2.1 SHOULD); NAT-PMP public-address request is 4 bytes vs RFC's 2; UPnP granted lease never learned (Query parses NewLeaseDuration but Map discards it; pacing/margin desynchronize on shortened grants); renewal jitter is one-sided 50-60% while comments say ±10% (inside RFC 6887's 1/2..5/8 band) and no 4s minimum spacing floor; PCP/NAT-PMP epoch checks are rollback-only without forward-drift; NAT-PMP Map does not refuse internal port 0 (doc says always refused); retransmission budgets deviate from RFC SHOULDs (bounded, acknowledged); TransientResult>=128 is a project rule, not RFC §7.4; SSDP response source unchecked (mitigated by LOCATION scope). Disposition: collected for the unified post-review round (fix MEDIUM symmetrically with PCP's pattern or document; compress the conservative LOWs into known_limits)."
+    },
+    {
+      "reviewer": "specification/ownership review",
+      "tree": "d95d06d/2b0ea64 (re-anchored mid-review; metadata commits 44c6c0b/7955fb9 verified byte-neutral)",
+      "outcome": "PASS. Frozen contracts byte-identical (all five sha256 prefixes matched against the base tree); scope audit clean (51 paths, all P12-owned or declared-mechanical); every pinned RED behavior verified as a test with implementation inspected; store test changes line-verified mechanical; evidence SHA256SUMS verify 27/27; no secrets. Findings: MEDIUM - evidence logs untracked due to .gitignore *.log (P10 precedent commits evidence bytes) and the evidence_manifest self-hash was stale (both fixed in this metadata round); MEDIUM/LOW - all three netns lab logs print traversal_tcp_test.go:182 for a statement at line 115 in the candidate (a ~67-line relocated block: the runs are real and content-consistent but not from the exact committed test bytes; fix = one lab re-run from the exact tree, queued for the unified round); LOW - §3.5 connection-loss-class trigger and STUN keepalive pacing not implemented (now in known_limits); LOW - stun/** ownership note (added to deviations); LOW - candidate tree carries the stale pre-supersession handoff (integrator note added)."
+    },
+    {
+      "reviewer": "lifecycle/integration review",
+      "tree": "d95d06d/2b0ea64 (verified in an isolated git-archive copy)",
+      "outcome": "PASS. lifecycleQueue lock mechanics re-derived with no cycle (push never blocks; drain runs callbacks outside q.mu; close cannot wait for a callback; FIFO preserved); renewal ladder matches the frozen keepalive_state axis incl. recoverable DEGRADED and re-fire; granted-lease pacing and the margin entry-check verified; idempotent Release and journal retention verified; migration 0007 FK/unique constraints verified against 0002; temp-tuple hygiene pinned; netns lab confirmed as genuinely Manager-driven with parent-owned teardown. Findings: MEDIUM/HIGH - quiescence claim false at audit time (two orphaned debug-lab daemons + two leaked work dirs from the SOAP-reproduction lab; the reviewer's action was executed and re-verified); MEDIUM - netns evidence provenance (same :182 line-offset as the specification review found; re-run queued); MEDIUM - post-release closed-port verification weaker than its comment claims (both removed-DNAT and closed-backend produce RST; comment fix + optional nft assertion queued); MEDIUM - keep-mode setup failure leaks namespaces/daemons (EXIT trap skips teardown whenever KEEP=1; queued); LOW/MEDIUM - a panicking mapper.Delete consumes releaseOnce and a retry returns nil (queued); LOW/MEDIUM - the FINAL_PORT_REWRITTEN compensating delete uses the caller's ctx and can orphan a live mapping without a journal record (queued, context.WithoutCancel); LOW - detection aggregation drops a later passing mechanism's note and dead upnp-igd:2/1 name comparisons (queued); LOW - DetectionRequest.AttemptTimeout override not honored by the STUN attempt (queued); LOW - OnMapping* option docs still read synchronous after S7g (queued); LOW - journalPut rewrites CreatedAtUnix if Journal.Get errors transiently (cosmetic, documented); LOW - required_reviews pinned the superseded tree (fixed in this metadata round)."
     }
   ]
 }

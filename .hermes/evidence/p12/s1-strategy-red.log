@@ -1,0 +1,14 @@
+# github.com/gxbrave/AntiNAT/internal/traversal [github.com/gxbrave/AntiNAT/internal/traversal.test]
+internal/traversal/strategy_test.go:24:59: undefined: LayerEvidence
+internal/traversal/strategy_test.go:25:9: undefined: LayerEvidence
+internal/traversal/strategy_test.go:26:21: undefined: LayerKindGateway
+internal/traversal/strategy_test.go:27:21: undefined: LayerPCP
+internal/traversal/strategy_test.go:32:21: undefined: OwnershipStrong
+internal/traversal/strategy_test.go:36:33: undefined: LayerEvidence
+internal/traversal/strategy_test.go:37:9: undefined: LayerEvidence
+internal/traversal/strategy_test.go:38:21: undefined: LayerKindSTUN
+internal/traversal/strategy_test.go:42:21: undefined: OwnershipObservedOnly
+internal/traversal/strategy_test.go:49:18: undefined: EvaluateLayers
+internal/traversal/strategy_test.go:49:18: too many errors
+FAIL	github.com/gxbrave/AntiNAT/internal/traversal [build failed]
+FAIL

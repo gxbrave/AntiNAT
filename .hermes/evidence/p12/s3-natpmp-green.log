@@ -1,0 +1,26 @@
+=== RUN   TestMapGoldenRequestBytes
+--- PASS: TestMapGoldenRequestBytes (0.00s)
+=== RUN   TestPublicAddress
+--- PASS: TestPublicAddress (0.00s)
+=== RUN   TestMapAssignedPortIsAuthoritative
+--- PASS: TestMapAssignedPortIsAuthoritative (0.00s)
+=== RUN   TestMapResultCodes
+--- PASS: TestMapResultCodes (0.00s)
+=== RUN   TestMapTimeoutRetryThenSucceeds
+--- PASS: TestMapTimeoutRetryThenSucceeds (0.15s)
+=== RUN   TestMapExhaustedRetries
+--- PASS: TestMapExhaustedRetries (0.10s)
+=== RUN   TestMapEpochRollbackDetectsReboot
+--- PASS: TestMapEpochRollbackDetectsReboot (0.00s)
+=== RUN   TestMapEpochSmallJitterNotReboot
+--- PASS: TestMapEpochSmallJitterNotReboot (0.00s)
+=== RUN   TestDeleteLifetimeZero
+--- PASS: TestDeleteLifetimeZero (0.00s)
+=== RUN   TestDeleteRefusesZeroInternalPort
+--- PASS: TestDeleteRefusesZeroInternalPort (0.00s)
+=== RUN   TestMapMalformedResponse
+--- PASS: TestMapMalformedResponse (0.00s)
+=== RUN   TestMapUnsupportedOpcode
+--- PASS: TestMapUnsupportedOpcode (0.00s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/natpmp	0.255s

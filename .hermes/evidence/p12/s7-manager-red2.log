@@ -1,0 +1,14 @@
+# github.com/gxbrave/AntiNAT/internal/traversal [github.com/gxbrave/AntiNAT/internal/traversal.test]
+internal/traversal/manager_stun_test.go:25:13: undefined: StunObserveRequest
+internal/traversal/manager_stun_test.go:30:62: undefined: StunObserveRequest
+internal/traversal/manager_stun_test.go:47:43: undefined: StunObserveRequest
+internal/traversal/manager_stun_test.go:51:10: undefined: StunObserveRequest
+internal/traversal/manager_stun_test.go:65:87: undefined: net
+internal/traversal/manager_stun_test.go:74:20: undefined: net
+internal/traversal/manager_stun_test.go:125:17: acquisition.StunObserveError undefined (type *Acquisition has no field or method StunObserveError)
+internal/traversal/manager_stun_test.go:126:61: acquisition.StunObserveError undefined (type *Acquisition has no field or method StunObserveError)
+internal/traversal/manager_stun_test.go:164:17: acquisition.StunObserveError undefined (type *Acquisition has no field or method StunObserveError)
+internal/traversal/manager_stun_test.go:197:17: acquisition.StunObserveError undefined (type *Acquisition has no field or method StunObserveError)
+internal/traversal/manager_stun_test.go:197:17: too many errors
+FAIL	github.com/gxbrave/AntiNAT/internal/traversal [build failed]
+FAIL
