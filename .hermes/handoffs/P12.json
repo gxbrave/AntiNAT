@@ -269,7 +269,8 @@
     "govulncheck unavailable (recorded UNAVAILABLE in environment.txt).",
     "spike/sandbox TestSandboxChildHelper fails on this host for lack of ANTINAT_DEDICATED_UID/GID provisioning; pre-existing on the base, unrelated to P12.",
     "sudo -E invocations were denied by local policy; equivalent direct root invocations were used for the netns lab (same effect).",
-    "When no gateway mapper is configured at all, the detection profile carries no explicit-gateway row (the state enum cannot express not-attempted vs failed). Flagged by review; deferred as a detection-profile completeness gap."
+    "When no gateway mapper is configured at all, the detection profile carries no explicit-gateway row (the state enum cannot express not-attempted vs failed). Flagged by review; deferred as a detection-profile completeness gap.",
+    "JournalRecord.OperationID has no producer and detection-temp mappings are never journaled: the journal covers per-Forward mappings only; detection-temp mappings rely on their bounded 2-minute lease for cleanup. Flagged by review; P14 recovery input."
   ],
   "residual_risk": "Unknown real-CPE behaviors (description field sizes other than 64 bytes, 718/725 variations, PCP options) are covered by conservative client behavior (bounded retries, strict verification, honest failures) but not by device inventory.",
   "required_reviews": [
@@ -308,6 +309,18 @@
         "code-review-max: all 15 findings verified disposed effectively (race+vet green at 1f1b635)",
         "Angle A manager-audit reconciliation: all manager/adapters/stun fixes verified line-by-line (race -count=2 green at 1f1b635); flagged the residual deadlock, the sortedKeys leftover, and the unrecorded L8 limit"
       ]
+    }
+  ],
+  "review_records": [
+    {
+      "reviewer": "code-review-max verification round",
+      "tree": "d95d06d/44c6c0b",
+      "outcome": "All 15 original findings plus batch corrections and the S7g deadlock residual verified disposed with code evidence; lifecycleQueue lock mechanics re-derived with no new deadlock or race; race+vet green. One handoff omission found and fixed by this metadata commit: the OperationID/detection-temp-journaling known-limit was claimed added but absent."
+    },
+    {
+      "reviewer": "network/protocol review",
+      "tree": "d95d06d/2b0ea64",
+      "outcome": "PASS. Wire codecs verified byte-exact against RFC 6887/6886 text; UPnP/SSDP/SOAP controls all present with bounded honest failure modes; all deviations conservative. Findings (ranked): MEDIUM - NAT-PMP reboot detection structurally unreachable (fresh per-transaction clients, no epoch baseline injection; the RFC 6886 §3.6 SSSoE procedure is not implemented either; fail-safe direction, manager's other LOST paths cover); LOW - PCP renew omits Suggested External IP (§11.2.1 SHOULD); NAT-PMP public-address request is 4 bytes vs RFC's 2; UPnP granted lease never learned (Query parses NewLeaseDuration but Map discards it; pacing/margin desynchronize on shortened grants); renewal jitter is one-sided 50-60% while comments say ±10% (inside RFC 6887's 1/2..5/8 band) and no 4s minimum spacing floor; PCP/NAT-PMP epoch checks are rollback-only without forward-drift; NAT-PMP Map does not refuse internal port 0 (doc says always refused); retransmission budgets deviate from RFC SHOULDs (bounded, acknowledged); TransientResult>=128 is a project rule, not RFC §7.4; SSDP response source unchecked (mitigated by LOCATION scope). Disposition: collected for the unified post-review round (fix MEDIUM symmetrically with PCP's pattern or document; compress the conservative LOWs into known_limits)."
     }
   ]
 }
