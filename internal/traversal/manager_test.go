@@ -1310,6 +1310,56 @@ func TestManagerPutPersistThenPanicReconciled(t *testing.T) {
 	}
 }
 
+// MA30 (S7l network review): an ordinary renewal Put error must surface
+// immediately — the read-back reconciliation may not mistake the previous
+// generation's durable row for this attempt's outcome and clear
+// CurrentJournalError.
+func TestManagerRenewalPutErrorStaysObservable(t *testing.T) {
+	mapper := gatewayMapperFixture()
+	journal := &failingJournal{MemoryJournal: NewMemoryJournal()}
+	clock := &stepClock{cur: time.Unix(1_700_000_000, 0), step: time.Second}
+	manager := NewManager(ManagerOptions{
+		RouteTable: managerRouteTable(),
+		Listeners:  &fakeListenerSource{},
+		Mappers:    map[MappingLayerKind]GatewayMapper{LayerPCP: mapper},
+		Journal:    journal,
+		Clock:      clock.Now,
+	})
+	acquisition, err := manager.Acquire(t.Context(), withPacing(gatewayAcquireRequest("forward-put-error"), 20*time.Millisecond))
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	defer acquisition.Release(t.Context())
+	if acquisition.JournalID == "" {
+		t.Fatal("the initial write must succeed before the injected Put errors")
+	}
+	records, err := journal.ListByForward("forward-put-error")
+	if err != nil || len(records) != 1 {
+		t.Fatalf("journal records = %v/%v, want exactly the initial row", records, err)
+	}
+	originalUpdatedAt := records[0].UpdatedAtUnix
+	journal.mu.Lock()
+	journal.putErr = errors.New("disk full")
+	journal.mu.Unlock()
+	deadline := time.Now().Add(400 * time.Millisecond)
+	for mapper.renewalCount() < 2 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if mapper.renewalCount() < 2 {
+		t.Fatal("expected renewals under the injected Put error")
+	}
+	if journalErr := acquisition.CurrentJournalError(); journalErr == nil || !strings.Contains(journalErr.Error(), "disk full") {
+		t.Fatalf("CurrentJournalError = %v, want the ordinary Put error surfaced", journalErr)
+	}
+	records, err = journal.ListByForward("forward-put-error")
+	if err != nil || len(records) != 1 {
+		t.Fatalf("journal records after renewals = %v/%v, want the single stale row untouched", records, err)
+	}
+	if records[0].UpdatedAtUnix != originalUpdatedAt {
+		t.Fatalf("durable row rewritten during the error window: updated %d->%d", originalUpdatedAt, records[0].UpdatedAtUnix)
+	}
+}
+
 // MA29 (S7k audit): a panicking mechanism-private State serializer surfaces as
 // an advisory journal error and writes no record.
 func TestManagerStateSerializationPanicAdvisory(t *testing.T) {

@@ -109,7 +109,9 @@ type ManagerOptions struct {
 	Mappers map[MappingLayerKind]GatewayMapper
 	// Journal persists mapping records; nil disables journaling (labs).
 	Journal JournalStore
-	// Clock is the renewal clock; default time.Now.
+	// Clock is the renewal clock; default time.Now. Must not panic: the
+	// clock has no error channel, so a panicking read degrades to the zero
+	// time inside the containment boundary (a nonsense lease deadline).
 	Clock func() time.Time
 	// OnMappingDegraded fires once when three consecutive renewals failed
 	// (keepalive_state DEGRADED): the mapping may still recover, and
@@ -913,19 +915,43 @@ func (m *Manager) journalPut(forwardID, existingID, attemptID string, createdAt 
 		Identity: mapping.Identity, State: state,
 		CreatedAtUnix: createdAt, UpdatedAtUnix: now.Unix(),
 	}
-	putErr := cleanupContained("journal put", func() error { return m.opts.Journal.Put(record) })
+	// A Put panic is ambiguous: the store may have committed first. Ordinary
+	// Put errors are NOT ambiguous — the failed write must surface on
+	// CurrentJournalError immediately, with no read-back that could mistake
+	// the previous generation's row for this attempt's outcome (network
+	// review, S7l round). This one boundary site captures the panic flag
+	// because the reconciliation decision depends on it.
+	panicked := false
+	putErr := func() (err error) {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				panicked = true
+				err = fmt.Errorf("journal put panicked: %v", recovered)
+			}
+		}()
+		return m.opts.Journal.Put(record)
+	}()
 	if putErr == nil {
 		return recordID, recordID, createdAt, nil
 	}
-	// Reconcile an ambiguous post-commit panic/error. Presence at the unique
-	// attempt ID proves durability; field equality is unnecessary here because
-	// renewals intentionally replace that same row and first attempts use a new ID.
-	found, getErr := externalCallContained("journal get", func() (bool, error) {
-		_, ok, err := m.opts.Journal.Get(recordID)
-		return ok, err
-	})
-	if getErr == nil && found {
-		return recordID, recordID, createdAt, nil
+	if panicked {
+		// Reconcile only the genuinely ambiguous panic case: a durable row
+		// counts as this attempt's outcome when its freshness fields match
+		// the attempted record exactly. Renewals reuse the ID, so mere
+		// presence proves nothing — the row found could be the previous
+		// generation's.
+		existing, getErr := externalCallContained("journal get", func() (JournalRecord, error) {
+			record, ok, err := m.opts.Journal.Get(recordID)
+			if err != nil || !ok {
+				return JournalRecord{}, err
+			}
+			return record, nil
+		})
+		if getErr == nil && existing.UpdatedAtUnix == record.UpdatedAtUnix &&
+			existing.LeaseExpiryUnix == record.LeaseExpiryUnix &&
+			existing.ExternalPort == record.ExternalPort {
+			return recordID, recordID, createdAt, nil
+		}
 	}
 	return existingID, recordID, createdAt, fmt.Errorf("traversal: journal put %s: %w", recordID, putErr)
 }

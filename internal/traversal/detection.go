@@ -391,6 +391,9 @@ func (d *Detector) stunAttempt(ctx context.Context) (result StrategyResult) {
 	for _, server := range d.opts.StunServers {
 		address, err := parseStunTCPServer(server)
 		if err != nil {
+			// A misconfigured entry must not silently vanish from the
+			// evidence trail (network review note).
+			result.Note = strings.TrimSpace(result.Note + " " + err.Error())
 			continue
 		}
 		// The observation timeout honors the request-level attempt budget
