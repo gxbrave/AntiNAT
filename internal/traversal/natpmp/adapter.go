@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"sync"
 	"time"
 
 	"github.com/gxbrave/AntiNAT/internal/traversal"
@@ -30,6 +31,9 @@ type AdapterOptions struct {
 type Adapter struct {
 	gateway netip.AddrPort
 	opts    ClientOptions
+
+	mu       sync.Mutex
+	publicIP netip.Addr // discovered WAN address; zero until Discover
 }
 
 // NewAdapter builds the NAT-PMP adapter.
@@ -61,7 +65,9 @@ func (a *Adapter) Capability() traversal.PortControlCapability {
 	return traversal.PortControlCapabilityFor(traversal.LayerNATPMP, false)
 }
 
-// Discover probes the gateway with the public-address request.
+// Discover probes the gateway with the public-address request and records
+// the discovered WAN address: NAT-PMP MAP responses carry no external IP,
+// so the normalized External endpoint needs it.
 func (a *Adapter) Discover(ctx context.Context) (traversal.ControlServer, error) {
 	if !a.gateway.IsValid() {
 		return traversal.ControlServer{}, fmt.Errorf("natpmp: adapter has no gateway endpoint")
@@ -73,9 +79,13 @@ func (a *Adapter) Discover(ctx context.Context) (traversal.ControlServer, error)
 	defer closeConn()
 
 	client := NewClient(conn, a.gateway, a.opts)
-	if _, _, err := client.PublicAddress(ctx); err != nil {
+	publicIP, _, err := client.PublicAddress(ctx)
+	if err != nil {
 		return traversal.ControlServer{}, err
 	}
+	a.mu.Lock()
+	a.publicIP = publicIP
+	a.mu.Unlock()
 	return traversal.ControlServer{
 		Mechanism: traversal.LayerNATPMP,
 		Address:   a.gateway.String(),
@@ -147,14 +157,24 @@ func (a *Adapter) Delete(ctx context.Context, mapping traversal.GatewayMapping) 
 	return err
 }
 
-// normalize renders the normalized mapping from one client result.
+// normalize renders the normalized mapping from one client result. The
+// external address is the discovered WAN IP (the MAP response carries only
+// the port); it falls back to the gateway LAN address when discovery has
+// not run, and the independent probe always decides reachability.
 func (a *Adapter) normalize(req traversal.GatewayMapRequest, result MapResult) traversal.GatewayMapping {
+	a.mu.Lock()
+	publicIP := a.publicIP
+	a.mu.Unlock()
+	externalAddr := publicIP
+	if !externalAddr.IsValid() {
+		externalAddr = a.gateway.Addr()
+	}
 	return traversal.GatewayMapping{
 		Mechanism:      traversal.LayerNATPMP,
 		Ownership:      traversal.OwnershipWeakLease,
 		InternalIP:     req.InternalIP,
 		InternalPort:   result.InternalPort,
-		External:       netip.AddrPortFrom(a.gateway.Addr(), result.AssignedExternalPort),
+		External:       netip.AddrPortFrom(externalAddr, result.AssignedExternalPort),
 		Lease:          result.Lifetime,
 		Epoch:          result.Epoch,
 		ServerRebooted: result.ServerRebooted,

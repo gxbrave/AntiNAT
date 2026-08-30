@@ -214,6 +214,11 @@ func searchTarget(ctx context.Context, packet net.PacketConn, target string, opt
 
 	var found []Gateway
 	deadline := time.Now().Add(opts.Wait + 500*time.Millisecond) // MX jitter grace
+	// The caller's attempt budget caps each MX window: without this a
+	// three-target discovery runs ~3×(MX+grace) regardless of the context.
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		deadline = ctxDeadline
+	}
 	buf := make([]byte, MaxResponseBytes+1)
 	for {
 		if err := ctx.Err(); err != nil {

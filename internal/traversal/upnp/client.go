@@ -92,6 +92,10 @@ func (c *Client) Map(ctx context.Context, req MapRequest) (MapResult, error) {
 		}
 		fields, err := parseSOAPResponse(body, "AddAnyPortMapping")
 		if err != nil {
+			var soapErr *SOAPError
+			if errors.As(err, &soapErr) && soapErr.Code == errorCodePermanentLeaseOnly {
+				return MapResult{}, ErrPermanentOnlyLease
+			}
 			return MapResult{}, err
 		}
 		portText, ok := fields["NewReservedPort"]
@@ -117,10 +121,15 @@ func (c *Client) Map(ctx context.Context, req MapRequest) (MapResult, error) {
 	for attempt := 0; attempt < maxCandidateAttempts; attempt++ {
 		candidate := req.RequestedExternalPort
 		if candidate == 0 || lastErr != nil {
-			candidate = randFn()
-			if candidate < 1024 {
-				candidate += 1024
+			port, err := randFn()
+			if err != nil {
+				// A CSPRNG failure must never degrade to a fixed port.
+				return MapResult{}, fmt.Errorf("upnp: random candidate port: %w", err)
 			}
+			if port < 1024 {
+				port += 1024
+			}
+			candidate = port
 		}
 		envelope := buildAddMapping(c.world, req, candidate)
 		body, err := postSOAP(ctx, c.http, c.world, "AddPortMapping", envelope)
@@ -143,7 +152,19 @@ func (c *Client) Map(ctx context.Context, req MapRequest) (MapResult, error) {
 			}
 			return MapResult{}, err
 		}
-		// Success: the external port is the candidate we asked for.
+		// Success is not ownership: read back the entry the device actually
+		// holds before adopting the candidate — a device may silently keep
+		// a different mapping than the request asked for.
+		entry, err := c.Query(ctx, candidate, req.Protocol)
+		if err != nil {
+			return MapResult{}, fmt.Errorf("upnp: post-add verification: %w", err)
+		}
+		if entry == nil {
+			return MapResult{}, fmt.Errorf("upnp: post-add verification: device holds no entry for port %d", candidate)
+		}
+		if entry.InternalPort != req.InternalPort || entry.InternalAddr != req.InternalAddress || entry.Description != req.Description {
+			return MapResult{}, ErrForeignMapping
+		}
 		return MapResult{
 			Protocol:             req.Protocol,
 			InternalAddress:      req.InternalAddress,
@@ -248,12 +269,11 @@ func (c *Client) Delete(ctx context.Context, mapping MapResult) error {
 	return err
 }
 
-func cryptoRandUint16() uint16 {
+func cryptoRandUint16() (uint16, error) {
 	var b [2]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		// CSPRNG failure must not silently degrade to a fixed port; the
-		// bounded loop will exhaust and surface ErrNoMappingPort.
-		return 0
+		// CSPRNG failure must not silently degrade to a fixed port.
+		return 0, fmt.Errorf("upnp: candidate port entropy: %w", err)
 	}
-	return binary.BigEndian.Uint16(b[:])
+	return binary.BigEndian.Uint16(b[:]), nil
 }

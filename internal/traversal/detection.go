@@ -26,8 +26,11 @@ import (
 // ships the UDP dataplane.
 var ErrUDPDetectionDeferred = errors.New("traversal: UDP capability detection is deferred to P13 (UDP dataplane)")
 
-// DefaultAttemptTimeout bounds one detection attempt.
-const DefaultAttemptTimeout = 3 * time.Second
+// DefaultAttemptTimeout bounds one detection attempt. It must fit a full
+// three-target SSDP discovery (3×(MX+grace) ≈ 7.5s) plus the mapping
+// action; a smaller budget makes the UPnP attempt structurally unable to
+// pass.
+const DefaultAttemptTimeout = 12 * time.Second
 
 // DetectionLease is the short mapping lease used for temp detection tuples;
 // the cleanup path deletes the mapping, the lease only bounds leak damage.
@@ -53,7 +56,8 @@ type DetectorOptions struct {
 	// helpers live there), so traversal cannot import stun; the
 	// composition root injects the implementation.
 	StunObserve func(ctx context.Context, server netip.AddrPort, timeout time.Duration) (netip.AddrPort, error)
-	// AttemptTimeout bounds one attempt; default 3s.
+	// AttemptTimeout bounds one attempt; default 12s (must fit a full
+	// three-target SSDP discovery plus the mapping action).
 	AttemptTimeout time.Duration
 }
 
@@ -178,13 +182,21 @@ func (d *Detector) Run(ctx context.Context, req DetectionRequest) (Profile, erro
 			}
 			if result.State == DetectionPassed {
 				gatewayPassed = true
-				profile.Results = append(profile.Results, StrategyResult{
+				// Replace any earlier failure seed: the strategy result is
+				// exactly ONE row carrying the passing mechanism, with the
+				// failed mechanisms folded into its note trail.
+				merged, ok := profile.ResultFor(protocol.StrategyExplicitGateway)
+				note := result.Note
+				if ok {
+					note = strings.TrimSpace(merged.Note + " " + result.Note)
+				}
+				profile.Results = replaceOrAppend(profile.Results, protocol.StrategyExplicitGateway, StrategyResult{
 					Strategy:       protocol.StrategyExplicitGateway,
 					State:          DetectionPassed,
 					LayerSignature: result.LayerSignature,
 					Evidence:       result.Evidence,
 					Candidate:      result.Candidate,
-					Note:           result.Note,
+					Note:           note,
 					StartedAtUnix:  result.StartedAtUnix,
 					FinishedAtUnix: result.FinishedAtUnix,
 				})
@@ -377,9 +389,10 @@ func (d *Detector) stunAttempt(ctx context.Context) StrategyResult {
 }
 
 // tempSource picks the source address for temp gateway tuples: the
-// default-route source when present, loopback for labs without one.
+// default-route source (private is the expected shape behind a NAT CPE),
+// loopback only for labs without any default-route IPv4.
 func (d *Detector) tempSource() netip.Addr {
-	selection, _, err := Assess(d.opts.RouteTable)
+	selection, err := DefaultRouteSource(d.opts.RouteTable)
 	if err == nil && selection.Source.IsValid() {
 		return selection.Source
 	}

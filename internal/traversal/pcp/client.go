@@ -110,6 +110,13 @@ type ClientOptions struct {
 	// Nonce generates MAP nonces; default crypto/rand. Test seam only —
 	// production must never inject a deterministic generator.
 	Nonce func() ([12]byte, error)
+	// EpochBaseline / EpochSeen carry the adapter's cross-transaction epoch
+	// baseline: reboot detection compares a response against the PREVIOUS
+	// response's epoch (RFC 6887 §8.5), which a per-transaction client
+	// cannot know on its own. The adapter snapshots the baseline before
+	// every transaction and records the observed epoch after it.
+	EpochBaseline uint32
+	EpochSeen     bool
 }
 
 // Client is a single-transaction PCP client over UDP. It owns no socket:
@@ -140,7 +147,13 @@ func NewClient(conn net.PacketConn, server netip.AddrPort, opts ClientOptions) *
 	if opts.Nonce == nil {
 		opts.Nonce = cryptoRandNonce
 	}
-	return &Client{conn: conn, server: server, opts: opts}
+	return &Client{
+		conn:      conn,
+		server:    server,
+		opts:      opts,
+		lastEpoch: opts.EpochBaseline,
+		sawEpoch:  opts.EpochSeen,
+	}
 }
 
 func cryptoRandNonce() ([12]byte, error) {
@@ -210,7 +223,7 @@ func (c *Client) awaitAnnounce(ctx context.Context, clientAddr netip.Addr) (uint
 		if fromAddr, ok := addrPortOf(from); !ok || fromAddr != c.server {
 			continue
 		}
-		response, err := parseAnnounceResponse(buf[:n], clientAddr)
+		response, err := parseAnnounceResponse(buf[:n])
 		if err != nil {
 			return 0, err, true
 		}
@@ -340,7 +353,7 @@ func (c *Client) awaitResponse(ctx context.Context, req MapRequest, nonce [12]by
 		if fromAddr, ok := addrPortOf(from); !ok || fromAddr != c.server {
 			continue // not the gateway's datagram
 		}
-		response, err := parseMapResponse(buf[:n], req.Protocol, req.InternalPort, req.InternalAddress)
+		response, err := parseMapResponse(buf[:n], req.Protocol, req.InternalPort)
 		if err != nil {
 			// Malformed gateway response: definitive, never retried.
 			return MapResult{}, err

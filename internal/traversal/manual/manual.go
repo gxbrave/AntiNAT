@@ -34,13 +34,9 @@ func (l *Layer) Acquire(ctx context.Context, expectedEndpoint string, requestedP
 	if strings.TrimSpace(expectedEndpoint) == "" {
 		return nil, traversal.LayerEvidence{}, traversal.ErrOperatorEndpointRequired
 	}
-	endpoint, err := netip.ParseAddrPort(expectedEndpoint)
+	endpoint, err := traversal.ParseManualEndpoint(expectedEndpoint)
 	if err != nil {
-		return nil, traversal.LayerEvidence{}, fmt.Errorf("manual: operator endpoint %q: %w", expectedEndpoint, err)
-	}
-	endpoint = netip.AddrPortFrom(endpoint.Addr().Unmap(), endpoint.Port())
-	if !endpoint.Addr().Is4() || endpoint.Port() == 0 {
-		return nil, traversal.LayerEvidence{}, fmt.Errorf("manual: operator endpoint %q must be an IPv4 literal with a concrete port", expectedEndpoint)
+		return nil, traversal.LayerEvidence{}, fmt.Errorf("manual: operator endpoint: %w", err)
 	}
 
 	lease, err := l.registry.Acquire(ctx, l.owner, traversal.TupleKey{

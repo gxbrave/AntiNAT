@@ -189,16 +189,19 @@ func (c *Client) Renew(ctx context.Context, mapping MapResult, lifetime time.Dur
 	})
 }
 
-// Delete removes an owned mapping: lifetime 0 with the exact tuple. A
-// mapping without an exact internal tuple is refused client-side.
+// Delete removes an owned mapping: lifetime 0 with the exact tuple and the
+// suggested external port zeroed (RFC 6886 §3.4). A mapping without an
+// exact internal tuple is refused client-side.
 func (c *Client) Delete(ctx context.Context, mapping MapResult) (MapResult, error) {
 	if mapping.InternalPort == 0 {
 		return MapResult{}, ErrUnownedMapping
 	}
 	return c.transaction(ctx, MapRequest{
-		Protocol:              mapping.Protocol,
-		InternalPort:          mapping.InternalPort,
-		RequestedExternalPort: mapping.AssignedExternalPort,
+		Protocol:     mapping.Protocol,
+		InternalPort: mapping.InternalPort,
+		// RFC 6886 §3.4: the delete request carries the suggested external
+		// port as 0 — the gateway matches on (source, internal port).
+		RequestedExternalPort: 0,
 		Lifetime:              0, // delete
 	})
 }

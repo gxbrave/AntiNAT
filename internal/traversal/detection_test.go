@@ -46,6 +46,7 @@ type fakeGatewayMapper struct {
 	ownership   traversal.OwnershipStrength
 	control     traversal.ControlServer
 	discoverErr error
+	mapErr      error
 	external    netip.AddrPort
 	deleted     bool
 	mu          sync.Mutex
@@ -60,6 +61,9 @@ func (f *fakeGatewayMapper) Discover(ctx context.Context) (traversal.ControlServ
 	return f.control, f.discoverErr
 }
 func (f *fakeGatewayMapper) Map(ctx context.Context, req traversal.GatewayMapRequest) (traversal.GatewayMapping, error) {
+	if f.mapErr != nil {
+		return traversal.GatewayMapping{}, f.mapErr
+	}
 	return traversal.GatewayMapping{
 		Mechanism:    f.mechanism,
 		Ownership:    f.ownership,
@@ -441,5 +445,72 @@ func TestDetectionStunOnly(t *testing.T) {
 		if evidence.Kind == traversal.LayerKindSTUN && evidence.Ownership != traversal.OwnershipObservedOnly {
 			t.Fatalf("stun evidence ownership = %q", evidence.Ownership)
 		}
+	}
+}
+
+// DE7 (code-review finding): a failing gateway mechanism must not shadow a
+// later passing one — the explicit-gateway result is exactly ONE row
+// carrying the passing mechanism, with the failed mechanisms folded into
+// its note trail; otherwise ResultFor reports FAILED while
+// PassedStrategies claims the strategy passed.
+func TestDetectionAggregationReplacesFailedGatewayRow(t *testing.T) {
+	cleanup := aliasGlobalForDetection(t)
+	defer cleanup()
+
+	rt := detectionRouteTable{
+		defaultGateway: netip.MustParseAddr("127.0.0.1"),
+		defaultIface:   "lo",
+		hasDefault:     true,
+		addresses:      []traversal.IPv4Address{{Interface: "lo", Addr: netip.MustParseAddr(detectionGlobalLiteral)}},
+	}
+	failingPcp := &fakeGatewayMapper{
+		mechanism: traversal.LayerPCP,
+		ownership: traversal.OwnershipStrong,
+		control:   traversal.ControlServer{Mechanism: traversal.LayerPCP, Address: "127.0.0.1:5351"},
+		mapErr:    errors.New("no pcp gateway"),
+	}
+	passingNatpmp := &fakeGatewayMapper{
+		mechanism: traversal.LayerNATPMP,
+		ownership: traversal.OwnershipWeakLease,
+		control:   traversal.ControlServer{Mechanism: traversal.LayerNATPMP, Address: "127.0.0.1:5351"},
+		external:  netip.MustParseAddrPort("100.64.0.2:43111"),
+	}
+	detector := traversal.NewDetector(traversal.DetectorOptions{
+		RouteTable: rt,
+		Registry:   traversal.NewPortRegistry(),
+		Mappers: map[traversal.MappingLayerKind]traversal.GatewayMapper{
+			traversal.LayerPCP:    failingPcp,
+			traversal.LayerNATPMP: passingNatpmp,
+		},
+		AutoOrder:      []protocol.Strategy{protocol.StrategyExplicitGateway},
+		AttemptTimeout: 2 * time.Second,
+	})
+
+	profile, err := detector.Run(t.Context(), traversal.DetectionRequest{Protocol: traversal.ProtocolTCP})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	rows := 0
+	var gateway *traversal.StrategyResult
+	for i := range profile.Results {
+		if profile.Results[i].Strategy == protocol.StrategyExplicitGateway {
+			rows++
+			gateway = &profile.Results[i]
+		}
+	}
+	if rows != 1 || gateway == nil {
+		t.Fatalf("explicit-gateway rows = %d, want exactly 1", rows)
+	}
+	if gateway.State != traversal.DetectionPassed {
+		t.Fatalf("gateway state = %q, want PASSED (NAT-PMP passed after PCP failed)", gateway.State)
+	}
+	if gateway.LayerSignature != "nat-pmp" {
+		t.Fatalf("layer signature = %q, want the passing mechanism nat-pmp", gateway.LayerSignature)
+	}
+	if !strings.Contains(gateway.Note, "pcp") {
+		t.Fatalf("note = %q, want the failed mechanism folded into the trail", gateway.Note)
+	}
+	if profile.DefaultStrategy != protocol.StrategyExplicitGateway {
+		t.Fatalf("default strategy = %q, want explicit-gateway", profile.DefaultStrategy)
 	}
 }

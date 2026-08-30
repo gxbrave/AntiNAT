@@ -8,14 +8,19 @@
 package upnp
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gxbrave/AntiNAT/internal/traversal"
 )
 
 // --- SSDP response parsing and selection -----------------------------------
@@ -200,6 +205,13 @@ func TestValidateLocationScope(t *testing.T) {
 // The handler receives the SOAP action name extracted from the SOAPACTION
 // header plus the raw request.
 func newTestIGD(t *testing.T, v2 bool, handler func(action string, r *http.Request, w http.ResponseWriter)) *Client {
+	client, _ := newTestIGDService(t, v2, handler)
+	return client
+}
+
+// newTestIGDService is newTestIGD with the resolved Service returned for
+// adapter-level wiring.
+func newTestIGDService(t *testing.T, v2 bool, handler func(action string, r *http.Request, w http.ResponseWriter)) (*Client, Service) {
 	t.Helper()
 	serviceType := "urn:schemas-upnp-org:service:WANIPConnection:1"
 	if v2 {
@@ -220,7 +232,7 @@ func newTestIGD(t *testing.T, v2 bool, handler func(action string, r *http.Reque
 		ControlURL: server.URL + "/ctl/IPConn",
 		IGDv2:      v2,
 	}
-	return NewClient(http.DefaultClient, service, ClientOptions{})
+	return NewClient(http.DefaultClient, service, ClientOptions{}), service
 }
 
 func soapOK(w http.ResponseWriter, action string, inner string) {
@@ -262,28 +274,33 @@ func TestMapV1BoundedRandomRetry(t *testing.T) {
 	var mu sync.Mutex
 	attempts := 0
 	client := newTestIGD(t, false, func(action string, r *http.Request, w http.ResponseWriter) {
-		if action != "AddPortMapping" {
+		switch action {
+		case "AddPortMapping":
+			mu.Lock()
+			attempts++
+			n := attempts
+			mu.Unlock()
+			if n <= 3 {
+				writeSOAPFault(w, 718, "ConflictInMappingEntry")
+				return
+			}
+			soapOK(w, "AddPortMapping", "")
+		case "GetSpecificPortMappingEntry":
+			// The post-add verification reads back the entry the device holds.
+			soapOK(w, "GetSpecificPortMappingEntry",
+				`<NewInternalPort>3111</NewInternalPort><NewInternalClient>10.0.0.2</NewInternalClient><NewPortMappingDescription>AntiNAT</NewPortMappingDescription><NewLeaseDuration>3600</NewLeaseDuration>`)
+		default:
 			writeSOAPFault(w, 401, "Invalid Action")
-			return
 		}
-		mu.Lock()
-		attempts++
-		n := attempts
-		mu.Unlock()
-		if n <= 3 {
-			writeSOAPFault(w, 718, "ConflictInMappingEntry")
-			return
-		}
-		soapOK(w, "AddPortMapping", "")
 	})
 
 	tries := 0
 	result, err := client.Map(t.Context(), MapRequest{
 		Protocol: "TCP", InternalAddress: "10.0.0.2", InternalPort: 3111,
 		Lease: time.Hour, Description: "AntiNAT",
-		Rand: func() uint16 {
+		Rand: func() (uint16, error) {
 			tries++
-			return uint16(40000 + tries)
+			return uint16(40000 + tries), nil
 		},
 	})
 	if err != nil {
@@ -308,9 +325,9 @@ func TestMapV1BudgetExhausted(t *testing.T) {
 	_, err := client.Map(t.Context(), MapRequest{
 		Protocol: "TCP", InternalAddress: "10.0.0.2", InternalPort: 3111,
 		Lease: time.Hour, Description: "AntiNAT",
-		Rand: func() uint16 {
+		Rand: func() (uint16, error) {
 			tries++
-			return uint16(40000 + tries)
+			return uint16(40000 + tries), nil
 		},
 	})
 	if !errors.Is(err, ErrNoMappingPort) {
@@ -318,6 +335,114 @@ func TestMapV1BudgetExhausted(t *testing.T) {
 	}
 	if tries != maxCandidateAttempts {
 		t.Fatalf("candidate attempts = %d, want exactly the bounded budget %d", tries, maxCandidateAttempts)
+	}
+}
+
+// R5c (NAT audit M4): IGDv1 success is verified before adoption — the
+// client re-queries the entry it believes it created and adopts the
+// device-side truth. An add the device did not record is a failure, never
+// a recorded wrong port.
+func TestMapV1VerifiesPostAddEntry(t *testing.T) {
+	var mu sync.Mutex
+	adds := 0
+	client := newTestIGD(t, false, func(action string, r *http.Request, w http.ResponseWriter) {
+		switch action {
+		case "AddPortMapping":
+			mu.Lock()
+			adds++
+			mu.Unlock()
+			soapOK(w, "AddPortMapping", "")
+		case "GetSpecificPortMappingEntry":
+			// The device holds nothing at the candidate port.
+			writeSOAPFault(w, 714, "NoSuchEntryInArray")
+		default:
+			writeSOAPFault(w, 401, "Invalid Action")
+		}
+	})
+
+	_, err := client.Map(t.Context(), MapRequest{
+		Protocol: "TCP", InternalAddress: "10.0.0.2", InternalPort: 3111,
+		RequestedExternalPort: 43111, Lease: time.Hour, Description: "AntiNAT",
+	})
+	if err == nil {
+		t.Fatal("an add the device did not record must fail, never record an unverified port")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if adds != 1 {
+		t.Fatalf("adds = %d, want 1 (no blind retry after a verification failure)", adds)
+	}
+}
+
+// R5d (NAT audit M4): a post-add query revealing a foreign entry refuses to
+// adopt or touch it.
+func TestMapV1PostAddForeignEntryFails(t *testing.T) {
+	client := newTestIGD(t, false, func(action string, r *http.Request, w http.ResponseWriter) {
+		switch action {
+		case "AddPortMapping":
+			soapOK(w, "AddPortMapping", "")
+		case "GetSpecificPortMappingEntry":
+			soapOK(w, "GetSpecificPortMappingEntry",
+				`<NewInternalPort>9999</NewInternalPort><NewInternalClient>10.9.9.9</NewInternalClient><NewPortMappingDescription>someone-else</NewPortMappingDescription><NewLeaseDuration>3600</NewLeaseDuration>`)
+		default:
+			writeSOAPFault(w, 401, "Invalid Action")
+		}
+	})
+
+	_, err := client.Map(t.Context(), MapRequest{
+		Protocol: "TCP", InternalAddress: "10.0.0.2", InternalPort: 3111,
+		RequestedExternalPort: 43111, Lease: time.Hour, Description: "AntiNAT",
+	})
+	if !errors.Is(err, ErrForeignMapping) {
+		t.Fatalf("error = %v, want ErrForeignMapping", err)
+	}
+}
+
+// R5e (NAT audit L3): a CSPRNG failure aborts the mapping — it must never
+// degrade to a fixed candidate port.
+func TestMapV1RandFailureAborts(t *testing.T) {
+	var mu sync.Mutex
+	adds := 0
+	client := newTestIGD(t, false, func(action string, r *http.Request, w http.ResponseWriter) {
+		switch action {
+		case "AddPortMapping":
+			mu.Lock()
+			adds++
+			mu.Unlock()
+			soapOK(w, "AddPortMapping", "")
+		default:
+			writeSOAPFault(w, 401, "Invalid Action")
+		}
+	})
+
+	_, err := client.Map(t.Context(), MapRequest{
+		Protocol: "TCP", InternalAddress: "10.0.0.2", InternalPort: 3111,
+		Lease: time.Hour, Description: "AntiNAT",
+		Rand: func() (uint16, error) { return 0, errors.New("rng dead") },
+	})
+	if err == nil || !strings.Contains(err.Error(), "rng dead") {
+		t.Fatalf("error = %v, want the CSPRNG failure surfaced", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if adds != 0 {
+		t.Fatalf("adds = %d, want 0 (no candidate without randomness)", adds)
+	}
+}
+
+// R4b (NAT audit M4): an IGDv2 device that only supports permanent leases
+// (725) surfaces the same permanent-only classification as IGDv1.
+func TestMapV2PermanentOnlyUnsupported(t *testing.T) {
+	client := newTestIGD(t, true, func(action string, r *http.Request, w http.ResponseWriter) {
+		writeSOAPFault(w, 725, "OnlyPermanentLeasesSupported")
+	})
+
+	_, err := client.Map(t.Context(), MapRequest{
+		Protocol: "TCP", InternalAddress: "10.0.0.2", InternalPort: 3111,
+		RequestedExternalPort: 43111, Lease: time.Hour, Description: "AntiNAT",
+	})
+	if !errors.Is(err, ErrPermanentOnlyLease) {
+		t.Fatalf("error = %v, want ErrPermanentOnlyLease", err)
 	}
 }
 
@@ -464,5 +589,46 @@ func TestSOAPActionFailed(t *testing.T) {
 	var soapErr *SOAPError
 	if !errors.As(err, &soapErr) || soapErr.Code != 501 {
 		t.Fatalf("error = %v, want SOAPError{501}", err)
+	}
+}
+
+// R12 (NAT audit M5): one SSDP MX window is bounded by the context
+// deadline, not only by its own MX wait — the detection attempt budget
+// must be able to bound a full discovery.
+func TestSearchTargetHonorsContextDeadline(t *testing.T) {
+	packet, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer packet.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	// No SSDP responder answers this loopback socket: the wait must end at
+	// the context deadline, not run the full MX window.
+	found, err := searchTarget(ctx, packet, "upnp:rootdevice", DiscoverOptions{
+		InterfaceIP: netip.MustParseAddr("127.0.0.1"),
+		Wait:        2 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("searchTarget: %v", err)
+	}
+	if len(found) != 0 {
+		t.Fatalf("found = %v, want none on a silent socket", found)
+	}
+	if elapsed := time.Since(start); elapsed >= 2*time.Second {
+		t.Fatalf("searchTarget ran %s, want it bounded by the 300ms context deadline", elapsed)
+	}
+}
+
+// R13 (NAT audit M5): the default detection attempt budget fits a full
+// three-target SSDP discovery, otherwise the UPnP attempt can never pass
+// under the default configuration.
+func TestDefaultAttemptTimeoutFitsSSDPDiscovery(t *testing.T) {
+	budget := time.Duration(len(SearchTargets)) * (DefaultSearchWait + 500*time.Millisecond)
+	if traversal.DefaultAttemptTimeout <= budget {
+		t.Fatalf("DefaultAttemptTimeout = %s, want > %s so the UPnP attempt fits its discovery budget",
+			traversal.DefaultAttemptTimeout, budget)
 	}
 }

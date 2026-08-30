@@ -132,18 +132,17 @@ func newRequest() MapRequest {
 // successResponse crafts a success MAP response echoing the request's opcode,
 // client address and nonce, with the granted lifetime, epoch and endpoint.
 func successResponse(request []byte, external netip.Addr, epoch uint32) []byte {
-	header := make([]byte, 28)
+	header := make([]byte, HeaderSize)
 	header[0] = Version
-	header[1] = request[1] | 0x80
+	header[1] = request[1] | ResponseFlag
 	header[3] = ResultSuccess
-	putUint32(header[4:8], 3600) // granted lifetime
+	putUint32(header[4:8], 3600)
 	putUint32(header[8:12], epoch)
-	copy(header[12:28], request[12:28]) // echo client address
-	payload := make([]byte, 36)
-	copy(payload[0:12], request[28:40]) // echo nonce
-	payload[12] = request[28+12]        // protocol
-	putUint16(payload[16:18], readUint16(request[28+16:28+18]))
-	putUint16(payload[18:20], readUint16(request[28+18:28+20]))
+	payload := make([]byte, MapPayloadSize)
+	copy(payload[0:12], request[HeaderSize:HeaderSize+12])
+	payload[12] = request[HeaderSize+12]
+	putUint16(payload[16:18], readUint16(request[HeaderSize+16:HeaderSize+18]))
+	putUint16(payload[18:20], readUint16(request[HeaderSize+18:HeaderSize+20]))
 	copy(payload[20:36], v4Mapped(external))
 	return append(header, payload...)
 }
@@ -179,7 +178,6 @@ func TestMapGoldenRequestBytes(t *testing.T) {
 		want := append([]byte{
 			0x02, 0x01, 0x00, 0x00, // version 2, MAP request, reserved
 			0x00, 0x00, 0x0e, 0x10, // lifetime 3600
-			0x00, 0x00, 0x00, 0x00, // reserved
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 			0x00, 0x00, 0xff, 0xff, 0x0a, 0x00, 0x00, 0x02, // ::ffff:10.0.0.2
 		},
@@ -188,8 +186,8 @@ func TestMapGoldenRequestBytes(t *testing.T) {
 			0x06, 0x00, 0x00, 0x00,
 			0x0c, 0x27, 0xa8, 0x67,
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-			// PREFER_FAILURE option
-			0x00, 0x02, 0x00, 0x00,
+			// PREFER_FAILURE option header: code(1), reserved(1), length(2)
+			0x02, 0x00, 0x00, 0x00,
 		)
 		if !equalBytes(request, want) {
 			server.errorf("request bytes mismatch\n got: % x\nwant: % x", request, want)
@@ -230,7 +228,7 @@ func TestMapNonceMismatchRejected(t *testing.T) {
 	server := newFakeServer(t)
 	server.handle(func(seq int, request []byte) []byte {
 		response := successResponse(request, netip.MustParseAddr("8.8.8.8"), 100)
-		response[28] ^= 0xff // corrupt the echoed nonce
+		response[HeaderSize] ^= 0xff // corrupt the echoed nonce
 		return response
 	})
 
@@ -424,7 +422,7 @@ func TestDeleteLifetimeZero(t *testing.T) {
 		if lifetime := readUint32(request[4:8]); lifetime != 0 {
 			server.errorf("delete request lifetime = %d, want 0", lifetime)
 		}
-		if got := readUint16(request[28+18 : 28+20]); got != 43111 {
+		if got := readUint16(request[HeaderSize+18 : HeaderSize+20]); got != 43111 {
 			server.errorf("delete suggested external port = %d, want the assigned 43111", got)
 		}
 		deleteSeen.Store(true)
@@ -469,6 +467,32 @@ func TestDeleteRefusesZeroInternalPort(t *testing.T) {
 	assertServer(t, server)
 }
 
+// R11 (NAT audit L1): an error response MAY echo the request — including
+// its options (RFC 6887 §8.2) — and only its header is classified: the
+// echoed option bytes must not be misread as a malformed response.
+func TestMapErrorResponseMayEchoRequestWithOptions(t *testing.T) {
+	server := newFakeServer(t)
+	server.handle(func(seq int, request []byte) []byte {
+		response := successResponse(request, netip.MustParseAddr("8.8.8.8"), 100)
+		response[3] = ResultUnsupportedOption
+		echo := append(append([]byte{}, response...), request[HeaderSize:]...)
+		return echo
+	})
+
+	client := NewClient(newPacketConn(t), server.peer, ClientOptions{Nonce: fixedNonce(1)})
+	_, err := client.Map(t.Context(), MapRequest{
+		Protocol:              ProtoTCP,
+		InternalAddress:       netip.MustParseAddr("10.0.0.2"),
+		InternalPort:          3111,
+		SuggestedExternalPort: 43111,
+		Lifetime:              time.Hour,
+		PreferFailure:         true,
+	})
+	if !errors.Is(err, ErrUnsupportedOption) {
+		t.Fatalf("error = %v, want ErrUnsupportedOption from the echoed error response", err)
+	}
+}
+
 // R10: malformed or short responses are rejected, never parsed loosely.
 func TestMapMalformedResponse(t *testing.T) {
 	cases := []struct {
@@ -478,7 +502,8 @@ func TestMapMalformedResponse(t *testing.T) {
 		{"truncated header", func(r []byte) []byte { return r[:10] }},
 		{"wrong version", func(r []byte) []byte { r[0] = 3; return r }},
 		{"wrong opcode", func(r []byte) []byte { r[1] = 0x82; return r }},
-		{"client address mismatch", func(r []byte) []byte { r[23] = 0x33; return r }},
+		{"internal port mismatch", func(r []byte) []byte { r[HeaderSize+16] ^= 0xff; return r }},
+		{"trailing bytes", func(r []byte) []byte { return append(r, 0) }},
 	}
 	for _, tc := range cases {
 		server := newFakeServer(t)

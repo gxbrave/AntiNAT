@@ -2,16 +2,24 @@
 // acquisition — plan resolution, listener ownership, gateway mapping,
 // optional same-tuple STUN observation — into structured evidence and a
 // pipeline verdict, then keeps the mapping alive under the §3.5 renewal
-// contract: renew near 50% of the granted lease with jitter, three
-// consecutive failures surface the lost callback (publication goes stale
-// per state-model §5), and a gateway reboot signal loses immediately.
-// Release follows the mapping's ownership strength.
+// contract: renew near 50% of the GRANTED lease with jitter; three
+// consecutive failures degrade the mapping (keepalive_state DEGRADED) while
+// renewals continue; the mapping is LOST only when the expiry safety margin
+// is crossed, a gateway reboot is confirmed, or a renewal rewrites the
+// external endpoint — then the publication goes stale (state-model §5) and
+// the manager never revives the old candidate. Lifecycle callbacks are
+// delivered off the renewal goroutine so a consumer that releases the
+// acquisition from a callback cannot deadlock it. Release follows the
+// mapping's ownership strength, is idempotent, and keeps the journal record
+// whenever the gateway delete failed: the record is the only durable
+// evidence of a mapping that may still be live.
 package traversal
 
 import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -32,6 +40,33 @@ type ReleaseFunc func() error
 type ListenerSource interface {
 	Acquire(ctx context.Context, owner string, key TupleKey) (net.Listener, TupleKey, ReleaseFunc, error)
 }
+
+// SameTupleDialer is the optional ListenerSource capability of originating
+// an extra connection from a tuple the source acquired (shared-port reuse,
+// v0.8 §4.2). The manager offers it to the STUN observation seam; a source
+// without the capability passes no dial, and an honest observer must refuse
+// to observe rather than classify a foreign socket's NAT binding.
+type SameTupleDialer interface {
+	DialFrom(ctx context.Context, bind TupleKey, remote string) (net.Conn, error)
+}
+
+// StunObserveRequest is one manager STUN observation.
+type StunObserveRequest struct {
+	// Server is the parsed stun+tcp:// endpoint.
+	Server netip.AddrPort
+	// Bind is the forward's own bound tuple: the observation MUST originate
+	// from it.
+	Bind TupleKey
+	// Dial originates a TCP connection from Bind. Nil when the listener
+	// source cannot rebind the tuple; then the observation must be refused.
+	// The observer owns the returned conn and closes it.
+	Dial func(ctx context.Context, remote string) (net.Conn, error)
+	// Timeout bounds the Binding exchange.
+	Timeout time.Duration
+}
+
+// StunObserveFunc performs one same-tuple STUN observation for the manager.
+type StunObserveFunc func(ctx context.Context, req StunObserveRequest) (netip.AddrPort, error)
 
 // PortRegistrySource adapts the agent-global PortRegistry.
 type PortRegistrySource struct {
@@ -59,17 +94,25 @@ type ManagerOptions struct {
 	Journal JournalStore
 	// Clock is the renewal clock; default time.Now.
 	Clock func() time.Time
-	// OnMappingLost fires when the mapping degraded to LOST (three failed
-	// renewals, gateway reboot or lease expiry margin). Publication state
-	// must go stale; the manager never revives the old candidate.
+	// OnMappingDegraded fires once when three consecutive renewals failed
+	// (keepalive_state DEGRADED): the mapping may still recover, and
+	// renewals continue.
+	OnMappingDegraded func(forwardID string, reason string)
+	// OnMappingLost fires when the mapping is LOST: the lease expiry safety
+	// margin was crossed, a gateway reboot was confirmed, or a renewal
+	// rewrote the external endpoint. Publication state must go stale; the
+	// manager never revives the old candidate.
 	OnMappingLost func(forwardID string, reason string)
+	// OnMappingRecovered fires when a successful renewal follows a DEGRADED
+	// episode (keepalive_state HEALTHY again).
+	OnMappingRecovered func(forwardID string)
 	// DefaultLease is the requested lease when the request omits one;
 	// default 1h (§3.5 provisional freeze).
 	DefaultLease time.Duration
-	// StunObserve performs one transport-correct STUN observation from the
-	// forward's own tuple (injected; the stun package depends on
-	// traversal). Nil disables the upstream STUN layer.
-	StunObserve func(ctx context.Context, server netip.AddrPort, timeout time.Duration) (netip.AddrPort, error)
+	// StunObserve performs the forward's upstream STUN observation from its
+	// own tuple (injected; the stun package depends on traversal). Nil
+	// disables the upstream STUN layer.
+	StunObserve StunObserveFunc
 }
 
 // Manager composes per-Forward TCP traversal acquisitions.
@@ -86,7 +129,8 @@ type AcquireRequest struct {
 	// Plan is the resolved strategy plan (detection profile or operator
 	// selection resolved the mapping layer).
 	Plan PlanRequest
-	// Lease is the requested mapping lease; 0 uses the default.
+	// Lease is the requested mapping lease; 0 uses the default. The
+	// gateway's granted lifetime is authoritative for pacing and expiry.
 	Lease time.Duration
 	// RenewalInterval / RenewalJitterMax pace the renewal loop (the
 	// production loop paces at ~50% of the granted lease; tests inject
@@ -111,24 +155,47 @@ type Acquisition struct {
 	Layers []LayerEvidence
 	// Mapping is the live gateway mapping; nil for direct/manual.
 	Mapping *GatewayMapping
-	// JournalID references the journal record (mapping_journal_ref).
+	// JournalID references the journal record (mapping_journal_ref); empty
+	// when the record was never durably written.
 	JournalID string
+	// StunObserveError records a configured upstream observation that could
+	// not be honored (no observer wired, no same-tuple dialer, transport
+	// failure). A failed observation is never silently dropped; the gateway
+	// evidence stands alone.
+	StunObserveError error
 
 	manager   *Manager
 	mapper    GatewayMapper
 	releaseFn ReleaseFunc
 
-	renewMu     sync.Mutex
-	renewed     GatewayMapping
-	renewStop   chan struct{}
-	renewDone   chan struct{}
-	renewOnce   sync.Once
-	failedRenew int
-	lostFired   bool
+	releaseOnce sync.Once
+	releaseErr  error
+
+	renewMu       sync.Mutex
+	renewStop     chan struct{}
+	renewDone     chan struct{}
+	renewCancel   context.CancelFunc
+	renewCtx      context.Context
+	events        chan lifecycleEvent
+	eventsDone    chan struct{}
+	renewOnceOnce sync.Once
+	failedRenew   int
+	degraded      bool
+	degradedFired bool
+	lostFired     bool
+	// leaseDuration is the last granted lifetime; leaseDeadline is its
+	// absolute expiry on the manager clock. The expiry safety margin is
+	// leaseDuration/10 (§3.5's ±10% family).
+	leaseDuration time.Duration
+	leaseDeadline time.Time
 }
 
-// NewManager builds a manager.
+// NewManager builds a manager. A nil route table is a constructor error:
+// every strategy resolves its source from it.
 func NewManager(opts ManagerOptions) *Manager {
+	if opts.RouteTable == nil {
+		panic("traversal: manager requires a route table")
+	}
 	if opts.Clock == nil {
 		opts.Clock = time.Now
 	}
@@ -225,13 +292,18 @@ func (m *Manager) acquireDirect(ctx context.Context, req AcquireRequest, acquisi
 }
 
 // acquireManual binds the listener and carries the operator endpoint as the
-// candidate (USER_CONFIGURED_UNTESTED until the probe verifies it).
+// candidate (probe-eligible only when the endpoint is global-class). The
+// planned endpoint is the single source of truth; a disagreeing spec value
+// is refused.
 func (m *Manager) acquireManual(ctx context.Context, req AcquireRequest, plan StrategyPlan, acquisition *Acquisition) error {
-	endpoint := req.Spec.ManualExpectedEndpoint
+	endpoint := plan.ManualExpectedEndpoint
 	if endpoint == "" {
 		return ErrOperatorEndpointRequired
 	}
-	parsed, err := parseEndpoint(endpoint)
+	if specEndpoint := req.Spec.ManualExpectedEndpoint; specEndpoint != "" && specEndpoint != endpoint {
+		return fmt.Errorf("traversal: manual endpoint %q disagrees with the planned endpoint %q", specEndpoint, endpoint)
+	}
+	parsed, err := ParseManualEndpoint(endpoint)
 	if err != nil {
 		return fmt.Errorf("traversal: manual endpoint: %w", err)
 	}
@@ -260,19 +332,33 @@ func (m *Manager) acquireManual(ctx context.Context, req AcquireRequest, plan St
 	return nil
 }
 
-// acquireGateway discovers the mechanism, binds the listener, maps the
-// tuple, optionally observes the same tuple via STUN, and starts renewal.
+// acquireGateway discovers the mechanism, binds the listener on the
+// default-route interface's own address, maps the tuple, optionally
+// observes the same tuple via STUN, and starts renewal.
 func (m *Manager) acquireGateway(ctx context.Context, req AcquireRequest, plan StrategyPlan, lease time.Duration, acquisition *Acquisition) error {
 	mapper, ok := m.opts.Mappers[plan.MappingLayer]
 	if !ok {
 		return fmt.Errorf("traversal: no %s mapper is available on this node", plan.MappingLayer)
 	}
+	// Operator data errors fail before any side effect: an unparseable
+	// stun+tcp:// endpoint must not silently downgrade the composition to
+	// gateway-only evidence.
+	if req.StunServer != "" {
+		if _, err := parseStunTCPServer(req.StunServer); err != nil {
+			return err
+		}
+	}
+	if plan.GatewayPortPolicy == PortPolicyStrict && req.Spec.RequestedPublicPort == 0 {
+		return errors.New("traversal: strict gateway port policy requires a requested public port")
+	}
+	source, err := m.sourceAddress()
+	if err != nil {
+		return err
+	}
 	control, err := mapper.Discover(ctx)
 	if err != nil {
 		return fmt.Errorf("traversal: %s discovery: %w", plan.MappingLayer, err)
 	}
-
-	source := m.sourceAddress()
 	listener, actual, releaseFn, err := m.listeners.Acquire(ctx, req.Owner, TupleKey{
 		Family: "ipv4", Protocol: "tcp", Address: source.String(), Port: req.Spec.RequestedLocalPort,
 	})
@@ -295,17 +381,43 @@ func (m *Manager) acquireGateway(ctx context.Context, req AcquireRequest, plan S
 		return fmt.Errorf("traversal: %s map: %w", plan.MappingLayer, err)
 	}
 	acquisition.Mapping = &mapping
+	// The granted lifetime is authoritative (§3.5): pacing and the expiry
+	// safety margin derive from it, never from the request.
+	if mapping.Lease > 0 {
+		acquisition.leaseDuration = mapping.Lease
+		acquisition.leaseDeadline = m.opts.Clock().Add(mapping.Lease)
+	}
 	gatewayEvidence := mapping.Evidence(control)
 	acquisition.Layers = []LayerEvidence{gatewayEvidence}
 
-	// Upstream STUN layer on the same tuple (transport-correct): the
-	// injected observer dials from the forward's own listener tuple. The
-	// layer is optional: without a configured server or observer the
-	// gateway evidence stands alone and the final endpoint is the gateway
-	// assignment.
-	if m.opts.StunObserve != nil && req.StunServer != "" {
-		if server, parseErr := parseStunTCPServer(req.StunServer); parseErr == nil {
-			if observed, observeErr := m.opts.StunObserve(ctx, server, 5*time.Second); observeErr == nil {
+	// Upstream STUN layer on the forward's own tuple (v0.8 §3.1 step 6,
+	// §4.2): the injected observer MUST source the exchange from the bound
+	// listener tuple through the same-tuple dialer — an observation from any
+	// other local socket classifies a different NAT binding and never
+	// enters this pipeline. A configured observation that cannot be honored
+	// is recorded on the acquisition, never silently dropped.
+	if req.StunServer != "" {
+		server, _ := parseStunTCPServer(req.StunServer) // parse checked above
+		switch {
+		case m.opts.StunObserve == nil:
+			acquisition.StunObserveError = errors.New("upstream STUN observation requested but no observer is wired in this build")
+		default:
+			var dial func(ctx context.Context, remote string) (net.Conn, error)
+			if sameTuple, ok := m.listeners.(SameTupleDialer); ok {
+				bind := actual
+				dial = func(ctx context.Context, remote string) (net.Conn, error) {
+					return sameTuple.DialFrom(ctx, bind, remote)
+				}
+			}
+			observed, observeErr := m.opts.StunObserve(ctx, StunObserveRequest{
+				Server:  server,
+				Bind:    actual,
+				Dial:    dial,
+				Timeout: 5 * time.Second,
+			})
+			if observeErr != nil {
+				acquisition.StunObserveError = fmt.Errorf("upstream STUN observation %s: %w", req.StunServer, observeErr)
+			} else {
 				acquisition.Layers = append(acquisition.Layers, LayerEvidence{
 					Kind:             LayerKindSTUN,
 					ControlServer:    req.StunServer,
@@ -335,18 +447,28 @@ func (m *Manager) acquireGateway(ctx context.Context, req AcquireRequest, plan S
 }
 
 // Release stops the renewal loop, deletes the mapping per its ownership
-// strength and releases the listener. Best-effort failures surface as a
-// joined error: the caller decides whether a gateway mapping leak is
-// acceptable (weak/best-effort mechanisms) or fatal.
+// strength and releases the listener. It is idempotent: later calls return
+// the first outcome. A failed gateway delete keeps the journal record — it
+// is the only durable evidence of a mapping that may still be live, and
+// recovery/cleanup consumes it (state-model §2). Best-effort failures
+// surface as a joined error: the caller decides whether a gateway mapping
+// leak is acceptable (weak/best-effort mechanisms) or fatal.
 func (a *Acquisition) Release(ctx context.Context) error {
+	a.releaseOnce.Do(func() { a.releaseErr = a.release(ctx) })
+	return a.releaseErr
+}
+
+func (a *Acquisition) release(ctx context.Context) error {
 	a.stopRenewal()
 	var errs []error
+	mappingDeleted := true
 	if a.Mapping != nil && a.mapper != nil {
 		if err := a.mapper.Delete(ctx, *a.Mapping); err != nil {
 			errs = append(errs, err)
+			mappingDeleted = false
 		}
 	}
-	if a.manager != nil && a.JournalID != "" && a.manager.opts.Journal != nil {
+	if mappingDeleted && a.manager != nil && a.JournalID != "" && a.manager.opts.Journal != nil {
 		if err := a.manager.opts.Journal.Delete(a.JournalID); err != nil {
 			errs = append(errs, err)
 		}
@@ -363,20 +485,77 @@ func (a *Acquisition) Release(ctx context.Context) error {
 // Renewal loop (§3.5)
 // ---------------------------------------------------------------------------
 
-// startRenewal launches the renewal goroutine. The production pace renews
-// near 50% of the granted lease with ±10% jitter; tests pace it faster via
-// the request fields.
+// Lifecycle event kinds delivered to the option callbacks.
+const (
+	eventDegraded = iota
+	eventLost
+	eventRecovered
+)
+
+// lifecycleEvent is one renewal-loop state transition. Events keep their
+// publication order through the dispatcher.
+type lifecycleEvent struct {
+	kind   int
+	reason string
+}
+
+// deliver queues one lifecycle transition for the dispatcher. The renewal
+// goroutine never runs option callbacks on its own stack: a callback that
+// releases the acquisition would join this goroutine (stopRenewal waits for
+// renewDone) and deadlock.
+func (a *Acquisition) deliver(event lifecycleEvent) {
+	if a.events == nil {
+		return
+	}
+	a.events <- event // buffered; the dispatcher always drains
+}
+
+// startRenewal launches the renewal goroutine and its lifecycle dispatcher.
+// The production pace renews near 50% of the GRANTED lease with ±10%
+// jitter, re-derived after every grant; tests pace it faster via the
+// request fields.
 func (m *Manager) startRenewal(forwardID string, acquisition *Acquisition, lease time.Duration, requestedInterval, requestedJitter time.Duration) {
+	productionPacing := requestedInterval <= 0
 	interval := requestedInterval
 	jitter := requestedJitter
-	if interval <= 0 {
-		interval = lease / 2
-		jitter = lease / 10
+	if productionPacing {
+		granted := acquisition.grantedLeaseOrDefault(lease)
+		interval = granted / 2
+		jitter = granted / 10
 	}
+	acquisition.renewCtx, acquisition.renewCancel = context.WithCancel(context.Background())
 	acquisition.renewStop = make(chan struct{})
 	acquisition.renewDone = make(chan struct{})
+	acquisition.events = make(chan lifecycleEvent, 8)
+	acquisition.eventsDone = make(chan struct{})
+
+	go func() {
+		// A panicking callback must not wedge the manager; the remaining
+		// buffered events are dropped with it.
+		defer func() { _ = recover(); close(acquisition.eventsDone) }()
+		for event := range acquisition.events {
+			switch event.kind {
+			case eventDegraded:
+				if m.opts.OnMappingDegraded != nil {
+					m.opts.OnMappingDegraded(forwardID, event.reason)
+				}
+			case eventLost:
+				if m.opts.OnMappingLost != nil {
+					m.opts.OnMappingLost(forwardID, event.reason)
+				}
+			case eventRecovered:
+				if m.opts.OnMappingRecovered != nil {
+					m.opts.OnMappingRecovered(forwardID)
+				}
+			}
+		}
+	}()
+
 	go func() {
 		defer close(acquisition.renewDone)
+		// LIFO: the events channel closes before renewDone, so the
+		// dispatcher has drained every event before stopRenewal returns.
+		defer close(acquisition.events)
 		timer := time.NewTimer(interval + jitterTime(jitter))
 		defer timer.Stop()
 		for {
@@ -385,54 +564,147 @@ func (m *Manager) startRenewal(forwardID string, acquisition *Acquisition, lease
 				return
 			case <-timer.C:
 			}
-			m.renewOnce(forwardID, acquisition, lease, interval, jitter)
+			nextInterval, nextJitter := m.renewOnce(forwardID, acquisition, lease, productionPacing)
+			if acquisition.lost() {
+				return
+			}
+			if productionPacing && nextInterval > 0 {
+				interval, jitter = nextInterval, nextJitter
+			}
 			timer.Reset(interval + jitterTime(jitter))
 		}
 	}()
 }
 
-// renewOnce performs one renewal attempt with the failure ladder: three
-// consecutive failures fire the lost callback; a reboot signal fires
-// immediately.
-func (m *Manager) renewOnce(forwardID string, acquisition *Acquisition, lease time.Duration, interval time.Duration, jitter time.Duration) {
+// renewOnce performs one renewal attempt under the §3.5 ladder: three
+// consecutive failures degrade (DEGRADED); the expiry safety margin, a
+// confirmed gateway reboot, or a rewritten external endpoint loses. It
+// returns the next pacing when production pacing is active and the new
+// grant changed it.
+func (m *Manager) renewOnce(forwardID string, acquisition *Acquisition, requestedLease time.Duration, productionPacing bool) (time.Duration, time.Duration) {
 	acquisition.renewMu.Lock()
 	defer acquisition.renewMu.Unlock()
+	// A panicking mapper must not wedge the renewal loop or Release (the
+	// unlock defer still runs during unwinding).
+	defer func() { _ = recover() }()
 	if acquisition.Mapping == nil || acquisition.mapper == nil {
-		return
+		return 0, 0
 	}
-	renewed, err := acquisition.mapper.Renew(context.Background(), *acquisition.Mapping, lease)
+	// Margin check independent of the attempt below: a long pause (GC,
+	// suspend) can push the deadline into the margin without any recorded
+	// failure.
+	if !acquisition.lostFired && acquisition.withinExpiryMarginLocked(m.opts.Clock()) {
+		acquisition.lostFired = true
+		acquisition.deliver(lifecycleEvent{kind: eventLost, reason: "lease expiry safety margin crossed"})
+		return 0, 0
+	}
+	renewed, err := acquisition.mapper.Renew(acquisition.renewCtx, *acquisition.Mapping, requestedLease)
 	if err != nil {
 		acquisition.failedRenew++
-		if acquisition.failedRenew >= 3 && !acquisition.lostFired {
-			acquisition.lostFired = true
-			m.fireLost(forwardID, "three consecutive renewals failed")
+		if acquisition.failedRenew >= 3 && !acquisition.degradedFired {
+			acquisition.degradedFired = true
+			acquisition.degraded = true
+			acquisition.deliver(lifecycleEvent{
+				kind:   eventDegraded,
+				reason: fmt.Sprintf("three consecutive renewals failed: %v", err),
+			})
 		}
-		return
+		if !acquisition.lostFired && acquisition.withinExpiryMarginLocked(m.opts.Clock()) {
+			acquisition.lostFired = true
+			acquisition.deliver(lifecycleEvent{
+				kind:   eventLost,
+				reason: "lease expiry safety margin crossed without a successful renewal",
+			})
+		}
+		return 0, 0
 	}
 	acquisition.failedRenew = 0
-	if renewed.ServerRebooted && !acquisition.lostFired {
-		acquisition.lostFired = true
-		m.fireLost(forwardID, "gateway rebooted (epoch rollback)")
-		return
+	if renewed.ServerRebooted {
+		// A confirmed epoch rollback may have dropped every mapping: the
+		// published endpoint is dead regardless of the renew response.
+		if !acquisition.lostFired {
+			acquisition.lostFired = true
+			acquisition.deliver(lifecycleEvent{kind: eventLost, reason: "gateway rebooted (epoch rollback)"})
+		}
+		return 0, 0
 	}
-	acquisition.renewed = renewed
-	acquisition.Mapping = &renewed
-	acquisition.JournalID = m.journalPut(forwardID, acquisition.JournalID, renewed)
+	if renewed.External != acquisition.Mapping.External {
+		// A rewritten external endpoint invalidates the published candidate
+		// (RFC 6887 §11.5): the observation and verification no longer
+		// describe the mapping the gateway holds.
+		if !acquisition.lostFired {
+			acquisition.lostFired = true
+			acquisition.deliver(lifecycleEvent{
+				kind:   eventLost,
+				reason: fmt.Sprintf("renewal rewrote the external endpoint %s -> %s", acquisition.Mapping.External, renewed.External),
+			})
+		}
+		return 0, 0
+	}
+	if renewed.Lease > 0 {
+		acquisition.leaseDuration = renewed.Lease
+		acquisition.leaseDeadline = m.opts.Clock().Add(renewed.Lease)
+	}
+	if acquisition.degraded {
+		acquisition.degraded = false
+		acquisition.degradedFired = false
+		acquisition.deliver(lifecycleEvent{kind: eventRecovered})
+	}
+	renewedCopy := renewed
+	acquisition.Mapping = &renewedCopy
+	acquisition.JournalID = m.journalPut(forwardID, acquisition.JournalID, renewedCopy)
+	if productionPacing && renewedCopy.Lease > 0 {
+		return renewedCopy.Lease / 2, renewedCopy.Lease / 10
+	}
+	return 0, 0
 }
 
-func (m *Manager) fireLost(forwardID string, reason string) {
-	if m.opts.OnMappingLost != nil {
-		m.opts.OnMappingLost(forwardID, reason)
+// lost reports whether the mapping is lost; the renewal loop exits and
+// fires no further callbacks once it is.
+func (a *Acquisition) lost() bool {
+	a.renewMu.Lock()
+	defer a.renewMu.Unlock()
+	return a.lostFired
+}
+
+// withinExpiryMarginLocked reports whether the remaining lease has shrunk
+// into the safety margin (lease/10, §3.5's ±10% family): no further
+// renewal attempt can plausibly rescue the mapping. An unknown granted
+// lifetime has no margin — the failure ladder still applies.
+func (a *Acquisition) withinExpiryMarginLocked(now time.Time) bool {
+	if a.leaseDeadline.IsZero() || a.leaseDuration <= 0 {
+		return false
 	}
+	return !now.Before(a.leaseDeadline.Add(-a.leaseDuration / 10))
+}
+
+// grantedLeaseOrDefault returns the mapping's granted lifetime, falling
+// back to the requested lease when the gateway granted nothing usable.
+func (a *Acquisition) grantedLeaseOrDefault(fallback time.Duration) time.Duration {
+	a.renewMu.Lock()
+	defer a.renewMu.Unlock()
+	if a.Mapping != nil && a.Mapping.Lease > 0 {
+		return a.Mapping.Lease
+	}
+	return fallback
 }
 
 // journalPut persists one mapping record under a stable ID (first write
-// derives it, renewals reuse it so the journal updates in place);
-// journaling failures are non-fatal (the in-memory mapping stays
-// authoritative). The record ID is returned for mapping_journal_ref.
+// derives it, renewals reuse it so the journal updates in place and never
+// rewrite the creation time). Journaling failures never break a live
+// mapping, but the returned reference is honest: a failed first write
+// leaves no mapping_journal_ref, and a failed renewal update keeps the
+// reference to the already-durable record.
 func (m *Manager) journalPut(forwardID string, existingID string, mapping GatewayMapping) string {
 	if m.opts.Journal == nil {
 		return ""
+	}
+	now := m.opts.Clock()
+	createdAt := now.Unix()
+	if existingID != "" {
+		if existing, ok, err := m.opts.Journal.Get(existingID); err == nil && ok {
+			createdAt = existing.CreatedAtUnix
+		}
 	}
 	recordID := existingID
 	if recordID == "" {
@@ -448,15 +720,32 @@ func (m *Manager) journalPut(forwardID string, existingID string, mapping Gatewa
 		InternalPort:    mapping.InternalPort,
 		ExternalIP:      mapping.External.Addr().String(),
 		ExternalPort:    mapping.External.Port(),
-		LeaseExpiryUnix: m.opts.Clock().Add(mapping.Lease).Unix(),
+		LeaseExpiryUnix: now.Add(mapping.Lease).Unix(),
 		Epoch:           mapping.Epoch,
 		Identity:        mapping.Identity,
-		CreatedAtUnix:   m.opts.Clock().Unix(),
-		UpdatedAtUnix:   m.opts.Clock().Unix(),
+		State:           ownershipStateJSON(mapping),
+		CreatedAtUnix:   createdAt,
+		UpdatedAtUnix:   now.Unix(),
 	}
-	// Best effort: journaling must never break a live mapping.
-	_ = m.opts.Journal.Put(record) //nolint:errcheck
+	if err := m.opts.Journal.Put(record); err != nil {
+		return existingID
+	}
 	return recordID
+}
+
+// ownershipStateJSON serializes the mechanism-private renewal state for the
+// journal (recovery renews or releases after a restart). GatewayMapping
+// .State must be JSON-encodable; an unencodable state degrades to nil
+// rather than fabricating a recovery state.
+func ownershipStateJSON(mapping GatewayMapping) []byte {
+	if mapping.State == nil {
+		return nil
+	}
+	encoded, err := json.Marshal(mapping.State)
+	if err != nil {
+		return nil
+	}
+	return encoded
 }
 
 // journalIDFor derives a stable journal record ID per forward.
@@ -475,13 +764,17 @@ func hexEncode(b []byte) string {
 	return string(out)
 }
 
-// sourceAddress resolves the acquisition source.
-func (m *Manager) sourceAddress() netip.Addr {
-	selection, _, err := Assess(m.opts.RouteTable)
-	if err == nil && selection.Source.IsValid() {
-		return selection.Source
+// sourceAddress resolves the gateway acquisition source: the default-route
+// interface's own IPv4 (v0.8 §3.2) — private is the expected shape behind
+// a NAT CPE. The global-only Assess governs direct-v4 only, and a host
+// with no usable source fails the acquisition instead of silently mapping
+// loopback.
+func (m *Manager) sourceAddress() (netip.Addr, error) {
+	selection, err := DefaultRouteSource(m.opts.RouteTable)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("traversal: gateway source address: %w", err)
 	}
-	return netip.AddrFrom4([4]byte{127, 0, 0, 1})
+	return selection.Source, nil
 }
 
 // releaseListenerQuietly releases the listener on failed acquisition paths.
@@ -491,15 +784,23 @@ func (m *Manager) releaseListenerQuietly(acquisition *Acquisition) {
 	}
 }
 
-// stopRenewal stops the renewal goroutine exactly once.
+// stopRenewal stops the renewal goroutine exactly once: the in-flight
+// renewal is cancelled first (a hung mapper must not bound Release), then
+// the loop exit and the drained lifecycle dispatcher are joined.
 func (a *Acquisition) stopRenewal() {
-	a.renewOnce.Do(func() {
+	a.renewOnceOnce.Do(func() {
+		if a.renewCancel != nil {
+			a.renewCancel()
+		}
 		if a.renewStop != nil {
 			close(a.renewStop)
 		}
 	})
 	if a.renewDone != nil {
 		<-a.renewDone
+	}
+	if a.eventsDone != nil {
+		<-a.eventsDone
 	}
 }
 

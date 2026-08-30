@@ -41,13 +41,22 @@ type Adapter struct {
 }
 
 // NewAdapter builds the UPnP adapter. Discovery uses the SSDP and
-// description pipeline scoped to InterfaceIP.
+// description pipeline scoped to InterfaceIP. The description fetch runs on
+// the same bounded transport as SOAP: an unbounded client must not hang
+// discovery.
 func NewAdapter(opts AdapterOptions) *Adapter {
 	client := opts.HTTPClient
 	if client == nil {
 		client = http.DefaultClient
 	}
-	adapter := &Adapter{ifaceIP: opts.InterfaceIP, http: client, opts: opts}
+	bounded := *client
+	if bounded.Timeout <= 0 {
+		bounded.Timeout = opts.Timeout
+		if bounded.Timeout <= 0 {
+			bounded.Timeout = defaultHTTPTimeout
+		}
+	}
+	adapter := &Adapter{ifaceIP: opts.InterfaceIP, http: &bounded, opts: opts}
 	adapter.resolve = defaultResolve
 	return adapter
 }
@@ -134,13 +143,23 @@ func (a *Adapter) Map(ctx context.Context, req traversal.GatewayMapRequest) (tra
 	if err != nil {
 		return traversal.GatewayMapping{}, err
 	}
+	// Strict port policy is enforced against the device's answer: a
+	// reservation that differs from the requested port fails the mapping,
+	// and the entry just created (our description) is released instead of
+	// leaking.
+	if req.StrictPort && req.RequestedExternalPort != 0 && result.AssignedExternalPort != req.RequestedExternalPort {
+		violation := fmt.Errorf("upnp: strict port policy violated: gateway assigned %d, requested %d",
+			result.AssignedExternalPort, req.RequestedExternalPort)
+		if deleteErr := a.delegate.Delete(ctx, result); deleteErr != nil {
+			return traversal.GatewayMapping{}, errors.Join(violation, deleteErr)
+		}
+		return traversal.GatewayMapping{}, violation
+	}
 	// The SOAP add does not return the external IP; ask the gateway for it
 	// so scope classification uses the real WAN address. A device without
 	// the action leaves the address unspecified: the STUN layer or the
 	// independent probe decides the scope then.
-	if externalAddr, err := a.delegate.ExternalAddress(ctx); err == nil && externalAddr.IsValid() {
-		result.AssignedExternalAddress = externalAddr
-	}
+	result = a.fetchExternal(ctx, result)
 	return a.normalize(req, result), nil
 }
 
@@ -162,15 +181,34 @@ func (a *Adapter) Renew(ctx context.Context, mapping traversal.GatewayMapping, l
 	if err != nil {
 		return traversal.GatewayMapping{}, err
 	}
+	result = a.fetchExternal(ctx, result)
 	if result.AssignedExternalPort != mapping.External.Port() {
-		return traversal.GatewayMapping{}, fmt.Errorf("upnp: renewal reassigned the external port %d -> %d",
+		// The re-add landed on a different port: delete the stray entry
+		// (our description) and fail — the live mapping must never silently
+		// move.
+		stray := fmt.Errorf("upnp: renewal reassigned the external port %d -> %d",
 			mapping.External.Port(), result.AssignedExternalPort)
+		if deleteErr := a.delegate.Delete(ctx, result); deleteErr != nil {
+			return traversal.GatewayMapping{}, errors.Join(stray, deleteErr)
+		}
+		return traversal.GatewayMapping{}, stray
 	}
 	return a.normalize(traversal.GatewayMapRequest{
 		InternalIP:   mapping.InternalIP,
 		InternalPort: mapping.InternalPort,
 		Lease:        lifetime,
 	}, result), nil
+}
+
+// fetchExternal fills the SOAP result's external address from
+// GetExternalIPAddress when the device supports it: scope classification and
+// the journal must carry the real WAN address, never the unspecified
+// fallback. This holds on the renewal path too.
+func (a *Adapter) fetchExternal(ctx context.Context, result MapResult) MapResult {
+	if externalAddr, err := a.delegate.ExternalAddress(ctx); err == nil && externalAddr.IsValid() {
+		result.AssignedExternalAddress = externalAddr
+	}
+	return result
 }
 
 // Delete releases the mapping after query-then-delete verification.

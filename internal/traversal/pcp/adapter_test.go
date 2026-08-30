@@ -39,12 +39,11 @@ func TestAdapterDiscover(t *testing.T) {
 	server := newFakeServer(t)
 	server.handle(func(seq int, request []byte) []byte {
 		if request[1]&0x7f == OpCodeAnnounce {
-			response := make([]byte, 28)
+			response := make([]byte, HeaderSize)
 			response[0] = Version
 			response[1] = ResponseFlag | OpCodeAnnounce
 			response[3] = ResultSuccess
 			putUint32(response[8:12], 0x0f00)
-			copy(response[12:28], request[12:28])
 			return response
 		}
 		return successResponse(request, netipMustParse("203.0.113.7"), 0x0f00)
@@ -71,7 +70,7 @@ func TestAdapterMapAndEvidence(t *testing.T) {
 	server.handle(func(seq int, request []byte) []byte {
 		response := successResponse(request, netipMustParse("203.0.113.7"), 0x0f00)
 		// A real gateway assigns the external port itself.
-		putUint16(response[28+18:28+20], 43111)
+		putUint16(response[HeaderSize+18:HeaderSize+20], 43111)
 		return response
 	})
 
@@ -107,6 +106,69 @@ func TestAdapterMapAndEvidence(t *testing.T) {
 	}
 }
 
+// A5 (NAT audit H1): the ANNOUNCE header must carry the datagram's real
+// source address (RFC 6887 §8.2). A wildcard-bound socket reports 0.0.0.0
+// in LocalAddr and a compliant gateway answers ADDRESS_MISMATCH, so
+// Discover resolves the route-selected source before binding.
+func TestAdapterDiscoverNamesRealSourceAddress(t *testing.T) {
+	server := newFakeServer(t)
+	server.handle(func(seq int, request []byte) []byte {
+		if request[1]&0x7f == OpCodeAnnounce {
+			// Toward a loopback server the datagram source is 127.0.0.1.
+			want := v4Mapped(netipMustParse("127.0.0.1"))
+			if !equalBytes(request[8:24], want) {
+				server.errorf("announce client address = % x, want the real source % x", request[8:24], want)
+			}
+			response := make([]byte, HeaderSize)
+			response[0] = Version
+			response[1] = ResponseFlag | OpCodeAnnounce
+			response[3] = ResultSuccess
+			putUint32(response[8:12], 0x0f00)
+			return response
+		}
+		return successResponse(request, netipMustParse("203.0.113.7"), 0x0f00)
+	})
+
+	adapter := NewAdapter(AdapterOptions{Gateway: server.peer, Timeout: 300 * time.Millisecond})
+	if _, err := adapter.Discover(t.Context()); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	assertServer(t, server)
+}
+
+// A6 (NAT audit H2): reboot detection must survive the adapter's
+// per-transaction sockets — the epoch observed by the first transaction is
+// the baseline of the next, so an epoch rollback in a renewal reports
+// ServerRebooted.
+func TestAdapterRenewDetectsRebootAcrossTransactions(t *testing.T) {
+	server := newFakeServer(t)
+	server.handle(func(seq int, request []byte) []byte {
+		epoch := uint32(0x1000)
+		if seq >= 2 {
+			epoch = 0x10 // rollback far beyond the 2s tolerance
+		}
+		return successResponse(request, netipMustParse("203.0.113.7"), epoch)
+	})
+
+	adapter := NewAdapter(AdapterOptions{Gateway: server.peer, Timeout: 300 * time.Millisecond})
+	mapping, err := adapter.Map(t.Context(), traversal.GatewayMapRequest{
+		InternalIP: netipMustParse("127.0.0.1"), InternalPort: 3111, Lease: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("Map: %v", err)
+	}
+	if mapping.ServerRebooted {
+		t.Fatal("the first transaction has no baseline and must not claim a reboot")
+	}
+	renewed, err := adapter.Renew(t.Context(), mapping, time.Hour)
+	if err != nil {
+		t.Fatalf("Renew: %v", err)
+	}
+	if !renewed.ServerRebooted {
+		t.Fatal("an epoch rollback across transactions must report ServerRebooted")
+	}
+}
+
 // A4: Delete passes the owning state back through the adapter.
 func TestAdapterDeleteRoundTrip(t *testing.T) {
 	var mu sync.Mutex
@@ -122,7 +184,7 @@ func TestAdapterDeleteRoundTrip(t *testing.T) {
 			server.errorf("delete lifetime = %d, want 0", lifetime)
 		}
 		mu.Lock()
-		copy(seenNonce[:], request[28:40])
+		copy(seenNonce[:], request[HeaderSize:HeaderSize+12])
 		deleteSeen = true
 		mu.Unlock()
 		response := successResponse(request, netipMustParse("203.0.113.7"), 0x0f00)

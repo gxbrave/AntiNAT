@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -189,5 +190,29 @@ func TestComposeStrictPortPlanning(t *testing.T) {
 	}
 	if plan.Capability.CanRequestExact {
 		t.Fatal("NAT-PMP must not claim exact-request capability")
+	}
+}
+
+// C7 (netns lab evidence): the mapping description stays within the IGD
+// device budget. miniupnpd's 64-byte description field is not
+// null-terminated for longer values — the query echo returns stack garbage
+// (invalid UTF-8) and query-then-delete verification can never match. The
+// cap is deterministic so Map and Delete derive the same tag.
+func TestMappingDescriptionCappedWithinDeviceBudget(t *testing.T) {
+	longUSN := "uuid:9e21d2d0-3c3f-4c1a-9f21-1d1d1d1d1d1f::urn:schemas-upnp-org:service:WANIPConnection:2"
+	mapping := GatewayMapping{Identity: longUSN}
+	description := mapping.Description()
+	if len(description) > maxIGDDescriptionBytes {
+		t.Fatalf("description = %d bytes, want <= %d (device budget)", len(description), maxIGDDescriptionBytes)
+	}
+	if description != mapping.Description() {
+		t.Fatal("the description must be deterministic across calls")
+	}
+	if !strings.HasPrefix(description, "AntiNAT ") {
+		t.Fatalf("description = %q, want the AntiNAT owner tag", description)
+	}
+	short := GatewayMapping{Identity: "uuid:lab-usn"}
+	if short.Description() != "AntiNAT uuid:lab-usn" {
+		t.Fatalf("short description = %q, want the full untruncated tag", short.Description())
 	}
 }

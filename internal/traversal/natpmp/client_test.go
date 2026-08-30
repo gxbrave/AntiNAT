@@ -375,11 +375,11 @@ func TestDeleteLifetimeZero(t *testing.T) {
 		if lifetime := readUint32(request[8:12]); lifetime != 0 {
 			server.errorf("delete request lifetime = %d, want 0", lifetime)
 		}
-		if got := readUint16(request[6:8]); got != 43111 {
-			server.errorf("delete requested external port = %d, want the assigned 43111", got)
+		if got := readUint16(request[6:8]); got != 0 {
+			server.errorf("delete requested external port = %d, want 0 (RFC 6886 §3.4: the delete request zeroes the suggested external port)", got)
 		}
 		deleteSeen.Store(true)
-		return mapResponseBytes(request, 43111, 0, 100)
+		return mapResponseBytes(request, 0, 0, 100)
 	})
 
 	client := NewClient(newPacketConn(t), server.peer, ClientOptions{})

@@ -145,6 +145,22 @@ func (l *SharedPortLease) Owner() string { return l.owner }
 // Generation returns the registry generation the lease was issued at.
 func (l *SharedPortLease) Generation() uint64 { return l.generation }
 
+// Listener returns the lease's reuse-enabled listener — the production
+// forward listener when the manager is wired through LeaseSource.
+func (l *SharedPortLease) Listener() net.Listener { return l.listener }
+
+// leaseFor returns the live lease owning bind (normalized), or
+// ErrStaleLease when the registry holds no such tuple.
+func (r *SharedPortRegistry) leaseFor(bind traversal.TupleKey) (*SharedPortLease, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.entries[normalizeSharedKey(bind)]
+	if !ok {
+		return nil, traversal.ErrStaleLease
+	}
+	return entry.lease, nil
+}
+
 // Dial binds a connected socket to the lease's local tuple (with the
 // platform reuse options) and connects it to remote. The socket becomes part
 // of the lease and is closed by Release. A dial that completes after Release
@@ -206,7 +222,11 @@ func (l *SharedPortLease) Release() error {
 	l.released = true
 	var joined error
 	for _, conn := range l.conns {
-		joined = errors.Join(joined, conn.Close())
+		// An observer-owned connection may already be closed after its
+		// exchange; that is the owner's choice, not a lease failure.
+		if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			joined = errors.Join(joined, err)
+		}
 	}
 	l.conns = nil
 	l.mu.Unlock()
@@ -225,6 +245,41 @@ func (r *SharedPortRegistry) Len() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.entries)
+}
+
+// LeaseSource adapts a SharedPortRegistry to the traversal.ListenerSource
+// contract with the same-tuple dial capability the manager's STUN
+// observation seam requires (v0.8 §4.2): every listener it acquires is
+// reuse-enabled and DialFrom originates extra connections from the acquired
+// tuple.
+type LeaseSource struct {
+	Registry *SharedPortRegistry
+}
+
+var (
+	_ traversal.ListenerSource  = LeaseSource{}
+	_ traversal.SameTupleDialer = LeaseSource{}
+)
+
+// Acquire implements traversal.ListenerSource.
+func (s LeaseSource) Acquire(ctx context.Context, owner string, key traversal.TupleKey) (net.Listener, traversal.TupleKey, traversal.ReleaseFunc, error) {
+	lease, err := s.Registry.Acquire(ctx, owner, key)
+	if err != nil {
+		return nil, traversal.TupleKey{}, nil, err
+	}
+	return lease.Listener(), lease.Actual, lease.Release, nil
+}
+
+// DialFrom implements traversal.SameTupleDialer: originate one more
+// connection from the tuple acquired for bind. The connection joins the
+// lease (closed by Release); the caller may close it earlier after its
+// exchange.
+func (s LeaseSource) DialFrom(ctx context.Context, bind traversal.TupleKey, remote string) (net.Conn, error) {
+	lease, err := s.Registry.leaseFor(bind)
+	if err != nil {
+		return nil, err
+	}
+	return lease.Dial(ctx, remote)
 }
 
 // listenSharedTCP creates the reuse-enabled listener inside the registry

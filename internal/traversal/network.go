@@ -67,6 +67,9 @@ var (
 	ErrV4SourceUnavailable       = errors.New("traversal: no IPv4 source address available")
 	ErrV4DefaultRouteUnavailable = errors.New("traversal: no IPv4 default route")
 	ErrNoGlobalV4Source          = errors.New("traversal: selected interface has no global IPv4 source")
+	// ErrInternalSourceUnavailable refuses a default-route interface without
+	// any usable IPv4 source address for gateway mapping.
+	ErrInternalSourceUnavailable = errors.New("traversal: default-route interface has no usable IPv4 source address")
 )
 
 // RouteTable is the host routing state the assessment is a pure function of.
@@ -124,6 +127,20 @@ func IsGlobalV4(addr netip.Addr) bool {
 	return true
 }
 
+// sortedIPv4Addresses returns the reader's addresses in the deterministic
+// interface-then-address order: address order from the reader must not
+// matter to either selection function.
+func sortedIPv4Addresses(addrs []IPv4Address) []IPv4Address {
+	sorted := append([]IPv4Address(nil), addrs...)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].Interface != sorted[j].Interface {
+			return sorted[i].Interface < sorted[j].Interface
+		}
+		return sorted[i].Addr.Compare(sorted[j].Addr) < 0
+	})
+	return sorted
+}
+
 // Assess returns the direct-v4 source selection and its stable capability
 // code for the given route table. A reader failure is returned as err with
 // an empty capability; a missing capability maps to one of the three
@@ -144,23 +161,14 @@ func Assess(rt RouteTable) (Selection, Capability, error) {
 		return Selection{}, CapabilityV4DefaultRouteUnavailable, ErrV4DefaultRouteUnavailable
 	}
 
-	// Deterministic scan: address order from the reader must not matter.
-	sorted := append([]IPv4Address(nil), addrs...)
-	sort.Slice(sorted, func(i, j int) bool {
-		if sorted[i].Interface != sorted[j].Interface {
-			return sorted[i].Interface < sorted[j].Interface
-		}
-		return sorted[i].Addr.Compare(sorted[j].Addr) < 0
-	})
-
 	// Only the selected (default-route) interface counts: its traffic is the
 	// only traffic that egresses via the default route, so a global address
 	// on another interface is not a valid direct-v4 source.
-	for i := range sorted {
-		if sorted[i].Interface == iface && IsGlobalV4(sorted[i].Addr) {
+	for _, candidate := range sortedIPv4Addresses(addrs) {
+		if candidate.Interface == iface && IsGlobalV4(candidate.Addr) {
 			return Selection{
-				Source:                sorted[i].Addr,
-				Interface:             sorted[i].Interface,
+				Source:                candidate.Addr,
+				Interface:             candidate.Interface,
 				DefaultRouteGateway:   gateway,
 				DefaultRouteInterface: iface,
 				Global:                true,
@@ -168,4 +176,49 @@ func Assess(rt RouteTable) (Selection, Capability, error) {
 		}
 	}
 	return Selection{}, CapabilityNoGlobalV4Source, ErrNoGlobalV4Source
+}
+
+// DefaultRouteSource returns the concrete IPv4 address on the default-route
+// interface — private or global — for the gateway strategies (v0.8 §3.2).
+// Gateway traversal maps the address the first-hop gateway sees, which
+// behind a NAT CPE is private by definition: the global-only Assess rule
+// governs direct-v4 only and must not gate the gateway strategies. A
+// private source is still reported with Global=false so evidence keeps the
+// distinction. Loopback, link-local, multicast and unspecified addresses
+// are never valid mapping sources.
+func DefaultRouteSource(rt RouteTable) (Selection, error) {
+	addrs, err := rt.IPv4Addresses()
+	if err != nil {
+		return Selection{}, err
+	}
+	if len(addrs) == 0 {
+		return Selection{}, ErrV4SourceUnavailable
+	}
+	gateway, iface, ok, err := rt.DefaultRouteV4()
+	if err != nil {
+		return Selection{}, err
+	}
+	if !ok {
+		return Selection{}, ErrV4DefaultRouteUnavailable
+	}
+	for _, candidate := range sortedIPv4Addresses(addrs) {
+		if candidate.Interface == iface && isValidMappingSource(candidate.Addr) {
+			return Selection{
+				Source:                candidate.Addr,
+				Interface:             candidate.Interface,
+				DefaultRouteGateway:   gateway,
+				DefaultRouteInterface: iface,
+				Global:                IsGlobalV4(candidate.Addr),
+			}, nil
+		}
+	}
+	return Selection{}, ErrInternalSourceUnavailable
+}
+
+// isValidMappingSource reports whether addr can be named to a first-hop
+// gateway as the internal side of a mapping. CGNAT and RFC 1918 are valid
+// here: they are ordinary interface addresses a NAT gateway sees.
+func isValidMappingSource(addr netip.Addr) bool {
+	return addr.Is4() && !addr.IsUnspecified() && !addr.IsLoopback() &&
+		!addr.IsMulticast() && !addr.IsLinkLocalUnicast()
 }

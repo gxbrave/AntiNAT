@@ -62,7 +62,7 @@ type MapRequest struct {
 	RequestedExternalPort uint16 // 0 = any (v2 picks; v1 retries candidates)
 	Lease                 time.Duration
 	Description           string
-	Rand                  func() uint16 // CSPRNG seam for tests; crypto/rand default
+	Rand                  func() (uint16, error) // CSPRNG seam for tests; crypto/rand default
 }
 
 // MapResult is the mapping the gateway granted.
@@ -227,7 +227,14 @@ func postSOAP(ctx context.Context, client *http.Client, service Service, action,
 	}
 	request.Header.Set("Content-Type", "text/xml; charset=\"utf-8\"")
 	request.Header.Set("SOAPACTION", fmt.Sprintf("%q", service.Type+"#"+action))
-	response, err := client.Do(request)
+	// The SOAP envelope carries the internal tuple: a redirect would replay
+	// it to a foreign host, so the control POST refuses redirects exactly
+	// like the description fetch does.
+	redirectRefused := *client
+	redirectRefused.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return fmt.Errorf("%w: SOAP redirect to %s", ErrRedirectRefused, req.URL)
+	}
+	response, err := redirectRefused.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("upnp: SOAP %s: %w", action, err)
 	}

@@ -76,7 +76,14 @@ func validateLocationScope(location string) error {
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrLocationOutOfScope, host)
 	}
-	if addr.IsGlobalUnicast() && !addr.IsPrivate() && !addr.IsLoopback() && !addr.IsLinkLocalUnicast() {
+	addr = addr.Unmap()
+	// Non-unicast literals (unspecified, broadcast, multicast) are never a
+	// description host, whatever their private/global class.
+	if !addr.Is4() || addr.IsUnspecified() || addr.IsMulticast() ||
+		addr == netip.AddrFrom4([4]byte{255, 255, 255, 255}) {
+		return fmt.Errorf("%w: %s is not a unicast host", ErrLocationOutOfScope, addr)
+	}
+	if !addr.IsPrivate() && !addr.IsLoopback() && !addr.IsLinkLocalUnicast() {
 		return fmt.Errorf("%w: %s is a global address", ErrLocationOutOfScope, addr)
 	}
 	return nil

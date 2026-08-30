@@ -288,10 +288,17 @@ func EvaluateLayers(layers []LayerEvidence, finalConstraint PortPolicy) (Pipelin
 	}
 	switch {
 	case candidateKind == LayerKindManual:
-		// The operator endpoint is the probe target: probe-eligible, but
-		// the scope records the operator input explicitly.
-		verdict.Scope = ScopeOperatorInput
-		verdict.PublicCandidate = true
+		if !IsGlobalV4Endpoint(candidate) {
+			// A non-global operator endpoint cannot be probed from the WAN:
+			// it is carried as NON_ROUTABLE evidence and never a public
+			// candidate.
+			verdict.Scope = ScopeNonRoutable
+		} else {
+			// The operator endpoint is the probe target: probe-eligible, but
+			// the scope records the operator input explicitly.
+			verdict.Scope = ScopeOperatorInput
+			verdict.PublicCandidate = true
+		}
 	case !IsGlobalV4Endpoint(candidate):
 		verdict.Scope = ScopeFirstHop
 		verdict.MappingStateFirstHop = gatewayIdx >= 0
@@ -329,6 +336,9 @@ type StrategyPlan struct {
 	GatewayPortPolicy       PortPolicy
 	FinalEndpointConstraint PortPolicy
 	Capability              PortControlCapability
+	// ManualExpectedEndpoint carries the operator endpoint through planning
+	// so acquisition consumes one validated source.
+	ManualExpectedEndpoint string
 }
 
 // PlanStrategy resolves and validates one acquisition plan. It refuses an
@@ -343,6 +353,7 @@ func PlanStrategy(req PlanRequest) (StrategyPlan, error) {
 		IGDv2:                   req.IGDv2,
 		GatewayPortPolicy:       req.GatewayPortPolicy,
 		FinalEndpointConstraint: req.FinalEndpointConstraint,
+		ManualExpectedEndpoint:  req.ManualExpectedEndpoint,
 	}
 	if plan.GatewayPortPolicy == "" {
 		plan.GatewayPortPolicy = PortPolicyAcceptAny
@@ -447,6 +458,24 @@ func parseEndpoint(endpoint string) (netip.AddrPort, error) {
 	return netip.AddrPortFrom(addr.Addr().Unmap(), addr.Port()), nil
 }
 
+// ParseManualEndpoint validates the operator-declared expected endpoint
+// (IPv4 literal, concrete port). The manager and the manual layer both
+// consume it, so the same operator input cannot succeed in one path and
+// fail in the other.
+func ParseManualEndpoint(endpoint string) (netip.AddrPort, error) {
+	parsed, err := parseEndpoint(endpoint)
+	if err != nil {
+		return netip.AddrPort{}, err
+	}
+	if !parsed.Addr().Is4() {
+		return netip.AddrPort{}, fmt.Errorf("manual endpoint %q must be an IPv4 literal", endpoint)
+	}
+	if parsed.Port() == 0 {
+		return netip.AddrPort{}, fmt.Errorf("manual endpoint %q must carry a concrete port", endpoint)
+	}
+	return parsed, nil
+}
+
 // ---------------------------------------------------------------------------
 // Gateway mapper contract (Story 5 composition).
 //
@@ -526,13 +555,27 @@ func (m GatewayMapping) Evidence(control ControlServer) LayerEvidence {
 	}
 }
 
+// maxIGDDescriptionBytes is the description budget the reference IGD
+// implementation (miniupnpd) stores verbatim: its 64-byte description field
+// is not null-terminated for longer values, so the query echo comes back
+// with stack garbage — breaking the SOAP response and making
+// query-then-delete verification impossible. Real-device evidence from the
+// netns lab. v1 keeps every mapping description within it.
+const maxIGDDescriptionBytes = 63
+
 // Description renders the journal mapping description for this record: a
-// stable, owner-tagged string the delete verification compares.
+// stable, owner-tagged string the delete verification compares. It is
+// deterministically capped at maxIGDDescriptionBytes, so Map and Delete
+// derive the identical tag on any device.
 func (m GatewayMapping) Description() string {
+	description := "AntiNAT"
 	if m.Identity != "" {
-		return "AntiNAT " + m.Identity
+		description += " " + m.Identity
 	}
-	return "AntiNAT"
+	if len(description) <= maxIGDDescriptionBytes {
+		return description
+	}
+	return description[:maxIGDDescriptionBytes]
 }
 
 // GatewayMapper is one explicit NAT control mechanism (v0.8 §3.4): PCP with
