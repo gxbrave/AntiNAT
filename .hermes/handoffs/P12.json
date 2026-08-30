@@ -1,6 +1,6 @@
 {
-  "schema_version": "P12-candidate/v1",
-  "artifact_role": "canonical P12 implementation candidate handoff",
+  "schema_version": "P12-candidate/v1-superseding",
+  "artifact_role": "canonical P12 implementation candidate handoff (superseding)",
   "plan": "P12",
   "stage": "IMPLEMENTATION_FROZEN_REVIEW_REQUIRED",
   "recorded_at_utc": "2026-08-30T11:30:40Z",
@@ -17,9 +17,9 @@
       "note": "265ad24 is the orchestrator-provided base for this worktree (integration/v1-beta line); P11-integrated.json records its own integrated SHA on a parallel replay line"
     }
   },
-  "candidate_definition": "The only P12 implementation candidate is HEAD 1f1b635/tree ed516dab480d5fad8b3e2ea3b70b1c829df3e7fa. Reviewers must review exactly that tree; any new commit invalidates this handoff.",
-  "candidate_head_full": "1f1b635e9ae7fc6714d9295407a8ff61ae0b8442",
-  "candidate_tree_full": "ed516dab480d5fad8b3e2ea3b70b1c829df3e7fa",
+  "candidate_definition": "The only P12 implementation candidate is HEAD d95d06d/tree 2b0ea64e90e1a17362dd3c7dcc76292714d29c6b. Prior candidate 1f1b635 (tree ed516dab480d5fad8b3e2ea3b70b1c829df3e7fa) is superseded by the S7g commit d95d06d after two independent verification rounds; reviews must re-pin to the new tree.",
+  "candidate_head_full": "d95d06d19bfb69ccefd32e0a9e3aa0acdd104910",
+  "candidate_tree_full": "2b0ea64e90e1a17362dd3c7dcc76292714d29c6b",
   "implementation_commits": [
     {
       "sha": "8fdffd1",
@@ -65,6 +65,11 @@
       "sha": "1f1b635",
       "story": "S7e",
       "summary": "P12 S7e: netns lab drives the per-Forward Manager end to end (TDD)"
+    },
+    {
+      "sha": "d95d06d",
+      "story": "S7g",
+      "summary": "P12 S7g: unbounded lifecycle queue closes the callback-Release deadlock (TDD)"
     }
   ],
   "deltas": [
@@ -204,6 +209,38 @@
       "evidence": ".hermes/evidence/p12/gofmt-vet.log",
       "evidence_sha256": "391824495e81f3f3d9f6d9e4766f7c12b75cea647ce0e5df53e9facd5777bf30",
       "result": "PASS (clean)"
+    },
+    {
+      "phase": "red-green-s7g",
+      "command": "TestManagerReleaseFromBlockingCallbackCompletes - RED run against prior candidate 1f1b635 in a throwaway worktree (Release deadlocked, 10s assertion timeout)",
+      "exit_code": 1,
+      "evidence": ".hermes/evidence/p12/s7g-callback-deadlock-red.log",
+      "evidence_sha256": "13b9a1e92ec52ccf64864396be12e342ab993c58aa6480697e619e6eff1367c0",
+      "result": "RED faithful: reproduces the residual callback-Release deadlock found by the Angle A reconciliation review"
+    },
+    {
+      "phase": "red-green-s7g",
+      "command": "GOWORK=off go test ./internal/traversal -run TestManagerReleaseFromBlockingCallbackCompletes -count=1 -timeout 60s -v",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7g-callback-deadlock-green.log",
+      "evidence_sha256": "9cacc2f720c96e438b00dafa3dc06581761e6f05c1d72890c373404e85e4aae6",
+      "result": "PASS (0.96s) with the unbounded lifecycle queue"
+    },
+    {
+      "phase": "netns-lab-s7g",
+      "command": "GOWORK=off go test -tags=netns ./test/integration -run TestTCPTraversal -count=1 -v",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7g-netns-lab.log",
+      "evidence_sha256": "42cc098c920dc19bec18ee9332dca91ee54297236408ee6fbaa8f002c67c5858",
+      "result": "PASS at the superseding tree"
+    },
+    {
+      "phase": "gofmt-vet-s7g",
+      "command": "gofmt -l internal/ test/ cmd/ migrations/; GOWORK=off go vet ./...",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7g-gofmt-vet.log",
+      "evidence_sha256": "b5191d559b20d16fc001a0fbd803027244ef8b86d98d4090ee109a0a3df25486",
+      "result": "PASS (clean)"
     }
   ],
   "evidence_manifest": {
@@ -231,7 +268,8 @@
     "JournalStore is satisfied by MemoryJournal in-tree; bbolt durability wiring is the agent composition root's (P13) responsibility.",
     "govulncheck unavailable (recorded UNAVAILABLE in environment.txt).",
     "spike/sandbox TestSandboxChildHelper fails on this host for lack of ANTINAT_DEDICATED_UID/GID provisioning; pre-existing on the base, unrelated to P12.",
-    "sudo -E invocations were denied by local policy; equivalent direct root invocations were used for the netns lab (same effect)."
+    "sudo -E invocations were denied by local policy; equivalent direct root invocations were used for the netns lab (same effect).",
+    "When no gateway mapper is configured at all, the detection profile carries no explicit-gateway row (the state enum cannot express not-attempted vs failed). Flagged by review; deferred as a detection-profile completeness gap."
   ],
   "residual_risk": "Unknown real-CPE behaviors (description field sizes other than 64 bytes, 718/725 variations, PCP options) are covered by conservative client behavior (bounded retries, strict verification, honest failures) but not by device inventory.",
   "required_reviews": [
@@ -240,7 +278,7 @@
     "fresh exact-candidate network/protocol PASS on the same tree",
     "fresh exact-candidate lifecycle/integration PASS on the same tree"
   ],
-  "review_status": "PENDING_FRESH_INDEPENDENT_REVIEWS",
+  "review_status": "PENDING_FRESH_INDEPENDENT_REVIEWS (re-pinned to d95d06d after supersession)",
   "integration_status": "NOT_PERFORMED",
   "cleanup_done": true,
   "cleanup": [
@@ -248,6 +286,7 @@
     "debug namespaces p12dbg/p12dbg2/p12soapdbg and their work dirs removed",
     "debug probes (cmd/p12probe, /tmp/pcpprobe.go, /tmp/pcpreplay.go) deleted before the candidate commits",
     "PCP_DEBUG instrumentation removed from pcp/client.go",
+    "dead code removed at review request: detection.sortedKeys deleted; manager hexEncode replaced by encoding/hex",
     "git diff --check clean; gofmt clean"
   ],
   "quiescence": "No background processes remain: miniupnpd/coturn run only inside lab namespaces and are killed by the teardown script; no leftover listeners on the host.",
@@ -259,6 +298,16 @@
   "release_performed": false,
   "integration_performed": false,
   "self_approval": false,
-  "metadata_packaging": "This handoff plus .hermes/evidence/p12 (23 evidence logs + environment.txt + SHA256SUMS) is committed as the P12 metadata commit on ai/P12-gateway-traversal.",
-  "superseded_handoffs": []
+  "metadata_packaging": "Handoff updates plus .hermes/evidence/p12 additions are committed as metadata commits on ai/P12-gateway-traversal; metadata never redefines candidate bytes.",
+  "superseded_handoffs": [
+    {
+      "prior_candidate": "1f1b635/ed516dab480d5fad8b3e2ea3b70b1c829df3e7fa",
+      "superseded_by": "d95d06d",
+      "reason": "Angle A reconciliation review found a residual narrow deadlock: deliver() blocked on the 8-slot events channel under renewMu, so a blocking consumer callback that queued 8 events and then called Release deadlocked stopRenewal's join. The handoff claimed the deadlock class impossible, so the finding was fixed (unbounded lifecycleQueue; drain runs callbacks outside the queue lock; stopRenewal no longer joins the dispatcher) rather than documented. Also disposed: both dead-code leftovers (sortedKeys, hexEncode).",
+      "verification_rounds_on_prior_candidate": [
+        "code-review-max: all 15 findings verified disposed effectively (race+vet green at 1f1b635)",
+        "Angle A manager-audit reconciliation: all manager/adapters/stun fixes verified line-by-line (race -count=2 green at 1f1b635); flagged the residual deadlock, the sortedKeys leftover, and the unrecorded L8 limit"
+      ]
+    }
+  ]
 }
