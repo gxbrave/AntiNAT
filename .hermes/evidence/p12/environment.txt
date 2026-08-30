@@ -1,0 +1,7 @@
+host=Linux hermes 6.8.0-138-generic #138-Ubuntu SMP PREEMPT_DYNAMIC Fri Jul 31 22:41:49 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+go=go version go1.26.5 linux/amd64
+kernel_linux=6.8.0-138-generic
+os=ubuntu (x86_64)
+privilege=ran as root (euid 0); sudo -E invocation denied by local policy, equivalent direct root invocation used
+netns_lab_tools=ip(netns), nft, miniupnpd 2.3.4 (PCP+NAT-PMP+UPnP IGDv2 enabled), coturn turnserver
+govulncheck=UNAVAILABLE (not installed)
