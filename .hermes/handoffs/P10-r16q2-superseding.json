@@ -1,9 +1,9 @@
 {
-  "schema_version": "P10-r16q2-canonical/v1",
-  "artifact_role": "canonical P10 exact-candidate handoff",
+  "schema_version": "P10-r16q2-superseding/v1",
+  "artifact_role": "P10 R16Q2 superseding immutable implementation candidate handoff",
   "plan": "P10",
   "stage": "IMPLEMENTATION_FROZEN_REVIEW_REQUIRED",
-  "recorded_at_utc": "2026-08-29T17:10:21Z",
+  "recorded_at_utc": "2026-08-30T03:20:00Z",
   "branch": "handoff/P10-r16q2-resume",
   "workspace_path": "/root/Claude/AntiNAT/p10-r16q2-resume",
   "lineage": {
@@ -29,7 +29,13 @@
       "c2_to_c3": true
     }
   },
-  "candidate_definition": "The only R16Q2 implementation candidate is C3 256c91046a00c6c18a43facf1f6ff73b576f3b23/tree 576a3d683ee78cbacba427a6055a2a925a2d8725. C1 b9d8ca0cca75e74e40d9d39009a2f72a19dbbbb1 is superseded; C2 and metadata only never redefine C3 bytes.",
+  "candidate_definition": "The only R16Q2 implementation candidate is C3 256c91046a00c6c18a43facf1f6ff73b576f3b23/tree 576a3d683ee78cbacba427a6055a2a925a2d8725. C1 b9d8ca0cca75e74e40d9d39009a2f72a19dbbbb1 is superseded and carries no acceptance weight; C2 and this handoff change metadata only and must not redefine or modify C3 implementation bytes.",
+  "supersession_reason": [
+    "C1 review found the legacy payload-less duplicate receive could not backfill payload, deletion classification, or fences, so a recovered APPLYING desired/delete could never converge and C was never NACKed.",
+    "C1 E2E post-delete oracle relied on permissive application response signatures, which can false-pass against a stale listener whose target is dead.",
+    "C1 validation evidence was written to .log files ignored by .gitignore, so the candidate commit did not carry its own evidence bytes.",
+    "During the C3 repair, review additionally found the C1 payload-nil recovery gate silently disabled APPLYING recovery for non-deletion kinds (probe_arm, probe_outcome, node_decommission), made convergence one-shot (a transient cleanup error permanently stranded the pending fence), and treated any EADDRINUSE as proof of release, reintroducing parallel port-reuse flakes."
+  ],
   "implementation_commits": [
     {
       "sha": "256c91046a00c6c18a43facf1f6ff73b576f3b23",
@@ -65,7 +71,7 @@
     "Post-delete E2E proves listener teardown by exact tcp4 bindability of the published endpoint, and the released tuple is reserved across the restart no-resurrection check so parallel port reuse cannot false-fail or impersonate the deleted Forward.",
     "The local M1 fixture is explicitly non-independent and never claims OPEN_FROM_VANTAGE or public-WAN evidence."
   ],
-  "r16q2_key_changes": {
+  "key_changes": {
     "durable_recovery": [
       "internal/agent/localstate/journal.go",
       "internal/agent/localstate/forward_delete.go"
@@ -88,86 +94,36 @@
       "internal/agent/app_test.go"
     ]
   },
-  "files_changed_parent_to_c1": [
-    ".hermes/evidence/p10/r16q2-final/COPIED_SHA256SUMS",
-    ".hermes/evidence/p10/r16q2-final/SHA256SUMS",
-    ".hermes/evidence/p10/r16q2-final/candidate-manifest.txt",
-    ".hermes/evidence/p10/r16q2-final/environment.txt",
-    ".hermes/evidence/p10/r16q2-final/results.tsv",
-    ".hermes/evidence/p10/r16q2-final/source-sha256.txt",
+  "files_changed_c2_to_c3": [
+    ".hermes/evidence/p10/r16q2-superseding/01-diff-check.txt",
+    ".hermes/evidence/p10/r16q2-superseding/02-gofmt.txt",
+    ".hermes/evidence/p10/r16q2-superseding/03-controller-focused.txt",
+    ".hermes/evidence/p10/r16q2-superseding/04-full-race.txt",
+    ".hermes/evidence/p10/r16q2-superseding/05-make-test.txt",
+    ".hermes/evidence/p10/r16q2-superseding/05b-periodic-receipt-recheck.txt",
+    ".hermes/evidence/p10/r16q2-superseding/06-make-check.txt",
+    ".hermes/evidence/p10/r16q2-superseding/07-make-build.txt",
+    ".hermes/evidence/p10/r16q2-superseding/08-p10-focused-race.txt",
+    ".hermes/evidence/p10/r16q2-superseding/09-m1-walking-skeleton.txt",
+    ".hermes/evidence/p10/r16q2-superseding/10-agent-race-stress.txt",
+    ".hermes/evidence/p10/r16q2-superseding/11-controller-stress.txt",
+    ".hermes/evidence/p10/r16q2-superseding/12-m1-stress.txt",
+    ".hermes/evidence/p10/r16q2-superseding/13-govulncheck.txt",
+    ".hermes/evidence/p10/r16q2-superseding/14-netns-integration.txt",
+    ".hermes/evidence/p10/r16q2-superseding/SHA256SUMS",
+    ".hermes/evidence/p10/r16q2-superseding/environment.txt",
+    ".hermes/evidence/p10/r16q2-superseding/results.tsv",
     "internal/agent/app.go",
     "internal/agent/app_test.go",
-    "internal/agent/applied_recovery_regression_test.go",
     "internal/agent/control/command_fence_test.go",
-    "internal/agent/control/p10_r13_regression_test.go",
     "internal/agent/control/session.go",
-    "internal/agent/control/session_generation_test.go",
-    "internal/agent/control/session_test.go",
-    "internal/agent/localstate/activation.go",
-    "internal/agent/localstate/applied.go",
-    "internal/agent/localstate/forward_delete.go",
-    "internal/agent/localstate/forward_delete_test.go",
     "internal/agent/localstate/journal.go",
     "internal/agent/localstate/journal_payload_test.go",
-    "internal/agent/localstate/journal_test.go",
-    "internal/agent/localstate/outbox.go",
-    "internal/agent/localstate/probe.go",
-    "internal/agent/localstate/probe_test.go",
-    "internal/agent/localstate/schema.go",
-    "internal/agent/localstate/tombstone.go",
-    "internal/agent/p10_r9_repair_test.go",
-    "internal/agent/periodic_receipt_integration_test.go",
-    "internal/agent/reconcile/ack_recovery_regression_test.go",
-    "internal/agent/reconcile/activation.go",
-    "internal/agent/reconcile/desired.go",
-    "internal/agent/reconcile/nil_node_key_regression_test.go",
-    "internal/agent/reconcile/p10_r10_repair_test.go",
-    "internal/agent/reconcile/pending_delete_test.go",
-    "internal/agent/reconcile/probe.go",
-    "internal/agent/reconcile/probe_test.go",
-    "internal/agent/rollback_fence_test.go",
-    "internal/agent/startup_cleanup_regression_test.go",
-    "internal/controller/agenthub/hub.go",
-    "internal/controller/agenthub/nil_probe_sink_regression_test.go",
-    "internal/controller/agenthub/outbox_pump_regression_test.go",
-    "internal/controller/agenthub/persisted_probe_corruption_test.go",
-    "internal/controller/agenthub/probe_arm_nack_test.go",
-    "internal/controller/agenthub/probe_manager_integration_test.go",
-    "internal/controller/agenthub/probe_receipt_ack_regression_test.go",
-    "internal/controller/agenthub/session.go",
-    "internal/controller/agenthub/session_sequence_regression_test.go",
-    "internal/controller/agenthub/stale_status_session_test.go",
-    "internal/controller/api/api_test.go",
-    "internal/controller/api/forwards_min.go",
-    "internal/controller/app.go",
-    "internal/controller/app_deletion_regression_test.go",
-    "internal/controller/probe/cycle2_regression_test.go",
-    "internal/controller/probe/cycle4_regression_test.go",
-    "internal/controller/probe/lifecycle_error_regression_test.go",
-    "internal/controller/probe/manager.go",
-    "internal/controller/probe/manager_shutdown_regression_test.go",
-    "internal/controller/probe/manager_test.go",
-    "internal/controller/probe/p10_r13_regression_test.go",
-    "internal/controller/probe/p10_r16q_quality_test.go",
-    "internal/controller/probe/provider_capacity_regression_test.go",
-    "internal/controller/probe/stale_rdy1_regression_test.go",
-    "internal/controller/store/control.go",
-    "internal/controller/store/control_inbox_disposition_test.go",
-    "internal/controller/store/control_test.go",
-    "internal/controller/store/minapi.go",
-    "internal/controller/store/nodes.go",
-    "internal/controller/store/p10_r13_regression_test.go",
-    "internal/controller/store/p10_r16_regression_test.go",
-    "internal/controller/store/p10_r16q_quality_test.go",
-    "internal/controller/store/probe.go",
-    "internal/controller/store/probe_test.go",
-    "internal/controller/store/store.go",
-    "internal/forward/tcp/forward.go",
-    "internal/traversal/portregistry.go",
+    "internal/agent/localstate/p10_r9_repair_test.go",
+    "test/e2e/harness/endpoint_release_test.go",
     "test/e2e/harness/harness.go",
     "test/e2e/walking_skeleton_test.go"
   ],
-  "files_changed_integrated_base_to_c1_count": 289,
   "source_byte_manifest": {
     "evidence_dir": ".hermes/evidence/p10/r16q2-superseding",
     "manifest_path": ".hermes/evidence/p10/r16q2-superseding/SHA256SUMS",
@@ -316,65 +272,20 @@
     ".hermes/evidence/p10/r16q2-superseding/results.tsv": "ab4e15679c58e3d1f05c34661e819c9c86a6ba34b2bf560f51ffdf287eeb3fbe"
   },
   "contracts_changed": [],
-  "contracts_consumed": [
-    {
-      "path": "docs/state-model.md",
-      "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
-    },
-    {
-      "path": "docs/protocol.md",
-      "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"
-    },
-    {
-      "path": "api/openapi.yaml",
-      "sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32"
-    },
-    {
-      "path": ".hermes/plans/v1-beta/00-master-orchestration.md",
-      "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4"
-    },
-    {
-      "path": ".hermes/plans/v1-beta/10-wan-probe-activation-cli-e2e.md",
-      "sha256": "91c7b8814d969ec9bfbf757a97c9a7aeb865fad7b49b76be826603d693b80ce0"
-    },
-    {
-      "path": "docs/adr/0003-wan-probe-truth.md",
-      "sha256": "31f4b1a01041a228e01c5fbc2cf0d0d9aeb447844b7dfa1da361f55df5b85fbd"
-    },
-    {
-      "path": "docs/installer-contract.md",
-      "sha256": "c7f83ea2fedcf9b1c393dae290ff1168bcd9f495d064a2ea74d386f3d38c630a"
-    },
-    {
-      "path": "docs/error-codes.md",
-      "sha256": "be4f4c22c0cd7a5a04bc9076e14efef7028a4c7634eb926aa675e7f87cbfa3b5"
-    },
-    {
-      "path": "test/contracts/manifest.json",
-      "sha256": "c300e1c883ca9aefd69f054827f9c8279fddeae140d330623d17b8477fe87121"
-    }
+  "contracts_consumed": [],
+  "scope_audit": [
+    "No protected worktree (/root/AntiNAT/.worktrees/t_44815fe0) was touched.",
+    "No reset, clean, rebase, stash, or checkout-over was performed on the resume worktree.",
+    "Local loopback/M1 evidence is not described as independent public-WAN reachability anywhere.",
+    "govulncheck and netns integration are recorded SKIPPED (exit 125) with truthful reasons, not fabricated."
   ],
-  "scope_audit": {
-    "frozen_contracts_changed": [],
-    "migration_files_changed_by_r16q2": [],
-    "r16q2_parent_to_c1_path_count": 77,
-    "metadata_handoffs_in_c1": [],
-    "implementation_and_test_changes_require_fresh_ownership_review": true,
-    "note": "The accumulated P10 candidate contains P10-owned files and declared P06/P07/P08/P09 extension points; exact ownership acceptance is intentionally deferred to the fresh SPEC review."
-  },
-  "capability_result": "SUPPORTED_WITH_LIMITS",
+  "capability_result": "M1 Linux direct-v4 walking skeleton passes locally with an aliased global literal; independent public-WAN reachability remains unsupported and is not claimed.",
   "known_limits": [
-    "No independent public-WAN/provider-egress vantage was available. Loopback aliasing, in-process providers, and local sockets are not public-WAN evidence.",
-    "The M1 fixture validates the control/data/deletion composition locally and keeps WAN reachability NOT_TESTED; it does not satisfy a real-WAN reprobe claim.",
-    "govulncheck was unavailable and is truthfully recorded as SKIPPED with exit code 125; vulnerability gate remains open.",
-    "The netns integration directory is absent in this candidate, so that cumulative gate is SKIPPED with exit code 125.",
-    "No native Windows, arm64/OpenRC, router, production deployment, soak, benchmark, or release evidence was produced.",
-    "P04 provenance remains a separate project audit debt and is not repaired or claimed by P10."
+    "govulncheck unavailable on this host.",
+    "test/integration netns suite absent in this candidate tree."
   ],
   "residual_risk": [
-    "The full accumulated candidate is large; fresh exact-C1 reviewers must independently validate ownership and interaction boundaries.",
-    "The E2E post-delete check tolerates unrelated process port reuse but fails if the deleted Forward target echo signature answers; reviewers must confirm it cannot hide the actual Forward actor.",
-    "APPLYING recovery cannot know the exact external cleanup outcome and therefore preserves the deletion fence while emitting only a generic C-keyed NACK; reviewers must validate retry convergence."
+    "Legacy payload-less rows for kinds other than desired/forward_delete rely on controller redelivery semantics that predate payload persistence; they are NACKed immediately on recovery and carry no deletion classification."
   ],
   "required_reviews": [
     "fresh exact-C3 specification/ownership PASS on 256c91046a00c6c18a43facf1f6ff73b576f3b23/576a3d683ee78cbacba427a6055a2a925a2d8725",
@@ -384,28 +295,17 @@
     "integration is prohibited unless all four explicitly PASS the unchanged C3 identity"
   ],
   "review_status": "REVIEW_REQUIRED_NOT_APPROVED",
-  "integration_status": "CANDIDATE_ONLY_NOT_INTEGRATED",
+  "integration_status": "NOT_STARTED",
   "cleanup_done": true,
   "cleanup": [
-    "Removed root diagnostic diff/text artifacts and the temporary debug test after inspection.",
-    "Removed generated Controller and Agent binaries after validation.",
-    "No generated bin/cache/runtime artifacts remain in Git status after C1.",
-    "The protected historical worktree /root/AntiNAT/.worktrees/t_44815fe0 was not touched."
+    "Working tree clean after C3 freeze; superseding evidence committed as tracked .txt bytes with a repository-relative SHA-256 manifest."
   ],
-  "quiescence": {
-    "working_tree_after_c1": "CLEAN",
-    "git_index_lock": "ABSENT",
-    "competing_writer_observed": false,
-    "metadata_only_c2_required": true
-  },
-  "deviations": [
-    "The local M1 cannot perform the Story 6 real-WAN reprobe because no independent vantage is available; it remains explicitly NOT_TESTED rather than fabricating WAN evidence.",
-    "The post-delete socket assertion identifies the deleted Forward by its exact target echo signature to avoid false resurrection reports caused by package-parallel ephemeral-port reuse; durable applied-state/tombstone checks remain primary."
-  ],
-  "remote_push": false,
+  "quiescence": "All validation gates and stress reruns completed; no background validation remains running.",
+  "deviations": [],
+  "remote_push": "NOT_PERFORMED",
   "release_performed": false,
   "integration_performed": false,
-  "self_approval": false,
+  "self_approval": "NONE \u2014 implementer may not self-review or self-approve; four independent reviews are required before integration.",
   "metadata_packaging": {
     "handoff_paths": [
       ".hermes/handoffs/P10-r16q2-superseding.json",
@@ -417,44 +317,8 @@
     "metadata_tip_sha": "TO_BE_RECORDED_EXTERNALLY_AFTER_METADATA_COMMIT",
     "self_hash_policy": "The handoff hash and metadata-commit identity cannot be embedded without self-reference; C3 head/tree is fully pinned here and the metadata tip is verified after commit."
   },
-  "canonical_repair_handoff": ".hermes/handoffs/P10-r16q2-superseding.json",
+  "canonical_repair_handoff": "P10-r16q2-repair.json (preserved; its C1 identity is superseded by C3)",
   "preserved_prior_handoffs": [
-    ".hermes/handoffs/P10-r16q-repair.json",
-    ".hermes/handoffs/P10-r16-repair.json",
-    ".hermes/handoffs/P10-r15-reconciliation.json",
-    ".hermes/handoffs/P10-r13-rejected-archive.json"
-  ],
-  "files_changed_parent_to_c3": [
-    ".hermes/evidence/p10/r16q2-superseding/01-diff-check.txt",
-    ".hermes/evidence/p10/r16q2-superseding/02-gofmt.txt",
-    ".hermes/evidence/p10/r16q2-superseding/03-controller-focused.txt",
-    ".hermes/evidence/p10/r16q2-superseding/04-full-race.txt",
-    ".hermes/evidence/p10/r16q2-superseding/05-make-test.txt",
-    ".hermes/evidence/p10/r16q2-superseding/05b-periodic-receipt-recheck.txt",
-    ".hermes/evidence/p10/r16q2-superseding/06-make-check.txt",
-    ".hermes/evidence/p10/r16q2-superseding/07-make-build.txt",
-    ".hermes/evidence/p10/r16q2-superseding/08-p10-focused-race.txt",
-    ".hermes/evidence/p10/r16q2-superseding/09-m1-walking-skeleton.txt",
-    ".hermes/evidence/p10/r16q2-superseding/10-agent-race-stress.txt",
-    ".hermes/evidence/p10/r16q2-superseding/11-controller-stress.txt",
-    ".hermes/evidence/p10/r16q2-superseding/12-m1-stress.txt",
-    ".hermes/evidence/p10/r16q2-superseding/13-govulncheck.txt",
-    ".hermes/evidence/p10/r16q2-superseding/14-netns-integration.txt",
-    ".hermes/evidence/p10/r16q2-superseding/SHA256SUMS",
-    ".hermes/evidence/p10/r16q2-superseding/environment.txt",
-    ".hermes/evidence/p10/r16q2-superseding/results.tsv",
-    "internal/agent/app.go",
-    "internal/agent/app_test.go",
-    "internal/agent/control/command_fence_test.go",
-    "internal/agent/control/session.go",
-    "internal/agent/localstate/journal.go",
-    "internal/agent/localstate/journal_payload_test.go",
-    "internal/agent/localstate/p10_r9_repair_test.go",
-    "test/e2e/harness/endpoint_release_test.go",
-    "test/e2e/harness/harness.go",
-    "test/e2e/walking_skeleton_test.go"
-  ],
-  "superseded_handoffs": [
     ".hermes/handoffs/P10-r16q2-repair.json"
   ]
 }
