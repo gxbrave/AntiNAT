@@ -3,7 +3,7 @@
   "artifact_role": "canonical P12 implementation candidate handoff (superseding)",
   "plan": "P12",
   "stage": "IMPLEMENTATION_FROZEN_REVIEW_REQUIRED",
-  "recorded_at_utc": "2026-08-30T14:10:00Z",
+  "recorded_at_utc": "2026-08-30T14:40:00Z",
   "branch": "ai/P12-gateway-traversal",
   "workspace_path": "/root/Claude/AntiNAT/p12-traversal",
   "lineage": {
@@ -17,9 +17,9 @@
       "note": "265ad24 is the orchestrator-provided base for this worktree (integration/v1-beta line); P11-integrated.json records its own integrated SHA on a parallel replay line"
     }
   },
-  "candidate_definition": "The only P12 implementation candidate is HEAD 22b17d3/tree eff27fc6de3a5df0cb9644695efef56457d4606d. Prior candidates 1f1b635, d95d06d and 11ca343 are superseded (see superseded_handoffs); all four independent reviews must re-pin to the new tree.",
-  "candidate_head_full": "22b17d3e232bdf6ed9d8d7d0afcda452f6055c3a",
-  "candidate_tree_full": "eff27fc6de3a5df0cb9644695efef56457d4606d",
+  "candidate_definition": "The only P12 implementation candidate is HEAD 36dd00e/tree f4cb5f79a7379c4c92e16b34326ba5f4b82efb77. Prior candidates 1f1b635, d95d06d, 11ca343 and 22b17d3 are superseded; all four independent reviews must re-pin to this tree.",
+  "candidate_head_full": "36dd00eeb84aa1f2bac3d81dfee4fbfa014fad3b",
+  "candidate_tree_full": "f4cb5f79a7379c4c92e16b34326ba5f4b82efb77",
   "implementation_commits": [
     {
       "sha": "8fdffd1",
@@ -80,6 +80,11 @@
       "sha": "22b17d3",
       "story": "S7i",
       "summary": "P12 S7i: contain mapper.Delete panic while completing teardown, lock journal status access, and make KEEP=1 SIGTERM cleanup reliable (TDD)"
+    },
+    {
+      "sha": "36dd00e",
+      "story": "S7j",
+      "summary": "P12 S7j: unify panic containment across mapper, journal and listener cleanup callbacks (TDD)"
     }
   ],
   "deltas": [
@@ -94,14 +99,15 @@
     "migration 0007: node_traversal_profiles + node_traversal_results (schema version 7)",
     "netns TCP traversal lab: Manager-driven end-to-end against real miniupnpd 2.3.4 and coturn with independent vantage verification and post-release verification that is gateway-side authoritative (CPE nftables ruleset holds no forward rule for any released port) plus a supplementary vantage closed-port check; keep-mode setup failures now tear the topology down",
     "S7i release hardening: mapper.Delete panics become failed-delete errors; listener cleanup still completes, journal retention remains honest, and idempotent retries return the stable first error; CurrentJournalError provides race-free journal status",
-    "S7i signal hardening: EXIT exclusively owns teardown while INT/TERM force nonzero exit; a real netns regression interrupts KEEP=1 only after all namespaces and daemons exist and asserts zero leakage"
+    "S7i signal hardening: EXIT exclusively owns teardown while INT/TERM force nonzero exit; a real netns regression interrupts KEEP=1 only after all namespaces and daemons exist and asserts zero leakage",
+    "S7j cleanup boundary: every Manager-owned external cleanup callback (mapping delete, journal delete, listener ReleaseFunc, including acquisition-failure cleanup) runs through cleanupContained; panic becomes an aggregated error and cannot skip later teardown or consume releaseOnce into false success"
   ],
   "behavioral_summary": "A forward with an explicit-gateway strategy acquires the listener on the default-route interface's own address, maps it through the detected mechanism, optionally observes the same tuple via STUN, journals the mapping with honest ownership and renewal state, renews near 50% of the GRANTED lease, degrades after three consecutive renewal failures, loses only at the expiry safety margin / confirmed reboot / rewritten endpoint, and releases with ownership-strength deletion that leaves the journal record in place whenever the gateway delete failed.",
-  "files_changed_base_to_head_count": 84,
+  "files_changed_base_to_head_count": 90,
   "source_byte_manifest": {
-    "command": "git diff --name-only 265ad24..22b17d3 | wc -l",
-    "files": 84,
-    "note": "The candidate lineage includes committed P12 evidence/handoff metadata. The S7i implementation commit itself changes exactly 4 files over its parent d30cd73: internal/traversal/manager.go, manager_test.go, test/integration/traversal_tcp_test.go and test/netns/traversal_lab.sh."
+    "command": "git diff --name-only 265ad24..36dd00e | wc -l",
+    "files": 90,
+    "note": "Candidate lineage includes committed P12 evidence metadata. S7j implementation commit changes exactly manager.go and manager_test.go over e1b1538."
   },
   "tests": [
     {
@@ -351,13 +357,61 @@
       "evidence": ".hermes/evidence/p12/s7i-gofmt-vet.log",
       "evidence_sha256": "b95134f2bac5f4df1eb565d000611ab92f5beed257523124ffa71119432efed5",
       "result": "PASS (clean)"
+    },
+    {
+      "phase": "red-s7j-manager",
+      "command": "go test ./internal/traversal -run 'TestManagerReleaseContains(JournalDelete|Listener)Panic' -count=1 -v before fix",
+      "exit_code": 1,
+      "evidence": ".hermes/evidence/p12/s7j-manager-red.log",
+      "evidence_sha256": "0f123055c7bffdc5447e6755099a971e1ac3d86f0ee22f0ad4be4afbbc63b91e",
+      "result": "RED faithful: Journal.Delete panic unwinds through Release/sync.Once"
+    },
+    {
+      "phase": "green-s7j-manager",
+      "command": "same focused tests after fix, -race -count=10",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7j-manager-green.log",
+      "evidence_sha256": "1bc043424fa7df601720bf83b51f7eb28989255824488118b5ff349cd3fa7274",
+      "result": "PASS: journal/listener panics contained; stable idempotent errors"
+    },
+    {
+      "phase": "race2-s7j",
+      "command": "GOWORK=off go test ./internal/traversal/... -race -count=2",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7j-traversal-race2.log",
+      "evidence_sha256": "489c06e4e15477b5e13527a7665290a8ff0c8ac1e33971b14d3fc8ad8c30d339",
+      "result": "PASS"
+    },
+    {
+      "phase": "fullrepo-race-s7j",
+      "command": "dedicated uid/gid 12001; GOWORK=off go test ./... -race",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7j-fullrepo-race.log",
+      "evidence_sha256": "c56325eb9baf43136c6d43c617eb28a3fdc6a5e82251caf0eaa59a033f42ee78",
+      "result": "PASS; zero failures"
+    },
+    {
+      "phase": "netns-s7j",
+      "command": "signal cleanup + complete TCP traversal lab",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7j-netns.log",
+      "evidence_sha256": "88da681811fa8093f0e1f3ba8f426aa7874e45f6de37e9705a8f5b3a5d01d2c7",
+      "result": "PASS; post-run 0 namespaces/workdirs/daemons"
+    },
+    {
+      "phase": "gofmt-vet-s7j",
+      "command": "gofmt -l .; go vet traversal",
+      "exit_code": 0,
+      "evidence": ".hermes/evidence/p12/s7j-gofmt-vet.log",
+      "evidence_sha256": "a8eaab902d5332f2e53ff5cc63a7c2fe4a164c273be9437a3f13149c93617153",
+      "result": "PASS"
     }
   ],
   "evidence_manifest": {
     "path": ".hermes/evidence/p12/SHA256SUMS",
-    "sha256": "ee9728422c7f389b18c0e9abf2dff0a8a05d3b25f8d169d19f7ab02a3dad7462",
+    "sha256": "fb654fdf0530a951c10bbd988df7d725c901b86fb159bff05a2dc43cf6565046",
     "environment": ".hermes/evidence/p12/environment.txt",
-    "note": "Regenerated for S7i supersession (39 logs). All *.log files are force-added because .gitignore excludes them. S7i includes reviewer empirical reproductions in review records plus formal MA17/MA18 and netns SIGTERM regression evidence."
+    "note": "Regenerated for S7j supersession (45 logs), all force-added because *.log is ignored."
   },
   "contracts_changed": [],
   "contracts_consumed": [
@@ -386,12 +440,12 @@
   ],
   "residual_risk": "Unknown real-CPE behaviors (description field sizes other than 64 bytes, 718/725 variations, PCP options) are covered by conservative client behavior (bounded retries, strict verification, honest failures) but not by device inventory.",
   "required_reviews": [
-    "fresh exact-candidate specification/ownership PASS on 22b17d3/eff27fc6de3a5df0cb9644695efef56457d4606d",
-    "fresh exact-candidate quality/security PASS on the same tree (must re-verify the two 11ca343 MEDIUM findings)",
-    "fresh exact-candidate network/protocol PASS on the same tree",
-    "fresh exact-candidate lifecycle/integration PASS on the same tree (must re-verify SIGTERM cleanup plus both manager findings)"
+    "fresh exact-candidate specification/ownership PASS on 36dd00e/f4cb5f79a7379c4c92e16b34326ba5f4b82efb77",
+    "fresh exact-candidate quality/security PASS on same tree",
+    "fresh exact-candidate network/protocol PASS on same tree",
+    "fresh exact-candidate lifecycle/integration PASS on same tree (must verify Journal.Delete/ReleaseFunc plus acquisition cleanup containment)"
   ],
-  "review_status": "PENDING_FRESH_INDEPENDENT_REVIEWS (re-pinned to 22b17d3 after S7i supersession)",
+  "review_status": "PENDING_FRESH_INDEPENDENT_REVIEWS (re-pinned to 36dd00e after S7j supersession)",
   "integration_status": "NOT_PERFORMED",
   "cleanup_done": true,
   "cleanup": [
@@ -444,6 +498,17 @@
         "quality/security FAIL (two MEDIUM findings)",
         "lifecycle/integration FAIL (one HIGH, two MEDIUM)"
       ]
+    },
+    {
+      "prior_candidate": "22b17d3e232bdf6ed9d8d7d0afcda452f6055c3a/eff27fc6de3a5df0cb9644695efef56457d4606d",
+      "superseded_by": "36dd00e",
+      "reason": "S7i four-angle review returned specification PASS, quality PASS, network PASS, lifecycle FAIL. Lifecycle confirmed all three S7i target fixes closed but found the same panic/sync.Once class remained reachable through adjacent Journal.Delete and listener ReleaseFunc callbacks, plus acquisition-failure cleanup. S7j routes every Manager-owned external cleanup callback through cleanupContained and adds MA19/MA20.",
+      "verification_rounds_on_prior_candidate": [
+        "specification/ownership PASS",
+        "quality/security PASS (MA16/17/18 mutation-verified)",
+        "network/protocol PASS",
+        "lifecycle/integration FAIL (HIGH: incomplete cleanup callback panic boundary)"
+      ]
     }
   ],
   "review_records": [
@@ -490,6 +555,26 @@
       "reviewer": "S7h lifecycle/integration review",
       "tree": "11ca343/7d42b5f",
       "outcome": "FAIL. HIGH: same Release panic defect; MEDIUM: KEEP=1 SIGTERM leaks full topology; MEDIUM: same JournalError race. M1 CLOSED."
+    },
+    {
+      "reviewer": "S7i specification/ownership review",
+      "tree": "22b17d3/eff27fc6",
+      "outcome": "PASS. No findings; contracts/scope/handoff/39 evidence verified."
+    },
+    {
+      "reviewer": "S7i quality/security review",
+      "tree": "22b17d3/eff27fc6",
+      "outcome": "PASS. Delete panic, journal race and M1 closed; MA16/17/18 mutation-verified."
+    },
+    {
+      "reviewer": "S7i network/protocol review",
+      "tree": "22b17d3/eff27fc6",
+      "outcome": "PASS. No findings; adapter bytes unchanged and prior closures retained."
+    },
+    {
+      "reviewer": "S7i lifecycle/integration review",
+      "tree": "22b17d3/eff27fc6",
+      "outcome": "FAIL. S7i targets closed, but HIGH: Journal.Delete and listener ReleaseFunc panic still escape releaseOnce; acquisition failure cleanup has same uncontained external-callback class."
     }
   ]
 }

@@ -1,0 +1,33 @@
+# S7j RED: MA19/MA20 against S7i
+=== RUN   TestManagerReleaseContainsJournalDeletePanic
+--- FAIL: TestManagerReleaseContainsJournalDeletePanic (0.00s)
+panic: journal delete panic [recovered, repanicked]
+
+goroutine 8 [running]:
+testing.tRunner.func1.2({0x628540, 0x6944f0})
+	/root/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.linux-amd64/src/testing/testing.go:1974 +0x232
+testing.tRunner.func1()
+	/root/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.linux-amd64/src/testing/testing.go:1977 +0x349
+panic({0x628540?, 0x6944f0?})
+	/root/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.linux-amd64/src/runtime/panic.go:860 +0x13a
+github.com/gxbrave/AntiNAT/internal/traversal.(*failingJournal).Delete(0x67bbea?, {0x2f9c66618480?, 0x6835b7?})
+	/root/Claude/AntiNAT/p12-traversal/internal/traversal/manager_test.go:171 +0x37
+github.com/gxbrave/AntiNAT/internal/traversal.(*Acquisition).release(0x2f9c6673a4e0, {0x697370, 0x2f9c66738140})
+	/root/Claude/AntiNAT/p12-traversal/internal/traversal/manager.go:489 +0x235
+github.com/gxbrave/AntiNAT/internal/traversal.(*Acquisition).Release.func1()
+	/root/Claude/AntiNAT/p12-traversal/internal/traversal/manager.go:474 +0x25
+sync.(*Once).doSlow(0x3?, 0x10101?)
+	/root/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.linux-amd64/src/sync/once.go:78 +0xac
+sync.(*Once).Do(...)
+	/root/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.linux-amd64/src/sync/once.go:69
+github.com/gxbrave/AntiNAT/internal/traversal.(*Acquisition).Release(0x2f9c6673a4e0, {0x697370?, 0x2f9c66738140?})
+	/root/Claude/AntiNAT/p12-traversal/internal/traversal/manager.go:474 +0x54
+github.com/gxbrave/AntiNAT/internal/traversal.TestManagerReleaseContainsJournalDeletePanic(0x2f9c66756248)
+	/root/Claude/AntiNAT/p12-traversal/internal/traversal/manager_test.go:951 +0x53e
+testing.tRunner(0x2f9c66756248, 0x6920f8)
+	/root/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.linux-amd64/src/testing/testing.go:2036 +0xea
+created by testing.(*T).Run in goroutine 1
+	/root/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.5.linux-amd64/src/testing/testing.go:2101 +0x4c5
+FAIL	github.com/gxbrave/AntiNAT/internal/traversal	0.004s
+FAIL
+exit=1

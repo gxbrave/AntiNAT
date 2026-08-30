@@ -1,0 +1,43 @@
+# S7j focused GREEN MA19/MA20 race x10
+=== RUN   TestManagerReleaseContainsJournalDeletePanic
+--- PASS: TestManagerReleaseContainsJournalDeletePanic (0.00s)
+=== RUN   TestManagerReleaseContainsListenerPanic
+--- PASS: TestManagerReleaseContainsListenerPanic (0.00s)
+=== RUN   TestManagerReleaseContainsJournalDeletePanic
+--- PASS: TestManagerReleaseContainsJournalDeletePanic (0.00s)
+=== RUN   TestManagerReleaseContainsListenerPanic
+--- PASS: TestManagerReleaseContainsListenerPanic (0.00s)
+=== RUN   TestManagerReleaseContainsJournalDeletePanic
+--- PASS: TestManagerReleaseContainsJournalDeletePanic (0.00s)
+=== RUN   TestManagerReleaseContainsListenerPanic
+--- PASS: TestManagerReleaseContainsListenerPanic (0.00s)
+=== RUN   TestManagerReleaseContainsJournalDeletePanic
+--- PASS: TestManagerReleaseContainsJournalDeletePanic (0.00s)
+=== RUN   TestManagerReleaseContainsListenerPanic
+--- PASS: TestManagerReleaseContainsListenerPanic (0.00s)
+=== RUN   TestManagerReleaseContainsJournalDeletePanic
+--- PASS: TestManagerReleaseContainsJournalDeletePanic (0.00s)
+=== RUN   TestManagerReleaseContainsListenerPanic
+--- PASS: TestManagerReleaseContainsListenerPanic (0.00s)
+=== RUN   TestManagerReleaseContainsJournalDeletePanic
+--- PASS: TestManagerReleaseContainsJournalDeletePanic (0.00s)
+=== RUN   TestManagerReleaseContainsListenerPanic
+--- PASS: TestManagerReleaseContainsListenerPanic (0.00s)
+=== RUN   TestManagerReleaseContainsJournalDeletePanic
+--- PASS: TestManagerReleaseContainsJournalDeletePanic (0.00s)
+=== RUN   TestManagerReleaseContainsListenerPanic
+--- PASS: TestManagerReleaseContainsListenerPanic (0.00s)
+=== RUN   TestManagerReleaseContainsJournalDeletePanic
+--- PASS: TestManagerReleaseContainsJournalDeletePanic (0.00s)
+=== RUN   TestManagerReleaseContainsListenerPanic
+--- PASS: TestManagerReleaseContainsListenerPanic (0.00s)
+=== RUN   TestManagerReleaseContainsJournalDeletePanic
+--- PASS: TestManagerReleaseContainsJournalDeletePanic (0.00s)
+=== RUN   TestManagerReleaseContainsListenerPanic
+--- PASS: TestManagerReleaseContainsListenerPanic (0.00s)
+=== RUN   TestManagerReleaseContainsJournalDeletePanic
+--- PASS: TestManagerReleaseContainsJournalDeletePanic (0.00s)
+=== RUN   TestManagerReleaseContainsListenerPanic
+--- PASS: TestManagerReleaseContainsListenerPanic (0.00s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/internal/traversal	1.013s
