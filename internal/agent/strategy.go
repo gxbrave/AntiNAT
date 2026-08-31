@@ -28,6 +28,11 @@ var (
 	// errAutoNoPassingDefault refuses auto when the detection profile has no
 	// PASSED default strategy (stale or absent capability is never reused).
 	errAutoNoPassingDefault = errors.New("agent: auto requires a detection profile default strategy that PASSED")
+	// errAutoStaleProfile refuses auto when the cached detection profile no
+	// longer describes the node (fingerprint changed or older than the max
+	// age). The detection job can repair it; recovery quarantines rather than
+	// failing the whole pass (repair R1 finding 3).
+	errAutoStaleProfile = errors.New("agent: auto refuses a stale detection profile")
 )
 
 // planFor translates one ForwardSpec into the resolved traversal PlanRequest.
@@ -218,7 +223,7 @@ func (d *dataPlane) validateAutoProfile(profile traversal.Profile, haveProfile b
 		return fmt.Errorf("agent: detection fingerprint: %w", err)
 	}
 	if stale, reason := profile.IsStale(fingerprint, profileMaxAge, d.cfg.Clock()); stale {
-		return fmt.Errorf("agent: detection profile is stale (%s)", reason)
+		return fmt.Errorf("agent: detection profile is stale (%s): %w", reason, errAutoStaleProfile)
 	}
 	return nil
 }

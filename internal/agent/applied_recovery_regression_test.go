@@ -87,7 +87,7 @@ func TestDataPlaneRecoveryUsesServingLKGWhenDesiredIsNewer(t *testing.T) {
 			gotSpec = spec
 		},
 	})
-	if err := d.recover(context.Background()); err != nil {
+	if _, err := d.recover(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	defer d.closeAll(context.Background())

@@ -114,6 +114,12 @@ type App struct {
 	// A probe arm must not observe one revision and transition another.
 	probeAdmissionMu sync.Mutex
 
+	// recoveryMu guards lastRecovery: the most recent recover-pass outcome
+	// (quarantined forwards + journal replay boundary), surfaced as a startup
+	// diagnostic (repair R1 findings 3/4).
+	recoveryMu   sync.Mutex
+	lastRecovery recoverReport
+
 	ready atomic.Bool
 
 	shutdownMu      sync.Mutex
@@ -276,6 +282,9 @@ func New(cfg Config) (*App, error) {
 		},
 		OnCleanupError: func(forwardID string, actor *forwardActor, err error) {
 			a.onForwardCleanupError(forwardID, actor, err)
+		},
+		OnRecovery: func(report recoverReport) {
+			a.onRecoveryReport(report)
 		},
 	})
 	a.activations = make(map[string]*reconcile.Activation)
@@ -469,7 +478,7 @@ func (a *App) Start(ctx context.Context) error {
 			_ = a.store.Close()
 			return fmt.Errorf("agent: prepare activation recovery: %w", err)
 		}
-		if err := a.dp.recover(startupCtx); err != nil {
+		if _, err := a.dp.recover(startupCtx); err != nil {
 			runCancel()
 			a.client.Shutdown()
 			a.client.Wait()
@@ -754,7 +763,7 @@ func (a *App) monitorLiveness(ctx context.Context) {
 					a.dp.markCapabilityLost(ctx)
 					continue
 				}
-				if err := a.dp.recover(ctx); err != nil {
+				if _, err := a.dp.recover(ctx); err != nil {
 					// Keep the capability degraded so the next poll retries
 					// recovery, without claiming a listener is active.
 					a.dp.markCapabilityLost(ctx)
@@ -789,7 +798,18 @@ func (a *App) runDetectionOnce(ctx context.Context) {
 	}
 	detectCtx, cancel := context.WithTimeout(ctx, detectionAttemptBudget)
 	defer cancel()
-	_ = a.dp.runDetection(detectCtx)
+	if a.dp.runDetection(detectCtx) != nil {
+		// A failed detection pass leaves the cached profile untouched; do not
+		// claim a recovery was retried against a fresh profile.
+		return
+	}
+	// A fresh saved profile may have un-quarantined auto/gateway forwards
+	// (repair R1 finding 3): retry recovery so the deferred applied LKG rows
+	// reopen without waiting for a liveness rebuild. recover is idempotent and
+	// admission-fenced, so an already-live forward is skipped.
+	recoverCtx, recoverCancel := context.WithTimeout(ctx, detectionAttemptBudget)
+	defer recoverCancel()
+	_, _ = a.dp.recover(recoverCtx)
 }
 
 // detectionAttemptBudget bounds one detection pass (one attempt per strategy
@@ -1054,6 +1074,26 @@ func (a *App) armProbe(ctx context.Context, op control.Operation) ([]byte, error
 		return prepared.RDY, nil
 	}
 	return nil, reconcile.ErrProbeArmRejected
+}
+
+// onRecoveryReport records the most recent recover-pass outcome for the
+// startup diagnostic surface. Quarantined forwards and journal replay
+// boundaries are assets, not errors; they are captured here so main can
+// surface them in the agent log.
+func (a *App) onRecoveryReport(report recoverReport) {
+	a.recoveryMu.Lock()
+	a.lastRecovery = report
+	a.recoveryMu.Unlock()
+}
+
+// LastRecoveryReport returns the most recent recover-pass outcome (repair R1
+// findings 3/4): the forwards quarantined for a stale/absent detection profile
+// and the journal records left superseded/orphaned by startup recovery. The
+// zero value means no recovery pass produced a report.
+func (a *App) LastRecoveryReport() recoverReport {
+	a.recoveryMu.Lock()
+	defer a.recoveryMu.Unlock()
+	return a.lastRecovery
 }
 
 // onForwardApplied maintains the orthogonal activation state machine when a
@@ -1364,6 +1404,11 @@ type dataPlaneConfig struct {
 	// OnCleanupError receives a cleanup error that remains retryable. It is
 	// informational; ownership stays in cleanupPending until a later drain.
 	OnCleanupError func(forwardID string, actor *forwardActor, err error)
+	// OnRecovery surfaces the per-forward outcome of one recovery pass
+	// (repair R1 findings 3/4): the forwards quarantined because the detection
+	// profile cannot yet resolve them, and the journal records left superseded
+	// or orphaned. nil disables it.
+	OnRecovery func(report recoverReport)
 
 	// Registry is the agent-global socket-ownership table; nil allocates one.
 	Registry *traversal.PortRegistry
@@ -2444,25 +2489,61 @@ func (d *dataPlane) stop(ctx context.Context, forwardID string) error {
 // spec and is the only target source used here. Received desired state may be
 // newer after a PARTIAL apply and must remain retry intent, never recovery
 // input for the last-known-good listener.
-func (d *dataPlane) recover(ctx context.Context) error {
+// recoverReport is the per-forward outcome of one recovery pass (repair R1
+// findings 3/4). Quarantined forwards keep their durable applied LKG
+// unchanged; they are simply not reopened this pass because the detection
+// profile cannot yet resolve their strategy (auto without a passing default, a
+// stale fingerprint, or a gateway without a resolved layer). A later pass
+// (after the detection job saves a fresh profile, or a liveness rebuild)
+// reopens the quarantined rows.
+type recoverReport struct {
+	// Quarantined lists the applied forwards that could not be reopened this
+	// pass because the cached detection profile cannot yet resolve them.
+	Quarantined []recoverQuarantine
+	// Journal is the replayJournalBoundaries outcome for the durable mapping
+	// journal, surfaced on the production recovery path (Story 8 diagnostic).
+	Journal replayJournalReport
+}
+
+// recoverQuarantine is one non-reopened applied forward and the truthful
+// strategy-resolution reason its reopen was deferred.
+type recoverQuarantine struct {
+	ForwardID string
+	Err       error
+}
+
+// quarantinableRecoverError reports whether a reopen failure is a strategy
+// resolution failure the detection job repairs (a stale/absent profile with no
+// passing default for auto, or a missing resolved layer for explicit-gateway).
+// Such forwards are quarantined for a later recovery pass instead of failing
+// the whole pass and aborting App.Start. Every other error (fence, transport,
+// capability) keeps the existing whole-recover failure semantics.
+func quarantinableRecoverError(err error) bool {
+	return errors.Is(err, errAutoNoPassingDefault) ||
+		errors.Is(err, errAutoStaleProfile) ||
+		errors.Is(err, errNoGatewayLayerInProfile)
+}
+
+func (d *dataPlane) recover(ctx context.Context) (recoverReport, error) {
+	var report recoverReport
 	if !d.beginAdmission() {
-		return errDataPlaneClosing
+		return report, errDataPlaneClosing
 	}
 	defer d.admissionWG.Done()
 	if d.cfg.Store == nil {
-		return nil
+		return report, nil
 	}
 	// Received desired state is retry intent, not the source of the serving
 	// target. Recovery is fenced by durable deletion facts, rather than assuming
 	// a received snapshot contains an explicit ABSENT entry.
 	records, err := d.cfg.Store.ListAppliedRecords()
 	if err != nil {
-		return err
+		return report, err
 	}
 	for _, record := range records {
 		pendingDelete, tombstoned, err := readForwardDeleteFence(d.cfg.Store, record.State.ForwardID)
 		if err != nil {
-			return fmt.Errorf("agent: forward %q delete fence: %w", record.State.ForwardID, err)
+			return report, fmt.Errorf("agent: forward %q delete fence: %w", record.State.ForwardID, err)
 		}
 		if pendingDelete || tombstoned {
 			// A durable delete fence wins over every applied LKG row, including
@@ -2485,10 +2566,28 @@ func (d *dataPlane) recover(ctx context.Context) error {
 			continue
 		}
 		if err := d.reopen(ctx, record.ServingSpec, record.State); err != nil {
-			return err
+			if quarantinableRecoverError(err) {
+				// A stale/absent detection profile must not fail the whole
+				// recovery (repair R1 finding 3): keep the applied LKG durable,
+				// leave the forward non-applied (retry-intent), and surface the
+				// per-forward error. The detection job repopulates the profile and
+				// a later recover reopens it.
+				report.Quarantined = append(report.Quarantined, recoverQuarantine{
+					ForwardID: record.State.ForwardID,
+					Err:       fmt.Errorf("agent: forward %q quarantine: %w", record.State.ForwardID, err),
+				})
+				continue
+			}
+			return report, err
 		}
 	}
-	return nil
+	// The diagnostic hook fires on every pass (the report may be empty). The
+	// consumer (App/main) decides whether to surface anything, so a later pass
+	// that un-quarantines everything is observable.
+	if onRecovery := d.cfg.OnRecovery; onRecovery != nil {
+		onRecovery(report)
+	}
+	return report, nil
 }
 
 func recoveryRevisionMatches(spec protocol.ForwardSpec, st protocol.AppliedForwardState) bool {

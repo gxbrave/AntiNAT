@@ -127,7 +127,7 @@ func TestDataPlaneRecoveryReopensGatewayWithNewJournalRef(t *testing.T) {
 		t.Fatalf("seed applied record: %v", err)
 	}
 
-	if err := d.recover(context.Background()); err != nil {
+	if _, err := d.recover(context.Background()); err != nil {
 		t.Fatalf("recover: %v", err)
 	}
 	d.mu.Lock()
