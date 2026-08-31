@@ -43,6 +43,7 @@ import (
 
 // lab coordinates are parsed from test/netns/udp_lab.sh.
 type udpLab struct {
+	t         *testing.T
 	prefix    string
 	script    string
 	agentNS   string
@@ -148,7 +149,7 @@ func startUDPLab(t *testing.T) *udpLab {
 		t.Fatalf("lab script failed: %v\n%s", err, output)
 	}
 
-	l := &udpLab{prefix: prefix, script: script}
+	l := &udpLab{t: t, prefix: prefix, script: script}
 	for _, line := range strings.Split(string(output), "\n") {
 		key, value, ok := strings.Cut(line, "=")
 		if !ok {
@@ -192,7 +193,8 @@ func startUDPLab(t *testing.T) *udpLab {
 }
 
 // teardown runs the lab script in teardown mode and asserts zero residue:
-// no namespaces, no echo daemons and no work dir may survive.
+// no namespaces, no echo daemons and no work dir may survive. Each residue
+// check fails the owning test so a leak is caught and enforced, not only logged.
 func (l *udpLab) teardown() {
 	cmd := exec.Command("bash", l.script)
 	cmd.Env = append(os.Environ(),
@@ -204,18 +206,18 @@ func (l *udpLab) teardown() {
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "lab teardown failed: %v\n%s", err, output)
+		l.t.Errorf("lab teardown failed: %v\n%s", err, output)
 	}
 	namespaces, _ := exec.Command("ip", "netns", "list").CombinedOutput()
 	if strings.Contains(string(namespaces), l.prefix) {
-		fmt.Fprintf(os.Stderr, "lab namespace leaked after cleanup:\n%s", namespaces)
+		l.t.Errorf("lab namespace leaked after cleanup:\n%s", namespaces)
 	}
 	procs, _ := exec.Command("pgrep", "-af", "udp_echo.py").CombinedOutput()
 	if strings.Contains(string(procs), l.workDir) {
-		fmt.Fprintf(os.Stderr, "lab echo daemon leaked after cleanup:\n%s", procs)
+		l.t.Errorf("lab echo daemon leaked after cleanup:\n%s", procs)
 	}
 	if _, err := os.Stat(l.workDir); err == nil {
-		fmt.Fprintf(os.Stderr, "lab work dir leaked after cleanup: %s\n", l.workDir)
+		l.t.Errorf("lab work dir leaked after cleanup: %s", l.workDir)
 	}
 }
 

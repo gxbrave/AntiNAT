@@ -159,9 +159,12 @@ if __name__ == "__main__":
     main()
 PYEOF
 
-ip netns exec "$cpe_ns" python3 "$work_dir/udp_echo.py" "A:" "$echo_a_port" >"$work_dir/echo-a.log" 2>&1 &
+# The trailing argv[3] marker (ignored by udp_echo.py) puts the unique lab
+# prefix on the daemon cmdline so a leftover daemon can be detected by pgrep
+# even when the caller does not yet know the work dir (signal-interrupted setup).
+ip netns exec "$cpe_ns" python3 "$work_dir/udp_echo.py" "A:" "$echo_a_port" "$prefix" >"$work_dir/echo-a.log" 2>&1 &
 echo_a_pid=$!
-ip netns exec "$cpe_ns" python3 "$work_dir/udp_echo.py" "B:" "$echo_b_port" >"$work_dir/echo-b.log" 2>&1 &
+ip netns exec "$cpe_ns" python3 "$work_dir/udp_echo.py" "B:" "$echo_b_port" "$prefix" >"$work_dir/echo-b.log" 2>&1 &
 echo_b_pid=$!
 
 ready=0
