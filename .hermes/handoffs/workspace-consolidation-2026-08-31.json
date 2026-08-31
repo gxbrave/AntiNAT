@@ -1,0 +1,152 @@
+{
+  "schema_version": "workspace-consolidation/v1",
+  "recorded_date": "2026-08-31",
+  "authoritative_repository": "/root/Claude/AntiNAT/p12-integration",
+  "authoritative_baseline": {
+    "commit": "a3626376e707ffbdcdc142269dc2db6b03a2479c",
+    "tree": "59dec88f3249f08b76754d6d100d4ec726159f74",
+    "refs": [
+      "refs/heads/integration/P12-staging",
+      "refs/heads/integration/v1-beta"
+    ]
+  },
+  "historical_document_policy": {
+    "status": "PRESERVE_AS_HISTORICAL",
+    "scope": "/root/Claude/AntiNAT/AntiNAT historical August handoff and project-plan documents",
+    "current_status_authority": "docs/development/CURRENT_STATE.md",
+    "modified_by_consolidation": false
+  },
+  "plan_ledger": {
+    "P01-P12": "INTEGRATED",
+    "P04": {
+      "status": "INTEGRATED_PROVENANCE_RECONSTRUCTED",
+      "implementation_commit": "770d9af988b39d02dcdc607a71068cff31ef0a94",
+      "implementation_tree": "30d821c1d954780170d96330f7b7b1bae6a2ef28",
+      "evidence_completeness": "PARTIAL",
+      "record": ".hermes/handoffs/P04-integrated.json"
+    },
+    "P12": {
+      "status": "INTEGRATED_ACCEPTED",
+      "implementation_commit": "897a0f836b768296b5743f11ba32ad7ef15bce71",
+      "implementation_tree": "977d224184f13cb72faf32dc375b28220dfbe16b",
+      "acceptance_commit": "a3626376e707ffbdcdc142269dc2db6b03a2479c",
+      "m2": "PASS_WITH_DECLARED_LIMITS"
+    },
+    "P13": {
+      "status": "REVIEWED_NOT_INTEGRATED",
+      "branch": "ai/P13-udp-dataplane",
+      "final_tip": "8f56e973722ff378881806c11e658ee8c9d96136",
+      "final_tip_tree": "50b17468c0888bc43cd55c497ac8ca7165bd1cff",
+      "repaired_implementation": "f0cacd34c2d28a27a91411e6570c8f705bde927f",
+      "repaired_implementation_tree": "e4112a78017ce849a5b70758d7370788fa9760a2",
+      "reviews": "ALL_FOUR_ANGLES_PASS_WITH_REPAIR_DELTA_PASS",
+      "integration_performed": false,
+      "p13_integration_authorized": false
+    },
+    "P14-P19": "UNSTARTED"
+  },
+  "milestones": {
+    "M0": "TECHNICAL_GATE_ACHIEVED_PROVENANCE_RECONSTRUCTED_PARTIAL",
+    "M1": "PASS_LOCAL_WITH_DECLARED_LIMITS_NO_INDEPENDENT_WAN",
+    "M2": "PASS_WITH_DECLARED_LIMITS_LIBRARY_AND_LAB_SCOPE_PRODUCTION_WIRING_OPEN",
+    "M3": "NOT_REACHED",
+    "product_complete": "NOT_REACHED",
+    "platform_complete": "NOT_REACHED",
+    "v1_0_beta": "NOT_REACHED"
+  },
+  "p12_production_wiring_gap": {
+    "status": "OPEN",
+    "manager_instantiated_in_agent_composition": false,
+    "detector_instantiated_in_agent_composition": false,
+    "gateway_adapters_registered_in_agent_composition": false,
+    "same_source_stun_injected_into_production_manager": false,
+    "durable_bbolt_journal_adapter_present_and_wired": false,
+    "memory_journal_production_use": false,
+    "memory_journal_role": "in-memory test/lab implementation",
+    "closed_by_reviewed_p13_candidate": false,
+    "qualification": "P12 remains integrated and accepted for reviewed traversal libraries, lifecycle behavior, and declared lab evidence; gateway traversal is not yet reachable as a production Forward path through antinat-agent."
+  },
+  "preservation": {
+    "status": "COMPLETED",
+    "branch": "preservation/integration-v1-beta-dirty-20260831",
+    "commit": "bcb9cdba4835e5af39d79792f3209214dd39c8cd",
+    "tree": "459b8f947cb3d5a52fe856a9c277366eec2118ea",
+    "content_included_in_integration": false,
+    "dirty_source": {
+      "path": "/root/Claude/AntiNAT/p10-mainline",
+      "base_commit": "8611d1039dc650ec6de2ef7386120cd26c1141a3",
+      "base_tree": "cfcd62172460e4fdc24fdc3c0812a2b31324460f",
+      "modified_tracked_count": 19,
+      "untracked_count": 3
+    },
+    "authoritative_complete_archive": {
+      "path": "/root/Claude/AntiNAT/preservation-archive-20260831-complete.tar.gz",
+      "sha256": "756bf22f12e34a2f25f23e4e123fba182a33a31ad42bbb234631e7823310d2cc",
+      "verification_result": "OVERALL_PASS"
+    }
+  },
+  "cleanup": {
+    "preservation_status": "COMPLETED",
+    "bin_cleanup_status": "COMPLETED_EXPLICIT_USER_CONFIRMATION",
+    "exact_allowlist": [
+      "/root/Claude/AntiNAT/AntiNAT/bin/antinat-agent",
+      "/root/Claude/AntiNAT/AntiNAT/bin/antinat-controller",
+      "/root/Claude/AntiNAT/p12-integration/bin/antinat-agent",
+      "/root/Claude/AntiNAT/p12-integration/bin/antinat-controller"
+    ],
+    "deferred": [
+      "all worktrees and worktree registrations",
+      "all branches, refs, tags, stashes, reflogs, objects, and configs",
+      "dirty P10 content and protected legacy P10 candidate",
+      "P13 candidate and integration",
+      "all archives, checksums, extracted preservation inventories, and forensic material",
+      "historical August documents",
+      "all code, tests, contracts, plans, logs, orchestration data, and non-allowlisted ignored files"
+    ],
+    "removed_bytes_from_original_snapshot": 33278267,
+    "verification_regenerated_bytes_removed": 28464771,
+    "final_allowlisted_paths_absent": true,
+    "deletion_scope": "Only the four exact ignored generated binary files listed in exact_allowlist, after explicit user confirmation; make build reproduced the two canonical binaries and they were removed again under the same allowlist.",
+    "deletion_performed_by_consolidation": true
+  },
+  "machine_snapshot": {
+    "hostname": "hermes",
+    "os": "Ubuntu 24.04.3 LTS",
+    "kernel": "6.8.0-138-generic",
+    "architecture": "x86_64",
+    "git_version": "2.43.0",
+    "go_binary": "go1.22.2 linux/amd64",
+    "python_version": "3.12.3",
+    "registered_worktrees": 19,
+    "p13_integration_authorized": false,
+    "preservation_status": "COMPLETED",
+    "bin_cleanup_status": "COMPLETED",
+    "worktree_cleanup_status": "DEFERRED",
+    "archive_cleanup_status": "DEFERRED"
+  },
+  "evidence_limitations": [
+    "No independent public-WAN evidence for M1 or M2.",
+    "No real CPE/router inventory; P12 adapter evidence is Linux netns with coturn and miniupnpd.",
+    "No native Windows networking runtime evidence; cross-build evidence is compile-only.",
+    "No arm64/OpenRC platform completion, installer lifecycle, or exact release artifact evidence.",
+    "govulncheck was unavailable and recorded as skipped/unavailable, not PASS.",
+    "P12 crash-before-journal persistence and route/suspend live-acquisition gaps remain recovery/lifecycle inputs.",
+    "P04 reconstruction verifies Git identities, tree equivalence, ancestry to baseline, and current contract hashes, but does not independently replay every historical review/test claim."
+  ],
+  "stop_conditions": [
+    "Do not integrate P13 without explicit authorization and fresh exact-identity/integration checks.",
+    "Do not begin P14 without a named, reviewed owner for the P12 production-composition and durable-journal gap.",
+    "Stop on frozen-contract change or reinterpretation and use the contract-change process.",
+    "Stop on malformed/dishonest handoff, failed review, identity mismatch, contract-hash mismatch, or semantic integration conflict.",
+    "Do not exceed the exact four-file cleanup allowlist.",
+    "Do not touch code, refs, configs, worktrees, archives, dirty preserved content, or historical August documents under this consolidation authority.",
+    "Do not promote capability claims beyond available WAN/router/platform/runtime/release evidence."
+  ],
+  "next_decision": {
+    "p13": "Decide whether and when to authorize integration of exact reviewed tip 8f56e973722ff378881806c11e658ee8c9d96136.",
+    "p12_gap": "Assign Manager, Detector, gateway adapters, same-source STUN injection, durable bbolt JournalStore, recovery, and lifecycle composition to a reviewed pre-P14 follow-up or explicit P14 prerequisite.",
+    "already_decided": false
+  },
+  "release_performed": false,
+  "remote_push": "NONE"
+}

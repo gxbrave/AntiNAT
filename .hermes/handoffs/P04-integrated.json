@@ -1,0 +1,129 @@
+{
+  "schema_version": "P04-integrated-reconstructed/v1",
+  "label": "provenance reconstructed 2026-08-31",
+  "artifact_role": "post-hoc reconstruction of missing P04 integration provenance",
+  "plan": "P04",
+  "stage": "RECONSTRUCTED_PARTIAL_PROVENANCE",
+  "provenance_status": "PARTIAL",
+  "reconstructed_on": "2026-08-31",
+  "implementation_bytes_changed": false,
+  "source_record": {
+    "path": "/root/Claude/AntiNAT/AntiNAT/HANDOFF/provenance/P04-integrated.json",
+    "sha256": "ee4d01040f8908700e34117bf8e299fb59df42c0b99bef2c4b2ab54ca421bc9f",
+    "size_bytes": 22074,
+    "status": "VERIFIED",
+    "preserved_git_location": "bcb9cdba4835e5af39d79792f3209214dd39c8cd:.hermes/handoffs/P04-integrated.json",
+    "preserved_git_blob_sha": "f8615c2fe79563f9f6317124ae42e21b811e6a10",
+    "contemporaneous_at_integrated_commit": false,
+    "contemporaneous_status": "PARTIAL",
+    "note": "The source record is byte-verified and preserved by a later snapshot, but .hermes/handoffs/P04-integrated.json is absent from commit 770d9af988b39d02dcdc607a71068cff31ef0a94."
+  },
+  "branches": {
+    "integration_branch": "integration/v1-beta",
+    "candidate_branch": "ai/P04-contract-freeze",
+    "candidate_branch_current_tip": "7e0ac5810906fda266861bb586856a9ae594e9b1",
+    "candidate_branch_status": "VERIFIED",
+    "integration_branch_status": "VERIFIED_HISTORICAL_ANCESTRY",
+    "note": "integration/v1-beta has advanced, but 770d9af988b39d02dcdc607a71068cff31ef0a94 remains its ancestor."
+  },
+  "git_identity": {
+    "status": "VERIFIED",
+    "integrated_dependency_product_sha": "05b18b11438f7e657735cc71b8566cf58833aa3f",
+    "integration_base_sha": "8d8fba46d70027d270c09589007beb878b4e96c9",
+    "candidate_head_sha": "7e0ac5810906fda266861bb586856a9ae594e9b1",
+    "candidate_tree_sha": "30d821c1d954780170d96330f7b7b1bae6a2ef28",
+    "integrated_sha": "770d9af988b39d02dcdc607a71068cff31ef0a94",
+    "integrated_tree_sha": "30d821c1d954780170d96330f7b7b1bae6a2ef28",
+    "candidate_integrated_tree_equivalent": true,
+    "implementation_bytes_changed": false
+  },
+  "ancestry": {
+    "status": "VERIFIED",
+    "dependency_is_direct_parent_of_integration_base": true,
+    "integration_base_is_ancestor_of_candidate_head": true,
+    "integration_base_is_ancestor_of_integrated_sha": true,
+    "integrated_sha_is_ancestor_of_current_integration_branch": true,
+    "candidate_commit_count": 8,
+    "integrated_commit_count": 8
+  },
+  "source_to_integrated_commits": [
+    ["5ab6ac66b766dfae855e586de649e78ffc8f6ca8", "6a0ef2a5f811e88fc8765c820f21b87cc62b29ad"],
+    ["105c1e86925a5312a74e10d1b5f489bd46c5c591", "c836330a25de8ddb0e43257e2ba242b94510e8c4"],
+    ["f052c4f4ca97a92015e6044d2d40da329ab09713", "bef3c93e0e14fe89ddb51c70a21c6d9d4cf0a7f4"],
+    ["39ab12ca8bcc3de1485c6cb963065d36ccbb0754", "9716823e82164cb576a3747f88f482abfc31f101"],
+    ["af304d48f9f56a555ed06e31dd7388f9f76abc38", "959b59bb1bf64b5aecaaa7d1a668b99a051ae2e1"],
+    ["fb538a7b009e45581d2504f00d0225e29942cbef", "d9c06ccd2cf61bf1fd3729a51de924c83c6315a5"],
+    ["7812e78d22dc5852d9d0a3c24ababc936500a80b", "7964cc48e852c6920fdf8edc847154588d004ac1"],
+    ["7e0ac5810906fda266861bb586856a9ae594e9b1", "770d9af988b39d02dcdc607a71068cff31ef0a94"]
+  ],
+  "commit_mapping_verification": {
+    "status": "VERIFIED",
+    "all_pairs_have_identical_parent_relative_patches": true,
+    "all_pairs_have_identical_resulting_trees": true,
+    "all_pairs_have_identical_subjects": true
+  },
+  "changed_paths": {
+    "status": "VERIFIED",
+    "count": 153,
+    "unique_count": 153,
+    "all_status": "A",
+    "missing_from_source_inventory": [],
+    "extra_in_source_inventory": [],
+    "membership_matches_source_inventory": true,
+    "source_array_order_matches_git_diff_order": false,
+    "git_diff_name_only_sha256": "7f45d2b7ec4483ef5bd163809884eba70e5c47e55958f87bd43ee5d699f76a8e",
+    "aggregate_diff": "153 files changed, 8405 insertions(+)",
+    "note": "The source inventory has exact membership and no duplicates; ordering differences were not treated as a provenance failure."
+  },
+  "candidate_handoff": {
+    "status": "VERIFIED",
+    "historical_claimed_path": "/root/AntiNAT/.worktrees/t_13df6136/.hermes/handoffs/P04.json",
+    "current_observed_path": "/root/Claude/AntiNAT/AntiNAT/.worktrees/t_13df6136/.hermes/handoffs/P04.json",
+    "sha256": "a4330d248d7eddc5ae56cb1e3900af36a4a77e269cf1ef047d2ba7834f1c823b",
+    "worktree_branch": "ai/P04-contract-freeze",
+    "worktree_head_sha": "7e0ac5810906fda266861bb586856a9ae594e9b1",
+    "worktree_tree_sha": "30d821c1d954780170d96330f7b7b1bae6a2ef28",
+    "git_status": "UNTRACKED"
+  },
+  "contracts_verified": [
+    {"path": ".hermes/plans/v1-beta/00-master-orchestration.md", "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4", "status_at_integrated_sha": "VERIFIED", "status_in_current_worktree": "VERIFIED"},
+    {"path": ".hermes/plans/v1-beta/04-contract-freeze.md", "sha256": "7dcb77089374b2a45ba00b5532b53bfa4a1be368df15be7c9ee6c239d49a3968", "status_at_integrated_sha": "VERIFIED", "status_in_current_worktree": "VERIFIED"},
+    {"path": ".hermes/plans/2026-08-09_055007-antinat-v1-reviewed-execution-plan.md", "sha256": "5fb4216ae41c4fb77a757596274b9f8e1df6f32a81c399971b82e60c07527226", "status_at_integrated_sha": "VERIFIED", "status_in_current_worktree": "VERIFIED"},
+    {"path": ".hermes/handoffs/project-inputs.json", "sha256": "343a6c28876da36f5a386939bc4a66565f51f3a37345a878b593e13e1f6e7123", "status_at_integrated_sha": "VERIFIED", "status_in_current_worktree": "VERIFIED"},
+    {"path": ".hermes/handoffs/P02-integrated.json", "sha256": "b5b71c52e4017a6adc4552bd8ec47508329eab950d4603cc5d162c3d46e28885", "status_at_integrated_sha": "VERIFIED", "status_in_current_worktree": "VERIFIED"},
+    {"path": ".hermes/handoffs/P03-integrated.json", "sha256": "73c15650c063e0d309c8d0532bd3d68b5ba615a5a3d6b5b01b8a855f6c73f4ba", "status_at_integrated_sha": "VERIFIED", "status_in_current_worktree": "VERIFIED"},
+    {"path": "test/contracts/manifest.json", "sha256": "c300e1c883ca9aefd69f054827f9c8279fddeae140d330623d17b8477fe87121", "artifact_count": 136, "status_at_integrated_sha": "VERIFIED", "status_in_current_worktree": "VERIFIED"}
+  ],
+  "historical_claims": {
+    "status": "PARTIAL",
+    "reported_integration_outcome": "PASS",
+    "review_verdicts": "PARTIAL_NOT_INDEPENDENTLY_REPLAYED",
+    "test_executions": "PARTIAL_NOT_INDEPENDENTLY_RERUN",
+    "cleanup": "PARTIAL_NOT_INDEPENDENTLY_VERIFIED",
+    "conflicts": "PARTIAL_FINAL_HISTORY_IS_CONSISTENT_WITH_NONE_BUT_CONFLICT_ABSENCE_IS_NOT_PROVABLE_FROM_FINAL_COMMITS",
+    "worktree_preexisting_changes": "PARTIAL_NOT_RECONSTRUCTIBLE_FROM_COMMITTED_OBJECTS",
+    "provider_http_429_events": "PARTIAL_NOT_INDEPENDENTLY_VERIFIED",
+    "remote_push": "PARTIAL_REPORTED_FALSE_NOT_INDEPENDENTLY_VERIFIED",
+    "release_performed": "PARTIAL_REPORTED_FALSE_NOT_INDEPENDENTLY_VERIFIED"
+  },
+  "verification_summary": {
+    "git_objects": "PASS",
+    "ancestry": "PASS",
+    "commit_mapping": "PASS",
+    "tree_equivalence": "PASS",
+    "changed_path_membership": "PASS",
+    "contract_hashes": "PASS",
+    "candidate_handoff_hash": "PASS",
+    "historical_reviews_and_execution": "PARTIAL",
+    "overall": "PARTIAL"
+  },
+  "known_limits": [
+    "This is a post-hoc provenance reconstruction and was not present in the integrated tree at 770d9af988b39d02dcdc607a71068cff31ef0a94.",
+    "Git objects prove commit, ancestry, patch and tree relationships but do not independently prove historical test execution, review activity, cleanup, absence of conflicts, remote state or release activity.",
+    "The source changed-path array has exact membership but not the exact ordering emitted by current git diff --name-only.",
+    "The historical integration outcome remains reported PASS; this reconstruction verifies its Git and contract-byte foundation but does not replay every historical operational claim."
+  ],
+  "integration_status": "PARTIAL_PROVENANCE_RECONSTRUCTED",
+  "integration_performed": true,
+  "self_approval": false
+}
