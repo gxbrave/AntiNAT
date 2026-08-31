@@ -11,12 +11,14 @@
     "commit": "a3626376e707ffbdcdc142269dc2db6b03a2479c",
     "tree": "59dec88f3249f08b76754d6d100d4ec726159f74"
   },
-  "implementation_head": "04a66a5af1eb1b9924023a8fd65ce7c09c077751",
-  "implementation_tree": "2a4114ba3be110fa7fb84edab842f8c53ff9ab5f",
+  "implementation_head": "f0cacd34c2d28a27a91411e6570c8f705bde927f",
+  "implementation_tree": "e4112a78017ce849a5b70758d7370788fa9760a2",
   "metadata_tip": "e577d36d60a4d67d1c32f1a9ef2946ccbd5e0eb9",
   "metadata_tree": "f2d339994b42290ea3c28cd37bbfdbbcc0a72f2b",
-  "repair_cycle_head": "3026a2744fff77907d079bdb6936facd8983956b",
-  "repair_cycle_tree": "e5277c3370e25526f3b008faaf5ae2c72a0ca989",
+  "reviewed_four_angle_head": "3026a2744fff77907d079bdb6936facd8983956b",
+  "reviewed_four_angle_tree": "e5277c3370e25526f3b008faaf5ae2c72a0ca989",
+  "repair_cycle_head": "04a66a5af1eb1b9924023a8fd65ce7c09c077751",
+  "repair_cycle_tree": "2a4114ba3be110fa7fb84edab842f8c53ff9ab5f",
   "implementation_commits": [
     "575ad2d73a35631e86708949efdec62833421a26",
     "567f2c179878234e4a65dc300c0d17e04e59aa6a",
@@ -24,9 +26,10 @@
     "fc02feb1b40f3c496c9d0398e434a28f2f72da59",
     "3026a2744fff77907d079bdb6936facd8983956b",
     "fc1a3baf957e9b8dfa78ac8d29adc12525284239",
-    "04a66a5af1eb1b9924023a8fd65ce7c09c077751"
+    "04a66a5af1eb1b9924023a8fd65ce7c09c077751",
+    "f0cacd34c2d28a27a91411e6570c8f705bde927f"
   ],
-  "files_changed_count": 18,
+  "files_changed_count": 19,
   "files_changed_implementation": [
     "internal/forward/udp/forward.go",
     "internal/forward/udp/forward_test.go",
@@ -35,6 +38,7 @@
     "internal/forward/udp/read_windows.go",
     "internal/agent/app.go",
     "internal/agent/app_test.go",
+    "internal/agent/reconcile/probe_test.go",
     "internal/agent/reconcile/probe_udp.go",
     "internal/agent/reconcile/probe_udp_test.go",
     "internal/controller/probe/manager.go",
@@ -103,16 +107,26 @@
     "P13 wires UDP protocol through the existing P12 direct/manual/gateway composition interfaces; no new traversal adapter and no capability level changes.",
     "A pre-existing timing-sensitive internal/agent receipt test timed out only under full parallel race load and passes in isolation; it is unrelated to UDP changes and was recorded for the reviewers."
   ],
-  "review_status": "REPAIR_CYCLE_REVIEW_REQUIRED",
+  "review_status": "REVIEW_COMPLETE_ALL_ANGLES_PASS",
   "repair_cycle": {
-    "reason": "收尾修整（pre-integration tidy-up）resolved F3/F4/F5 from the four-angle review while preserving the reviewed base tree:",
+    "reason": "收尾修整（pre-integration tidy-up）resolved F3/F4/F5/FIND-1 from the four-angle and delta reviews:",
     "fixes": [
       "F5 fail-closed probe: HandleUDPProbe now returns Drop (consumed, no ACK, never forwarded to business) when replay capacity is full, recovery is in error, or the durable consume store call fails — symmetric with the TCP probe gate quarantine. RED test TestHandleUDPProbeReplayCapacityDropsFailClosed.",
       "F4 transport-change guard: dataPlane.apply hot-update rejects a same-ID Forward whose transport changed (delete/recreate required) instead of swapping the backend under the old socket. RED test TestDataPlaneHotUpdateRejectsTransportChange.",
-      "F3 teardown enforcement: normal UDP lab teardown residue checks now fail the owning test; the echo daemon carries the lab prefix as an ignored argv marker so signal-interrupted leak detection can match an orphaned cmdline."
+      "F3 teardown enforcement: normal UDP lab teardown residue checks now fail the owning test; the echo daemon carries the lab prefix as an ignored argv marker so signal-interrupted leak detection can match an orphaned cmdline.",
+      "FIND-1 (delta) go vet self-assignment in the F4 test fixed; vet re-recorded exit 0."
     ],
-    "review_required": true
+    "delta_reviews": {
+      "specification_ownership": "PASS",
+      "quality_security": "PASS",
+      "network_protocol": "PASS",
+      "lifecycle_integration": "PASS with FIND-1, resolved at close-out"
+    },
+    "review_required": false
   },
+  "accepted_deviations": [
+    "Quarantine-state probe drop: while recoveryErr is set, any well-formed WAN1-shaped datagram is consumed without ACK and never forwarded to business, even when it matches no outstanding operation. This is a deliberate fail-closed exception to Story 1 lookalike-fallthrough and is strictly weaker than the TCP ProbeGate, which rejects every inbound connection during the same quarantine state. Ordinary (non-WAN1-shaped) payloads are unaffected. Locked by test TestHandleUDPProbeQuarantineDropsProbeShapedFrames."
+  ],
   "review_records": [
     {
       "angle": "specification/ownership",
