@@ -1,0 +1,122 @@
+// P14 Story 4 (security layer): rotation certificate format, signature
+// verification against the pinned key, and the generation anti-downgrade rule.
+package security
+
+import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"testing"
+	"time"
+)
+
+// TestRotationCertificateSignVerifyRoundTrips proves a certificate signed by
+// the old key decodes and verifies against the old (pinned) public key.
+func TestRotationCertificateSignVerifyRoundTrips(t *testing.T) {
+	_, oldPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, newPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldPub := oldPriv.Public().(ed25519.PublicKey)
+	newPub := newPriv.Public().(ed25519.PublicKey)
+	now := time.Now().Unix()
+
+	cert := NewRotationCertificate("controller", oldPub, 1, rotationKeyID(oldPub),
+		newPub, 2, rotationKeyID(newPub), now, now+3600)
+	if err := signRotation(&cert, oldPriv); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := cert.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeRotationCertificate([]byte(raw), oldPub)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if decoded.NewKeyID != rotationKeyID(newPub) || decoded.NewGeneration != 2 {
+		t.Fatalf("decoded = %+v", decoded)
+	}
+	if decoded.OldKeyID != rotationKeyID(oldPub) {
+		t.Fatalf("decoded old id = %q", decoded.OldKeyID)
+	}
+}
+
+// TestRotationCertificateRejectsWrongSigner: a certificate signed by a third
+// key never verifies against the pinned key.
+func TestRotationCertificateRejectsWrongSigner(t *testing.T) {
+	_, oldPriv, _ := ed25519.GenerateKey(rand.Reader)
+	_, newPriv, _ := ed25519.GenerateKey(rand.Reader)
+	_, attackerPriv, _ := ed25519.GenerateKey(rand.Reader)
+	oldPub := oldPriv.Public().(ed25519.PublicKey)
+	newPub := newPriv.Public().(ed25519.PublicKey)
+	attackerPub := attackerPriv.Public().(ed25519.PublicKey)
+	now := time.Now().Unix()
+
+	// Attacker signs with its own key but claims to bind old -> new.
+	cert := NewRotationCertificate("controller", oldPub, 1, rotationKeyID(oldPub),
+		newPub, 2, rotationKeyID(newPub), now, now+3600)
+	if err := signRotation(&cert, attackerPriv); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := cert.Encode()
+	if _, err := DecodeRotationCertificate([]byte(raw), attackerPub); err == nil {
+		t.Fatal("attacker-signed cert verified against attacker's own key")
+	}
+	if _, err := DecodeRotationCertificate([]byte(raw), oldPub); err == nil {
+		t.Fatal("attacker-signed cert verified against the pinned key")
+	}
+}
+
+// TestRotationCertificateRejectsDowngrade: a certificate that keeps or lowers
+// the generation is refused (anti-downgrade).
+func TestRotationCertificateRejectsDowngrade(t *testing.T) {
+	_, oldPriv, _ := ed25519.GenerateKey(rand.Reader)
+	_, newPriv, _ := ed25519.GenerateKey(rand.Reader)
+	oldPub := oldPriv.Public().(ed25519.PublicKey)
+	newPub := newPriv.Public().(ed25519.PublicKey)
+	now := time.Now().Unix()
+
+	for _, newGen := range []uint64{1, 0} {
+		cert := NewRotationCertificate("controller", oldPub, 1, rotationKeyID(oldPub),
+			newPub, newGen, rotationKeyID(newPub), now, now+3600)
+		if err := signRotation(&cert, oldPriv); err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := cert.Encode()
+		if _, err := DecodeRotationCertificate([]byte(raw), oldPub); err == nil {
+			t.Fatalf("downgrade to generation %d accepted", newGen)
+		}
+	}
+}
+
+// TestRotationCertificateRejectsTamper: a bit flip in the new public key breaks
+// verification.
+func TestRotationCertificateRejectsTamper(t *testing.T) {
+	_, oldPriv, _ := ed25519.GenerateKey(rand.Reader)
+	_, newPriv, _ := ed25519.GenerateKey(rand.Reader)
+	oldPub := oldPriv.Public().(ed25519.PublicKey)
+	newPub := newPriv.Public().(ed25519.PublicKey)
+	now := time.Now().Unix()
+
+	cert := NewRotationCertificate("controller", oldPub, 1, rotationKeyID(oldPub),
+		newPub, 2, rotationKeyID(newPub), now, now+3600)
+	if err := signRotation(&cert, oldPriv); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := cert.Encode()
+	// Flip one bit of the signature payload in the raw transport.
+	tampered := []byte(raw)
+	for i := range tampered {
+		tampered[i] ^= 0x01
+		if i > 0 {
+			break
+		}
+	}
+	if _, err := DecodeRotationCertificate(tampered, oldPub); err == nil {
+		t.Fatal("tampered certificate accepted")
+	}
+}

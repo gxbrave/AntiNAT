@@ -959,9 +959,72 @@ func (a *App) handleCommand(ctx context.Context, op control.Operation) ([]byte, 
 		return a.applyProbeOutcome(op)
 	case "node_decommission":
 		return a.handleDecommission(ctx, op)
+	case "key_rotation_prepare":
+		return a.handleKeyRotationPrepare(ctx, op)
+	case "key_rotation_commit":
+		return a.handleKeyRotationCommit(ctx, op)
 	default:
 		return nil, fmt.Errorf("agent: unexpected command type %q", op.MessageType)
 	}
+}
+
+// handleKeyRotationPrepare verifies the controller key-rotation certificate
+// against the currently pinned key, fsyncs the successor pin (higher
+// generation, anti-downgrade), and ACKs so the controller can advance the
+// operation FSM. A stale-signer or downgrade certificate is refused fail
+// closed.
+func (a *App) handleKeyRotationPrepare(ctx context.Context, op control.Operation) ([]byte, error) {
+	if a.store == nil {
+		return nil, errors.New("agent: key rotation prepare requires localstate")
+	}
+	var msg struct {
+		Certificate string `json:"certificate"`
+		InstanceID  string `json:"controller_instance_id"`
+	}
+	if err := protocol.DecodeStrictJSONInto(op.Payload, &msg); err != nil {
+		return nil, fmt.Errorf("agent: key_rotation_prepare decode: %w", err)
+	}
+	var instanceID string
+	if msg.InstanceID != "" {
+		instanceID = msg.InstanceID
+	} else {
+		pins, err := a.store.ListControllerPins()
+		if err != nil {
+			return nil, err
+		}
+		if len(pins) != 1 {
+			return nil, fmt.Errorf("agent: cannot resolve pinned controller instance (found %d)", len(pins))
+		}
+		instanceID = pins[0].InstanceID
+	}
+	next, _, err := reconcile.AcceptControllerRotationPin(a.store, instanceID, []byte(msg.Certificate))
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(map[string]any{
+		"status": "pinned", "instance_id": instanceID,
+		"key_id": next.KeyID, "generation": next.Generation,
+	})
+}
+
+// handleKeyRotationCommit finalizes a controller rotation the agent already
+// pinned. It is an idempotent acknowledgment: the agent's durable pin was set
+// at prepare time, so the commit only confirms the controller may advance.
+func (a *App) handleKeyRotationCommit(ctx context.Context, op control.Operation) ([]byte, error) {
+	if a.store == nil {
+		return nil, errors.New("agent: key rotation commit requires localstate")
+	}
+	pins, err := a.store.ListControllerPins()
+	if err != nil {
+		return nil, err
+	}
+	if len(pins) != 1 {
+		return nil, fmt.Errorf("agent: cannot resolve pinned controller instance (found %d)", len(pins))
+	}
+	return json.Marshal(map[string]any{
+		"status": "committed", "instance_id": pins[0].InstanceID,
+		"generation": pins[0].Generation,
+	})
 }
 
 // decommissioner builds the terminal decommission driver over the app state.
@@ -988,12 +1051,12 @@ func (a *App) decommissioner() *reconcile.Decommissioner {
 // mapping+journal+listener, DECOMMISSIONED after cleanup, minimal ACK queued.
 func (a *App) handleDecommission(ctx context.Context, op control.Operation) ([]byte, error) {
 	var req struct {
-		NodeID             string   `json:"node_id"`
+		NodeID              string   `json:"node_id"`
 		DeletionOperationID string   `json:"deletion_operation_id"`
-		Force              bool     `json:"force"`
-		DeadlineUnix       int64    `json:"deadline_unix"`
-		AllowedKeyHashes   []string `json:"allowed_key_hashes"`
-		CredentialVersions []uint32 `json:"credential_versions"`
+		Force               bool     `json:"force"`
+		DeadlineUnix        int64    `json:"deadline_unix"`
+		AllowedKeyHashes    []string `json:"allowed_key_hashes"`
+		CredentialVersions  []uint32 `json:"credential_versions"`
 	}
 	if len(op.Payload) != 0 {
 		if err := protocol.DecodeStrictJSONInto(op.Payload, &req); err != nil {

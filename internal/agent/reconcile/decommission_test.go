@@ -193,7 +193,7 @@ func TestDecommissionDeadlineDropsSecrets(t *testing.T) {
 	})
 	req := DecommissionRequest{
 		NodeID: "node-1", OperationID: "decom-op-3",
-		DeadlineUnix:   time.Now().Unix() - 1, // already expired
+		DeadlineUnix:     time.Now().Unix() - 1, // already expired
 		AllowedKeyHashes: []string{"kid-old"},
 	}
 	if err := dc.Begin(context.Background(), req); err != nil {

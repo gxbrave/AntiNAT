@@ -67,7 +67,7 @@ func TestRecoveryEvacuatesOrphanedJournal(t *testing.T) {
 		ProfileStore:   profiles,
 		StunObserver:   obs.observe,
 		StunSource:     &p12wListenerSource{},
-		OnApplied: func(spec protocol.ForwardSpec, applied protocol.AppliedForwardState) {},
+		OnApplied:      func(spec protocol.ForwardSpec, applied protocol.AppliedForwardState) {},
 	})
 	defer func() { _ = d.closeAll(ctx) }()
 

@@ -153,7 +153,7 @@ func (d *Decommissioner) Complete(ctx context.Context, req DecommissionRequest) 
 	}
 	if err := d.store.WriteAgentCleanupTombstone(localstate.AgentCleanupTombstone{
 		OperationID: req.OperationID, NodeID: req.NodeID, Force: req.Force,
-		AllowedKeyHashes: append([]string(nil), req.AllowedKeyHashes...),
+		AllowedKeyHashes:   append([]string(nil), req.AllowedKeyHashes...),
 		CredentialVersions: append([]uint32(nil), req.CredentialVersions...),
 		CreatedAtUnix:      time.Now().Unix(),
 	}); err != nil {

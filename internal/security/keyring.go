@@ -27,8 +27,8 @@ const KeyringFile = "controller-signing.key"
 // maxSupportedGeneration is the highest keyring generation this build
 // understands. A file carrying a higher generation was written by a newer
 // AntiNAT build and load fails closed (mirrors the bbolt schema gate).
-// P14 rotation raises this bound.
-const maxSupportedGeneration uint64 = 1
+// P14 rotation raises the bound to support generation increments.
+const maxSupportedGeneration uint64 = 256
 
 // keyringMagic identifies the keyring file format.
 var keyringMagic = [4]byte{'A', 'N', 'K', 'C'}
@@ -118,6 +118,29 @@ func (k *Keyring) saveAtomic(path string) error {
 	blob = append(blob, g[:]...)
 	blob = append(blob, k.priv...)
 	return writeKeyFileAtomic(path, blob)
+}
+
+// Rotate writes a successor keyring at generation+1 atomically (same temp +
+// fsync + rename + parent-fsync pattern as the initial write) and returns the
+// new Keyring. The old Keyring remains the signer for the overlap window until
+// the rotation operation reaches RETIRED; the successor's public key is what
+// the signed rotation certificate binds.
+func (k *Keyring) Rotate(dir string) (*Keyring, error) {
+	if k.generation >= maxSupportedGeneration {
+		return nil, fmt.Errorf("security: keyring rotation beyond supported generation %d", maxSupportedGeneration)
+	}
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("security: rotate generate key: %w", err)
+	}
+	next := &Keyring{priv: priv, generation: k.generation + 1}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("security: rotation dir: %w", err)
+	}
+	if err := next.saveAtomic(filepath.Join(dir, KeyringFile)); err != nil {
+		return nil, fmt.Errorf("security: rotate persist keyring: %w", err)
+	}
+	return next, nil
 }
 
 // PublicKey returns the Controller signing public key.

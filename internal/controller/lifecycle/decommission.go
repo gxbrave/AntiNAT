@@ -24,10 +24,10 @@ type DecommissionRequest struct {
 
 // DecommissionResult reports the durable outcome.
 type DecommissionResult struct {
-	NodeID                string `json:"node_id"`
-	OperationID           string `json:"deletion_operation_id"`
-	Mode                  string `json:"mode"`
-	RemoteCleanupConfirmed bool  `json:"remote_cleanup_confirmed"`
+	NodeID                 string `json:"node_id"`
+	OperationID            string `json:"deletion_operation_id"`
+	Mode                   string `json:"mode"`
+	RemoteCleanupConfirmed bool   `json:"remote_cleanup_confirmed"`
 }
 
 // ForceDeleteNode is the controller-side force-delete lifecycle: it persists

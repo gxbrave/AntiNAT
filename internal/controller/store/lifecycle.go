@@ -18,15 +18,15 @@ import (
 // may never receive new desired/secrets; only a cleanup-only control session
 // (decommission ACK + heartbeat) is allowed.
 type NodeCleanupTombstone struct {
-	ID                    string
-	NodeID                string
-	OperationID           string
-	Force                 bool
+	ID                     string
+	NodeID                 string
+	OperationID            string
+	Force                  bool
 	RemoteCleanupConfirmed bool
-	AllowedKeyHashes      []string
-	CredentialVersions    []uint32
-	CreatedAt             int64
-	UpdatedAt             int64
+	AllowedKeyHashes       []string
+	CredentialVersions     []uint32
+	CreatedAt              int64
+	UpdatedAt              int64
 }
 
 // CreateNodeCleanupTombstone persists the cleanup tombstone for one node. The
@@ -255,13 +255,13 @@ func (s *Store) ListKeyRotationOperations() ([]KeyRotationOperation, error) {
 // RestoreOperation is the durable record of a Controller restore entering
 // RESTORE_RECONCILIATION (v0.8 §7.4).
 type RestoreOperation struct {
-	ID                  string
-	ControllerInstance  string
-	ManifestSHA256      string
-	SchemaVersion       int
-	Phase               string
-	CreatedAt           int64
-	UpdatedAt           int64
+	ID                 string
+	ControllerInstance string
+	ManifestSHA256     string
+	SchemaVersion      int
+	Phase              string
+	CreatedAt          int64
+	UpdatedAt          int64
 }
 
 // CreateRestoreOperation persists a restore row in RESTORE_RECONCILIATION.

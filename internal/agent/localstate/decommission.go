@@ -22,8 +22,8 @@ import (
 )
 
 var (
-	keyDecommissionIntent   = []byte("decommission-intent:")
-	keyCleanupTombstone     = []byte("cleanup-tombstone:")
+	keyDecommissionIntent = []byte("decommission-intent:")
+	keyCleanupTombstone   = []byte("cleanup-tombstone:")
 	// ErrDecommissionConflict rejects a second decommission intent whose
 	// operation identity differs from the durable one.
 	ErrDecommissionConflict = errors.New("localstate: decommission intent conflicts with persisted intent")
@@ -31,13 +31,13 @@ var (
 
 // DecommissionIntent is the durable intent recorded before any Forward stop.
 type DecommissionIntent struct {
-	OperationID       string   `json:"operation_id"`
-	NodeID            string   `json:"node_id"`
-	Force             bool     `json:"force,omitempty"`
-	DeadlineUnix      int64    `json:"deadline_unix,omitempty"`
-	AllowedKeyHashes  []string `json:"allowed_key_hashes,omitempty"`
+	OperationID        string   `json:"operation_id"`
+	NodeID             string   `json:"node_id"`
+	Force              bool     `json:"force,omitempty"`
+	DeadlineUnix       int64    `json:"deadline_unix,omitempty"`
+	AllowedKeyHashes   []string `json:"allowed_key_hashes,omitempty"`
 	CredentialVersions []uint32 `json:"credential_versions,omitempty"`
-	CreatedAtUnix     int64    `json:"created_at_unix"`
+	CreatedAtUnix      int64    `json:"created_at_unix"`
 }
 
 // AgentCleanupTombstone is the terminal cleanup fact for this node. It holds
@@ -45,12 +45,12 @@ type DecommissionIntent struct {
 // so a later enrollment/rotation can never re-admit a secret the decommission
 // cleared.
 type AgentCleanupTombstone struct {
-	OperationID       string   `json:"operation_id"`
-	NodeID            string   `json:"node_id"`
-	Force             bool     `json:"force,omitempty"`
-	AllowedKeyHashes  []string `json:"allowed_key_hashes,omitempty"`
+	OperationID        string   `json:"operation_id"`
+	NodeID             string   `json:"node_id"`
+	Force              bool     `json:"force,omitempty"`
+	AllowedKeyHashes   []string `json:"allowed_key_hashes,omitempty"`
 	CredentialVersions []uint32 `json:"credential_versions,omitempty"`
-	CreatedAtUnix     int64    `json:"created_at_unix"`
+	CreatedAtUnix      int64    `json:"created_at_unix"`
 }
 
 // PutDecommissionIntent persists the durable intent, refusing a different

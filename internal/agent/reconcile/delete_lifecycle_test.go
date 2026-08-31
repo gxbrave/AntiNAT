@@ -2,13 +2,13 @@
 // evacuation with adapter State decode.
 //
 // RED reasons captured:
-//  - TestEvacuateOrphanedJournalDecodesPCPState: EvacuateOrphanedJournals and
-//    DecodeJournalState do not exist yet (P12W intentionally left the adapter
-//    State decode to P14); the test cannot compile -> RED.
-//  - TestRefreshAppliedJournalRefSameRevision: Store.RefreshAppliedJournalRef
-//    does not exist -> RED.
-//  - TestForwardDeleteFenceKillMatrix: a focused kill-at-every-phase matrix
-//    did not exist; every resurrection vector must produce a durable rejection.
+//   - TestEvacuateOrphanedJournalDecodesPCPState: EvacuateOrphanedJournals and
+//     DecodeJournalState do not exist yet (P12W intentionally left the adapter
+//     State decode to P14); the test cannot compile -> RED.
+//   - TestRefreshAppliedJournalRefSameRevision: Store.RefreshAppliedJournalRef
+//     does not exist -> RED.
+//   - TestForwardDeleteFenceKillMatrix: a focused kill-at-every-phase matrix
+//     did not exist; every resurrection vector must produce a durable rejection.
 package reconcile
 
 import (
