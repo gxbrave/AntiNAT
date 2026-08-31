@@ -13,8 +13,9 @@
   },
   "implementation_head": "3026a2744fff77907d079bdb6936facd8983956b",
   "implementation_tree": "e5277c3370e25526f3b008faaf5ae2c72a0ca989",
-  "metadata_tip": "470ac95123b31520d268a4e3bf837bb90f674f00",
-  "metadata_tree": "c6309846b3db8be4770fedad696dfb94bb33744a",
+  "metadata_tip": "e577d36d60a4d67d1c32f1a9ef2946ccbd5e0eb9",
+  "metadata_tree": "f2d339994b42290ea3c28cd37bbfdbbcc0a72f2b",
+  "evidence_manifest_tree": "c6309846b3db8be4770fedad696dfb94bb33744a",
   "implementation_commits": [
     "575ad2d73a35631e86708949efdec62833421a26",
     "567f2c179878234e4a65dc300c0d17e04e59aa6a",
@@ -91,12 +92,44 @@
     "P13 wires UDP protocol through the existing P12 direct/manual/gateway composition interfaces; no new traversal adapter and no capability level changes.",
     "A pre-existing timing-sensitive internal/agent receipt test timed out only under full parallel race load and passes in isolation; it is unrelated to UDP changes and was recorded for the reviewers."
   ],
-  "review_status": "REVIEW_IN_PROGRESS",
+  "review_status": "REVIEW_COMPLETE_ALL_ANGLES_PASS",
+  "review_records": [
+    {
+      "angle": "specification/ownership",
+      "pinned_head": "3026a2744fff77907d079bdb6936facd8983956b",
+      "pinned_tree": "e5277c3370e25526f3b008faaf5ae2c72a0ca989",
+      "verdict": "PASS",
+      "summary": "All six Stories implemented with independently reproducible tests; no undeclared edits; frozen artifacts byte-identical; provider-request/v2 flagged as the nearest-to-contract operator-owned revision needing surfacing at integration."
+    },
+    {
+      "angle": "quality/security",
+      "pinned_head": "3026a2744fff77907d079bdb6936facd8983956b",
+      "pinned_tree": "e5277c3370e25526f3b008faaf5ae2c72a0ca989",
+      "verdict": "PASS",
+      "summary": "No HIGH or BLOCKING findings. Concurrency, resource accounting (zero after close), anti-amplification, probe full-match auth, provider v2 fail-closed transport, truncation and lifecycle verified clean. LOW/MODERATE notes: replay-capacity overflow/store-failure falls open to business path; replay tombstone lifetime bounded by receipt deadline; non-Linux full-buffer truncation heuristic; per-datagram transient copy not metered."
+    },
+    {
+      "angle": "network/protocol",
+      "pinned_head": "3026a2744fff77907d079bdb6936facd8983956b",
+      "pinned_tree": "e5277c3370e25526f3b008faaf5ae2c72a0ca989",
+      "verdict": "PASS",
+      "summary": "Frozen WAN1/ACK1/RCT1 bytes and transport-framing semantics unchanged; single ingress reader; strict full-match demux with lookalike fallthrough; transport is Controller-signed in provider-request/v2 canonical; unknown transport and tampering rejected before I/O; exact-source, ACK amplification and truncation correct; netns E2E drives production composition; Windows/native/real-WAN honesty preserved."
+    },
+    {
+      "angle": "lifecycle/integration",
+      "pinned_head": "3026a2744fff77907d079bdb6936facd8983956b",
+      "pinned_tree": "e5277c3370e25526f3b008faaf5ae2c72a0ca989",
+      "verdict": "PASS",
+      "summary": "Transport-neutral actor reuses Backend hot-update, SideEffectFence rollback, tombstone fences, cleanup retry and shutdown ordering; TCP unchanged; PortRegistry UDP lease preserves overlap/generation/stale-release atomicity; CloseContext joins all workers with zero accounting residue; netns cleanup/signal paths verified; candidate not self-integrated."
+    }
+  ],
   "review_dispositions": [
     "F1 (evidence durability): P13 evidence logs committed as repository blobs following the P10/P12 precedent.",
     "F2 (handoff precision): files_changed split into implementation (18) and metadata (handoff + evidence) lists.",
     "F3 (LOW, test robustness): normal-teardown residue checks report to stderr and only the signal-cleanup test enforces zero residue; the echo-daemon leak grep cannot match an orphaned python3 cmdline. Accepted as test-robustness notes; actual runs leave zero residue.",
-    "F4 (LOW, latent): apply hot-update does not guard a same-ID Forward whose protocol changed; the frozen reconcile domain never mutates an existing Forward's protocol. Accepted and noted for a future guard."
+    "F4 (LOW, latent): apply hot-update does not guard a same-ID Forward whose protocol changed; the frozen reconcile domain never mutates an existing Forward's protocol. Accepted and noted for a future guard.",
+    "F5 (LOW, probe fail-open edge): when replay capacity is full or a store failure occurs, a valid WAN1 is forwarded to the business path rather than dropped/quarantined. No ACK/authenticated material is produced and the probe outcome remains rejected; carries no amplification or oracle exposure.",
+    "F6 (informational): the provider request/result JSON schema maps remain unused by the strict decoder (P10 legacy); non-Linux full-buffer truncation heuristic and durable-ACK replay retransmission are accepted design-inherent behavior disclosed in known_limits."
   ],
   "integration_status": "NOT_PERFORMED",
   "integration_performed": false,
