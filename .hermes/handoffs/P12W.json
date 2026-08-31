@@ -398,5 +398,22 @@
       }
     ],
     "deviations": "none. Files changed: internal/agent/app.go, internal/agent/p12w_repair3_races_test.go, this handoff."
+  },
+  "integration_status": {
+    "integrated": false,
+    "integrated_onto": null,
+    "integrated_json_written": null,
+    "review_gate": {
+      "spec_ownership": "APPROVE (re-confirmed at 82ceec5; final head = 82ceec5)",
+      "quality_security": "APPROVE at 82ceec5 (after repair-3 closed the two blocking dataPlane.cfg races)",
+      "network_protocol": "PENDING \u2014 launched at 611f25e, verdict NOT captured before session end; MUST be re-run / re-verified at the final head 82ceec5 (repair-3 changed newStunOnlyActor and runDetection)"
+    },
+    "blocking_before_integration": [
+      "network/protocol review RE-RUN at 82ceec5 and APPROVE",
+      "any REQUEST_CHANGES from that review repaired in a bounded cycle and re-reviewed",
+      "full verification matrix re-recorded at the final head (all exit codes 0)"
+    ],
+    "handoff_doc": ".hermes/handoffs/P12W-development-session-handoff.md",
+    "notes": "Session ended by operator request mid-gate. The candidate is implemented and locally verified; 2/3 independent reviews approve; the third is outstanding. Do not start P14 or push to GitHub before the gate closes and P12W-integrated.json is written."
   }
 }
