@@ -2147,6 +2147,15 @@ func (d *dataPlane) runDetection(ctx context.Context) error {
 
 // acquisitionMetaFromAcquisition snapshots the acquisition evidence under the
 // acquisition's own renewal lock (CurrentMapping returns a locked copy).
+//
+// JournalID and Verdict are read WITHOUT renewMu. This is benign (repair R1
+// finding 9): Verdict is immutable — the acquire path assigns it once before
+// the Acquisition is returned and never reassigns it — and JournalID is
+// monotone "" -> stable, set to the confirmed record id by the first
+// successful journalPut and only ever reused by renewals (the renewal goroutine
+// rewrites the record's state/expiry fields, never the ID). The fields the
+// renewal goroutine DOES rewrite in place (Mapping, journalError) are read via
+// the locked CurrentMapping/CurrentJournalError accessors.
 func acquisitionMetaFromAcquisition(acq *traversal.Acquisition) acquisitionMeta {
 	meta := acquisitionMeta{
 		journalID: acq.JournalID,
@@ -2692,6 +2701,10 @@ func (d *dataPlane) replayJournalBoundaries() (replayJournalReport, error) {
 	liveRefs := make(map[string]string, len(d.forwards))
 	d.mu.Lock()
 	for id, actor := range d.forwards {
+		// JournalID is read without renewMu, like acquisitionMetaFromAcquisition:
+		// it is monotone "" -> stable (the first confirmed journalPut sets it once;
+		// renewals reuse, never rewrite, the ID), so the data-plane lock alone is
+		// enough to identify the live journal reference (repair R1 finding 9).
 		if actor != nil && actor.acq != nil && actor.acq.JournalID != "" {
 			liveRefs[id] = actor.acq.JournalID
 		}
