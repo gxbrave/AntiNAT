@@ -268,6 +268,7 @@ func New(cfg Config) (*App, error) {
 		PlainManager:   comp.plainManager,
 		GatewayManager: comp.gatewayManager,
 		Detector:       comp.detector,
+		Mappers:        comp.mappers,
 		Journal:        journal,
 		StunServers:    cfg.StunServers,
 		AutoOrder:      cfg.AutoOrder,
@@ -332,6 +333,11 @@ type traversalComposition struct {
 	plainManager   *traversal.Manager
 	gatewayManager *traversal.Manager
 	detector       *traversal.Detector
+	// mappers is the authoritative adapter set for P14 journal evacuation: the
+	// same adapters registered into the Managers/Detector, kept so an
+	// orphaned-mapping release dispatches the decoded State to the exact
+	// mechanism adapter that acquired it.
+	mappers map[traversal.MappingLayerKind]traversal.GatewayMapper
 }
 
 // composeTraversal builds the traversal Manager instances and Detector over
@@ -428,6 +434,9 @@ func (a *App) composeTraversal(cfg Config, st *localstate.Store, registry *trave
 		StunServers: cfg.StunServers,
 		StunObserve: tempObserve,
 	})
+	// The authoritative evacuation adapter set (P14 Story 1): one adapter per
+	// mechanism configured with the same gateway/interface the Managers use.
+	comp.mappers = newMappers()
 	return comp, nil
 }
 
@@ -449,6 +458,7 @@ func (a *App) rebuildTraversal() error {
 	a.dp.cfg.PlainManager = comp.plainManager
 	a.dp.cfg.GatewayManager = comp.gatewayManager
 	a.dp.cfg.Detector = comp.detector
+	a.dp.cfg.Mappers = comp.mappers
 	a.dp.cfg.StunObserver = comp.observer
 	a.dp.cfg.StunSource = stun.LeaseSource{Registry: comp.stunRegistry}
 	a.dp.compositionGeneration++
@@ -1496,6 +1506,9 @@ type dataPlaneConfig struct {
 	// Detector runs one-shot/periodic capability detection feeding the cached
 	// detection profile.
 	Detector *traversal.Detector
+	// Mappers is the authoritative gateway adapter set used by P14 journal
+	// evacuation to release orphaned mappings with the decoded adapter State.
+	Mappers map[traversal.MappingLayerKind]traversal.GatewayMapper
 	// Journal is the durable mapping journal (the store's mapping_journal).
 	Journal traversal.JournalStore
 	// StunServers are the configured stun+tcp:// endpoints; the first is the
@@ -2843,6 +2856,31 @@ func (d *dataPlane) stop(ctx context.Context, forwardID string) error {
 	return cleanupErr
 }
 
+// stopAll implements the decommission stop: every live/pending forward actor
+// is stopped through the same cleanup path as a deletion, so each forward's
+// listener and forwardLease (gateway mapping + journal record) die together.
+// It returns the joined cleanup error. The durable DECOMMISSIONING marker is
+// written BEFORE this runs (decommission.go), so no concurrent apply can start
+// a new actor while the stop-set is being captured.
+func (d *dataPlane) stopAll(ctx context.Context) error {
+	d.mu.Lock()
+	ids := make([]string, 0, len(d.forwards))
+	for id := range d.forwards {
+		ids = append(ids, id)
+	}
+	d.mu.Unlock()
+	for _, item := range d.cleanupActorsSnapshot() {
+		ids = append(ids, item.forwardID)
+	}
+	var stopErr error
+	for _, id := range ids {
+		if err := d.stop(ctx, id); err != nil {
+			stopErr = errors.Join(stopErr, err)
+		}
+	}
+	return stopErr
+}
+
 // recover reopens a listener for every durably applied PRESENT forward
 // (restart path, Story 6). The applied record contains the complete serving
 // spec and is the only target source used here. Received desired state may be
@@ -2862,6 +2900,9 @@ type recoverReport struct {
 	// Journal is the replayJournalBoundaries outcome for the durable mapping
 	// journal, surfaced on the production recovery path (Story 8 diagnostic).
 	Journal replayJournalReport
+	// Evacuation is the P14 orphaned-journal evacuation outcome (decoded
+	// releases + record deletions + same-revision applied-ref refresh).
+	Evacuation reconcile.EvacuationReport
 }
 
 // recoverQuarantine is one non-reopened applied forward and the truthful
@@ -2943,14 +2984,24 @@ func (d *dataPlane) recover(ctx context.Context) (recoverReport, error) {
 	// The journal replay boundary runs on the PRODUCTION recovery path (repair
 	// R1 finding 4): the durable journal is reconciled against the live
 	// acquisitions and the applied records, and the Superseded/Orphaned rows
-	// are surfaced through the same report. Records are never silently deleted
-	// (P14 evacuates with adapter State decode).
+	// are surfaced through the same report. P14 adds the authoritative
+	// evacuation: orphaned/superseded records are decoded and released through
+	// the owning gateway adapter, then deleted (applied/tombstone adjacency in
+	// one bbolt transaction). Records whose adapter State cannot be decoded are
+	// retained and surfaced — a live mapping is never released on a guess.
 	if d.cfg.Journal != nil {
 		journal, journalErr := d.replayJournalBoundaries()
 		if journalErr != nil {
 			return report, journalErr
 		}
 		report.Journal = journal
+		if d.cfg.Mappers != nil {
+			evac, evacErr := reconcile.EvacuateOrphanedJournals(ctx, d.cfg.Store, reconcile.MapperRegistry(d.cfg.Mappers))
+			if evacErr != nil {
+				return report, evacErr
+			}
+			report.Evacuation = evac
+		}
 	}
 	// The diagnostic hook fires on every pass (the report may be empty). The
 	// consumer (App/main) decides whether to surface anything, so a later pass
@@ -3167,6 +3218,13 @@ func (d *dataPlane) finishReopen(ctx context.Context, spec protocol.ForwardSpec,
 	d.mu.Unlock()
 	if d.cfg.OnApplied != nil {
 		d.cfg.OnApplied(spec, appliedStateForAcquisition(spec, lease.Tuple(), d.cfg.Clock, actor.meta))
+	}
+	// Same-revision LKG refresh (P14 ownership): a restart re-acquired the
+	// mapping under a NEW journal record; the durable applied row must point at
+	// the live record without moving SpecRevision so a later recovery never
+	// renews the superseded record and evacuation classifies the old one.
+	if d.cfg.Store != nil && actor.meta.journalID != "" {
+		_, _ = d.cfg.Store.RefreshAppliedJournalRef(spec.ForwardID, actor.meta.journalID)
 	}
 	return nil
 }
