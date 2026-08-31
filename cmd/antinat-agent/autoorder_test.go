@@ -20,10 +20,10 @@ func TestParseStrategyOrderRejectsAuto(t *testing.T) {
 
 func TestParseStrategyOrderTable(t *testing.T) {
 	cases := []struct {
-		name    string
-		order   string
-		want    []protocol.Strategy
-		reject  bool
+		name          string
+		order         string
+		want          []protocol.Strategy
+		reject        bool
 		rejectMention string
 	}{
 		{name: "empty is the default", order: "", want: nil},
@@ -38,21 +38,21 @@ func TestParseStrategyOrderTable(t *testing.T) {
 			want:  []protocol.Strategy{protocol.StrategyStunOnly},
 		},
 		{
-			name:    "unknown strategy rejected",
-			order:   "bogus",
-			reject:  true,
+			name:          "unknown strategy rejected",
+			order:         "bogus",
+			reject:        true,
 			rejectMention: "bogus",
 		},
 		{
-			name:    "manual-static rejected",
-			order:   "manual-static-v4,direct-v4",
-			reject:  true,
+			name:          "manual-static rejected",
+			order:         "manual-static-v4,direct-v4",
+			reject:        true,
 			rejectMention: "manual-static-v4",
 		},
 		{
-			name:    "literal auto rejected",
-			order:   "auto",
-			reject:  true,
+			name:          "literal auto rejected",
+			order:         "auto",
+			reject:        true,
 			rejectMention: "auto",
 		},
 	}
