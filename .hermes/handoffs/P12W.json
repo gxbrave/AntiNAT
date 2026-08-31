@@ -1,7 +1,7 @@
 {
   "plan": "P12W",
   "base_sha": "94e08603ca90cfa75a3a7a22b8da34016e9748d8",
-  "head_sha": "611f25e71c2f4ab72565f125868e6073d03aeef2",
+  "head_sha": "610cd352dffcfc0da699bb410f493a6e6f5486ab",
   "commits": [
     "agent: P12W S1 bbolt mapping journal store (TDD)",
     "agent: P12W S2 manager/detector/adapter wiring for gateway routes (TDD)",
@@ -28,7 +28,8 @@
     "c33838104351e6b9d2369ea2afc3b09c626a128b",
     "971eae248a4ffae63d168b3240a809ca14a26eda",
     "328f0bb7016d6d9c10ae2f2faa256a27d52d1e4d",
-    "611f25e71c2f4ab72565f125868e6073d03aeef2"
+    "611f25e71c2f4ab72565f125868e6073d03aeef2",
+    "610cd352dffcfc0da699bb410f493a6e6f5486ab"
   ],
   "files_changed": [
     "cmd/antinat-agent/autoorder_test.go",
@@ -53,7 +54,8 @@
     ".hermes/plans/v1-beta/12w-repair-1.md",
     "internal/agent/p12w_repair2_test.go",
     ".hermes/plans/v1-beta/12w-repair-2.md",
-    ".hermes/handoffs/P12W.json"
+    ".hermes/handoffs/P12W.json",
+    "internal/agent/p12w_repair3_races_test.go"
   ],
   "tests": [
     {
@@ -333,5 +335,68 @@
       "The repair-2 deletion-window fence closes lifecycle/probe events against a durable delete fence; the residual D5 callback-token replacement window (a trailing OnMapping* event satisfying a live replacement forward's mapped guard) is unchanged and still documented."
     ],
     "repair_2_head_note": "611f25e is the current HEAD: the handoff-record commit (hermes: record P12W repair-cycle-2 completion and verification) that writes P12W.json itself. The last IMPLEMENTATION commit is 328f0bb; 611f25e changes only .hermes/handoffs/P12W.json, so the code tree is identical."
+  },
+  "repair_cycle_3": {
+    "status": "IMPLEMENTED_AND_LOCALLY_VERIFIED_PENDING_FRESH_INDEPENDENT_REVIEW",
+    "trigger": "The quality/security review of repair-2 asked for changes: two genuine data races on the synchronized dataPlane.cfg, both pre-existing in the candidate but blocking integration.",
+    "head": "610cd352dffcfc0da699bb410f493a6e6f5486ab",
+    "commit": {
+      "sha": "610cd352dffcfc0da699bb410f493a6e6f5486ab",
+      "subject": "agent: P12W repair R3 fix the two dataPlane.cfg data races and harden closing-path release (TDD)"
+    },
+    "fixes": {
+      "R3f1": "newStunOnlyActor reads every traversal seam (StunServers/StunSource/StunObserver/RouteTable/ProbeMgr) from the ROUTE's synchronized composition snapshot (route.cfg) instead of live d.cfg, which rebuildTraversal re-publishes under dataPlane.mu. Race-free AND makes the generation fence semantically correct for stun-only. acquireViaManager likewise uses route.cfg.StunServers.",
+      "R3f2": "runDetection snapshots Detector+ProfileStore under dataPlane.mu before Run, instead of the unlocked d.cfg.Detector read that a DetectionInterval>0 pass racing a rebuild could tear.",
+      "R3f3": "apply and finishReopen closing-path post-acquisition releases now route through abandonAcquiredActor (detached bounded context) so a canceled caller ctx cannot strand a gateway mapping with no retry ownership (repair-2 finding 7, closing path).",
+      "R3f4": "Defensive comment on the unreachable same-ID existing-actor install branch (unreachable under per-ID op serialization)."
+    },
+    "proof": [
+      "Two -race oracle probes (p12w_repair3_races_test.go) interleave the review's exact goroutines (rebuild-style re-publish racing the stun-only acquire and the detection loop). Verified NON-VACUOUS: reverting R3f1 makes -race report the data race loudly; with the fix the probes are clean.",
+      "Focused P12W + repair + race-probe suite passes under -race count=5.",
+      "Full repo suite passed clean twice; full repo race clean (see verification; the single test/e2e TestLinuxDirectV4WalkingSkeleton timeout during the first full-race run repros to the documented parallel-race timing-flake class \u2014 it passes 3/3 in isolation under -race in ~1.6s each and the non-race suite passes clean)."
+    ],
+    "verification": [
+      {
+        "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1",
+        "exit_code": 0,
+        "summary": "full repo suite passed clean TWICE (transient first-run FAIL was the documented timing-flake class; immediate re-run clean)."
+      },
+      {
+        "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./... -count=1",
+        "exit_code": 0,
+        "summary": "full repo race clean on re-run. First run had one test/e2e TestLinuxDirectV4WalkingSkeleton timeout under full parallel race load; it passes 3/3 in isolation under -race (~1.6s each) and the non-race suite is clean twice \u2014 same parallel-race timing-flake class already documented for the receipt test."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/agent -run 'P12W|Repair|SameID|Abandon|CapabilityLoss|CleanupCompletion|GatewayCloseAll|MappingLifecycle|ProbeOutcome|StunOnlyAcquire|RunDetection|Strategy|Composition|Recovery|Lifecycle|HotUpdate' -race -count=5",
+        "exit_code": 0,
+        "summary": "focused P12W + repair-2 + repair-3 race x5 PASS."
+      },
+      {
+        "command": "GOWORK=off go test -race ./internal/agent -run 'TestDataPlaneStunOnlyAcquireConcurrentWithRebuildNoDataRace|TestDataPlaneRunDetectionConcurrentWithRebuildNoDataRace' -count=2",
+        "exit_code": 0,
+        "summary": "repair-3 race-oracle probes PASS; proven non-vacuous by a temporary revert that reproduced the data race under -race."
+      },
+      {
+        "command": "GOWORK=off go vet ./... && GOWORK=off go test ./test/contracts -run TestContractManifest -count=1",
+        "exit_code": 0,
+        "summary": "vet clean; frozen contract manifest PASS."
+      },
+      {
+        "command": "GOWORK=off go test -tags=netns ./test/integration -run 'TestTCPTraversal|TestAgentGatewayTraversal' -count=1",
+        "exit_code": 0,
+        "summary": "netns lab PASS (real miniupnpd+coturn; mappings verified from independent vantage)."
+      },
+      {
+        "command": "GOOS=windows GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/traversal/... ./internal/forward/... && GOOS=linux GOARCH=arm64 GOWORK=off go build ./cmd/... ./internal/traversal/... ./internal/forward/... && GOOS=darwin GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/traversal/... ./internal/forward/...",
+        "exit_code": 0,
+        "summary": "cross-builds PASS."
+      },
+      {
+        "command": "gofmt -l <all changed Go files> && git diff --check",
+        "exit_code": 0,
+        "summary": "gofmt clean; no whitespace errors."
+      }
+    ],
+    "deviations": "none. Files changed: internal/agent/app.go, internal/agent/p12w_repair3_races_test.go, this handoff."
   }
 }
