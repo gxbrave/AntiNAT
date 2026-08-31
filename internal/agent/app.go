@@ -16,6 +16,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,6 +32,10 @@ import (
 	"github.com/gxbrave/AntiNAT/internal/protocol"
 	"github.com/gxbrave/AntiNAT/internal/security"
 	"github.com/gxbrave/AntiNAT/internal/traversal"
+	"github.com/gxbrave/AntiNAT/internal/traversal/natpmp"
+	"github.com/gxbrave/AntiNAT/internal/traversal/pcp"
+	"github.com/gxbrave/AntiNAT/internal/traversal/stun"
+	"github.com/gxbrave/AntiNAT/internal/traversal/upnp"
 )
 
 // Config wires the agent app.
@@ -56,6 +62,14 @@ type Config struct {
 	// LivenessInterval controls route/interface capability polling. Zero uses
 	// a conservative default.
 	LivenessInterval time.Duration
+	// StunServers are the stun+tcp:// endpoints for the stun-only strategy and
+	// the same-tuple upstream observation on gateway forwards. Empty disables
+	// stun-only and the STUN layer.
+	StunServers []string
+	// AutoOrder is the node's declared auto strategy order. Empty uses the
+	// production default [explicit-gateway, direct-v4, stun-only]. manual-static
+	// is never auto-detected and never appears in the order.
+	AutoOrder []protocol.Strategy
 }
 
 // App is one composed agent process.
@@ -69,6 +83,17 @@ type App struct {
 	reconciler *reconcile.Reconciler
 	probeMgr   *reconcile.ProbeManager
 	dp         *dataPlane
+
+	// plainManager acquires direct-v4/manual-static TCP listeners through the
+	// agent-global PortRegistry (D1); gatewayManager acquires explicit-gateway
+	// TCP listeners through the shared-port registry with the same-tuple STUN
+	// observation seam (D1). detector runs one-shot/periodic capability
+	// detection feeding the cached detection profile.
+	plainManager   *traversal.Manager
+	gatewayManager *traversal.Manager
+	detector       *traversal.Detector
+	// profiles caches the latest detection profile (state-dir JSON file, D3).
+	profiles *profileStore
 
 	// activations tracks the orthogonal activation state machine per applied
 	// forward (Story 3). The map is guarded by dp.mu.
@@ -194,11 +219,93 @@ func New(cfg Config) (*App, error) {
 		ReceiptRetryInterval: 500 * time.Millisecond,
 	})
 
+	defaultOrder := []protocol.Strategy{
+		protocol.StrategyExplicitGateway, protocol.StrategyDirectV4, protocol.StrategyStunOnly,
+	}
+	if len(cfg.AutoOrder) == 0 {
+		cfg.AutoOrder = defaultOrder
+	}
+	// The traversal composition (P12W Stories 2/5): sensors, the shared
+	// socket-ownership registry, the shared durable mapping journal, two
+	// Manager instances (D1) and the Detector. The default-route gateway
+	// resolution may legitimately be absent (a node with no default route has
+	// no gateway to map); direct-v4 and manual-static remain usable so the
+	// agent starts and reports capability honestly.
+	journal := st.MappingJournal()
+	registry := traversal.NewPortRegistry()
+	stunRegistry := stun.NewSharedPortRegistry()
+	mappers := map[traversal.MappingLayerKind]traversal.GatewayMapper{}
+	if selection, selErr := traversal.DefaultRouteSource(cfg.RouteTable); selErr == nil {
+		if gateway := selection.DefaultRouteGateway; gateway.IsValid() {
+			mappers[traversal.LayerPCP] = pcp.NewAdapter(pcp.AdapterOptions{
+				Gateway: netip.AddrPortFrom(gateway, pcp.DefaultServerPort),
+			})
+			mappers[traversal.LayerNATPMP] = natpmp.NewAdapter(natpmp.AdapterOptions{
+				Gateway: netip.AddrPortFrom(gateway, natpmp.DefaultServerPort),
+			})
+		}
+		if source := selection.Source; source.IsValid() {
+			mappers[traversal.LayerUPnP] = upnp.NewAdapter(upnp.AdapterOptions{
+				InterfaceIP: source,
+			})
+		}
+	}
+	managerObserver := stun.NewManagerObserver()
+	a.plainManager = traversal.NewManager(traversal.ManagerOptions{
+		RouteTable:  cfg.RouteTable,
+		Listeners:   traversal.PortRegistrySource{Registry: registry},
+		Mappers:     mappers,
+		Journal:     journal,
+		Clock:       cfg.Clock,
+		StunObserve: managerObserver,
+	})
+	a.gatewayManager = traversal.NewManager(traversal.ManagerOptions{
+		RouteTable:  cfg.RouteTable,
+		Listeners:   stun.LeaseSource{Registry: stunRegistry},
+		Mappers:     mappers,
+		Journal:     journal,
+		Clock:       cfg.Clock,
+		StunObserve: managerObserver,
+	})
+	// The Detector's STUN seam is a temp-socket observation: it only proves
+	// the STUN server answers from a fresh tuple; every Forward observes
+	// independently from its own tuple through the manager.
+	tempObserve := func(ctx context.Context, server netip.AddrPort, timeout time.Duration) (netip.AddrPort, error) {
+		return managerObserver(ctx, traversal.StunObserveRequest{
+			Server: server,
+			Bind:   traversal.TupleKey{},
+			Dial: func(ctx context.Context, remote string) (net.Conn, error) {
+				var dialer net.Dialer
+				return dialer.DialContext(ctx, "tcp4", remote)
+			},
+			Timeout: timeout,
+		})
+	}
+	a.detector = traversal.NewDetector(traversal.DetectorOptions{
+		RouteTable:  cfg.RouteTable,
+		Mappers:     mappers,
+		Registry:    traversal.NewPortRegistry(),
+		AutoOrder:   cfg.AutoOrder,
+		StunServers: cfg.StunServers,
+		StunObserve: tempObserve,
+	})
+	a.profiles = newProfileStore(cfg.StateDir)
+
 	a.dp = newDataPlane(dataPlaneConfig{
-		Store:      st,
-		ProbeMgr:   a.probeMgr,
-		RouteTable: cfg.RouteTable,
-		Clock:      cfg.Clock,
+		Store:          st,
+		ProbeMgr:       a.probeMgr,
+		RouteTable:     cfg.RouteTable,
+		Clock:          cfg.Clock,
+		Registry:       registry,
+		PlainManager:   a.plainManager,
+		GatewayManager: a.gatewayManager,
+		Detector:       a.detector,
+		Journal:        journal,
+		StunServers:    cfg.StunServers,
+		AutoOrder:      cfg.AutoOrder,
+		ProfileStore:   a.profiles,
+		StunObserver:   managerObserver,
+		StunSource:     stun.LeaseSource{Registry: stunRegistry},
 		OnApplied: func(spec protocol.ForwardSpec, applied protocol.AppliedForwardState) {
 			a.onForwardApplied(spec, applied)
 		},
@@ -1058,9 +1165,11 @@ func (a *App) Shutdown(ctx context.Context) error {
 // Store exposes the agent localstate store (tests and status).
 func (a *App) Store() *localstate.Store { return a.store }
 
-// dataPlane is the P09 direct-v4 data plane owned by the app: it opens one
-// TCP listener per applied forward via the traversal PortRegistry, wraps it
-// in the probe gate, and proxies with the P09 tcp.Forward.
+// dataPlane is the composed P09/P12 data plane owned by the app: it opens one
+// TCP listener per applied forward either through the traversal PortRegistry
+// (direct-v4) or through the traversal Managers (manual-static on the plain
+// registry; explicit-gateway and stun-only through the shared-port seam),
+// wraps every listener in the probe gate, and proxies with the P09 tcp.Forward.
 var errDataPlaneClosing = errors.New("agent: data plane is closing")
 
 type dataPlane struct {
@@ -1098,11 +1207,88 @@ type dataPlaneConfig struct {
 	// OnCleanupError receives a cleanup error that remains retryable. It is
 	// informational; ownership stays in cleanupPending until a later drain.
 	OnCleanupError func(forwardID string, actor *forwardActor, err error)
+
+	// Registry is the agent-global socket-ownership table; nil allocates one.
+	Registry *traversal.PortRegistry
+	// PlainManager acquires direct-v4/manual-static TCP listeners through the
+	// plain PortRegistry (D1). nil disables the manager routes.
+	PlainManager *traversal.Manager
+	// GatewayManager acquires explicit-gateway TCP listeners through the
+	// shared-port registry + same-tuple STUN observer (D1). nil disables the
+	// gateway route.
+	GatewayManager *traversal.Manager
+	// Detector runs one-shot/periodic capability detection feeding the cached
+	// detection profile.
+	Detector *traversal.Detector
+	// Journal is the durable mapping journal (the store's mapping_journal).
+	Journal traversal.JournalStore
+	// StunServers are the configured stun+tcp:// endpoints; the first is the
+	// primary same-tuple STUN observation target for gateway forwards.
+	StunServers []string
+	// AutoOrder is the node's declared auto strategy order.
+	AutoOrder []protocol.Strategy
+	// ProfileStore caches the latest detection profile (state-dir JSON file).
+	ProfileStore *profileStore
+	// StunObserver is the same-tuple STUN observation seam used by the
+	// agent-side stun-only composer.
+	StunObserver traversal.StunObserveFunc
+	// StunSource is the shared-port listener source the stun-only composer
+	// acquires its tuple from (same-tuple dial capability).
+	StunSource traversal.ListenerSource
 }
 
-type socketLease interface {
+// forwardLease is the lease abstraction shared by direct, UDP and manager
+// acquisitions: one concrete bound tuple with a context-bounded release. The
+// adapter implementations close the exact resource each acquisition owns
+// (PortRegistry lease, UDP registry lease, or the manager Acquisition whose
+// release deletes the gateway mapping + journal record + shared-port listener).
+type forwardLease interface {
 	Tuple() traversal.TupleKey
-	Release() error
+	Release(context.Context) error
+}
+
+// registryLease adapts a direct-v4 PortRegistry Lease to forwardLease.
+type registryLease struct {
+	lease *traversal.Lease
+}
+
+func (l registryLease) Tuple() traversal.TupleKey { return l.lease.Tuple() }
+func (l registryLease) Release(context.Context) error {
+	return l.lease.Release()
+}
+
+// udpRegistryLease adapts a UDP PortRegistry lease to forwardLease.
+type udpRegistryLease struct {
+	lease *traversal.UDPLease
+}
+
+func (l udpRegistryLease) Tuple() traversal.TupleKey { return l.lease.Tuple() }
+func (l udpRegistryLease) Release(context.Context) error {
+	return l.lease.Release()
+}
+
+// acquisitionLease adapts a traversal.Acquisition (gateway/manual) to
+// forwardLease: Release deletes the gateway mapping per ownership strength,
+// the journal record and the shared-port listener.
+type acquisitionLease struct {
+	acq *traversal.Acquisition
+}
+
+func (l acquisitionLease) Tuple() traversal.TupleKey { return l.acq.Bind }
+func (l acquisitionLease) Release(ctx context.Context) error {
+	return l.acq.Release(ctx)
+}
+
+// acquisitionMeta is the applied-state evidence captured from a manager
+// acquisition at apply time. The acquisition's renewal goroutine rewrites its
+// Mapping in place, so the snapshot is taken under CurrentMapping/Verdict.
+type acquisitionMeta struct {
+	journalID           string
+	mechanism           traversal.MappingLayerKind
+	ownership           traversal.OwnershipStrength
+	assignedGatewayPort uint16
+	publicPort          uint16
+	verdict             traversal.PipelineVerdict
 }
 
 type forwardLifecycle interface {
@@ -1111,10 +1297,21 @@ type forwardLifecycle interface {
 }
 
 type forwardActor struct {
-	lease   socketLease
+	lease   forwardLease
 	fwd     forwardLifecycle
 	backend *forward.Backend
 	stop    context.CancelFunc
+
+	// strategy is the concrete strategy this actor was acquired under. A
+	// same-ID hot update must not silently change it (fail closed mirror of
+	// the transport-change rule). Guarded by dataPlane.mu.
+	strategy protocol.Strategy
+	// meta is the acquisition evidence snapshot (gateway/manual/stun-only).
+	meta acquisitionMeta
+	// acq is the live manager acquisition for gateway/manual forwards; the
+	// data-plane supervisor and lifecycle handlers read its CurrentMapping
+	// under the acquisition's own renewal lock.
+	acq *traversal.Acquisition
 
 	// updateFence identifies the current actor incarnation and target mutation.
 	// It is guarded by dataPlane.mu and is compared by rollback before any
@@ -1146,8 +1343,12 @@ func newDataPlane(cfg dataPlaneConfig) *dataPlane {
 	fingerprint, fingerprintErr := traversal.Fingerprint(cfg.RouteTable)
 	_, capability, assessErr := traversal.Assess(cfg.RouteTable)
 	capabilityReady := assessErr == nil && fingerprintErr == nil && capability == traversal.CapabilityDirectV4Ready
+	registry := cfg.Registry
+	if registry == nil {
+		registry = traversal.NewPortRegistry()
+	}
 	return &dataPlane{
-		cfg: cfg, registry: traversal.NewPortRegistry(), forwards: make(map[string]*forwardActor),
+		cfg: cfg, registry: registry, forwards: make(map[string]*forwardActor),
 		cleanupPending: make(map[string]*forwardActor), cleanupExtras: make(map[*forwardActor]string),
 		deletedNotified: make(map[string]bool),
 		capabilityReady: capabilityReady, capabilityFingerprint: fingerprint,
@@ -1393,7 +1594,7 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 		if fence := reconcile.SideEffectFenceFromContext(ctx); fence != nil {
 			fence.SetValue(actor.updateFenceToken(actor.updateSeq))
 		}
-		st := appliedState(spec, actor.lease.Tuple(), d.cfg.Clock)
+		st := appliedStateForAcquisition(spec, actor.lease.Tuple(), d.cfg.Clock, actor.meta)
 		onApplied := d.cfg.OnApplied
 		d.mu.Unlock()
 		if onApplied != nil {
@@ -1419,32 +1620,27 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 		return protocol.AppliedForwardState{}, fenceErr
 	}
 
-	if spec.Strategy != protocol.StrategyDirectV4 {
-		d.mu.Unlock()
-		return protocol.AppliedForwardState{}, fmt.Errorf("agent: strategy %q not supported by the M1 data plane", spec.Strategy)
-	}
-	sel, capability, assessErr := traversal.Assess(d.cfg.RouteTable)
-	if assessErr != nil || capability != traversal.CapabilityDirectV4Ready {
-		d.mu.Unlock()
-		return protocol.AppliedForwardState{}, traversal.NewCapabilityError(capability, assessErr)
-	}
-	actor, err := d.newForwardActor(ctx, spec, sel.Source.String(), spec.RequestedLocalPort)
+	// The strategy router is inside newForwardActor: direct-v4 stays on the
+	// inline PortRegistry path (byte-identical); manual-static, explicit-gateway
+	// and stun-only resolve through the Managers / shared-port composer.
+	actor, err := d.newForwardActor(ctx, spec, "", spec.RequestedLocalPort)
 	if err != nil {
 		d.mu.Unlock()
 		return protocol.AppliedForwardState{}, err
 	}
 	lease := actor.lease
-	// The delete fence can be installed while the OS listener is being
-	// acquired. Re-check before constructing and publishing the actor, and
-	// release the lease if deletion won the race.
+	// The delete fence can be installed while the listener (and possibly the
+	// gateway mapping) is being acquired. Re-check before constructing and
+	// publishing the actor, and release the acquisition if deletion won the
+	// race — Release deletes the mapping + journal record + listener.
 	pendingDelete, tombstoned, err = readForwardDeleteFence(d.cfg.Store, spec.ForwardID)
 	if err != nil {
-		_ = lease.Release()
+		_ = lease.Release(ctx)
 		d.mu.Unlock()
 		return protocol.AppliedForwardState{}, fmt.Errorf("agent: forward %q delete fence: %w", spec.ForwardID, err)
 	}
 	if fenceErr := forwardDeleteFenceError(spec.ForwardID, pendingDelete, tombstoned); fenceErr != nil {
-		_ = lease.Release()
+		_ = lease.Release(ctx)
 		d.mu.Unlock()
 		return protocol.AppliedForwardState{}, fenceErr
 	}
@@ -1457,20 +1653,20 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 	if err != nil {
 		cancel()
 		_ = actor.fwd.CloseContext(context.Background())
-		_ = lease.Release()
+		_ = lease.Release(ctx)
 		d.mu.Unlock()
 		return protocol.AppliedForwardState{}, fmt.Errorf("agent: forward %q delete fence: %w", spec.ForwardID, err)
 	}
 	if fenceErr := forwardDeleteFenceError(spec.ForwardID, pendingDelete, tombstoned); fenceErr != nil {
 		cancel()
 		_ = actor.fwd.CloseContext(context.Background())
-		_ = lease.Release()
+		_ = lease.Release(ctx)
 		d.mu.Unlock()
 		return protocol.AppliedForwardState{}, fenceErr
 	}
 	d.forwards[spec.ForwardID] = actor
 	d.startForwardSupervisor(runCtx, spec.ForwardID, actor)
-	st := appliedState(spec, lease.Tuple(), d.cfg.Clock)
+	st := appliedStateForAcquisition(spec, lease.Tuple(), d.cfg.Clock, actor.meta)
 	onApplied := d.cfg.OnApplied
 	d.mu.Unlock()
 	if onApplied != nil {
@@ -1485,62 +1681,276 @@ func (d *dataPlane) newForwardActor(ctx context.Context, spec protocol.ForwardSp
 		return nil, err
 	}
 	key := traversal.TupleKey{Address: address, Port: port, Family: "ipv4", Protocol: string(spec.Protocol)}
-	switch spec.Protocol {
-	case protocol.ProtocolTCP:
-		lease, err := d.registry.Acquire(ctx, spec.ForwardID, key)
-		if err != nil {
-			return nil, err
-		}
-		gate := reconcile.NewProbeGate(lease.Listener, d.cfg.ProbeMgr, reconcile.ProbeGateOptions{ForwardID: spec.ForwardID, ReadTimeout: 2 * time.Second})
-		fwd, err := tcp.New(gate, tcp.Options{Backend: backend, DialTimeout: 5 * time.Second})
-		if err != nil {
-			_ = lease.Release()
-			return nil, err
-		}
-		return &forwardActor{lease: lease, fwd: fwd, backend: backend, updateFence: reconcile.NewSideEffectFence()}, nil
-	case protocol.ProtocolUDP:
-		lease, err := d.registry.AcquireUDP(ctx, spec.ForwardID, key)
-		if err != nil {
-			return nil, err
-		}
-		// One socket-independent classifier routes full-match WAN1 probes through
-		// the existing durable ProbeManager; the single ingress reader owns the
-		// ACK write and only then marks ACK/receipt transport delivery.
-		probeMgr := d.cfg.ProbeMgr
-		classifier := udpforward.ClassifierFunc(func(p udpforward.Packet) udpforward.Classification {
-			if probeMgr == nil {
-				return udpforward.Classification{}
-			}
-			res := probeMgr.HandleUDPProbe(spec.ForwardID, p.Source, p.Data)
-			if res.Drop {
-				// Full-match control datagram that cannot be processed safely:
-				// consume it silently, never forward to the business backend.
-				return udpforward.Classification{Matched: true}
-			}
-			if !res.Matched {
-				return udpforward.Classification{}
-			}
-			return udpforward.Classification{
-				Matched: true,
-				Reply:   res.ACK,
-				OnReply: func(err error) {
-					if err != nil {
-						return
-					}
-					_ = probeMgr.MarkUDPProbeACKSent(res.ProbeID)
-					probeMgr.SendUDPProbeReceipt(res)
-				},
-			}
-		})
-		fwd, err := udpforward.New(lease.Conn, udpforward.Options{Backend: backend, DialTimeout: 5 * time.Second, Classifiers: []udpforward.Classifier{classifier}})
-		if err != nil {
-			_ = lease.Release()
-			return nil, err
-		}
-		return &forwardActor{lease: lease, fwd: fwd, backend: backend, updateFence: reconcile.NewSideEffectFence()}, nil
-	default:
-		return nil, fmt.Errorf("agent: protocol %q not supported by direct-v4 data plane", spec.Protocol)
+	if spec.Protocol == protocol.ProtocolUDP {
+		// UDP is always the P09 direct path (P13); the strategy label is
+		// asserted in the applied record but the socket is the registry's.
+		return d.newUDPActor(ctx, spec, backend, key)
 	}
+	route, err := d.resolveForwardRoute(spec)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case route.isGateway:
+		return d.newGatewayActor(ctx, spec, backend, route)
+	case route.stunOnly:
+		return d.newStunOnlyActor(ctx, spec, backend, route)
+	case route.plan.Strategy == protocol.StrategyManualStaticV4:
+		return d.newManualActor(ctx, spec, backend, route)
+	default:
+		return d.newDirectActor(ctx, spec, backend, key)
+	}
+}
+
+// newDirectActor is the byte-identical direct-v4 inline path: the listener is
+// acquired from the agent-global PortRegistry on the global source (the
+// caller resolves it when address is empty, matching the composed apply
+// routing; tests bind a concrete tuple directly).
+func (d *dataPlane) newDirectActor(ctx context.Context, spec protocol.ForwardSpec, backend *forward.Backend, key traversal.TupleKey) (*forwardActor, error) {
+	if key.Address == "" {
+		sel, capability, assessErr := traversal.Assess(d.cfg.RouteTable)
+		if assessErr != nil || capability != traversal.CapabilityDirectV4Ready {
+			return nil, traversal.NewCapabilityError(capability, assessErr)
+		}
+		key.Address = sel.Source.String()
+	}
+	lease, err := d.registry.Acquire(ctx, spec.ForwardID, key)
+	if err != nil {
+		return nil, err
+	}
+	gate := reconcile.NewProbeGate(lease.Listener, d.cfg.ProbeMgr, reconcile.ProbeGateOptions{ForwardID: spec.ForwardID, ReadTimeout: 2 * time.Second})
+	fwd, err := tcp.New(gate, tcp.Options{Backend: backend, DialTimeout: 5 * time.Second})
+	if err != nil {
+		_ = lease.Release()
+		return nil, err
+	}
+	return &forwardActor{lease: registryLease{lease: lease}, fwd: fwd, backend: backend,
+		updateFence: reconcile.NewSideEffectFence(), strategy: protocol.StrategyDirectV4}, nil
+}
+
+// newManualActor acquires the manual-static plan through the plain Manager:
+// the listener binds the wildcard and the operator-declared endpoint is the
+// candidate.
+func (d *dataPlane) newManualActor(ctx context.Context, spec protocol.ForwardSpec, backend *forward.Backend, route forwardRoute) (*forwardActor, error) {
+	acq, err := d.acquireViaManager(ctx, spec, route)
+	if err != nil {
+		return nil, err
+	}
+	meta := acquisitionMetaFromAcquisition(acq)
+	fwd, err := tcp.New(reconcile.NewProbeGate(acq.Listener, d.cfg.ProbeMgr, reconcile.ProbeGateOptions{ForwardID: spec.ForwardID, ReadTimeout: 2 * time.Second}), tcp.Options{Backend: backend, DialTimeout: 5 * time.Second})
+	if err != nil {
+		_ = acq.Release(context.Background())
+		return nil, err
+	}
+	return &forwardActor{lease: acquisitionLease{acq: acq}, fwd: fwd, backend: backend,
+		updateFence: reconcile.NewSideEffectFence(), strategy: protocol.StrategyManualStaticV4, meta: meta, acq: acq}, nil
+}
+
+// newGatewayActor acquires the explicit-gateway plan through the shared-port
+// gateway Manager: the acquisition carries the mapping ownership, the STUN
+// layer and the durable journal reference.
+func (d *dataPlane) newGatewayActor(ctx context.Context, spec protocol.ForwardSpec, backend *forward.Backend, route forwardRoute) (*forwardActor, error) {
+	acq, err := d.acquireViaManager(ctx, spec, route)
+	if err != nil {
+		return nil, err
+	}
+	meta := acquisitionMetaFromAcquisition(acq)
+	fwd, err := tcp.New(reconcile.NewProbeGate(acq.Listener, d.cfg.ProbeMgr, reconcile.ProbeGateOptions{ForwardID: spec.ForwardID, ReadTimeout: 2 * time.Second}), tcp.Options{Backend: backend, DialTimeout: 5 * time.Second})
+	if err != nil {
+		_ = acq.Release(context.Background())
+		return nil, err
+	}
+	return &forwardActor{lease: acquisitionLease{acq: acq}, fwd: fwd, backend: backend,
+		updateFence: reconcile.NewSideEffectFence(), strategy: protocol.StrategyExplicitGateway, meta: meta, acq: acq}, nil
+}
+
+// newStunOnlyActor is the agent-side stun-only composer: it acquires a
+// shared-port listener on the default-route source and observes the same tuple
+// via STUN, without any gateway control. The applied endpoint is the observed
+// one; there is no journal record and no renewal (nothing to renew).
+func (d *dataPlane) newStunOnlyActor(ctx context.Context, spec protocol.ForwardSpec, backend *forward.Backend, route forwardRoute) (*forwardActor, error) {
+	_ = route
+	if d.cfg.StunServers == nil || len(d.cfg.StunServers) == 0 {
+		return nil, errNoStunServer
+	}
+	if d.cfg.StunSource == nil || d.cfg.StunObserver == nil {
+		return nil, errors.New("agent: stun-only requires the shared-port listener source and observer")
+	}
+	server, err := parseStunEndpoint(firstStunServer(d.cfg.StunServers))
+	if err != nil {
+		return nil, err
+	}
+	sameTuple, ok := d.cfg.StunSource.(traversal.SameTupleDialer)
+	if !ok {
+		return nil, errors.New("agent: stun-only requires a same-tuple-capable listener source")
+	}
+	sel, err := traversal.DefaultRouteSource(d.cfg.RouteTable)
+	if err != nil {
+		return nil, fmt.Errorf("agent: stun-only source: %w", err)
+	}
+	listener, actual, release, err := d.cfg.StunSource.Acquire(ctx, spec.ForwardID, traversal.TupleKey{
+		Family: "ipv4", Protocol: "tcp", Address: sel.Source.String(), Port: spec.RequestedLocalPort,
+	})
+	if err != nil {
+		return nil, err
+	}
+	observed, err := d.cfg.StunObserver(ctx, traversal.StunObserveRequest{
+		Server: server,
+		Bind:   actual,
+		Dial: func(ctx context.Context, remote string) (net.Conn, error) {
+			return sameTuple.DialFrom(ctx, actual, remote)
+		},
+		Timeout: 5 * time.Second,
+	})
+	if err != nil {
+		_ = release()
+		return nil, fmt.Errorf("agent: stun-only observation: %w", err)
+	}
+	verdict, err := traversal.EvaluateLayers([]traversal.LayerEvidence{{
+		Kind:             traversal.LayerKindSTUN,
+		ControlServer:    firstStunServer(d.cfg.StunServers),
+		InternalEndpoint: netip.AddrPortFrom(sel.Source, actual.Port).String(),
+		AssignedEndpoint: observed.String(),
+		Scope:            scopeForStun(observed.Addr()),
+		Ownership:        traversal.OwnershipObservedOnly,
+		ParentLayer:      -1,
+	}}, traversal.PortPolicyAcceptAssigned)
+	if err != nil {
+		_ = release()
+		return nil, err
+	}
+	fwd, err := tcp.New(reconcile.NewProbeGate(listener, d.cfg.ProbeMgr, reconcile.ProbeGateOptions{ForwardID: spec.ForwardID, ReadTimeout: 2 * time.Second}), tcp.Options{Backend: backend, DialTimeout: 5 * time.Second})
+	if err != nil {
+		_ = release()
+		return nil, err
+	}
+	return &forwardActor{
+		lease:       listenerReleaseLease{tuple: actual, release: release},
+		fwd:         fwd,
+		backend:     backend,
+		updateFence: reconcile.NewSideEffectFence(),
+		strategy:    protocol.StrategyStunOnly,
+		meta: acquisitionMeta{
+			verdict:    verdict,
+			publicPort: verdict.Candidate.Port(),
+		},
+	}, nil
+}
+
+// listenerReleaseLease adapts a raw ListenerSource acquisition (the stun-only
+// shared-port listener) to forwardLease.
+type listenerReleaseLease struct {
+	tuple   traversal.TupleKey
+	release func() error
+}
+
+func (l listenerReleaseLease) Tuple() traversal.TupleKey { return l.tuple }
+func (l listenerReleaseLease) Release(context.Context) error {
+	return l.release()
+}
+
+// parseStunEndpoint parses the stun+tcp://host:port config form.
+func parseStunEndpoint(server string) (netip.AddrPort, error) {
+	rest, ok := strings.CutPrefix(server, "stun+tcp://")
+	if !ok {
+		return netip.AddrPort{}, fmt.Errorf("agent: STUN server %q is not stun+tcp://", server)
+	}
+	addrPort, err := netip.ParseAddrPort(rest)
+	if err != nil {
+		return netip.AddrPort{}, fmt.Errorf("agent: STUN server %q: %w", server, err)
+	}
+	return netip.AddrPortFrom(addrPort.Addr().Unmap(), addrPort.Port()), nil
+}
+
+// scopeForStun classifies an observed STUN endpoint's scope.
+func scopeForStun(addr netip.Addr) traversal.EndpointScope {
+	if traversal.IsGlobalV4(addr) {
+		return traversal.ScopeGlobalPublic
+	}
+	return traversal.ScopeFirstHop
+}
+
+// acquireViaManager runs one manager acquisition and wraps its errors in the
+// forward context.
+func (d *dataPlane) acquireViaManager(ctx context.Context, spec protocol.ForwardSpec, route forwardRoute) (*traversal.Acquisition, error) {
+	acq, err := route.manager.Acquire(ctx, traversal.AcquireRequest{
+		ForwardID:  spec.ForwardID,
+		Owner:      spec.ForwardID,
+		Spec:       spec,
+		Plan:       route.plan,
+		Lease:      gatewayLease,
+		StunServer: firstStunServer(d.cfg.StunServers),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("agent: %s acquire: %w", string(spec.Strategy), err)
+	}
+	return acq, nil
+}
+
+// gatewayLease is the requested mapping lifetime in production (the granted
+// lifetime is authoritative for pacing).
+const gatewayLease = 45 * time.Minute
+
+// acquisitionMetaFromAcquisition snapshots the acquisition evidence under the
+// acquisition's own renewal lock (CurrentMapping returns a locked copy).
+func acquisitionMetaFromAcquisition(acq *traversal.Acquisition) acquisitionMeta {
+	meta := acquisitionMeta{
+		journalID: acq.JournalID,
+		verdict:   acq.Verdict,
+	}
+	if mapping := acq.CurrentMapping(); mapping != nil {
+		meta.mechanism = mapping.Mechanism
+		meta.ownership = mapping.Ownership
+		meta.assignedGatewayPort = mapping.External.Port()
+	}
+	meta.publicPort = meta.verdict.Candidate.Port()
+	return meta
+}
+
+// newUDPActor is the unchanged P09/P13 UDP path: one registry ingress socket
+// with the shared classifier routing full-match WAN1 probes through the
+// durable ProbeManager.
+func (d *dataPlane) newUDPActor(ctx context.Context, spec protocol.ForwardSpec, backend *forward.Backend, key traversal.TupleKey) (*forwardActor, error) {
+	lease, err := d.registry.AcquireUDP(ctx, spec.ForwardID, key)
+	if err != nil {
+		return nil, err
+	}
+	// One socket-independent classifier routes full-match WAN1 probes through
+	// the existing durable ProbeManager; the single ingress reader owns the
+	// ACK write and only then marks ACK/receipt transport delivery.
+	probeMgr := d.cfg.ProbeMgr
+	classifier := udpforward.ClassifierFunc(func(p udpforward.Packet) udpforward.Classification {
+		if probeMgr == nil {
+			return udpforward.Classification{}
+		}
+		res := probeMgr.HandleUDPProbe(spec.ForwardID, p.Source, p.Data)
+		if res.Drop {
+			// Full-match control datagram that cannot be processed safely:
+			// consume it silently, never forward to the business backend.
+			return udpforward.Classification{Matched: true}
+		}
+		if !res.Matched {
+			return udpforward.Classification{}
+		}
+		return udpforward.Classification{
+			Matched: true,
+			Reply:   res.ACK,
+			OnReply: func(err error) {
+				if err != nil {
+					return
+				}
+				_ = probeMgr.MarkUDPProbeACKSent(res.ProbeID)
+				probeMgr.SendUDPProbeReceipt(res)
+			},
+		}
+	})
+	fwd, err := udpforward.New(lease.Conn, udpforward.Options{Backend: backend, DialTimeout: 5 * time.Second, Classifiers: []udpforward.Classifier{classifier}})
+	if err != nil {
+		_ = lease.Release()
+		return nil, err
+	}
+	return &forwardActor{lease: udpRegistryLease{lease: lease}, fwd: fwd, backend: backend,
+		updateFence: reconcile.NewSideEffectFence(), strategy: protocol.StrategyDirectV4}, nil
 }
 
 // actorUpdateFence is the compare-and-swap token for one accepted target
@@ -1688,7 +2098,7 @@ func (d *dataPlane) cleanupActor(ctx context.Context, forwardID string, actor *f
 		cleanupErr = actor.fwd.CloseContext(ctx)
 	}
 	if cleanupErr == nil && actor.lease != nil {
-		cleanupErr = actor.lease.Release()
+		cleanupErr = actor.lease.Release(ctx)
 	}
 
 	actor.cleanupMu.Lock()
@@ -1883,31 +2293,58 @@ func (d *dataPlane) reopen(ctx context.Context, spec protocol.ForwardSpec, st pr
 		return nil
 	}
 
-	sel, capability, assessErr := traversal.Assess(d.cfg.RouteTable)
-	if assessErr != nil || capability != traversal.CapabilityDirectV4Ready {
-		return traversal.NewCapabilityError(capability, assessErr)
-	}
-	// The durable tuple is evidence of the previous bind, not an instruction
-	// to reopen a stale source. Re-select the current direct-v4 source after a
-	// route/interface change and request the desired port when one was pinned.
+	// Strategy-aware reopen: direct-v4 re-selects the current global source
+	// (the durable tuple is evidence of the previous bind, not an instruction
+	// to reopen a stale source); gateway/manual/stun-only resolve their own
+	// source inside the acquisition path, so the direct Assess gate applies
+	// only to direct routes.
 	port := spec.RequestedLocalPort
 	if port == 0 {
 		port = st.ActualBindPort
 	}
-	actor, err := d.newForwardActor(ctx, spec, sel.Source.String(), port)
+	if spec.Protocol == protocol.ProtocolTCP && d.strategyIsDirect(spec.Strategy) {
+		sel, capability, assessErr := traversal.Assess(d.cfg.RouteTable)
+		if assessErr != nil || capability != traversal.CapabilityDirectV4Ready {
+			return traversal.NewCapabilityError(capability, assessErr)
+		}
+		actor, err := d.newForwardActor(ctx, spec, sel.Source.String(), port)
+		if err != nil {
+			return err
+		}
+		return d.finishReopen(ctx, spec, actor)
+	}
+	actor, err := d.newForwardActor(ctx, spec, "", port)
 	if err != nil {
 		return err
 	}
+	return d.finishReopen(ctx, spec, actor)
+}
+
+// strategyIsDirect reports whether a (possibly unresolved auto) strategy
+// stays on the direct-v4 inline path for the reopen Assess gate.
+func (d *dataPlane) strategyIsDirect(strategy protocol.Strategy) bool {
+	if strategy == protocol.StrategyAuto {
+		// UDP auto is always direct; TCP auto resolves to its concrete
+		// strategy which may be direct. Direct re-assessment can only be
+		// decided by the resolved route.
+		return false
+	}
+	return strategy == protocol.StrategyDirectV4
+}
+
+// finishReopen publishes a freshly re-opened actor under the data-plane lock,
+// re-checking the durable fence and the actor map exactly once.
+func (d *dataPlane) finishReopen(ctx context.Context, spec protocol.ForwardSpec, actor *forwardActor) error {
 	lease := actor.lease
 	// Re-check after listener acquisition so a concurrent durable delete cannot
 	// be followed by actor construction or publication.
-	pendingDelete, tombstoned, err = readForwardDeleteFence(d.cfg.Store, spec.ForwardID)
+	pendingDelete, tombstoned, err := readForwardDeleteFence(d.cfg.Store, spec.ForwardID)
 	if err != nil {
-		_ = lease.Release()
+		_ = lease.Release(ctx)
 		return fmt.Errorf("agent: forward %q delete fence: %w", spec.ForwardID, err)
 	}
 	if pendingDelete || tombstoned {
-		_ = lease.Release()
+		_ = lease.Release(ctx)
 		return nil
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
@@ -1917,7 +2354,7 @@ func (d *dataPlane) reopen(ctx context.Context, spec protocol.ForwardSpec, st pr
 		d.mu.Unlock()
 		cancel()
 		_ = actor.fwd.CloseContext(context.Background())
-		_ = lease.Release()
+		_ = lease.Release(ctx)
 		return errDataPlaneClosing
 	}
 	// A fence may be installed while the listener and actor are being built.
@@ -1927,28 +2364,28 @@ func (d *dataPlane) reopen(ctx context.Context, spec protocol.ForwardSpec, st pr
 		d.mu.Unlock()
 		cancel()
 		_ = actor.fwd.CloseContext(context.Background())
-		_ = lease.Release()
+		_ = lease.Release(ctx)
 		return fmt.Errorf("agent: forward %q delete fence: %w", spec.ForwardID, err)
 	}
 	if pendingDelete || tombstoned {
 		d.mu.Unlock()
 		cancel()
 		_ = actor.fwd.CloseContext(context.Background())
-		_ = lease.Release()
+		_ = lease.Release(ctx)
 		return nil
 	}
 	if _, exists := d.forwards[spec.ForwardID]; exists || len(d.pendingActorsLocked(spec.ForwardID)) != 0 {
 		d.mu.Unlock()
 		cancel()
 		_ = actor.fwd.CloseContext(context.Background())
-		_ = lease.Release()
+		_ = lease.Release(ctx)
 		return nil
 	}
 	d.forwards[spec.ForwardID] = actor
 	d.startForwardSupervisor(runCtx, spec.ForwardID, actor)
 	d.mu.Unlock()
 	if d.cfg.OnApplied != nil {
-		d.cfg.OnApplied(spec, appliedState(spec, lease.Tuple(), d.cfg.Clock))
+		d.cfg.OnApplied(spec, appliedStateForAcquisition(spec, lease.Tuple(), d.cfg.Clock, actor.meta))
 	}
 	return nil
 }
@@ -2005,4 +2442,22 @@ func appliedState(spec protocol.ForwardSpec, tuple traversal.TupleKey, clock fun
 		LayerVersion:    1,
 		AppliedAtUnix:   clock().Unix(),
 	}
+}
+
+// appliedStateForAcquisition adds the manager-acquisition evidence to the
+// durable applied record. The extras are frozen fields already declared on
+// AppliedForwardState (P12W populates them; it never changes the struct):
+// mapping_journal_ref, assigned_gateway_port and public_port.
+func appliedStateForAcquisition(spec protocol.ForwardSpec, tuple traversal.TupleKey, clock func() time.Time, meta acquisitionMeta) protocol.AppliedForwardState {
+	st := appliedState(spec, tuple, clock)
+	if meta.journalID != "" {
+		st.MappingJournalRef = meta.journalID
+	}
+	if meta.assignedGatewayPort != 0 {
+		st.AssignedGatewayPort = meta.assignedGatewayPort
+	}
+	if meta.publicPort != 0 {
+		st.PublicPort = meta.publicPort
+	}
+	return st
 }

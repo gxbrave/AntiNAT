@@ -28,7 +28,7 @@ func TestDataPlaneRollbackRejectsSupersededHotUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	actor := &forwardActor{
-		lease:       lease,
+		lease:       registryLease{lease: lease},
 		backend:     backend,
 		updateFence: reconcile.NewSideEffectFence(),
 	}

@@ -428,7 +428,7 @@ func TestDataPlaneApplyDoesNotDeadlockActivationCallback(t *testing.T) {
 	// capability state explicit so the hot-update callback is exercised rather
 	// than the route-table admission path.
 	d.capabilityReady = true
-	d.forwards["forward-deadlock-test"] = &forwardActor{lease: lease, backend: backend}
+	d.forwards["forward-deadlock-test"] = &forwardActor{lease: registryLease{lease: lease}, backend: backend}
 	a := &App{dp: d, activations: make(map[string]*reconcile.Activation)}
 	d.cfg.OnApplied = a.onForwardApplied
 
