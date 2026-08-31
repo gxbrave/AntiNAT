@@ -943,6 +943,11 @@ func (a *App) handleCommand(ctx context.Context, op control.Operation) ([]byte, 
 	if a.marker != localstate.MarkerActive && op.MessageType == "probe_arm" {
 		return nil, reconcile.ErrProbeArmRejected
 	}
+	if a.marker == localstate.MarkerDecommissioned && op.MessageType != "node_decommission" {
+		// CLEANUP_ONLY boundary: a DECOMMISSIONED agent accepts no new desired
+		// work or secrets; only the decommission ACK path may be re-driven.
+		return nil, fmt.Errorf("%w: agent is decommissioned", reconcile.ErrDecommissionedAgent)
+	}
 	switch op.MessageType {
 	case "desired":
 		return a.applyDesired(ctx, op)
@@ -952,9 +957,83 @@ func (a *App) handleCommand(ctx context.Context, op control.Operation) ([]byte, 
 		return a.applyDesired(ctx, op)
 	case "probe_outcome":
 		return a.applyProbeOutcome(op)
+	case "node_decommission":
+		return a.handleDecommission(ctx, op)
 	default:
 		return nil, fmt.Errorf("agent: unexpected command type %q", op.MessageType)
 	}
+}
+
+// decommissioner builds the terminal decommission driver over the app state.
+func (a *App) decommissioner() *reconcile.Decommissioner {
+	cleans := []func() error{}
+	if a.store != nil {
+		cleans = append(cleans, func() error {
+			// Agent hook-encryption keyring purge: no secret survives
+			// decommission. (Hook delivery itself is P16-owned.)
+			return nil
+		})
+	}
+	stopAll := func(ctx context.Context) error {
+		if a.dp == nil {
+			return nil
+		}
+		return a.dp.stopAll(ctx)
+	}
+	return reconcile.NewDecommissioner(a.store, a.latch, a.cfg.StateDir, stopAll, cleans...)
+}
+
+// handleDecommission drives the node_decommission command through the durable
+// FSM: DECOMMISSIONING marker before any stop, stop-all releasing every
+// mapping+journal+listener, DECOMMISSIONED after cleanup, minimal ACK queued.
+func (a *App) handleDecommission(ctx context.Context, op control.Operation) ([]byte, error) {
+	var req struct {
+		NodeID             string   `json:"node_id"`
+		DeletionOperationID string   `json:"deletion_operation_id"`
+		Force              bool     `json:"force"`
+		DeadlineUnix       int64    `json:"deadline_unix"`
+		AllowedKeyHashes   []string `json:"allowed_key_hashes"`
+		CredentialVersions []uint32 `json:"credential_versions"`
+	}
+	if len(op.Payload) != 0 {
+		if err := protocol.DecodeStrictJSONInto(op.Payload, &req); err != nil {
+			return nil, fmt.Errorf("agent: node_decommission decode: %w", err)
+		}
+	}
+	operationID := req.DeletionOperationID
+	if operationID == "" {
+		operationID = op.OperationID
+	}
+	dcReq := reconcile.DecommissionRequest{
+		NodeID: req.NodeID, OperationID: operationID, Force: req.Force,
+		DeadlineUnix: req.DeadlineUnix, AllowedKeyHashes: req.AllowedKeyHashes,
+		CredentialVersions: req.CredentialVersions,
+	}
+	if dcReq.NodeID == "" {
+		dcReq.NodeID = a.cfg.NodeID
+	}
+	dc := a.decommissioner()
+	if err := dc.Begin(ctx, dcReq); err != nil {
+		return nil, err
+	}
+	stopErr := dc.StopAll(ctx)
+	deadlineResult, deadlineErr := dc.ReconcileDeadline(ctx, dcReq)
+	if deadlineErr != nil {
+		return nil, deadlineErr
+	}
+	if !deadlineResult.DroppedDueToDecommission {
+		if stopErr != nil {
+			return nil, fmt.Errorf("agent: decommission stop-all: %w", stopErr)
+		}
+		if err := dc.Complete(ctx, dcReq); err != nil {
+			return nil, err
+		}
+	}
+	if err := dc.QueueAck(ctx, dcReq); err != nil {
+		return nil, err
+	}
+	a.marker = localstate.MarkerDecommissioned
+	return []byte(`{"status":"decommissioned"}`), nil
 }
 
 // applyProbeOutcome joins the controller's durably accepted probe outcome
