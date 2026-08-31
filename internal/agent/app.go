@@ -2532,6 +2532,73 @@ func (d *dataPlane) strategyIsDirect(strategy protocol.Strategy) bool {
 	return strategy == protocol.StrategyDirectV4
 }
 
+// replayJournalReport surfaces the durable journal records that no longer
+// describe a live mapping. P12W classifies them for P14; it NEVER deletes them
+// (P14 evacuates with adapter State decode).
+type replayJournalReport struct {
+	// Superseded records belong to a forward that is live under a DIFFERENT
+	// journal ref (e.g. a restart re-acquired a new mapping for the same
+	// forward while the old record survived a crash).
+	Superseded []traversal.JournalRecord
+	// Orphaned records belong to no live/applied forward (detection temp
+	// records, or forwards deleted without gateway cleanup).
+	Orphaned []traversal.JournalRecord
+}
+
+// replayJournalBoundaries reconciles the durable mapping journal against the
+// live acquisitions and the durable applied forwards. Superseded and orphaned
+// records are listed, never deleted — the no-resurrection authority (durable
+// deletion fence) already gates which forwards reopen.
+func (d *dataPlane) replayJournalBoundaries() (replayJournalReport, error) {
+	var report replayJournalReport
+	if d.cfg.Journal == nil {
+		return report, nil
+	}
+	records, err := d.cfg.Journal.List()
+	if err != nil {
+		return report, fmt.Errorf("agent: journal replay list: %w", err)
+	}
+	liveRefs := make(map[string]string, len(d.forwards))
+	d.mu.Lock()
+	for id, actor := range d.forwards {
+		if actor != nil && actor.acq != nil && actor.acq.JournalID != "" {
+			liveRefs[id] = actor.acq.JournalID
+		}
+	}
+	d.mu.Unlock()
+	appliedRefs := make(map[string]string)
+	if d.cfg.Store != nil {
+		if applied, err := d.cfg.Store.ListAppliedStates(); err != nil {
+			return report, fmt.Errorf("agent: journal replay applied: %w", err)
+		} else {
+			for _, st := range applied {
+				if st.MappingJournalRef != "" {
+					appliedRefs[st.ForwardID] = st.MappingJournalRef
+				}
+			}
+		}
+	}
+	for _, record := range records {
+		if record.ForwardID == "" {
+			report.Orphaned = append(report.Orphaned, record)
+			continue
+		}
+		liveRef, live := liveRefs[record.ForwardID]
+		appliedRef, applied := appliedRefs[record.ForwardID]
+		switch {
+		case live && liveRef != record.ID:
+			report.Superseded = append(report.Superseded, record)
+		case live:
+			// the live acquisition's current record: not stray, not deleted.
+		case applied && appliedRef == record.ID:
+			// the durable applied reference for a not-yet-reopened forward.
+		default:
+			report.Orphaned = append(report.Orphaned, record)
+		}
+	}
+	return report, nil
+}
+
 // finishReopen publishes a freshly re-opened actor under the data-plane lock,
 // re-checking the durable fence and the actor map exactly once.
 func (d *dataPlane) finishReopen(ctx context.Context, spec protocol.ForwardSpec, actor *forwardActor) error {
