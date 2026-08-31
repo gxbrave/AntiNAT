@@ -27,6 +27,12 @@ type ControlOutboxItem struct {
 // callers use the transactional Apply* methods to pair an operation with its
 // outbox entry atomically.
 func (s *Store) EnqueueControlOutbox(item ControlOutboxItem) error {
+	// P14 Story 3: a cleanup-only (force-deleted) node must never receive new
+	// desired/secrets/rotation material. The enqueue guard is the durable
+	// issuance barrier; the session-level gate covers already-enqueued rows.
+	if err := s.EnforceCleanupOnlyEnqueue(item.NodeID, item.MessageType, nil); err != nil {
+		return err
+	}
 	ts := now()
 	commandID := deterministicMessageID(item.OperationID, item.MessageType)
 	resultID := deterministicMessageID(commandID, "operation_complete")

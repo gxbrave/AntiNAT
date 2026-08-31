@@ -16,6 +16,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/gxbrave/AntiNAT/internal/controller/lifecycle"
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
 	"github.com/gxbrave/AntiNAT/internal/protocol"
 	"github.com/gxbrave/AntiNAT/internal/security"
@@ -49,6 +50,10 @@ type ControlSession struct {
 	conn    *websocket.Conn
 	mu      sync.Mutex
 	writeMu sync.Mutex
+
+	// cleanupOnly marks a force-deleted node's restricted session (P14 Story 3):
+	// only the terminal ACK/status/heartbeat channels are permitted.
+	cleanupOnly bool
 
 	// outSeq is the controller's outbound sequence (C2A).
 	outSeq uint64
@@ -263,16 +268,18 @@ func (h *Hub) handshake(ctx context.Context, conn *websocket.Conn) (*ControlSess
 		return nil, errors.New("session final mismatch")
 	}
 
+	cleanupOnly, _ := h.store.IsCleanupOnly(nodeID)
 	return &ControlSession{
-		hub:      h,
-		nodeID:   nodeID,
-		epoch:    newEpoch,
-		session:  newSession,
-		owner:    owner,
-		agentPub: hello.PublicKey(),
-		conn:     conn,
-		closed:   make(chan struct{}),
-		done:     make(chan struct{}),
+		hub:         h,
+		nodeID:      nodeID,
+		epoch:       newEpoch,
+		session:     newSession,
+		owner:       owner,
+		agentPub:    hello.PublicKey(),
+		conn:        conn,
+		cleanupOnly: cleanupOnly,
+		closed:      make(chan struct{}),
+		done:        make(chan struct{}),
 	}, nil
 }
 
@@ -317,6 +324,13 @@ func (h *Hub) handleInboundFrame(s *ControlSession, frame []byte) error {
 	hdr := env.Header
 	if hdr.Direction != protocol.DirectionA2C {
 		return errors.New("wrong direction: expected A2C")
+	}
+	// P14 Story 3 restricted session: a cleanup-only node may only deliver the
+	// terminal decommission ACK and status/heartbeat/operation frames. Any other
+	// inbound material is rejected fail-closed (the issuer never legitimately
+	// sent desired/secrets, because the enqueue guard refused them).
+	if s.cleanupOnly && !lifecycle.AllowedInboundCleanupOnly(hdr.MessageType) {
+		return fmt.Errorf("cleanup-only node refused inbound message type %q", hdr.MessageType)
 	}
 	if hdr.ConnectionEpoch != s.epoch || hdr.SessionID != s.session {
 		return errors.New("stale epoch/session in frame")
@@ -931,6 +945,13 @@ func (h *Hub) outboxPump(ctx context.Context, s *ControlSession) {
 				return
 			}
 			for _, item := range items {
+				// P14 Story 3: a cleanup-only node may never receive pre-existing
+				// orchestrating rows (desired/secrets/rotation) left over from
+				// before its tombstone. Only the cleanup-authorized retry channel
+				// keeps flowing.
+				if s.cleanupOnly && !lifecycle.AllowedInboundCleanupOnly(item.MessageType) {
+					continue
+				}
 				msgID := security.MessageID(item.OperationID, item.MessageType)
 				if err := s.writeEnvelope(ctx, msgID, item.MessageType, []byte(item.SemanticPayload)); err != nil {
 					closeOnError("CONTROL_OUTBOX_WRITE_FAILED", err)

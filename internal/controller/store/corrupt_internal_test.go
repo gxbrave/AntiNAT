@@ -19,14 +19,16 @@ func TestMigrationFailureRollsBackLeavingOldDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if v0 != 7 {
-		t.Fatalf("precondition: schema version = %d, want 7 (0007_traversal)", v0)
+	if v0 != 8 {
+		t.Fatalf("precondition: schema version = %d, want 8 (P14 0008_lifecycle)", v0)
 	}
 
-	// Second CREATE of the same table forces a failure mid-migration.
+	// Second CREATE of the same table forces a failure mid-migration. The
+	// broken migration uses a future version (9999) so it never collides with
+	// the applied P14 0008.
 	badSQL := `CREATE TABLE broken_table (id INTEGER PRIMARY KEY);
 	           CREATE TABLE broken_table (id INTEGER PRIMARY KEY);`
-	err = s.applyMigration(8, "9999_broken.sql", badSQL)
+	err = s.applyMigration(9999, "9999_broken.sql", badSQL)
 	if err == nil {
 		t.Fatal("applyMigration of broken SQL succeeded")
 	}
@@ -53,7 +55,7 @@ func TestMigrationFailureRollsBackLeavingOldDB(t *testing.T) {
 	}
 	var applied int
 	if err := s.db.QueryRow(
-		"SELECT COUNT(*) FROM schema_migrations WHERE version = 8",
+		"SELECT COUNT(*) FROM schema_migrations WHERE version = 9999",
 	).Scan(&applied); err != nil {
 		t.Fatalf("schema_migrations query: %v", err)
 	}
