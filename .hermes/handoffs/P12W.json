@@ -1,7 +1,7 @@
 {
   "plan": "P12W",
   "base_sha": "94e08603ca90cfa75a3a7a22b8da34016e9748d8",
-  "head_sha": "37b94c92201fa96de5442d7192d571e133ca6545",
+  "head_sha": "328f0bb7016d6d9c10ae2f2faa256a27d52d1e4d",
   "commits": [
     "agent: P12W S1 bbolt mapping journal store (TDD)",
     "agent: P12W S2 manager/detector/adapter wiring for gateway routes (TDD)",
@@ -24,7 +24,10 @@
     "6e7dcc1 agent: P12W repair R1f9 document benign JournalID/Verdict reads",
     "09da3be agent: P12W repair R1f1 acquire gateway outside dataPlane lock (TDD)",
     "0339e37 agent: P12W repair R1 gofmt alignment for autoorder and quarantine tests",
-    "37b94c9 hermes: bound P12W repair-cycle-1 file ownership"
+    "37b94c9 hermes: bound P12W repair-cycle-1 file ownership",
+    "c33838104351e6b9d2369ea2afc3b09c626a128b",
+    "971eae248a4ffae63d168b3240a809ca14a26eda",
+    "328f0bb7016d6d9c10ae2f2faa256a27d52d1e4d"
   ],
   "files_changed": [
     "cmd/antinat-agent/autoorder_test.go",
@@ -46,7 +49,9 @@
     "internal/agent/traversal_lifecycle.go",
     "test/integration/agent_gateway_test.go",
     ".hermes/plans/v1-beta/12w-production-wiring.md",
-    ".hermes/plans/v1-beta/12w-repair-1.md"
+    ".hermes/plans/v1-beta/12w-repair-1.md",
+    "internal/agent/p12w_repair2_test.go",
+    ".hermes/plans/v1-beta/12w-repair-2.md"
   ],
   "tests": [
     {
@@ -133,7 +138,8 @@
     "internal/agent/p12w_quarantine_test.go",
     "internal/agent/localstate/mapping_journal_test.go",
     "internal/agent/strategy_test.go",
-    "cmd/antinat-agent/autoorder_test.go"
+    "cmd/antinat-agent/autoorder_test.go",
+    "internal/agent/p12w_repair2_test.go"
   ],
   "contracts_consumed": [
     {
@@ -202,16 +208,123 @@
       "boundary": "Added explicit repair-plan file boundary; no accepted traversal/stun/UDP library or frozen contract changed."
     },
     "verification": [
-      {"command":"ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1","exit_code":0},
-      {"command":"ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./... -count=1","exit_code":0},
-      {"command":"GOWORK=off go test ./internal/traversal/... -race -count=10 && GOWORK=off go test ./internal/agent/localstate -run MappingJournal -count=10 && GOWORK=off go test ./internal/agent -run 'P12W|Strategy|Composition|Recovery|Lifecycle|HotUpdate|Capability' -race -count=10","exit_code":0},
-      {"command":"GOWORK=off go vet ./...","exit_code":0},
-      {"command":"GOWORK=off go test ./test/contracts -run TestContractManifest -count=1","exit_code":0},
-      {"command":"GOWORK=off go test -tags=netns ./test/integration -run 'TestTCPTraversal|TestAgentGatewayTraversal' -count=1 -v","exit_code":0},
-      {"command":"GOOS=windows GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/traversal/... ./internal/forward/... && GOOS=linux GOARCH=arm64 GOWORK=off go build ./cmd/... ./internal/traversal/... ./internal/forward/... && GOOS=darwin GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/traversal/... ./internal/forward/...","exit_code":0},
-      {"command":"gofmt -l <all changed Go files> && git diff --check","exit_code":0}
+      {
+        "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1",
+        "exit_code": 0
+      },
+      {
+        "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./... -count=1",
+        "exit_code": 0
+      },
+      {
+        "command": "GOWORK=off go test ./internal/traversal/... -race -count=10 && GOWORK=off go test ./internal/agent/localstate -run MappingJournal -count=10 && GOWORK=off go test ./internal/agent -run 'P12W|Strategy|Composition|Recovery|Lifecycle|HotUpdate|Capability' -race -count=10",
+        "exit_code": 0
+      },
+      {
+        "command": "GOWORK=off go vet ./...",
+        "exit_code": 0
+      },
+      {
+        "command": "GOWORK=off go test ./test/contracts -run TestContractManifest -count=1",
+        "exit_code": 0
+      },
+      {
+        "command": "GOWORK=off go test -tags=netns ./test/integration -run 'TestTCPTraversal|TestAgentGatewayTraversal' -count=1 -v",
+        "exit_code": 0
+      },
+      {
+        "command": "GOOS=windows GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/traversal/... ./internal/forward/... && GOOS=linux GOARCH=arm64 GOWORK=off go build ./cmd/... ./internal/traversal/... ./internal/forward/... && GOOS=darwin GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/traversal/... ./internal/forward/...",
+        "exit_code": 0
+      },
+      {
+        "command": "gofmt -l <all changed Go files> && git diff --check",
+        "exit_code": 0
+      }
     ],
     "deviations": "none",
     "independent_reviews_required": true
+  },
+  "repair_cycle_2": {
+    "status": "IMPLEMENTED_AND_LOCALLY_VERIFIED_PENDING_FRESH_INDEPENDENT_REVIEW",
+    "base": "94e08603ca90cfa75a3a7a22b8da34016e9748d8 (candidate implementation base)",
+    "repair_1_tip": "75868d8d97f7b8c343b9c886bdde2a6293d2806d (repair-1 metadata tip; repair-2 implementation is based on it)",
+    "repair_2_head": "328f0bb7016d6d9c10ae2f2faa256a27d52d1e4d",
+    "repair_2_commits": [
+      {
+        "sha": "c33838104351e6b9d2369ea2afc3b09c626a128b",
+        "subject": "agent: P12W repair R2 strategy semantics \u2014 order-walked auto, UDP-first resolution, missing-fingerprint gate, nil-manager errors (TDD)"
+      },
+      {
+        "sha": "971eae248a4ffae63d168b3240a809ca14a26eda",
+        "subject": "agent: P12W repair R2 acquisition fencing, same-ID serialization, bounded abandonment, cleanup retry, deletion-window fence (TDD)"
+      },
+      {
+        "sha": "328f0bb7016d6d9c10ae2f2faa256a27d52d1e4d",
+        "subject": "hermes: bound P12W repair-cycle-2 file ownership"
+      }
+    ],
+    "fixes": {
+      "R2f1": "Handoff identity/ownership: recorded exact repair-2 base, repair-1 tip, implementation head/tree, per-commit SHAs, changed files and verification. The two already-adapted P10/P12W test paths (app_test.go, rollback_fence_test.go) were re-declared as owned by this repair boundary; no change was needed to them. No path outside the exhaustive boundary changed: no migrations, frozen contracts/manifests, traversal/stun/udp libraries, docs, configs or other worktrees.",
+      "R2f2": "Auto strategy correctness: resolveAutoStrategy walks the CURRENT configured AutoOrder and accepts only a matching PASSED profile result (Profile.DefaultStrategy is a diagnostic/cache field, never an order authority); UDP auto resolves to direct-v4 BEFORE the TCP detection profile is loaded/validated (a stale/malformed/absent TCP profile cannot affect UDP); fixed non-direct UDP strategies fail closed instead of being silently rewritten; a present profile without a network fingerprint is refused as stale. AutoOrder is normalized into a.cfg before composition so rebuildTraversal preserves it.",
+      "R2f3": "Nil managers: manual-static and explicit-gateway selected routes with a nil Plain/Gateway Manager return ordinary errors instead of panicking; direct-v4 stays manager-free.",
+      "R2f4": "Generation fencing: every actor stamps compositionGeneration/capabilityGeneration/route fingerprint before the external acquisition (newForwardActorResolved from the resolved route; newUDPActor from a fresh snapshot). capabilityGeneration bumps on every loss/restore transition and compositionGeneration on every rebuild. apply and finishReopen re-check the fence under the install lock and refuse to publish an actor built against an obsolete composition; the acquisition is abandoned with ownership retained.",
+      "R2f5": "Same-Forward serialization: beginForwardOperation serializes route resolution + external acquisition + install per ForwardID (independent forwards stay concurrent). Deterministic tests prove a concurrent apply never starts a second acquisition and an apply-vs-reopen race runs exactly one Map.",
+      "R2f6": "Composition snapshot and UPnP ownership: composeTraversal gives the plain Manager, gateway Manager and Detector each an independent adapter map (newMappers x3) so a mutable UPnP adapter is never shared across owners; rebuildTraversal publishes PlainManager/GatewayManager/Detector/StunObserver/StunSource together and bumps compositionGeneration.",
+      "R2f7": "Cleanup/retry/recovery: abandonAcquiredActor retains cleanup ownership (cleanupPending + drain) and tears down with a detached bounded context, so a canceled caller can never strand a listener/mapping. OnActorCleaned fires after a successful non-delete cleanup and the app schedules a bounded recover so a forward stranded by capability loss reopens without a new route change. FIXED a pre-existing latent double-close that stranded every gateway actor in cleanupPending forever: the wrapped tcp.Forward and the manager acquisition own the same listener; cleanupActor now treats an EXCLUSIVELY redundant net.ErrClosed release error (exclusiveErrClosed) as clean, while a real mapping/journal failure still keeps the actor owned. Acquisition.Release is sync.Once and is never claimed to retry after a real release failure (truthful pending state; the durable journal record is the retained evidence).",
+      "R2f8": "Lifecycle/probe deletion-window fence: onMappingLifecycle and applyProbeOutcome re-check the durable delete fence under the admission ordering so a trailing lifecycle/probe event cannot recreate activation state after a forward is deleted. Mutable acquisition metadata reads remain the documented benign monotone/immutable reads (repair R1 finding 9); no traversal API redesign, D5 residual documented."
+    },
+    "deviations": "none. govulncheck reported unavailable and is recorded honestly; the full test/race/vet/contract/netns/cross-build matrix passed instead.",
+    "verification": [
+      {
+        "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1",
+        "exit_code": 0,
+        "summary": "full repo suite: 41 packages ok, 0 FAIL."
+      },
+      {
+        "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./... -count=1",
+        "exit_code": 0,
+        "summary": "full repo race: 38 packages ok under race; no DATA RACE, no FAIL, no panic."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/agent -run 'P12W|Repair|Strategy|Composition|Recovery|Lifecycle|HotUpdate|Capability|MappingLifecycle|ProbeOutcome|SameID|CapabilityLoss|CleanupCompletion|Abandon' -race -count=5",
+        "exit_code": 0,
+        "summary": "focused P12W+repair-2 tests race 5x PASS."
+      },
+      {
+        "command": "GOWORK=off go vet ./...",
+        "exit_code": 0,
+        "summary": "vet clean."
+      },
+      {
+        "command": "GOWORK=off go test ./test/contracts -run TestContractManifest -count=1",
+        "exit_code": 0,
+        "summary": "frozen contract manifest gate PASS."
+      },
+      {
+        "command": "GOWORK=off go test -tags=netns ./test/integration -run 'TestTCPTraversal|TestAgentGatewayTraversal' -count=1 -v",
+        "exit_code": 0,
+        "summary": "TestTCPTraversal + TestAgentGatewayTraversal PASS against real miniupnpd+coturn netns lab; pcp/nat-pmp/upnp mappings verified from independent vantage; composed agent gateway PCP mapping + journal ref + release/del verified."
+      },
+      {
+        "command": "GOOS=windows GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/traversal/... ./internal/forward/... && GOOS=linux GOARCH=arm64 GOWORK=off go build ./cmd/... ./internal/traversal/... ./internal/forward/... && GOOS=darwin GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/traversal/... ./internal/forward/...",
+        "exit_code": 0,
+        "summary": "Windows amd64 / Linux arm64 / Darwin amd64 cross-builds PASS."
+      },
+      {
+        "command": "gofmt -l <all changed Go files> && git diff --check 75868d8..HEAD",
+        "exit_code": 0,
+        "summary": "gofmt clean; no whitespace errors."
+      },
+      {
+        "command": "govulncheck",
+        "exit_code": -1,
+        "summary": "UNAVAILABLE in the environment (not installed). Recorded honestly; not a pass/fail gate."
+      }
+    ],
+    "known_limits_added_this_cycle": [
+      "A manager acquisition whose Release genuinely fails (e.g. a mapper Delete adapter error) stays owned in cleanupPending; Acquisition.Release is sync.Once and is intentionally never claimed to retry \u2014 the durable journal record is the retained evidence that the gateway mapping may still be live. This matches the repair-2 finding-7 guidance and is not a regression.",
+      "govulncheck is not installed in this worktree, so vulnerability scanning remains unexecuted (same caveat as prior cycles).",
+      "The repair-2 deletion-window fence closes lifecycle/probe events against a durable delete fence; the residual D5 callback-token replacement window (a trailing OnMapping* event satisfying a live replacement forward's mapped guard) is unchanged and still documented."
+    ]
   }
 }
