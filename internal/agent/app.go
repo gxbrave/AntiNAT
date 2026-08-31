@@ -355,21 +355,32 @@ func (a *App) composeTraversal(cfg Config, st *localstate.Store, registry *trave
 		}
 	}
 	comp.observer = stun.NewManagerObserver()
+	lifecycle := traversal.ManagerOptions{ // shared lifecycle callbacks (Story 7, D5)
+		OnMappingDegraded:  a.onMappingDegraded,
+		OnMappingLost:      a.onMappingLost,
+		OnMappingRecovered: a.onMappingRecovered,
+	}
 	comp.plainManager = traversal.NewManager(traversal.ManagerOptions{
-		RouteTable:  cfg.RouteTable,
-		Listeners:   traversal.PortRegistrySource{Registry: comp.registry},
-		Mappers:     mappers,
-		Journal:     journal,
-		Clock:       cfg.Clock,
-		StunObserve: comp.observer,
+		RouteTable:         cfg.RouteTable,
+		Listeners:          traversal.PortRegistrySource{Registry: comp.registry},
+		Mappers:            mappers,
+		Journal:            journal,
+		Clock:              cfg.Clock,
+		StunObserve:        comp.observer,
+		OnMappingDegraded:  lifecycle.OnMappingDegraded,
+		OnMappingLost:      lifecycle.OnMappingLost,
+		OnMappingRecovered: lifecycle.OnMappingRecovered,
 	})
 	comp.gatewayManager = traversal.NewManager(traversal.ManagerOptions{
-		RouteTable:  cfg.RouteTable,
-		Listeners:   stun.LeaseSource{Registry: comp.stunRegistry},
-		Mappers:     mappers,
-		Journal:     journal,
-		Clock:       cfg.Clock,
-		StunObserve: comp.observer,
+		RouteTable:         cfg.RouteTable,
+		Listeners:          stun.LeaseSource{Registry: comp.stunRegistry},
+		Mappers:            mappers,
+		Journal:            journal,
+		Clock:              cfg.Clock,
+		StunObserve:        comp.observer,
+		OnMappingDegraded:  lifecycle.OnMappingDegraded,
+		OnMappingLost:      lifecycle.OnMappingLost,
+		OnMappingRecovered: lifecycle.OnMappingRecovered,
 	})
 	// The Detector's STUN seam is a temp-socket observation: it only proves
 	// the STUN server answers from a fresh tuple; every Forward observes
@@ -1169,6 +1180,17 @@ func (a *App) onForwardApplied(spec protocol.ForwardSpec, applied protocol.Appli
 			act.ResetForGenerationWithID(applied.SpecRevision, activationID)
 		}
 	}
+	// Gateway-aware initial axes (P12W Story 7): a live acquisition's verdict
+	// sets mapping_state and the mapping is HEALTHY until the renewal loop says
+	// otherwise. Direct/UDP forwards keep the neutral NOT_REQUIRED axes.
+	if actor := a.dp.forwards[applied.ForwardID]; actor != nil && actor.acq != nil {
+		generation := act.Generation()
+		if state := mappingStateForVerdict(actor.acq.Verdict); state != "" {
+			_ = act.Update("mapping_state", state, generation)
+		}
+		_ = act.Update("keepalive_state", "HEALTHY", generation)
+		_ = act.Update("data_plane_state", "READY", generation)
+	}
 	a.dp.mu.Unlock()
 	if a.store != nil {
 		aid := protocol.ActivationID(applied.ForwardID, applied.SpecRevision)
@@ -1361,6 +1383,10 @@ type dataPlaneConfig struct {
 	// StunSource is the shared-port listener source the stun-only composer
 	// acquires its tuple from (same-tuple dial capability).
 	StunSource traversal.ListenerSource
+	// RenewalPacing overrides the manager's production renewal pacing (tests
+	// inject fast intervals so lifecycle transitions are deterministic). nil
+	// uses production pacing (50% of the granted lease with ±10% jitter).
+	RenewalPacing func() (interval, jitter time.Duration)
 }
 
 // forwardLease is the lease abstraction shared by direct, UDP and manager
@@ -2026,13 +2052,19 @@ func scopeForStun(addr netip.Addr) traversal.EndpointScope {
 // acquireViaManager runs one manager acquisition and wraps its errors in the
 // forward context.
 func (d *dataPlane) acquireViaManager(ctx context.Context, spec protocol.ForwardSpec, route forwardRoute) (*traversal.Acquisition, error) {
+	interval, jitter := time.Duration(0), time.Duration(0)
+	if d.cfg.RenewalPacing != nil {
+		interval, jitter = d.cfg.RenewalPacing()
+	}
 	acq, err := route.manager.Acquire(ctx, traversal.AcquireRequest{
-		ForwardID:  spec.ForwardID,
-		Owner:      spec.ForwardID,
-		Spec:       spec,
-		Plan:       route.plan,
-		Lease:      gatewayLease,
-		StunServer: firstStunServer(d.cfg.StunServers),
+		ForwardID:        spec.ForwardID,
+		Owner:            spec.ForwardID,
+		Spec:             spec,
+		Plan:             route.plan,
+		Lease:            gatewayLease,
+		StunServer:       firstStunServer(d.cfg.StunServers),
+		RenewalInterval:  interval,
+		RenewalJitterMax: jitter,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("agent: %s acquire: %w", string(spec.Strategy), err)
