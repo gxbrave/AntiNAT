@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gxbrave/AntiNAT/internal/agent/localstate"
+	"github.com/gxbrave/AntiNAT/internal/agent/reconcile"
 	"github.com/gxbrave/AntiNAT/internal/protocol"
 	"github.com/gxbrave/AntiNAT/internal/traversal"
 )
@@ -188,8 +189,8 @@ func p12wGatewayCompositionWithObserver(t *testing.T, observed netip.AddrPort) (
 		StunSource:     &p12wListenerSource{},
 	})
 	// The gateway route resolves its own (private) source inside the manager;
-	// the data plane's direct-v4 readiness gate is not the gateway gate.
-	d.capabilityReady = true
+	// the data plane's capability gate is the Story 6 "route table usable +
+	// fingerprint known" assessment (a private-source node stays capable).
 	t.Cleanup(func() { _ = d.closeAll(context.Background()) })
 	return d, mapper, obs, journal
 }
@@ -432,4 +433,118 @@ func TestDataPlaneRunDetectionSavesProfile(t *testing.T) {
 	if result, ok := profile.ResultFor(protocol.StrategyExplicitGateway); !ok || result.State != traversal.DetectionPassed {
 		t.Fatalf("explicit-gateway result = %+v ok=%v, want PASSED", result, ok)
 	}
+}
+
+// Story 6 (RED): on a NAT-CPE route table (private source) capabilityCheck
+// must NOT report capability lost, and a gateway forward must apply without
+// any manual capability override.
+func TestCapabilityCheckAllowsPrivateSourceGateway(t *testing.T) {
+	st, err := localstate.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	mapper := &p12wMapper{
+		mechanism: traversal.LayerPCP,
+		ownership: traversal.OwnershipStrong,
+		control:   traversal.ControlServer{Mechanism: traversal.LayerPCP, Address: "10.0.0.1:5351"},
+		external:  netip.MustParseAddrPort("100.64.0.2:43111"),
+		lease:     time.Hour,
+	}
+	obs := &p12wObserver{result: netip.MustParseAddrPort("100.64.0.2:51234")}
+	journal := traversal.NewMemoryJournal()
+	manager := traversal.NewManager(traversal.ManagerOptions{
+		RouteTable:  p12wRouteTable{},
+		Listeners:   &p12wListenerSource{},
+		Mappers:     map[traversal.MappingLayerKind]traversal.GatewayMapper{traversal.LayerPCP: mapper},
+		Journal:     journal,
+		StunObserve: obs.observe,
+	})
+	fp, fpErr := traversal.Fingerprint(p12wRouteTable{})
+	if fpErr != nil {
+		t.Fatal(fpErr)
+	}
+	profiles := newProfileStore(t.TempDir())
+	if err := profiles.Save(traversal.Profile{
+		Fingerprint: fp, Protocol: traversal.ProtocolTCP,
+		DefaultStrategy: protocol.StrategyExplicitGateway, ComputedAtUnix: time.Now().Unix(),
+		Results: []traversal.StrategyResult{
+			{Strategy: protocol.StrategyExplicitGateway, State: traversal.DetectionPassed, LayerSignature: "pcp"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	d := newDataPlane(dataPlaneConfig{
+		Store: st, RouteTable: p12wRouteTable{}, Clock: time.Now,
+		GatewayManager: manager, Journal: journal,
+		StunServers: []string{"stun+tcp://100.64.0.1:3478"}, ProfileStore: profiles,
+	})
+	t.Cleanup(func() { _ = d.closeAll(context.Background()) })
+	// newDataPlane assessed the private route: readiness must be true without
+	// any manual override.
+	if !d.capabilityReady {
+		t.Fatal("private-source node must be capability-ready for gateway strategies")
+	}
+	if err := d.capabilityCheck(); err != nil {
+		t.Fatalf("capabilityCheck on private source = %v, want nil", err)
+	}
+	spec := protocol.ForwardSpec{
+		ForwardID: "fwd-private-gateway", Protocol: protocol.ProtocolTCP, Target: "127.0.0.1:9",
+		Strategy: protocol.StrategyExplicitGateway, DesiredRevision: 1, Presence: protocol.PresencePresent,
+	}
+	if _, err := d.apply(context.Background(), spec); err != nil {
+		t.Fatalf("gateway forward on a private-source node must apply: %v", err)
+	}
+}
+
+// Story 6: monitorLiveness keys teardown on a fingerprint change and rebuilds
+// the adapters/Managers on restore so a forward re-maps onto the changed
+// gateway.
+func TestMonitorLivenessRebuildsManagersOnFingerprintRestore(t *testing.T) {
+	routes := &mutableRouteTable{
+		gateway:    netip.MustParseAddr("10.0.0.1"),
+		iface:      "lan0",
+		hasDefault: true,
+		addrs:      []traversal.IPv4Address{{Interface: "lan0", Addr: netip.MustParseAddr("10.0.0.2")}},
+	}
+	st, err := localstate.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	profiles := newProfileStore(t.TempDir())
+	d := newDataPlane(dataPlaneConfig{Store: st, RouteTable: routes, Clock: time.Now, ProfileStore: profiles})
+	oldPlain, oldGateway := d.cfg.PlainManager, d.cfg.GatewayManager
+	a := &App{
+		cfg:         Config{RouteTable: routes, LivenessInterval: 5 * time.Millisecond},
+		store:       st,
+		dp:          d,
+		activations: make(map[string]*reconcile.Activation),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go a.monitorLiveness(ctx)
+
+	// A fingerprint change tears the capability down and, on the next poll,
+	// restores it by REBUILDING the adapters+Managers over the changed route.
+	routes.mu.Lock()
+	routes.gateway = netip.MustParseAddr("10.0.0.254")
+	routes.mu.Unlock()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		d.mu.Lock()
+		rebuiltGW := d.cfg.GatewayManager
+		rebuiltPlain := d.cfg.PlainManager
+		ready := d.capabilityReady
+		d.mu.Unlock()
+		if rebuiltGW != oldGateway && rebuiltPlain != nil && rebuiltPlain != oldPlain && ready {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("fingerprint restore did not rebuild the traversal managers")
 }

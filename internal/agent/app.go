@@ -98,6 +98,10 @@ type App struct {
 	detector       *traversal.Detector
 	// profiles caches the latest detection profile (state-dir JSON file, D3).
 	profiles *profileStore
+	// stunRegistry is the app-global shared-port registry the gateway manager
+	// and the stun-only composer acquire tuples from (stable across the
+	// liveness rebuild; D1).
+	stunRegistry *stun.SharedPortRegistry
 
 	// activations tracks the orthogonal activation state machine per applied
 	// forward (Story 3). The map is guarded by dp.mu.
@@ -229,70 +233,21 @@ func New(cfg Config) (*App, error) {
 	if len(cfg.AutoOrder) == 0 {
 		cfg.AutoOrder = defaultOrder
 	}
-	// The traversal composition (P12W Stories 2/5): sensors, the shared
+	// The traversal composition (P12W Stories 2/5/6): sensors, the shared
 	// socket-ownership registry, the shared durable mapping journal, two
 	// Manager instances (D1) and the Detector. The default-route gateway
 	// resolution may legitimately be absent (a node with no default route has
 	// no gateway to map); direct-v4 and manual-static remain usable so the
 	// agent starts and reports capability honestly.
+	comp, compErr := a.composeTraversal(cfg, st, nil, nil)
+	if compErr != nil {
+		return rollback(fmt.Errorf("agent: traversal composition: %w", compErr))
+	}
 	journal := st.MappingJournal()
-	registry := traversal.NewPortRegistry()
-	stunRegistry := stun.NewSharedPortRegistry()
-	mappers := map[traversal.MappingLayerKind]traversal.GatewayMapper{}
-	if selection, selErr := traversal.DefaultRouteSource(cfg.RouteTable); selErr == nil {
-		if gateway := selection.DefaultRouteGateway; gateway.IsValid() {
-			mappers[traversal.LayerPCP] = pcp.NewAdapter(pcp.AdapterOptions{
-				Gateway: netip.AddrPortFrom(gateway, pcp.DefaultServerPort),
-			})
-			mappers[traversal.LayerNATPMP] = natpmp.NewAdapter(natpmp.AdapterOptions{
-				Gateway: netip.AddrPortFrom(gateway, natpmp.DefaultServerPort),
-			})
-		}
-		if source := selection.Source; source.IsValid() {
-			mappers[traversal.LayerUPnP] = upnp.NewAdapter(upnp.AdapterOptions{
-				InterfaceIP: source,
-			})
-		}
-	}
-	managerObserver := stun.NewManagerObserver()
-	a.plainManager = traversal.NewManager(traversal.ManagerOptions{
-		RouteTable:  cfg.RouteTable,
-		Listeners:   traversal.PortRegistrySource{Registry: registry},
-		Mappers:     mappers,
-		Journal:     journal,
-		Clock:       cfg.Clock,
-		StunObserve: managerObserver,
-	})
-	a.gatewayManager = traversal.NewManager(traversal.ManagerOptions{
-		RouteTable:  cfg.RouteTable,
-		Listeners:   stun.LeaseSource{Registry: stunRegistry},
-		Mappers:     mappers,
-		Journal:     journal,
-		Clock:       cfg.Clock,
-		StunObserve: managerObserver,
-	})
-	// The Detector's STUN seam is a temp-socket observation: it only proves
-	// the STUN server answers from a fresh tuple; every Forward observes
-	// independently from its own tuple through the manager.
-	tempObserve := func(ctx context.Context, server netip.AddrPort, timeout time.Duration) (netip.AddrPort, error) {
-		return managerObserver(ctx, traversal.StunObserveRequest{
-			Server: server,
-			Bind:   traversal.TupleKey{},
-			Dial: func(ctx context.Context, remote string) (net.Conn, error) {
-				var dialer net.Dialer
-				return dialer.DialContext(ctx, "tcp4", remote)
-			},
-			Timeout: timeout,
-		})
-	}
-	a.detector = traversal.NewDetector(traversal.DetectorOptions{
-		RouteTable:  cfg.RouteTable,
-		Mappers:     mappers,
-		Registry:    traversal.NewPortRegistry(),
-		AutoOrder:   cfg.AutoOrder,
-		StunServers: cfg.StunServers,
-		StunObserve: tempObserve,
-	})
+	a.plainManager = comp.plainManager
+	a.gatewayManager = comp.gatewayManager
+	a.detector = comp.detector
+	a.stunRegistry = comp.stunRegistry
 	a.profiles = newProfileStore(cfg.StateDir)
 
 	a.dp = newDataPlane(dataPlaneConfig{
@@ -300,16 +255,16 @@ func New(cfg Config) (*App, error) {
 		ProbeMgr:       a.probeMgr,
 		RouteTable:     cfg.RouteTable,
 		Clock:          cfg.Clock,
-		Registry:       registry,
-		PlainManager:   a.plainManager,
-		GatewayManager: a.gatewayManager,
-		Detector:       a.detector,
+		Registry:       comp.registry,
+		PlainManager:   comp.plainManager,
+		GatewayManager: comp.gatewayManager,
+		Detector:       comp.detector,
 		Journal:        journal,
 		StunServers:    cfg.StunServers,
 		AutoOrder:      cfg.AutoOrder,
 		ProfileStore:   a.profiles,
-		StunObserver:   managerObserver,
-		StunSource:     stun.LeaseSource{Registry: stunRegistry},
+		StunObserver:   comp.observer,
+		StunSource:     stun.LeaseSource{Registry: comp.stunRegistry},
 		OnApplied: func(spec protocol.ForwardSpec, applied protocol.AppliedForwardState) {
 			a.onForwardApplied(spec, applied)
 		},
@@ -350,6 +305,121 @@ func New(cfg Config) (*App, error) {
 	}
 	a.client = client
 	return a, nil
+}
+
+// traversalComposition is one wiring of the traversal stack: the registries
+// (stable for the lifetime of the app), the adapters (rebuilt when the
+// default-route gateway changes), the Manager instances and the Detector.
+type traversalComposition struct {
+	registry       *traversal.PortRegistry
+	stunRegistry   *stun.SharedPortRegistry
+	observer       traversal.StunObserveFunc
+	plainManager   *traversal.Manager
+	gatewayManager *traversal.Manager
+	detector       *traversal.Detector
+}
+
+// composeTraversal builds the traversal Manager instances and Detector over
+// the given registries and the store's durable mapping journal. It is the
+// single composition root for New() and for the liveness rebuild (Story 6),
+// so acquisitions always re-map onto the CURRENT default-route gateway.
+// composeTraversal builds the traversal stack. The registries are lifetime
+// stable (forward leases keep their tuples across a liveness rebuild), so the
+// caller passes the existing ones to rebuild and nil to allocate fresh ones.
+func (a *App) composeTraversal(cfg Config, st *localstate.Store, registry *traversal.PortRegistry, stunRegistry *stun.SharedPortRegistry) (traversalComposition, error) {
+	if registry == nil {
+		registry = traversal.NewPortRegistry()
+	}
+	if stunRegistry == nil {
+		stunRegistry = stun.NewSharedPortRegistry()
+	}
+	comp := traversalComposition{
+		registry:     registry,
+		stunRegistry: stunRegistry,
+	}
+	journal := st.MappingJournal()
+	mappers := map[traversal.MappingLayerKind]traversal.GatewayMapper{}
+	if selection, selErr := traversal.DefaultRouteSource(cfg.RouteTable); selErr == nil {
+		if gateway := selection.DefaultRouteGateway; gateway.IsValid() {
+			mappers[traversal.LayerPCP] = pcp.NewAdapter(pcp.AdapterOptions{
+				Gateway: netip.AddrPortFrom(gateway, pcp.DefaultServerPort),
+			})
+			mappers[traversal.LayerNATPMP] = natpmp.NewAdapter(natpmp.AdapterOptions{
+				Gateway: netip.AddrPortFrom(gateway, natpmp.DefaultServerPort),
+			})
+		}
+		if source := selection.Source; source.IsValid() {
+			mappers[traversal.LayerUPnP] = upnp.NewAdapter(upnp.AdapterOptions{
+				InterfaceIP: source,
+			})
+		}
+	}
+	comp.observer = stun.NewManagerObserver()
+	comp.plainManager = traversal.NewManager(traversal.ManagerOptions{
+		RouteTable:  cfg.RouteTable,
+		Listeners:   traversal.PortRegistrySource{Registry: comp.registry},
+		Mappers:     mappers,
+		Journal:     journal,
+		Clock:       cfg.Clock,
+		StunObserve: comp.observer,
+	})
+	comp.gatewayManager = traversal.NewManager(traversal.ManagerOptions{
+		RouteTable:  cfg.RouteTable,
+		Listeners:   stun.LeaseSource{Registry: comp.stunRegistry},
+		Mappers:     mappers,
+		Journal:     journal,
+		Clock:       cfg.Clock,
+		StunObserve: comp.observer,
+	})
+	// The Detector's STUN seam is a temp-socket observation: it only proves
+	// the STUN server answers from a fresh tuple; every Forward observes
+	// independently from its own tuple through the manager.
+	tempObserve := func(ctx context.Context, server netip.AddrPort, timeout time.Duration) (netip.AddrPort, error) {
+		return comp.observer(ctx, traversal.StunObserveRequest{
+			Server: server,
+			Bind:   traversal.TupleKey{},
+			Dial: func(ctx context.Context, remote string) (net.Conn, error) {
+				var dialer net.Dialer
+				return dialer.DialContext(ctx, "tcp4", remote)
+			},
+			Timeout: timeout,
+		})
+	}
+	comp.detector = traversal.NewDetector(traversal.DetectorOptions{
+		RouteTable:  cfg.RouteTable,
+		Mappers:     mappers,
+		Registry:    traversal.NewPortRegistry(),
+		AutoOrder:   cfg.AutoOrder,
+		StunServers: cfg.StunServers,
+		StunObserve: tempObserve,
+	})
+	return comp, nil
+}
+
+// rebuildTraversal re-composes the adapters/Managers/Detector over the SAME
+// registries and journal after a fingerprint change, so a subsequent recover
+// re-maps every forward onto the new default-route gateway.
+func (a *App) rebuildTraversal() error {
+	if a.dp == nil || a.store == nil {
+		return nil
+	}
+	// Reuse the SAME registries and journal: forward tuples and leases survive
+	// the rebuild; only the adapters (default-route gateway), Managers and
+	// Detector are re-composed onto the changed route.
+	comp, err := a.composeTraversal(a.cfg, a.store, a.dp.registry, a.stunRegistry)
+	if err != nil {
+		return err
+	}
+	a.dp.mu.Lock()
+	a.dp.cfg.PlainManager = comp.plainManager
+	a.dp.cfg.GatewayManager = comp.gatewayManager
+	a.dp.cfg.Detector = comp.detector
+	a.dp.mu.Unlock()
+	a.plainManager = comp.plainManager
+	a.gatewayManager = comp.gatewayManager
+	a.detector = comp.detector
+	a.stunRegistry = comp.stunRegistry
+	return nil
 }
 
 // Start connects the control channel and marks the app ready once the
@@ -644,9 +714,13 @@ func (a *App) monitorLiveness(ctx context.Context) {
 			if a.marker != localstate.MarkerActive {
 				continue
 			}
-			_, capability, assessErr := traversal.Assess(a.cfg.RouteTable)
+			// Strategy-aware liveness (Story 6): availability is "route table
+			// usable + fingerprint known", NOT global-source ready. A NAT-CPE
+			// node with a private source remains live for the gateway
+			// strategies; direct-v4's global requirement lives in its own
+			// acquisition path.
 			fingerprint, fingerprintErr := traversal.Fingerprint(a.cfg.RouteTable)
-			available := assessErr == nil && capability == traversal.CapabilityDirectV4Ready && fingerprintErr == nil
+			available := fingerprintErr == nil
 			if !available {
 				if a.dp.markCapabilityLost(ctx) {
 					a.markEvidenceLost(ctx)
@@ -654,12 +728,21 @@ func (a *App) monitorLiveness(ctx context.Context) {
 				continue
 			}
 			if a.dp.capabilityChanged(fingerprint) {
+				// A route/interface change invalidates the old gateway
+				// adapters: tear down, then on restore re-map onto the new
+				// default-route gateway.
 				if a.dp.markCapabilityLost(ctx) {
 					a.markEvidenceLost(ctx)
 				}
 				continue
 			}
 			if a.dp.markCapabilityRestored(fingerprint) {
+				if err := a.rebuildTraversal(); err != nil {
+					// Keep the capability degraded so the next poll retries
+					// the rebuild, without claiming a listener is active.
+					a.dp.markCapabilityLost(ctx)
+					continue
+				}
 				if err := a.dp.recover(ctx); err != nil {
 					// Keep the capability degraded so the next poll retries
 					// recovery, without claiming a listener is active.
@@ -1384,8 +1467,12 @@ func newDataPlane(cfg dataPlaneConfig) *dataPlane {
 		cfg.Clock = time.Now
 	}
 	fingerprint, fingerprintErr := traversal.Fingerprint(cfg.RouteTable)
-	_, capability, assessErr := traversal.Assess(cfg.RouteTable)
-	capabilityReady := assessErr == nil && fingerprintErr == nil && capability == traversal.CapabilityDirectV4Ready
+	// Strategy-aware capability (P12W Story 6): readiness means "the route
+	// table is usable and its fingerprint is known". Global-source readiness is
+	// a DIRECT-V4 requirement only; gateway/manual/stun-only resolve their own
+	// (private) source inside the acquisition path, so a NAT-CPE node is not
+	// permanently capability-lost.
+	capabilityReady := fingerprintErr == nil
 	registry := cfg.Registry
 	if registry == nil {
 		registry = traversal.NewPortRegistry()
@@ -1554,10 +1641,11 @@ func (d *dataPlane) capabilityCheck() error {
 	if !ready {
 		return reconcile.ErrCapabilityLost
 	}
-	_, capability, assessErr := traversal.Assess(d.cfg.RouteTable)
-	if assessErr != nil || capability != traversal.CapabilityDirectV4Ready {
-		return reconcile.ErrCapabilityLost
-	}
+	// The global-source DirectV4Ready check moved into the direct-v4
+	// acquisition path (Story 6): the capability seam now only asserts the
+	// route table is usable and the fingerprint has not changed, so a
+	// private-source node stays capable of the gateway/manual/stun-only
+	// strategies.
 	if fingerprint != "" {
 		currentFingerprint, err := traversal.Fingerprint(d.cfg.RouteTable)
 		if err != nil || currentFingerprint != fingerprint {
