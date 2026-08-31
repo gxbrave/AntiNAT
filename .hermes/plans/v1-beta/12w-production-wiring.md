@@ -22,7 +22,7 @@ Create/own:
 - `internal/agent/strategy.go` + `strategy_test.go` — strategy translation `planFor(spec, profile) → PlanRequest`, the `auto` → concrete resolver, and the stun-only composer.
 - `internal/agent/profiles.go` — detection-profile cache as a state-dir JSON file (mirrors `internal/agent/localstate/marker.go` file pattern); staleness via `Profile.IsStale`.
 - `internal/agent/traversal_lifecycle.go` — `OnMappingDegraded/Lost/Recovered` handlers updating activation and persisting+send status, following the `onForwardRunError` lock discipline.
-- `internal/agent/p12w_composition_test.go`, `p12w_recovery_test.go`, `p12w_lifecycle_test.go`.
+- `internal/agent/p12w_composition_test.go`, `p12w_hotupdate_test.go`, `p12w_recovery_test.go`, `p12w_lifecycle_test.go`.
 - `test/integration/agent_gateway_test.go` (`//go:build linux && netns`) — composed `dataPlane`/Manager against real miniupnpd+coturn via `test/netns/traversal_lab.sh`.
 
 Modify (P12W-owned via ownership transfer in this handoff):
@@ -63,7 +63,7 @@ No UDP Manager path (P13 UDP stays direct-v4; `Manager.Acquire` is TCP-listener 
 ### Story 3: Strategy-aware TCP acquisition routing through Manager, preserving actor topology
 - RED: (a) TCP `explicit-gateway` `dp.apply` returns applied state with `MappingJournalRef == acq.JournalID` and `AssignedGatewayPort == mapping.External.Port()`; (b) hot-update (same ID, new target, same transport+strategy) keeps the SAME acquisition running — `JournalID` unchanged, no new journal record; (c) strategy change in a hot-update fails closed (mirror of the transport-change rule).
 - GREEN: `forwardLease` abstraction (`Tuple()`, `Release(context.Context) error`) with `registryLease`, `udpRegistryLease`, `acquisitionLease` adapters (`acquisitionLease.Release(ctx)` → `acq.Release(ctx)` deletes mapping+journal+listener); strategy router in `apply`; `acquisitionMeta` on the actor; `appliedState` extras. UDP path untouched.
-- Files: `internal/agent/app.go`, `internal/agent/strategy.go`, `internal/agent/p12w_composition_test.go`.
+- Files: `internal/agent/app.go`, `internal/agent/strategy.go`, `internal/agent/p12w_composition_test.go`, `internal/agent/p12w_hotupdate_test.go` (Story 3 hot-update/preservation evidence; declared test file).
 
 ### Story 4: Forward strategy translation + truthful failure surface
 - RED: table-driven test asserting each `protocol.Strategy × ForwardSpec` maps to the expected `PlanRequest`/route; absent operator input produces a FAILED apply (not an Applied state):
