@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "plan": "P12",
+  "stage": "INTEGRATED",
+  "branch": "integration/v1-beta",
+  "integration_base_sha": "265ad24c92719eaaf73351917622605c64f1d536",
+  "integration_base_tree_sha": "c74683db6aaf8b30f87cdbfa5fdb2a9e53cb2f59",
+  "dependencies": {
+    "P10": "265ad24c92719eaaf73351917622605c64f1d536",
+    "P11": "15db812553014a40cb530b6f449f80b938fdb2a8"
+  },
+  "candidate_branch": "ai/P12-gateway-traversal",
+  "candidate_head_sha": "a77e47ca3386187e5bbe635377d3012d9111d3cb",
+  "candidate_tree_sha": "977d224184f13cb72faf32dc375b28220dfbe16b",
+  "candidate_metadata_tip_sha": "e254ce22d2c5c213f9120cf327277ceeaa3f8b2d",
+  "candidate_metadata_tip_tree_sha": "82d13394dceed79e81621594d4c9d8e9383d488f",
+  "candidate_handoff": {
+    "path": "commit e254ce22d2c5c213f9120cf327277ceeaa3f8b2d:.hermes/handoffs/P12.json",
+    "sha256_at_integrated_tree": "a83859ad5f03752e127c8af2e4cb41e785e12aed3a1d8282b52c029661d03a7f",
+    "evidence_manifest_sha256": "8d9f17c20abd99c1ae78c6a3bc89b9be1f2530ee313992f7831e2be90703e7a4"
+  },
+  "integrated_implementation_sha": "897a0f836b768296b5743f11ba32ad7ef15bce71",
+  "integrated_implementation_tree_sha": "977d224184f13cb72faf32dc375b28220dfbe16b",
+  "tree_equivalence": "The integrated implementation tree is byte-identical to the exact reviewed candidate tree.",
+  "source_to_integrated_commits": [
+    ["8fdffd1f073cc7f071c93e5fe7beda3e95ff384d", "cdcff5d7d92596cab7fa81427a1eaee75969377a"],
+    ["6364cbe4811bf959868070c413fe76f686bc1759", "ccd0135d565e48ff2471eaf930c23167a935724d"],
+    ["f5a9fc18854cf1df0221e42e87617dcd8c42390a", "222d259fd2b86e9796666f0c9fd013cf3357e1a8"],
+    ["83d83997e7296ff73f942da1911c8b94eb409f42", "f79ee9ecb7c491693d42079bb2ce08fd9aa6b0b5"],
+    ["89a591345061332b3c49cd358430cc3516860e58", "0a2a669179a96c6ff1ad6e31f6db38287bb13a53"],
+    ["8f944d4b1288158b8fdb909b4f33f94dd31d8a86", "d2d9cc2976393ce849acfcfc6d0510fcc646b8de"],
+    ["52202ed19986fe742ad11dd05caeb4d4054a715f", "e95ae547b6e2b96e276d9ee2097dd08f539ccc34"],
+    ["2a1067bf672f82f288bb098be0eb7cdab16f0e39", "11aafffad8c8d56650c0d172b987dc1fb3d5872b"],
+    ["1f1b635e9ae7fc6714d9295407a8ff61ae0b8442", "5a8efecc7dd43b6bf6f7fbb63b9f0791255e87e8"],
+    ["81fc6d485d9302a78694791bd159e582ab47181c", "b9743f4db0efc4f447524ac94c3186e3d73e3449"],
+    ["d95d06d19bfb69ccefd32e0a9e3aa0acdd104910", "134813713deda08c4332b7cc5cc9deb4b1af3218"],
+    ["44c6c0badf75a1f6de6bca3fc2873c2ec59161e9", "06b05073760b1aa123a47b7d75a8f530af8cc500"],
+    ["7955fb903e9f3e9c22007321373ba88639fdaace", "1d8561e238faa55bb8edd272b8e61823e44a5be3"],
+    ["90a98ea3922db883d34f766664dfd7aa9e490805", "241f4a80d706dedc89e5fd4b60b8cd0285d0aa4a"],
+    ["11ca343688a418fb814fbdf86a3346bc5be01142", "c8da14ff91d67bef6dcfebc34dc6d99bd88fd70f"],
+    ["d30cd730e947e61f19130dce96fae9323a9fdeca", "2560542a38869ba4706ca8b1c32fd0c2daad11a7"],
+    ["22b17d3e232bdf6ed9d8d7d0afcda452f6055c3a", "a1e5b843e3c05ce863095f49349db7e89d30e392"],
+    ["e1b1538635ebaaa862541973eafe3bbfad0704f3", "cb051087717b40207eb7c8be5b67610c47e0cede"],
+    ["36dd00eeb84aa1f2bac3d81dfee4fbfa014fad3b", "bd9bf0eecdbf3cad1e123c921e92661bed72026d"],
+    ["b0484ca66214b6925282d9efda51116f10aef07d", "0c78c5c67bfd0e5f42cd8deea685b39f2084b03d"],
+    ["45b0019569761090e13751f3f5be69a9c6856c0f", "999ffd5bb3a1ff187bf66caa530de7ad8164d171"],
+    ["b66e14d563c94f01f2a6a40a394bb96826836a8a", "aadc52586f511f7b1eb943d3433fd950fbe8dae7"],
+    ["ce54c0cd5a966ca7a37329161a94af1ea78f83a0", "68c44eb078cb7bbb9a1ad737e311fd65c9700847"],
+    ["7f12c1d1562dd41d3c0e48d2928ace76b7939d23", "d35d540d7b7b407d9bb5228c4c312872b3ccad21"],
+    ["a77e47ca3386187e5bbe635377d3012d9111d3cb", "897a0f836b768296b5743f11ba32ad7ef15bce71"]
+  ],
+  "reviews": {
+    "status": "REVIEW_COMPLETE_ALL_ANGLES_PASS",
+    "reviewed_head_sha": "a77e47ca3386187e5bbe635377d3012d9111d3cb",
+    "reviewed_tree_sha": "977d224184f13cb72faf32dc375b28220dfbe16b",
+    "specification_ownership": "PASS",
+    "quality_security": "PASS",
+    "network_protocol": "PASS",
+    "lifecycle_integration": "PASS"
+  },
+  "ownership": {
+    "files_changed_count": 109,
+    "status": "PASS",
+    "declared_deviations": [
+      "Mechanical store migration-test updates caused by migration 0007.",
+      "P11 STUN package extensions required for P12 same-source tuple composition; disclosed and independently reviewed."
+    ]
+  },
+  "post_integration_verification": [
+    {"command": "GOWORK=off go test ./internal/traversal/... -race -count=10", "exit_code": 0, "result": "PASS; 7 traversal packages."},
+    {"command": "GOWORK=off go test ./internal/controller/probe ./internal/agent/reconcile ./internal/forward/... -race -count=1", "exit_code": 0, "result": "PASS."},
+    {"command": "GOWORK=off go vet ./internal/traversal/... ./internal/controller/store", "exit_code": 0, "result": "PASS."},
+    {"command": "gofmt -l <changed Go files>", "exit_code": 0, "result": "PASS; empty output."},
+    {"command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1", "exit_code": 0, "result": "PASS."},
+    {"command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./... -count=1", "exit_code": 0, "result": "PASS; race detector clean."},
+    {"command": "GOWORK=off go test ./test/e2e -count=1 -v", "exit_code": 0, "result": "PASS; Linux direct-v4 walking skeleton."},
+    {"command": "GOWORK=off go test -tags=netns ./test/integration/... -count=1 -v", "exit_code": 0, "result": "PASS; cleanup and TCP PCP/NAT-PMP/UPnP traversal lab."},
+    {"command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off make test", "exit_code": 0, "result": "PASS."},
+    {"command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off make check", "exit_code": 0, "result": "PASS."},
+    {"command": "GOWORK=off make build", "exit_code": 0, "result": "PASS."}
+  ],
+  "environment_notes": [
+    "Bare make test/check without the documented dedicated UID/GID failed only at the pre-existing sandbox identity gate; rerun with the provisioned identity passed.",
+    "govulncheck was unavailable on the orchestrator host and is recorded as SKIPPED, not PASS.",
+    "No native Windows runtime, real CPE/router inventory, or public-WAN vantage was available; capability remains SUPPORTED_WITH_LIMITS."
+  ],
+  "m2_gate": {
+    "status": "PASS_WITH_DECLARED_LIMITS",
+    "first_hop_mapped_published_as_verified": false,
+    "tcp_stun_and_gateway_adapters": "PASS at declared lab evidence level",
+    "detection_profile_fingerprint_cleanup": "PASS"
+  },
+  "preservation": {
+    "branch": "preservation/integration-v1-beta-dirty-20260831",
+    "commit": "bcb9cdba4835e5af39d79792f3209214dd39c8cd",
+    "tree": "459b8f947cb3d5a52fe856a9c277366eec2118ea",
+    "content_included_in_integration": false
+  },
+  "integration_performed": true,
+  "self_approval": false,
+  "release_performed": false,
+  "remote_push": "NONE"
+}
