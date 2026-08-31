@@ -1584,6 +1584,28 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 			d.mu.Unlock()
 			return protocol.AppliedForwardState{}, fmt.Errorf("agent: forward %q transport change %s->%s requires delete/recreate", spec.ForwardID, tuple.Protocol, spec.Protocol)
 		}
+		// A same-ID Forward whose strategy changed cannot hot-update in place:
+		// the existing acquisition (and its journal ref) would silently keep the
+		// old strategy while the backend swaps. Fail closed; the reconcile layer
+		// turns the error into a preserved LKG with the new desired retained.
+		// The comparison uses the RESOLVED strategy (auto collapses to its
+		// concrete strategy, UDP collapses to direct-v4) so an equivalent
+		// auto→direct rename is not a false strategy change.
+		incomingStrategy := spec.Strategy
+		if incomingRoute, routeErr := d.resolveForwardRoute(spec); routeErr != nil {
+			d.mu.Unlock()
+			return protocol.AppliedForwardState{}, fmt.Errorf("agent: forward %q strategy re-resolution: %w", spec.ForwardID, routeErr)
+		} else if incomingRoute.stunOnly {
+			incomingStrategy = protocol.StrategyStunOnly
+		} else {
+			incomingStrategy = incomingRoute.plan.Strategy
+		}
+		// A zero actor strategy marks a hand-constructed actor (tests/legacy)
+		// with no recorded strategy; production actors always carry one.
+		if actor.strategy != "" && actor.strategy != incomingStrategy {
+			d.mu.Unlock()
+			return protocol.AppliedForwardState{}, fmt.Errorf("agent: forward %q strategy change %s->%s requires delete/recreate", spec.ForwardID, actor.strategy, incomingStrategy)
+		}
 		// Hot update: the listener stays, the backend target swaps
 		// atomically; new sessions resolve the new snapshot at accept time.
 		if err := actor.backend.Update(spec.Target); err != nil {
