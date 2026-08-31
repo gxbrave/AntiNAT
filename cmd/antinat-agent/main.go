@@ -22,11 +22,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gxbrave/AntiNAT/internal/agent"
 	"github.com/gxbrave/AntiNAT/internal/buildinfo"
+	"github.com/gxbrave/AntiNAT/internal/protocol"
 )
 
 func main() {
@@ -40,6 +42,8 @@ func main() {
 	tokenFile := flag.String("token-file", envOr("ANTINAT_TOKEN_FILE", ""), "one-time enrollment token file (0600)")
 	tokenFD := flag.Int("token-fd", -1, "protected one-time enrollment token file descriptor")
 	pinHex := flag.String("pin", envOr("ANTINAT_PIN", ""), "pinned controller public key (hex)")
+	stunServers := flag.String("stun-servers", envOr("ANTINAT_STUN_SERVERS", ""), "comma-separated stun+tcp:// endpoints for the stun-only strategy and gateway same-tuple observation")
+	autoOrder := flag.String("auto-order", envOr("ANTINAT_AUTO_ORDER", ""), "comma-separated auto strategy order (explicit-gateway,direct-v4,stun-only; manual-static is never auto-detected)")
 	flag.Parse()
 
 	if *endpoint == "" || *nodeID == "" {
@@ -51,6 +55,13 @@ func main() {
 		Endpoint:  *endpoint,
 		NodeID:    *nodeID,
 		Heartbeat: 30 * time.Second,
+	}
+	cfg.StunServers = splitCommaList(*stunServers)
+	if order, err := parseStrategyOrder(*autoOrder); err != nil {
+		fmt.Fprintf(os.Stderr, "antinat-agent: %v\n", err)
+		os.Exit(2)
+	} else if len(order) > 0 {
+		cfg.AutoOrder = order
 	}
 	var tokenInputValue *tokenInput
 	if *tokenFile != "" || *tokenFD >= 0 {
@@ -121,4 +132,40 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// splitCommaList splits a comma-separated flag value, trimming spaces and
+// dropping empty entries.
+func splitCommaList(value string) []string {
+	if value == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(value, ",") {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+// parseStrategyOrder parses the operator auto-order flag, rejecting unknown
+// strategy names and manual-static (never auto-detected). An empty value with
+// no error means "leave the production default".
+func parseStrategyOrder(value string) ([]protocol.Strategy, error) {
+	if value == "" {
+		return nil, nil
+	}
+	var out []protocol.Strategy
+	for _, part := range splitCommaList(value) {
+		strategy, err := protocol.ParseStrategy(part)
+		if err != nil {
+			return nil, fmt.Errorf("antinat-agent: --auto-order strategy %q: %w", part, err)
+		}
+		if strategy == protocol.StrategyManualStaticV4 {
+			return nil, fmt.Errorf("antinat-agent: --auto-order must not contain manual-static-v4 (operator-configured only)")
+		}
+		out = append(out, strategy)
+	}
+	return out, nil
 }
