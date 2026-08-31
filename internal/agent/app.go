@@ -1188,7 +1188,16 @@ func (a *App) onForwardApplied(spec protocol.ForwardSpec, applied protocol.Appli
 		if state := mappingStateForVerdict(actor.acq.Verdict); state != "" {
 			_ = act.Update("mapping_state", state, generation)
 		}
-		_ = act.Update("keepalive_state", "HEALTHY", generation)
+		// Repair R1 finding 7: keepalive_state HEALTHY is only observable when
+		// the acquisition has a running renewal loop. Manual-static is
+		// operator-configured with no renewal (nothing to observe), so the
+		// truthful axis is NOT_REQUIRED rather than a HEALTHY claim the
+		// lifecycle handlers can never correct.
+		if actor.strategy == protocol.StrategyManualStaticV4 {
+			_ = act.Update("keepalive_state", "NOT_REQUIRED", generation)
+		} else {
+			_ = act.Update("keepalive_state", "HEALTHY", generation)
+		}
 		_ = act.Update("data_plane_state", "READY", generation)
 	}
 	a.dp.mu.Unlock()

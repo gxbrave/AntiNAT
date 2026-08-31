@@ -604,6 +604,46 @@ func TestDataPlaneUDPBindsSelectedGlobalSourceNotWildcard(t *testing.T) {
 // Repair R1 finding 2 (positive): on a host with a real global direct-v4
 // source, the UDP listener must bind that selected source, not the wildcard.
 // Skipped where no global source exists (no bindable address to pin).
+// Repair R1 finding 7: a manual-static forward has no renewal loop (nothing
+// to observe), so its activation must not claim keepalive_state HEALTHY.
+// The truthful axis is NOT_REQUIRED, matching direct/UDP forwards.
+func TestDataPlaneManualStaticKeepaliveStateNotRequired(t *testing.T) {
+	st, err := localstate.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	plain := traversal.NewManager(traversal.ManagerOptions{
+		RouteTable: p12wRouteTable{},
+		Listeners:  traversal.PortRegistrySource{Registry: traversal.NewPortRegistry()},
+	})
+	d := newDataPlane(dataPlaneConfig{
+		Store: st, RouteTable: p12wRouteTable{}, Clock: time.Now, PlainManager: plain,
+	})
+	a := &App{store: st, dp: d, activations: make(map[string]*reconcile.Activation)}
+	d.cfg.OnApplied = a.onForwardApplied
+	t.Cleanup(func() { _ = d.closeAll(context.Background()) })
+
+	spec := protocol.ForwardSpec{
+		ForwardID: "fwd-manual-live", Protocol: protocol.ProtocolTCP, Target: "127.0.0.1:9",
+		Strategy: protocol.StrategyManualStaticV4, ManualExpectedEndpoint: "203.0.113.7:443",
+		DesiredRevision: 1, Presence: protocol.PresencePresent,
+	}
+	if _, err := d.apply(context.Background(), spec); err != nil {
+		t.Fatalf("manual-static apply: %v", err)
+	}
+	snap := a.ActivationSnapshot("fwd-manual-live")
+	if snap == nil {
+		t.Fatal("no activation recorded for the manual-static forward")
+	}
+	if snap.KeepaliveState != "NOT_REQUIRED" {
+		t.Fatalf("manual-static keepalive_state = %q, want NOT_REQUIRED (no renewal loop)", snap.KeepaliveState)
+	}
+	if snap.DataPlaneState != "READY" {
+		t.Fatalf("manual-static data_plane_state = %q, want READY", snap.DataPlaneState)
+	}
+}
+
 func TestDataPlaneUDPApplyBindsSelectedSource(t *testing.T) {
 	routeTable := traversal.HostRouteTable{}
 	sel, capability, err := traversal.Assess(routeTable)
