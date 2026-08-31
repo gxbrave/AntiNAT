@@ -1,7 +1,7 @@
 {
   "plan": "P12W",
   "base_sha": "94e08603ca90cfa75a3a7a22b8da34016e9748d8",
-  "head_sha": "328f0bb7016d6d9c10ae2f2faa256a27d52d1e4d",
+  "head_sha": "611f25e71c2f4ab72565f125868e6073d03aeef2",
   "commits": [
     "agent: P12W S1 bbolt mapping journal store (TDD)",
     "agent: P12W S2 manager/detector/adapter wiring for gateway routes (TDD)",
@@ -27,7 +27,8 @@
     "37b94c9 hermes: bound P12W repair-cycle-1 file ownership",
     "c33838104351e6b9d2369ea2afc3b09c626a128b",
     "971eae248a4ffae63d168b3240a809ca14a26eda",
-    "328f0bb7016d6d9c10ae2f2faa256a27d52d1e4d"
+    "328f0bb7016d6d9c10ae2f2faa256a27d52d1e4d",
+    "611f25e71c2f4ab72565f125868e6073d03aeef2"
   ],
   "files_changed": [
     "cmd/antinat-agent/autoorder_test.go",
@@ -51,7 +52,8 @@
     ".hermes/plans/v1-beta/12w-production-wiring.md",
     ".hermes/plans/v1-beta/12w-repair-1.md",
     "internal/agent/p12w_repair2_test.go",
-    ".hermes/plans/v1-beta/12w-repair-2.md"
+    ".hermes/plans/v1-beta/12w-repair-2.md",
+    ".hermes/handoffs/P12W.json"
   ],
   "tests": [
     {
@@ -248,7 +250,7 @@
     "status": "IMPLEMENTED_AND_LOCALLY_VERIFIED_PENDING_FRESH_INDEPENDENT_REVIEW",
     "base": "94e08603ca90cfa75a3a7a22b8da34016e9748d8 (candidate implementation base)",
     "repair_1_tip": "75868d8d97f7b8c343b9c886bdde2a6293d2806d (repair-1 metadata tip; repair-2 implementation is based on it)",
-    "repair_2_head": "328f0bb7016d6d9c10ae2f2faa256a27d52d1e4d",
+    "repair_2_head": "611f25e71c2f4ab72565f125868e6073d03aeef2",
     "repair_2_commits": [
       {
         "sha": "c33838104351e6b9d2369ea2afc3b09c626a128b",
@@ -261,6 +263,10 @@
       {
         "sha": "328f0bb7016d6d9c10ae2f2faa256a27d52d1e4d",
         "subject": "hermes: bound P12W repair-cycle-2 file ownership"
+      },
+      {
+        "sha": "611f25e71c2f4ab72565f125868e6073d03aeef2",
+        "subject": "hermes: record P12W repair-cycle-2 completion and verification (this handoff)"
       }
     ],
     "fixes": {
@@ -325,6 +331,7 @@
       "A manager acquisition whose Release genuinely fails (e.g. a mapper Delete adapter error) stays owned in cleanupPending; Acquisition.Release is sync.Once and is intentionally never claimed to retry \u2014 the durable journal record is the retained evidence that the gateway mapping may still be live. This matches the repair-2 finding-7 guidance and is not a regression.",
       "govulncheck is not installed in this worktree, so vulnerability scanning remains unexecuted (same caveat as prior cycles).",
       "The repair-2 deletion-window fence closes lifecycle/probe events against a durable delete fence; the residual D5 callback-token replacement window (a trailing OnMapping* event satisfying a live replacement forward's mapped guard) is unchanged and still documented."
-    ]
+    ],
+    "repair_2_head_note": "611f25e is the current HEAD: the handoff-record commit (hermes: record P12W repair-cycle-2 completion and verification) that writes P12W.json itself. The last IMPLEMENTATION commit is 328f0bb; 611f25e changes only .hermes/handoffs/P12W.json, so the code tree is identical."
   }
 }
