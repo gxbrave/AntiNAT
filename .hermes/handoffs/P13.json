@@ -22,8 +22,8 @@
     "fc02feb1b40f3c496c9d0398e434a28f2f72da59",
     "3026a2744fff77907d079bdb6936facd8983956b"
   ],
-  "files_changed_count": 19,
-  "files_changed": [
+  "files_changed_count": 18,
+  "files_changed_implementation": [
     "internal/forward/udp/forward.go",
     "internal/forward/udp/forward_test.go",
     "internal/forward/udp/read_linux.go",
@@ -41,8 +41,12 @@
     "internal/traversal/portregistry.go",
     "internal/traversal/portregistry_test.go",
     "test/integration/udp_test.go",
-    "test/netns/udp_lab.sh",
-    ".hermes/evidence/p13/SHA256SUMS"
+    "test/netns/udp_lab.sh"
+  ],
+  "files_changed_metadata": [
+    ".hermes/handoffs/P13.json",
+    ".hermes/evidence/p13/SHA256SUMS",
+    ".hermes/evidence/p13/*.log"
   ],
   "ownership_transfers": [
     "internal/traversal/portregistry.go and test: P13 adds AcquireUDP parallel to P09/P10 TCP lease, sharing overlap/generation/stale-release atomicity.",
@@ -87,7 +91,13 @@
     "P13 wires UDP protocol through the existing P12 direct/manual/gateway composition interfaces; no new traversal adapter and no capability level changes.",
     "A pre-existing timing-sensitive internal/agent receipt test timed out only under full parallel race load and passes in isolation; it is unrelated to UDP changes and was recorded for the reviewers."
   ],
-  "review_status": "REVIEW_REQUIRED",
+  "review_status": "REVIEW_IN_PROGRESS",
+  "review_dispositions": [
+    "F1 (evidence durability): P13 evidence logs committed as repository blobs following the P10/P12 precedent.",
+    "F2 (handoff precision): files_changed split into implementation (18) and metadata (handoff + evidence) lists.",
+    "F3 (LOW, test robustness): normal-teardown residue checks report to stderr and only the signal-cleanup test enforces zero residue; the echo-daemon leak grep cannot match an orphaned python3 cmdline. Accepted as test-robustness notes; actual runs leave zero residue.",
+    "F4 (LOW, latent): apply hot-update does not guard a same-ID Forward whose protocol changed; the frozen reconcile domain never mutates an existing Forward's protocol. Accepted and noted for a future guard."
+  ],
   "integration_status": "NOT_PERFORMED",
   "integration_performed": false,
   "self_approval": false,
