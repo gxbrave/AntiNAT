@@ -43,7 +43,7 @@ func main() {
 	tokenFD := flag.Int("token-fd", -1, "protected one-time enrollment token file descriptor")
 	pinHex := flag.String("pin", envOr("ANTINAT_PIN", ""), "pinned controller public key (hex)")
 	stunServers := flag.String("stun-servers", envOr("ANTINAT_STUN_SERVERS", ""), "comma-separated stun+tcp:// endpoints for the stun-only strategy and gateway same-tuple observation")
-	autoOrder := flag.String("auto-order", envOr("ANTINAT_AUTO_ORDER", ""), "comma-separated auto strategy order (explicit-gateway,direct-v4,stun-only; manual-static is never auto-detected)")
+	autoOrder := flag.String("auto-order", envOr("ANTINAT_AUTO_ORDER", ""), "comma-separated concrete auto strategy order (explicit-gateway,direct-v4,stun-only; manual-static and literal auto are rejected)")
 	flag.Parse()
 
 	if *endpoint == "" || *nodeID == "" {
@@ -150,8 +150,10 @@ func splitCommaList(value string) []string {
 }
 
 // parseStrategyOrder parses the operator auto-order flag, rejecting unknown
-// strategy names and manual-static (never auto-detected). An empty value with
-// no error means "leave the production default".
+// strategy names, manual-static (never auto-detected) and the literal auto
+// (a profile-resolved default, not a concrete probeable order entry; an
+// accepted "auto" would silently yield a no-default detection profile).
+// An empty value with no error means "leave the production default".
 func parseStrategyOrder(value string) ([]protocol.Strategy, error) {
 	if value == "" {
 		return nil, nil
@@ -164,6 +166,9 @@ func parseStrategyOrder(value string) ([]protocol.Strategy, error) {
 		}
 		if strategy == protocol.StrategyManualStaticV4 {
 			return nil, fmt.Errorf("antinat-agent: --auto-order must not contain manual-static-v4 (operator-configured only)")
+		}
+		if strategy == protocol.StrategyAuto {
+			return nil, fmt.Errorf("antinat-agent: --auto-order must not contain auto (a profile-resolved default, not a concrete probeable strategy)")
 		}
 		out = append(out, strategy)
 	}
