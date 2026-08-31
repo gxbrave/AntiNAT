@@ -1,0 +1,10 @@
+=== P13 netns UDP e2e ===
+        --- PASS: TestUDPAgentChild (8.44s)
+        PASS
+--- PASS: TestUDP (8.77s)
+=== RUN   TestUDPAgentChild
+    udp_test.go:618: child-only: run through TestUDP
+--- SKIP: TestUDPAgentChild (0.00s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/test/integration	10.110s
+exit=0 2026-08-31T02:34:31Z
