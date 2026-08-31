@@ -553,11 +553,21 @@ func TestDataPlaneHotUpdateRejectsTransportChange(t *testing.T) {
 	if _, err := d.apply(context.Background(), udpSpec); err == nil {
 		t.Fatal("transport change apply must fail")
 	}
-	// The existing TCP actor and its target snapshot must be untouched.
-	tcpSpec.Target = tcpSpec.Target // unchanged; a normal hot update still works
+	// The existing TCP actor keeps serving and a normal same-transport hot
+	// update must still work after the rejected transport change.
+	targetTwo, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer targetTwo.Close()
+	tcpSpec.Target = targetTwo.Addr().String()
 	tcpSpec.DesiredRevision = 3
 	if _, err := d.apply(context.Background(), tcpSpec); err != nil {
 		t.Fatalf("TCP hot update must still work after rejected transport change: %v", err)
+	}
+	actorAgain := d.forwards["fwd-mix"]
+	if got := actorAgain.backend.Target().String(); got != targetTwo.Addr().String() {
+		t.Fatalf("TCP backend snapshot = %s, want %s", got, targetTwo.Addr().String())
 	}
 }
 

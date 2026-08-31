@@ -103,6 +103,30 @@ func TestHandleUDPProbeReplayCapacityDropsFailClosed(t *testing.T) {
 	}
 }
 
+func TestHandleUDPProbeQuarantineDropsProbeShapedFrames(t *testing.T) {
+	// During a recovery error the manager is in quarantine, symmetric with the
+	// TCP ProbeGate which rejects every connection in the same state. Any
+	// well-formed WAN1-shaped datagram is consumed without ACK and never
+	// forwarded to business; ordinary payloads unaffected.
+	e := newProbeTestEnv(t)
+	arm := e.mustArm(t)
+	raw := signedUDPProviderFrame(t, arm, e.provider)
+	source := netip.MustParseAddrPort("127.0.0.1:41000")
+
+	e.mgr.mu.Lock()
+	e.mgr.recoveryErr = ErrProbeRecoveryOverflow
+	e.mgr.mu.Unlock()
+
+	r1 := e.mgr.HandleUDPProbe(e.forward, source, raw)
+	if !r1.Drop || r1.Matched || len(r1.ACK) != 0 || len(r1.Receipt) != 0 {
+		t.Fatalf("quarantine must drop probe-shaped frame without ACK/material, got %+v", r1)
+	}
+	r2 := e.mgr.HandleUDPProbe(e.forward, source, []byte("hello"))
+	if r2.Drop || r2.Matched {
+		t.Fatalf("quarantine must leave ordinary payload to business, got %+v", r2)
+	}
+}
+
 func TestHandleUDPProbeFullMatchTTLAndReplay(t *testing.T) {
 	tests := []struct {
 		name   string
