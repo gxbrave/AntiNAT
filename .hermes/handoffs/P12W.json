@@ -400,20 +400,20 @@
     "deviations": "none. Files changed: internal/agent/app.go, internal/agent/p12w_repair3_races_test.go, this handoff."
   },
   "integration_status": {
-    "integrated": false,
-    "integrated_onto": null,
-    "integrated_json_written": null,
+    "integrated": true,
+    "integrated_onto": "integration/v1-beta @ 708931ec8667e460b73e05f741cb18a3c4b6dbe6 (fast-forward; identity preserved)",
+    "integrated_json_written": ".hermes/handoffs/P12W-integrated.json",
     "review_gate": {
       "spec_ownership": "APPROVE (re-confirmed at 82ceec5; final head = 82ceec5)",
       "quality_security": "APPROVE at 82ceec5 (after repair-3 closed the two blocking dataPlane.cfg races)",
-      "network_protocol": "PENDING \u2014 launched at 611f25e, verdict NOT captured before session end; MUST be re-run / re-verified at the final head 82ceec5 (repair-3 changed newStunOnlyActor and runDetection)"
+      "network_protocol": "APPROVE at 82ceec5 (re-run 2026-08-31 in a fresh context; the prior launch at 611f25e never captured a verdict, so it was re-run at the final head after repair-3 changed newStunOnlyActor and runDetection)"
     },
-    "blocking_before_integration": [
-      "network/protocol review RE-RUN at 82ceec5 and APPROVE",
-      "any REQUEST_CHANGES from that review repaired in a bounded cycle and re-reviewed",
-      "full verification matrix re-recorded at the final head (all exit codes 0)"
+    "blocked_before_integration": [
+      "network/protocol review RE-RUN at 82ceec5 and APPROVE \u2014 DONE 2026-08-31 (fresh context; 3 non-blocking L nits recorded in P12W-integrated.json)",
+      "any REQUEST_CHANGES from that review repaired in a bounded cycle and re-reviewed \u2014 none (clean APPROVE)",
+      "full verification matrix re-recorded at the final head (all exit codes 0) \u2014 DONE 2026-08-31 (see P12W-integrated.json verification_at_integrated_tip)"
     ],
     "handoff_doc": ".hermes/handoffs/P12W-development-session-handoff.md",
-    "notes": "Session ended by operator request mid-gate. The candidate is implemented and locally verified; 2/3 independent reviews approve; the third is outstanding. Do not start P14 or push to GitHub before the gate closes and P12W-integrated.json is written."
+    "notes": "Gate closed 2026-08-31: all three independent reviews APPROVE at the final head, the full verification matrix re-recorded at that head (all exit codes 0), and the candidate fast-forwarded onto integration/v1-beta with identity preserved. P12W-integrated.json is written. P14 may begin. GitHub push remains deferred to P19."
   }
 }
