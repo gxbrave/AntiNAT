@@ -1,10 +1,19 @@
-=== P13 netns UDP e2e ===
+=== RUN   TestUDPLabSignalCleanup
+--- PASS: TestUDPLabSignalCleanup (1.34s)
+=== RUN   TestUDP
+    udp_test.go:418: lab topology: agent=198.51.100.2 echo_a=198.51.100.1:24001 echo_b=198.51.100.1:24002 cpe_wan=11.0.0.2 vantage=11.0.0.1
+    udp_test.go:481: forwarder published tuple: 198.51.100.2:47077
+    udp_test.go:597: agent child output:
+        === RUN   TestUDPAgentChild
+            udp_test.go:666: forwarder ingress bound at 198.51.100.2:47077
+            udp_test.go:859: backend hot-updated to 198.51.100.1:24002
+            udp_test.go:878: child closed: active=0 accepted=8 rejected=1 truncated=0
         --- PASS: TestUDPAgentChild (8.44s)
         PASS
---- PASS: TestUDP (8.77s)
+--- PASS: TestUDP (8.79s)
 === RUN   TestUDPAgentChild
-    udp_test.go:618: child-only: run through TestUDP
+    udp_test.go:620: child-only: run through TestUDP
 --- SKIP: TestUDPAgentChild (0.00s)
 PASS
-ok  	github.com/gxbrave/AntiNAT/test/integration	10.110s
-exit=0 2026-08-31T02:34:31Z
+ok  	github.com/gxbrave/AntiNAT/test/integration	10.132s
+exit=0

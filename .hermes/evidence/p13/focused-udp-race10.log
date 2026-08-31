@@ -1,3 +1,2 @@
-=== P13 focused race ./internal/forward/udp ===
-ok  	github.com/gxbrave/AntiNAT/internal/forward/udp	1.640s
-exit=0 2026-08-31T02:30:38Z
+ok  	github.com/gxbrave/AntiNAT/internal/forward/udp	1.642s
+exit=0

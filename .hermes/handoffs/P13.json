@@ -11,17 +11,20 @@
     "commit": "a3626376e707ffbdcdc142269dc2db6b03a2479c",
     "tree": "59dec88f3249f08b76754d6d100d4ec726159f74"
   },
-  "implementation_head": "3026a2744fff77907d079bdb6936facd8983956b",
-  "implementation_tree": "e5277c3370e25526f3b008faaf5ae2c72a0ca989",
+  "implementation_head": "04a66a5af1eb1b9924023a8fd65ce7c09c077751",
+  "implementation_tree": "2a4114ba3be110fa7fb84edab842f8c53ff9ab5f",
   "metadata_tip": "e577d36d60a4d67d1c32f1a9ef2946ccbd5e0eb9",
   "metadata_tree": "f2d339994b42290ea3c28cd37bbfdbbcc0a72f2b",
-  "evidence_manifest_tree": "c6309846b3db8be4770fedad696dfb94bb33744a",
+  "repair_cycle_head": "3026a2744fff77907d079bdb6936facd8983956b",
+  "repair_cycle_tree": "e5277c3370e25526f3b008faaf5ae2c72a0ca989",
   "implementation_commits": [
     "575ad2d73a35631e86708949efdec62833421a26",
     "567f2c179878234e4a65dc300c0d17e04e59aa6a",
     "813c164c3fc882352b5c686bbe824ed3e26d2399",
     "fc02feb1b40f3c496c9d0398e434a28f2f72da59",
-    "3026a2744fff77907d079bdb6936facd8983956b"
+    "3026a2744fff77907d079bdb6936facd8983956b",
+    "fc1a3baf957e9b8dfa78ac8d29adc12525284239",
+    "04a66a5af1eb1b9924023a8fd65ce7c09c077751"
   ],
   "files_changed_count": 18,
   "files_changed_implementation": [
@@ -84,6 +87,14 @@
     {"command": "gofmt -l (all changed Go files)", "exit_code": 0},
     {"command": "git diff --check", "exit_code": 0}
   ],
+  "repair_verification": [
+    {"command": "GOWORK=off go test ./internal/agent/reconcile -run 'TestHandleUDPProbe' -race -count=10", "exit_code": 0, "summary": "Includes TestHandleUDPProbeReplayCapacityDropsFailClosed."},
+    {"command": "GOWORK=off go test ./internal/agent -run 'TestDataPlaneComposesDirectV4UDPAndHotUpdates|TestDataPlaneHotUpdateRejectsTransportChange' -race -count=10", "exit_code": 0},
+    {"command": "GOWORK=off go test ./internal/forward/udp -race -count=10", "exit_code": 0},
+    {"command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1", "exit_code": 0},
+    {"command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./... -count=1", "exit_code": 0},
+    {"command": "GOWORK=off go test -tags=netns ./test/integration -run TestUDP -count=1 -v", "exit_code": 0, "summary": "Passes with enforced teardown residue assertions."}
+  ],
   "known_limits": [
     "Windows and generic read paths use a conservative full-buffer heuristic instead of Linux MSG_TRUNC; a legal 65,507-byte datagram that exactly fills the buffer is dropped on those platforms.",
     "Target-side error isolation is exercised via injected connected-reader failure; no real kernel ICMP quoted-packet correlation is implemented.",
@@ -92,7 +103,16 @@
     "P13 wires UDP protocol through the existing P12 direct/manual/gateway composition interfaces; no new traversal adapter and no capability level changes.",
     "A pre-existing timing-sensitive internal/agent receipt test timed out only under full parallel race load and passes in isolation; it is unrelated to UDP changes and was recorded for the reviewers."
   ],
-  "review_status": "REVIEW_COMPLETE_ALL_ANGLES_PASS",
+  "review_status": "REPAIR_CYCLE_REVIEW_REQUIRED",
+  "repair_cycle": {
+    "reason": "收尾修整（pre-integration tidy-up）resolved F3/F4/F5 from the four-angle review while preserving the reviewed base tree:",
+    "fixes": [
+      "F5 fail-closed probe: HandleUDPProbe now returns Drop (consumed, no ACK, never forwarded to business) when replay capacity is full, recovery is in error, or the durable consume store call fails — symmetric with the TCP probe gate quarantine. RED test TestHandleUDPProbeReplayCapacityDropsFailClosed.",
+      "F4 transport-change guard: dataPlane.apply hot-update rejects a same-ID Forward whose transport changed (delete/recreate required) instead of swapping the backend under the old socket. RED test TestDataPlaneHotUpdateRejectsTransportChange.",
+      "F3 teardown enforcement: normal UDP lab teardown residue checks now fail the owning test; the echo daemon carries the lab prefix as an ignored argv marker so signal-interrupted leak detection can match an orphaned cmdline."
+    ],
+    "review_required": true
+  },
   "review_records": [
     {
       "angle": "specification/ownership",

@@ -1,4 +1,2 @@
-=== P13 probe race ./internal/agent/reconcile + ./internal/controller/probe ===
-ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	1.753s
-ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	69.799s
-exit=0 2026-08-31T02:32:02Z
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	1.881s
+exit=0
