@@ -103,6 +103,18 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Fprintf(os.Stderr, "antinat-agent: control session established for node %s\n", *nodeID)
+	if report := app.LastRecoveryReport(); len(report.Quarantined) > 0 ||
+		len(report.Journal.Superseded) > 0 || len(report.Journal.Orphaned) > 0 {
+		// Repair R1 findings 3/4: surface the startup recovery diagnostic. The
+		// applied LKG rows remain durable; the detection job refreshes the
+		// profile and a later recovery pass reopens the deferred forwards.
+		fmt.Fprintf(os.Stderr, "antinat-agent: startup recovery deferred %d forward(s) pending a fresh detection profile\n", len(report.Quarantined))
+		for _, q := range report.Quarantined {
+			fmt.Fprintf(os.Stderr, "antinat-agent:   %s: %v\n", q.ForwardID, q.Err)
+		}
+		fmt.Fprintf(os.Stderr, "antinat-agent: journal replay left %d superseded and %d orphaned record(s)\n",
+			len(report.Journal.Superseded), len(report.Journal.Orphaned))
+	}
 
 	<-ctx.Done()
 	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

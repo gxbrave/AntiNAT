@@ -2581,6 +2581,18 @@ func (d *dataPlane) recover(ctx context.Context) (recoverReport, error) {
 			return report, err
 		}
 	}
+	// The journal replay boundary runs on the PRODUCTION recovery path (repair
+	// R1 finding 4): the durable journal is reconciled against the live
+	// acquisitions and the applied records, and the Superseded/Orphaned rows
+	// are surfaced through the same report. Records are never silently deleted
+	// (P14 evacuates with adapter State decode).
+	if d.cfg.Journal != nil {
+		journal, journalErr := d.replayJournalBoundaries()
+		if journalErr != nil {
+			return report, journalErr
+		}
+		report.Journal = journal
+	}
 	// The diagnostic hook fires on every pass (the report may be empty). The
 	// consumer (App/main) decides whether to surface anything, so a later pass
 	// that un-quarantines everything is observable.
