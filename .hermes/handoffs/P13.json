@@ -1,0 +1,96 @@
+{
+  "plan": "P13",
+  "stage": "IMPLEMENTATION_FROZEN_REVIEW_REQUIRED",
+  "branch": "ai/P13-udp-dataplane",
+  "depends_on": {
+    "P10": "265ad24c92719eaaf73351917622605c64f1d536",
+    "P11": "15db812553014a40cb530b6f449f80b938fdb2a8",
+    "P12": "a3626376e707ffbdcdc142269dc2db6b03a2479c"
+  },
+  "integration_base": {
+    "commit": "a3626376e707ffbdcdc142269dc2db6b03a2479c",
+    "tree": "59dec88f3249f08b76754d6d100d4ec726159f74"
+  },
+  "implementation_head": "3026a2744fff77907d079bdb6936facd8983956b",
+  "implementation_tree": "e5277c3370e25526f3b008faaf5ae2c72a0ca989",
+  "metadata_tip": "470ac95123b31520d268a4e3bf837bb90f674f00",
+  "metadata_tree": "c6309846b3db8be4770fedad696dfb94bb33744a",
+  "implementation_commits": [
+    "575ad2d73a35631e86708949efdec62833421a26",
+    "567f2c179878234e4a65dc300c0d17e04e59aa6a",
+    "813c164c3fc882352b5c686bbe824ed3e26d2399",
+    "fc02feb1b40f3c496c9d0398e434a28f2f72da59",
+    "3026a2744fff77907d079bdb6936facd8983956b"
+  ],
+  "files_changed_count": 19,
+  "files_changed": [
+    "internal/forward/udp/forward.go",
+    "internal/forward/udp/forward_test.go",
+    "internal/forward/udp/read_linux.go",
+    "internal/forward/udp/read_other.go",
+    "internal/forward/udp/read_windows.go",
+    "internal/agent/app.go",
+    "internal/agent/app_test.go",
+    "internal/agent/reconcile/probe_udp.go",
+    "internal/agent/reconcile/probe_udp_test.go",
+    "internal/controller/probe/manager.go",
+    "internal/controller/probe/provider.go",
+    "internal/controller/probe/provider_service.go",
+    "internal/controller/probe/udp.go",
+    "internal/controller/probe/provider_udp_test.go",
+    "internal/traversal/portregistry.go",
+    "internal/traversal/portregistry_test.go",
+    "test/integration/udp_test.go",
+    "test/netns/udp_lab.sh",
+    ".hermes/evidence/p13/SHA256SUMS"
+  ],
+  "ownership_transfers": [
+    "internal/traversal/portregistry.go and test: P13 adds AcquireUDP parallel to P09/P10 TCP lease, sharing overlap/generation/stale-release atomicity.",
+    "internal/agent/app.go and test: forwardActor narrowed to transport-neutral socket lease + run/close lifecycle so direct-v4 UDP composes through the existing Backend hot-update, rollback fence and cleanup path.",
+    "internal/controller/probe/provider.go/provider_service.go/manager.go: narrow P10-owned extension implementing operator-owned provider-request/v2 authenticated transport dispatch; no frozen P04 Agent protocol, fixtures, schema or manifest changes.",
+    "internal/traversal/stun/udp.go: NOT modified; the single-reader classifier seam exists in internal/forward/udp and Agent UDP probe routing is socket-independent, so P11 UDPClient owns its own socket path as designed."
+  ],
+  "contract_revision": {
+    "operator_owned_provider_request": "antinat.provider-request/v1 -> antinat.provider-request/v2 (adds Controller-signed transport enum tcp|udp)",
+    "provider_result": "antinat.provider-result/v1 unchanged",
+    "frozen_agent_protocol": "unchanged (WAN1/ACK1/RCT1 canonical bytes intact)",
+    "frozen_manifest_revision": "v1.0-beta unchanged"
+  },
+  "stories": {
+    "s1_strict_demux": "One ingress reader; strict full-match classifier; lookalike payload falls through to business path.",
+    "s2_session_table": "Sharded bounded per-client table with connected target sockets, idle expiry, global/per-IP/FD/buffer/ephemeral caps; Backend snapshot pinned per session (NEW_SESSIONS_ONLY hot update).",
+    "s3_exact_source": "Target replies always written via the original ingress socket to the published client tuple; positive and wrong-ephemeral-source cases tested.",
+    "s4_truncation_icmp_windows": "Truncation-aware Linux MSG_TRUNC reads and conservative platform seam; 65,507-byte bounded buffers; correlated target error removes only the matching session; Windows WSAECONNRESET ingress survivability; cross-build compiles; no native Windows runtime claim.",
+    "s5_udp_hidden_challenge_probe": "Agent reuses the durable ProbeManager arm/replay/receipt state machine; single ingress reader owns ACK write; ACK <= request; controller provider dispatches exact single-datagram WAN1/ACK1 over signed v2 transport.",
+    "s6_exhaustion_e2e": "Session/FD/buffer/ephemeral/flood caps; UDP netns external echo, hot update, probe join, error isolation and cleanup with zero residue."
+  },
+  "verification": [
+    {"command": "GOWORK=off go test ./internal/forward/udp -race -count=10", "exit_code": 0},
+    {"command": "GOWORK=off go test -race ./internal/agent/reconcile -run TestHandleUDPProbe -count=10", "exit_code": 0},
+    {"command": "GOWORK=off go test -race ./internal/controller/probe -count=3", "exit_code": 0},
+    {"command": "GOWORK=off go test ./internal/agent -run TestDataPlaneComposesDirectV4UDPAndHotUpdates -race -count=10", "exit_code": 0},
+    {"command": "GOWORK=off go test ./internal/traversal -run 'TestAcquireUDP|TestTCPAndUDP' -race -count=10", "exit_code": 0},
+    {"command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1", "exit_code": 0},
+    {"command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./... -count=1", "exit_code": 0},
+    {"command": "GOWORK=off go vet ./internal/forward/udp ./internal/agent/... ./internal/controller/probe ./internal/traversal/...", "exit_code": 0},
+    {"command": "GOWORK=off go test ./test/contracts -run TestContractManifest -count=1", "exit_code": 0},
+    {"command": "GOWORK=off go test -tags=netns ./test/integration -run TestUDP -count=1 -v", "exit_code": 0, "summary": "Passes TestUDPLabSignalCleanup and TestUDP (UDP external echo, hot update, probe join, error isolation, cap rejection, zero residue)."},
+    {"command": "GOOS=windows GOARCH=amd64 GOWORK=off go build ./internal/forward/udp ./internal/agent/... ./internal/controller/probe && GOOS=windows GOARCH=amd64 go test -c ./internal/forward/udp", "exit_code": 0, "summary": "Windows amd64 cross-build only; no native runtime evidence."},
+    {"command": "gofmt -l (all changed Go files)", "exit_code": 0},
+    {"command": "git diff --check", "exit_code": 0}
+  ],
+  "known_limits": [
+    "Windows and generic read paths use a conservative full-buffer heuristic instead of Linux MSG_TRUNC; a legal 65,507-byte datagram that exactly fills the buffer is dropped on those platforms.",
+    "Target-side error isolation is exercised via injected connected-reader failure; no real kernel ICMP quoted-packet correlation is implemented.",
+    "Native Windows UDP runtime is not exercised; only a cross-build declares compile evidence. Windows gate returns false.",
+    "No real CPE/router or public-WAN vantage; traversal capability remains lab evidence.",
+    "P13 wires UDP protocol through the existing P12 direct/manual/gateway composition interfaces; no new traversal adapter and no capability level changes.",
+    "A pre-existing timing-sensitive internal/agent receipt test timed out only under full parallel race load and passes in isolation; it is unrelated to UDP changes and was recorded for the reviewers."
+  ],
+  "review_status": "REVIEW_REQUIRED",
+  "integration_status": "NOT_PERFORMED",
+  "integration_performed": false,
+  "self_approval": false,
+  "release_performed": false,
+  "remote_push": "NONE"
+}
