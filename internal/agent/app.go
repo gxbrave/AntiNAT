@@ -2051,8 +2051,10 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 	d.mu.Lock()
 	if d.closing {
 		d.mu.Unlock()
-		_ = actor.fwd.CloseContext(context.Background())
-		_ = lease.Release(ctx)
+		// abandonAcquiredActor's closing branch releases with a DETACHED bounded
+		// context, so a just-canceled caller ctx cannot strand the gateway
+		// mapping with no retry ownership (repair-2 finding 7 / closing path).
+		d.abandonAcquiredActor(spec.ForwardID, actor)
 		return protocol.AppliedForwardState{}, errDataPlaneClosing
 	}
 	// Generation fence (repair-2 finding 4): a rebuild (new composition) or a
@@ -2077,7 +2079,13 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 	// Another actor for the same forward cannot be installed while admission is
 	// held and a delete only ever REMOVES actors, but a concurrent deletion may
 	// have moved this forward into cleanupPending; the durable fence above is
-	// the authoritative rejection. Defensive release mirrors finishReopen.
+	// the authoritative rejection. Defensive only: per-ID op serialization makes
+	// a same-ID actor unreachable at this point (a concurrent apply/reopen waits
+	// on the forward operation), so this branch exists purely as defense-in-depth
+	// against future callers that bypass the operation gate. Returning the
+	// EXISTING actor's applied state is the truthful result — the existing actor
+	// already satisfied the same strategy/transport spec, and the new acquisition
+	// is abandoned (repair-2 finding 5).
 	if existing, ok := d.forwards[spec.ForwardID]; ok {
 		d.mu.Unlock()
 		d.abandonAcquiredActor(spec.ForwardID, actor)
@@ -2234,33 +2242,41 @@ func (d *dataPlane) newGatewayActor(ctx context.Context, spec protocol.ForwardSp
 // shared-port listener on the default-route source and observes the same tuple
 // via STUN, without any gateway control. The applied endpoint is the observed
 // one; there is no journal record and no renewal (nothing to renew).
+//
+// Every traversal seam is read from the ROUTE's synchronized composition
+// snapshot (route.cfg), never from live d.cfg: rebuildTraversal publishes new
+// StunObserver/StunSource pointers under dataPlane.mu while an apply/reopen on
+// the control-handler goroutine may be acquiring concurrently (repair-2
+// finding-6 review; the prior live-d.cfg read was a data race). The snapshot is
+// also the composition the generation fence was captured under, so the actor's
+// install is rejected if a rebuild won the race mid-acquire.
 func (d *dataPlane) newStunOnlyActor(ctx context.Context, spec protocol.ForwardSpec, backend *forward.Backend, route forwardRoute) (*forwardActor, error) {
-	_ = route
-	if d.cfg.StunServers == nil || len(d.cfg.StunServers) == 0 {
+	cfg := route.cfg
+	if cfg.StunServers == nil || len(cfg.StunServers) == 0 {
 		return nil, errNoStunServer
 	}
-	if d.cfg.StunSource == nil || d.cfg.StunObserver == nil {
+	if cfg.StunSource == nil || cfg.StunObserver == nil {
 		return nil, errors.New("agent: stun-only requires the shared-port listener source and observer")
 	}
-	server, err := parseStunEndpoint(firstStunServer(d.cfg.StunServers))
+	server, err := parseStunEndpoint(firstStunServer(cfg.StunServers))
 	if err != nil {
 		return nil, err
 	}
-	sameTuple, ok := d.cfg.StunSource.(traversal.SameTupleDialer)
+	sameTuple, ok := cfg.StunSource.(traversal.SameTupleDialer)
 	if !ok {
 		return nil, errors.New("agent: stun-only requires a same-tuple-capable listener source")
 	}
-	sel, err := traversal.DefaultRouteSource(d.cfg.RouteTable)
+	sel, err := traversal.DefaultRouteSource(cfg.RouteTable)
 	if err != nil {
 		return nil, fmt.Errorf("agent: stun-only source: %w", err)
 	}
-	listener, actual, release, err := d.cfg.StunSource.Acquire(ctx, spec.ForwardID, traversal.TupleKey{
+	listener, actual, release, err := cfg.StunSource.Acquire(ctx, spec.ForwardID, traversal.TupleKey{
 		Family: "ipv4", Protocol: "tcp", Address: sel.Source.String(), Port: spec.RequestedLocalPort,
 	})
 	if err != nil {
 		return nil, err
 	}
-	observed, err := d.cfg.StunObserver(ctx, traversal.StunObserveRequest{
+	observed, err := cfg.StunObserver(ctx, traversal.StunObserveRequest{
 		Server: server,
 		Bind:   actual,
 		Dial: func(ctx context.Context, remote string) (net.Conn, error) {
@@ -2274,7 +2290,7 @@ func (d *dataPlane) newStunOnlyActor(ctx context.Context, spec protocol.ForwardS
 	}
 	verdict, err := traversal.EvaluateLayers([]traversal.LayerEvidence{{
 		Kind:             traversal.LayerKindSTUN,
-		ControlServer:    firstStunServer(d.cfg.StunServers),
+		ControlServer:    firstStunServer(cfg.StunServers),
 		InternalEndpoint: netip.AddrPortFrom(sel.Source, actual.Port).String(),
 		AssignedEndpoint: observed.String(),
 		Scope:            scopeForStun(observed.Addr()),
@@ -2285,7 +2301,7 @@ func (d *dataPlane) newStunOnlyActor(ctx context.Context, spec protocol.ForwardS
 		_ = release()
 		return nil, err
 	}
-	fwd, err := tcp.New(reconcile.NewProbeGate(listener, d.cfg.ProbeMgr, reconcile.ProbeGateOptions{ForwardID: spec.ForwardID, ReadTimeout: 2 * time.Second}), tcp.Options{Backend: backend, DialTimeout: 5 * time.Second})
+	fwd, err := tcp.New(reconcile.NewProbeGate(listener, cfg.ProbeMgr, reconcile.ProbeGateOptions{ForwardID: spec.ForwardID, ReadTimeout: 2 * time.Second}), tcp.Options{Backend: backend, DialTimeout: 5 * time.Second})
 	if err != nil {
 		_ = release()
 		return nil, err
@@ -2349,7 +2365,7 @@ func (d *dataPlane) acquireViaManager(ctx context.Context, spec protocol.Forward
 		Spec:             spec,
 		Plan:             route.plan,
 		Lease:            gatewayLease,
-		StunServer:       firstStunServer(d.cfg.StunServers),
+		StunServer:       firstStunServer(route.cfg.StunServers),
 		RenewalInterval:  interval,
 		RenewalJitterMax: jitter,
 	})
@@ -2368,14 +2384,21 @@ const gatewayLease = 45 * time.Minute
 // temp tuples; a detected capability is never a Forward endpoint (every
 // Forward acquires and probes independently).
 func (d *dataPlane) runDetection(ctx context.Context) error {
-	if d.cfg.Detector == nil || d.cfg.ProfileStore == nil {
+	// The Detector pointer is re-published by rebuildTraversal under
+	// dataPlane.mu while a periodic detection pass (lifecycle goroutine) may
+	// run concurrently; snapshot it under the lock (repair-2 finding-6 review).
+	d.mu.Lock()
+	detector := d.cfg.Detector
+	profileStore := d.cfg.ProfileStore
+	d.mu.Unlock()
+	if detector == nil || profileStore == nil {
 		return nil
 	}
-	profile, err := d.cfg.Detector.Run(ctx, traversal.DetectionRequest{Protocol: traversal.ProtocolTCP})
+	profile, err := detector.Run(ctx, traversal.DetectionRequest{Protocol: traversal.ProtocolTCP})
 	if err != nil {
 		return err
 	}
-	return d.cfg.ProfileStore.Save(profile)
+	return profileStore.Save(profile)
 }
 
 // acquisitionMetaFromAcquisition snapshots the acquisition evidence under the
@@ -3102,8 +3125,10 @@ func (d *dataPlane) finishReopen(ctx context.Context, spec protocol.ForwardSpec,
 	if d.closing {
 		d.mu.Unlock()
 		cancel()
-		_ = actor.fwd.CloseContext(context.Background())
-		_ = lease.Release(ctx)
+		// abandonAcquiredActor's closing branch releases with a DETACHED bounded
+		// context, so a just-canceled caller ctx cannot strand the gateway
+		// mapping with no retry ownership (repair-2 finding 7 / closing path).
+		d.abandonAcquiredActor(spec.ForwardID, actor)
 		return errDataPlaneClosing
 	}
 	// Generation fence (repair-2 finding 4): a rebuild or capability transition
