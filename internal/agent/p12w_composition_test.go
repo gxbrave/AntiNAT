@@ -131,6 +131,11 @@ func (o *p12wObserver) callCount() int {
 // observer + a cached detection profile resolving explicit-gateway to PCP.
 func p12wGatewayComposition(t *testing.T) (*dataPlane, *p12wMapper, *p12wObserver, *traversal.MemoryJournal) {
 	t.Helper()
+	return p12wGatewayCompositionWithObserver(t, netip.MustParseAddrPort("100.64.0.2:51234"))
+}
+
+func p12wGatewayCompositionWithObserver(t *testing.T, observed netip.AddrPort) (*dataPlane, *p12wMapper, *p12wObserver, *traversal.MemoryJournal) {
+	t.Helper()
 	st, err := localstate.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -144,7 +149,7 @@ func p12wGatewayComposition(t *testing.T) (*dataPlane, *p12wMapper, *p12wObserve
 		external:  netip.MustParseAddrPort("100.64.0.2:43111"),
 		lease:     time.Hour,
 	}
-	obs := &p12wObserver{result: netip.MustParseAddrPort("100.64.0.2:51234")}
+	obs := &p12wObserver{result: observed}
 	journal := traversal.NewMemoryJournal()
 	listeners := &p12wListenerSource{}
 	manager := traversal.NewManager(traversal.ManagerOptions{
