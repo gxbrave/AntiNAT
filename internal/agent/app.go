@@ -233,12 +233,15 @@ func New(cfg Config) (*App, error) {
 		ReceiptRetryInterval: 500 * time.Millisecond,
 	})
 
-	defaultOrder := []protocol.Strategy{
-		protocol.StrategyExplicitGateway, protocol.StrategyDirectV4, protocol.StrategyStunOnly,
-	}
 	if len(cfg.AutoOrder) == 0 {
-		cfg.AutoOrder = defaultOrder
+		cfg.AutoOrder = defaultAutoOrder()
 	}
+	// cfg is the authoritative composition snapshot. Normalize AutoOrder before
+	// composing managers/detector and retain the complete normalized config on
+	// App; later rebuilds and route resolution must observe the same order the
+	// initial detector received.
+	cfg.AutoOrder = append([]protocol.Strategy(nil), cfg.AutoOrder...)
+	a.cfg = cfg
 	// The traversal composition (P12W Stories 2/5/6): sensors, the shared
 	// socket-ownership registry, the shared durable mapping journal, two
 	// Manager instances (D1) and the Detector. The default-route gateway
@@ -285,6 +288,9 @@ func New(cfg Config) (*App, error) {
 		},
 		OnRecovery: func(report recoverReport) {
 			a.onRecoveryReport(report)
+		},
+		OnActorCleaned: func(forwardID string) {
+			a.scheduleCleanupRecoveryRetry(forwardID)
 		},
 	})
 	a.activations = make(map[string]*reconcile.Activation)
@@ -347,22 +353,31 @@ func (a *App) composeTraversal(cfg Config, st *localstate.Store, registry *trave
 		stunRegistry: stunRegistry,
 	}
 	journal := st.MappingJournal()
-	mappers := map[traversal.MappingLayerKind]traversal.GatewayMapper{}
-	if selection, selErr := traversal.DefaultRouteSource(cfg.RouteTable); selErr == nil {
-		if gateway := selection.DefaultRouteGateway; gateway.IsValid() {
-			mappers[traversal.LayerPCP] = pcp.NewAdapter(pcp.AdapterOptions{
-				Gateway: netip.AddrPortFrom(gateway, pcp.DefaultServerPort),
-			})
-			mappers[traversal.LayerNATPMP] = natpmp.NewAdapter(natpmp.AdapterOptions{
-				Gateway: netip.AddrPortFrom(gateway, natpmp.DefaultServerPort),
-			})
+	// Every owner receives an independent adapter instance. In particular, an
+	// UPnP adapter carries mutable resolved service/delegate state; sharing one
+	// instance between the plain Manager, gateway Manager and Detector would
+	// let concurrent Discover/Map calls overwrite one another. The composition
+	// root owns this isolation; traversal remains unchanged.
+	newMappers := func() map[traversal.MappingLayerKind]traversal.GatewayMapper {
+		mappers := map[traversal.MappingLayerKind]traversal.GatewayMapper{}
+		if selection, selErr := traversal.DefaultRouteSource(cfg.RouteTable); selErr == nil {
+			if gateway := selection.DefaultRouteGateway; gateway.IsValid() {
+				mappers[traversal.LayerPCP] = pcp.NewAdapter(pcp.AdapterOptions{
+					Gateway: netip.AddrPortFrom(gateway, pcp.DefaultServerPort),
+				})
+				mappers[traversal.LayerNATPMP] = natpmp.NewAdapter(natpmp.AdapterOptions{
+					Gateway: netip.AddrPortFrom(gateway, natpmp.DefaultServerPort),
+				})
+			}
+			if source := selection.Source; source.IsValid() {
+				mappers[traversal.LayerUPnP] = upnp.NewAdapter(upnp.AdapterOptions{
+					InterfaceIP: source,
+				})
+			}
 		}
-		if source := selection.Source; source.IsValid() {
-			mappers[traversal.LayerUPnP] = upnp.NewAdapter(upnp.AdapterOptions{
-				InterfaceIP: source,
-			})
-		}
+		return mappers
 	}
+	plainMappers, gatewayMappers, detectorMappers := newMappers(), newMappers(), newMappers()
 	comp.observer = stun.NewManagerObserver()
 	lifecycle := traversal.ManagerOptions{ // shared lifecycle callbacks (Story 7, D5)
 		OnMappingDegraded:  a.onMappingDegraded,
@@ -372,7 +387,7 @@ func (a *App) composeTraversal(cfg Config, st *localstate.Store, registry *trave
 	comp.plainManager = traversal.NewManager(traversal.ManagerOptions{
 		RouteTable:         cfg.RouteTable,
 		Listeners:          traversal.PortRegistrySource{Registry: comp.registry},
-		Mappers:            mappers,
+		Mappers:            plainMappers,
 		Journal:            journal,
 		Clock:              cfg.Clock,
 		StunObserve:        comp.observer,
@@ -383,7 +398,7 @@ func (a *App) composeTraversal(cfg Config, st *localstate.Store, registry *trave
 	comp.gatewayManager = traversal.NewManager(traversal.ManagerOptions{
 		RouteTable:         cfg.RouteTable,
 		Listeners:          stun.LeaseSource{Registry: comp.stunRegistry},
-		Mappers:            mappers,
+		Mappers:            gatewayMappers,
 		Journal:            journal,
 		Clock:              cfg.Clock,
 		StunObserve:        comp.observer,
@@ -407,7 +422,7 @@ func (a *App) composeTraversal(cfg Config, st *localstate.Store, registry *trave
 	}
 	comp.detector = traversal.NewDetector(traversal.DetectorOptions{
 		RouteTable:  cfg.RouteTable,
-		Mappers:     mappers,
+		Mappers:     detectorMappers,
 		Registry:    traversal.NewPortRegistry(),
 		AutoOrder:   cfg.AutoOrder,
 		StunServers: cfg.StunServers,
@@ -434,6 +449,9 @@ func (a *App) rebuildTraversal() error {
 	a.dp.cfg.PlainManager = comp.plainManager
 	a.dp.cfg.GatewayManager = comp.gatewayManager
 	a.dp.cfg.Detector = comp.detector
+	a.dp.cfg.StunObserver = comp.observer
+	a.dp.cfg.StunSource = stun.LeaseSource{Registry: comp.stunRegistry}
+	a.dp.compositionGeneration++
 	a.dp.mu.Unlock()
 	a.plainManager = comp.plainManager
 	a.gatewayManager = comp.gatewayManager
@@ -816,6 +834,28 @@ func (a *App) runDetectionOnce(ctx context.Context) {
 // at the traversal default timeout plus transport overhead).
 const detectionAttemptBudget = 4 * time.Minute
 
+// recoveryRetryBudget bounds one deferred recovery retry scheduled when a
+// stranded forward's old actor finally cleans up (repair-2 finding 7).
+const recoveryRetryBudget = 60 * time.Second
+
+// scheduleCleanupRecoveryRetry reopens a forward that could not reopen until
+// its previous actor fully cleaned up (repair-2 finding 7): capability loss
+// strands the forward in cleanupPending, and a same-ID reopen is refused while
+// the old actor still owns the listener. Once cleanup completes, recover is
+// retried in a bounded detached pass. recover is admission-fenced (a no-op
+// once closing) and idempotent, so a deleted or already-live forward is
+// skipped and shutdown never waits on this retry.
+func (a *App) scheduleCleanupRecoveryRetry(forwardID string) {
+	if a == nil || a.dp == nil {
+		return
+	}
+	go func() {
+		retryCtx, cancel := context.WithTimeout(context.Background(), recoveryRetryBudget)
+		defer cancel()
+		_, _ = a.dp.recover(retryCtx)
+	}()
+}
+
 func (a *App) markActivationsUnverified(ctx context.Context) {
 	a.probeAdmissionMu.Lock()
 	defer a.probeAdmissionMu.Unlock()
@@ -932,6 +972,17 @@ func (a *App) applyProbeOutcome(op control.Operation) ([]byte, error) {
 	act := a.activation(v.ForwardID)
 	if act == nil {
 		return nil, fmt.Errorf("agent: activation %s not found", v.ForwardID)
+	}
+	// Durable deletion fence (repair-2 finding 8): a probe outcome for a
+	// forward whose deletion tombstone is already durable must not recreate
+	// activation evidence after deletion (the deletion path removes the mirror
+	// shortly after). The activation/generation fence already rejects older
+	// revisions; this closes the deletion window under the admission ordering.
+	if a.store != nil {
+		pendingDelete, tombstoned, err := readForwardDeleteFence(a.store, v.ForwardID)
+		if err != nil || pendingDelete || tombstoned {
+			return nil, reconcile.ErrStaleEvent
+		}
 	}
 	if act.ActivationID() != v.Activation {
 		return nil, reconcile.ErrStaleEvent
@@ -1369,6 +1420,12 @@ func (a *App) Store() *localstate.Store { return a.store }
 // wraps every listener in the probe gate, and proxies with the P09 tcp.Forward.
 var errDataPlaneClosing = errors.New("agent: data plane is closing")
 
+// errAcquisitionStale reports an acquisition captured against an obsolete
+// composition/capability generation (repair-2 finding 4). The acquire
+// completed, but a rebuild or capability transition won the race before
+// install, so the actor is abandoned rather than published.
+var errAcquisitionStale = errors.New("agent: acquisition is stale (composition/capability changed)")
+
 type dataPlane struct {
 	cfg                   dataPlaneConfig
 	registry              *traversal.PortRegistry
@@ -1384,6 +1441,16 @@ type dataPlane struct {
 	deletedNotified       map[string]bool
 	capabilityReady       bool
 	capabilityFingerprint string
+	// capabilityGeneration changes on every loss/restore transition. An
+	// acquisition captures it before external work and must match at install.
+	capabilityGeneration uint64
+	// compositionGeneration changes whenever Manager/Detector pointers are
+	// published as a new synchronized composition snapshot.
+	compositionGeneration uint64
+	// perForward serializes external acquire/reopen and install for one ID;
+	// different forwards remain concurrent. The map is created lazily and is
+	// never accessed without mu.
+	forwardOps map[string]*forwardOperation
 }
 
 type dataPlaneConfig struct {
@@ -1409,6 +1476,13 @@ type dataPlaneConfig struct {
 	// profile cannot yet resolve them, and the journal records left superseded
 	// or orphaned. nil disables it.
 	OnRecovery func(report recoverReport)
+	// OnActorCleaned fires after a cleanup attempt fully succeeded (the actor
+	// left cleanupPending). It does NOT fire for delete-driven cleanups. The app
+	// uses it to schedule a recovery retry so a forward stranded by capability
+	// loss — whose old listener could not reopen until its previous actor fully
+	// cleaned up — is reopened without needing a new route change (repair-2
+	// finding 7).
+	OnActorCleaned func(forwardID string)
 
 	// Registry is the agent-global socket-ownership table; nil allocates one.
 	Registry *traversal.PortRegistry
@@ -1519,6 +1593,17 @@ type forwardActor struct {
 	// under the acquisition's own renewal lock.
 	acq *traversal.Acquisition
 
+	// acquisitionFence is the composition/capability generation this actor was
+	// acquired under (repair-2 finding 4). The install path re-checks it under
+	// dataPlane.mu and refuses to publish an actor whose fence no longer
+	// matches — a rebuild or capability loss during the external acquisition
+	// must never install an actor built against an obsolete composition. Set by
+	// newForwardActorResolved (from the resolved route) and newUDPActor (from
+	// its own synchronized snapshot); never zero in production.
+	compositionGeneration uint64
+	capabilityGeneration  uint64
+	capabilityFingerprint string
+
 	// updateFence identifies the current actor incarnation and target mutation.
 	// It is guarded by dataPlane.mu and is compared by rollback before any
 	// compensating target update, preventing stale operations (including ABA
@@ -1560,8 +1645,9 @@ func newDataPlane(cfg dataPlaneConfig) *dataPlane {
 	return &dataPlane{
 		cfg: cfg, registry: registry, forwards: make(map[string]*forwardActor),
 		cleanupPending: make(map[string]*forwardActor), cleanupExtras: make(map[*forwardActor]string),
-		deletedNotified: make(map[string]bool),
+		deletedNotified: make(map[string]bool), forwardOps: make(map[string]*forwardOperation),
 		capabilityReady: capabilityReady, capabilityFingerprint: fingerprint,
+		capabilityGeneration: 1, compositionGeneration: 1,
 	}
 }
 
@@ -1620,6 +1706,72 @@ func (d *dataPlane) drainCleanup(ctx context.Context) error {
 type cleanupItem struct {
 	forwardID string
 	actor     *forwardActor
+}
+
+type forwardOperation struct {
+	mu     sync.Mutex
+	cond   *sync.Cond
+	active bool
+}
+
+func (d *dataPlane) operationForLocked(forwardID string) *forwardOperation {
+	if d.forwardOps == nil {
+		d.forwardOps = make(map[string]*forwardOperation)
+	}
+	op := d.forwardOps[forwardID]
+	if op == nil {
+		op = &forwardOperation{}
+		op.cond = sync.NewCond(&op.mu)
+		d.forwardOps[forwardID] = op
+	}
+	return op
+}
+
+// beginForwardOperation serializes the side effects (route resolution, external
+// acquisition and install) for one ForwardID while retaining concurrency across
+// independent forwards (repair-2 finding 5). A second apply/reopen for the same
+// ID waits for the active operation, so two listeners or gateway mappings can
+// never be acquired for one forward, and a stale result can never be installed
+// over a newer one. The returned release must be called on every path.
+func (d *dataPlane) beginForwardOperation(forwardID string) (func(), error) {
+	d.mu.Lock()
+	if d.closing {
+		d.mu.Unlock()
+		return nil, errDataPlaneClosing
+	}
+	op := d.operationForLocked(forwardID)
+	d.mu.Unlock()
+	op.mu.Lock()
+	for op.active {
+		op.cond.Wait()
+	}
+	op.active = true
+	op.mu.Unlock()
+	return func() {
+		op.mu.Lock()
+		op.active = false
+		op.cond.Broadcast()
+		op.mu.Unlock()
+	}, nil
+}
+
+func (d *dataPlane) configSnapshot() (dataPlaneConfig, uint64, uint64, string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	cfg := d.cfg
+	cfg.StunServers = append([]string(nil), d.cfg.StunServers...)
+	cfg.AutoOrder = append([]protocol.Strategy(nil), d.cfg.AutoOrder...)
+	return cfg, d.compositionGeneration, d.capabilityGeneration, d.capabilityFingerprint
+}
+
+// generationCurrentLocked reports whether an acquisition captured under the
+// given composition/capability generations may still be installed (repair-2
+// finding 4). The caller must hold dataPlane.mu and orders the closing check
+// first; capabilityReady is implied by the capability generation, which is
+// bumped on every loss/restore transition.
+func (d *dataPlane) generationCurrentLocked(composition, capability uint64, fingerprint string) bool {
+	return d.compositionGeneration == composition && d.capabilityGeneration == capability &&
+		d.capabilityFingerprint == fingerprint
 }
 
 func (d *dataPlane) cleanupActorsSnapshot() []cleanupItem {
@@ -1751,6 +1903,17 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 		return protocol.AppliedForwardState{}, fenceErr
 	}
 
+	// Serialize the side effects for ONE ForwardID (repair-2 finding 5): a
+	// concurrent apply or reopen for the same ID must not run a duplicate
+	// external acquisition, and a stale acquisition must never install over a
+	// newer one. Independent forwards stay concurrent (the op is released on
+	// every return path below).
+	releaseOp, err := d.beginForwardOperation(spec.ForwardID)
+	if err != nil {
+		return protocol.AppliedForwardState{}, err
+	}
+	defer releaseOp()
+
 	// Resolve the acquisition route OUTSIDE the data-plane lock (repair R1
 	// finding 1/5). The gateway path's manager acquisition (mapper Discover/Map
 	// + same-tuple STUN observation) is seconds of network I/O and must not
@@ -1881,9 +2044,10 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 	lease := actor.lease
 
 	// Re-check under the install lock: the delete fence can be installed while
-	// the listener (and possibly the gateway mapping) is being acquired.
-	// Release the acquisition if a fence or a closing data plane won the race —
-	// Release deletes the mapping + journal record + listener.
+	// the listener (and possibly the gateway mapping) is being acquired. The
+	// acquisition is abandoned (ownership retained for the cleanup drain) if a
+	// fence or a stale generation won the race — Release deletes the mapping +
+	// journal record + listener.
 	d.mu.Lock()
 	if d.closing {
 		d.mu.Unlock()
@@ -1891,17 +2055,23 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 		_ = lease.Release(ctx)
 		return protocol.AppliedForwardState{}, errDataPlaneClosing
 	}
+	// Generation fence (repair-2 finding 4): a rebuild (new composition) or a
+	// capability loss/restore that happened while the listener was being
+	// acquired must not publish an actor built against an obsolete composition.
+	if !d.generationCurrentLocked(actor.compositionGeneration, actor.capabilityGeneration, actor.capabilityFingerprint) {
+		d.mu.Unlock()
+		d.abandonAcquiredActor(spec.ForwardID, actor)
+		return protocol.AppliedForwardState{}, errAcquisitionStale
+	}
 	pendingDelete, tombstoned, err = readForwardDeleteFence(d.cfg.Store, spec.ForwardID)
 	if err != nil {
 		d.mu.Unlock()
-		_ = actor.fwd.CloseContext(context.Background())
-		_ = lease.Release(ctx)
+		d.abandonAcquiredActor(spec.ForwardID, actor)
 		return protocol.AppliedForwardState{}, fmt.Errorf("agent: forward %q delete fence: %w", spec.ForwardID, err)
 	}
 	if fenceErr := forwardDeleteFenceError(spec.ForwardID, pendingDelete, tombstoned); fenceErr != nil {
 		d.mu.Unlock()
-		_ = actor.fwd.CloseContext(context.Background())
-		_ = lease.Release(ctx)
+		d.abandonAcquiredActor(spec.ForwardID, actor)
 		return protocol.AppliedForwardState{}, fenceErr
 	}
 	// Another actor for the same forward cannot be installed while admission is
@@ -1910,8 +2080,7 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 	// the authoritative rejection. Defensive release mirrors finishReopen.
 	if existing, ok := d.forwards[spec.ForwardID]; ok {
 		d.mu.Unlock()
-		_ = actor.fwd.CloseContext(context.Background())
-		_ = lease.Release(ctx)
+		d.abandonAcquiredActor(spec.ForwardID, actor)
 		return appliedStateForAcquisition(spec, existing.lease.Tuple(), d.cfg.Clock, existing.meta), nil
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
@@ -1922,16 +2091,14 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 	pendingDelete, tombstoned, err = readForwardDeleteFence(d.cfg.Store, spec.ForwardID)
 	if err != nil {
 		cancel()
-		_ = actor.fwd.CloseContext(context.Background())
-		_ = lease.Release(ctx)
 		d.mu.Unlock()
+		d.abandonAcquiredActor(spec.ForwardID, actor)
 		return protocol.AppliedForwardState{}, fmt.Errorf("agent: forward %q delete fence: %w", spec.ForwardID, err)
 	}
 	if fenceErr := forwardDeleteFenceError(spec.ForwardID, pendingDelete, tombstoned); fenceErr != nil {
 		cancel()
-		_ = actor.fwd.CloseContext(context.Background())
-		_ = lease.Release(ctx)
 		d.mu.Unlock()
+		d.abandonAcquiredActor(spec.ForwardID, actor)
 		return protocol.AppliedForwardState{}, fenceErr
 	}
 	d.forwards[spec.ForwardID] = actor
@@ -1970,21 +2137,35 @@ func (d *dataPlane) newForwardActor(ctx context.Context, spec protocol.ForwardSp
 // the lock that application already dropped.
 func (d *dataPlane) newForwardActorResolved(ctx context.Context, spec protocol.ForwardSpec, backend *forward.Backend, address string, port uint16, route forwardRoute) (*forwardActor, error) {
 	key := traversal.TupleKey{Address: address, Port: port, Family: "ipv4", Protocol: string(spec.Protocol)}
+	var actor *forwardActor
+	var err error
 	if spec.Protocol == protocol.ProtocolUDP {
 		// UDP always stays on the P09 direct registry (P13); the strategy label
 		// is asserted in the applied record but the socket is the registry's.
-		return d.newUDPActor(ctx, spec, backend, key)
+		actor, err = d.newUDPActor(ctx, spec, backend, key)
+	} else {
+		switch {
+		case route.isGateway:
+			actor, err = d.newGatewayActor(ctx, spec, backend, route)
+		case route.stunOnly:
+			actor, err = d.newStunOnlyActor(ctx, spec, backend, route)
+		case route.plan.Strategy == protocol.StrategyManualStaticV4:
+			actor, err = d.newManualActor(ctx, spec, backend, route)
+		default:
+			actor, err = d.newDirectActor(ctx, spec, backend, key)
+		}
 	}
-	switch {
-	case route.isGateway:
-		return d.newGatewayActor(ctx, spec, backend, route)
-	case route.stunOnly:
-		return d.newStunOnlyActor(ctx, spec, backend, route)
-	case route.plan.Strategy == protocol.StrategyManualStaticV4:
-		return d.newManualActor(ctx, spec, backend, route)
-	default:
-		return d.newDirectActor(ctx, spec, backend, key)
+	if err != nil || actor == nil {
+		return actor, err
 	}
+	// Stamp the acquisition fence (repair-2 finding 4): the composition and
+	// capability generations the route was resolved under. The install path
+	// (apply/finishReopen) re-checks them under the data-plane lock before
+	// publishing the actor.
+	actor.compositionGeneration = route.compositionGeneration
+	actor.capabilityGeneration = route.capabilityGeneration
+	actor.capabilityFingerprint = route.capabilityFingerprint
+	return actor, nil
 }
 
 // newDirectActor is the byte-identical direct-v4 inline path: the listener is
@@ -2230,6 +2411,12 @@ func acquisitionMetaFromAcquisition(acq *traversal.Acquisition) acquisitionMeta 
 // SELECTED source, restoring the pre-P12W bind host instead of silently
 // degenerating to the 0.0.0.0 wildcard.
 func (d *dataPlane) newUDPActor(ctx context.Context, spec protocol.ForwardSpec, backend *forward.Backend, key traversal.TupleKey) (*forwardActor, error) {
+	// Capture the acquisition fence before the external work so the install
+	// path can reject an actor acquired against an obsolete composition or a
+	// capability that was lost mid-acquisition (repair-2 finding 4). The
+	// reopen path calls newUDPActor directly (no resolved route), so the fence
+	// is taken from a fresh synchronized snapshot here.
+	_, compositionGeneration, capabilityGeneration, capabilityFingerprint := d.configSnapshot()
 	if key.Address == "" {
 		sel, capability, assessErr := traversal.Assess(d.cfg.RouteTable)
 		if assessErr != nil || capability != traversal.CapabilityDirectV4Ready {
@@ -2276,7 +2463,9 @@ func (d *dataPlane) newUDPActor(ctx context.Context, spec protocol.ForwardSpec, 
 		return nil, err
 	}
 	return &forwardActor{lease: udpRegistryLease{lease: lease}, fwd: fwd, backend: backend,
-		updateFence: reconcile.NewSideEffectFence(), strategy: protocol.StrategyDirectV4}, nil
+		updateFence: reconcile.NewSideEffectFence(), strategy: protocol.StrategyDirectV4,
+		compositionGeneration: compositionGeneration, capabilityGeneration: capabilityGeneration,
+		capabilityFingerprint: capabilityFingerprint}, nil
 }
 
 // actorUpdateFence is the compare-and-swap token for one accepted target
@@ -2382,6 +2571,69 @@ func (d *dataPlane) handleForwardRunError(forwardID string, actor *forwardActor,
 	_ = d.cleanupActor(cleanupCtx, forwardID, actor)
 }
 
+// cleanupAttemptBudget bounds one detached cleanup attempt. A deadline only
+// ends the attempt; ownership stays in cleanupPending for the background drain.
+const cleanupAttemptBudget = 5 * time.Second
+
+// exclusiveErrClosed reports whether err is EXCLUSIVELY a redundant network-close
+// (net.ErrClosed or a join of only such closes). A join that also carries a real
+// cleanup failure — a mapping-delete or journal error — is not exclusive and must
+// be treated as a failed release, even though errors.Is(err, net.ErrClosed)
+// would match (repair-2 finding 7).
+func exclusiveErrClosed(err error) bool {
+	if err == nil {
+		return false
+	}
+	allClosed := true
+	var walk func(error)
+	walk = func(e error) {
+		if e == nil {
+			return
+		}
+		if multi, ok := e.(interface{ Unwrap() []error }); ok {
+			for _, inner := range multi.Unwrap() {
+				walk(inner)
+			}
+			return
+		}
+		if single, ok := e.(interface{ Unwrap() error }); ok {
+			walk(single.Unwrap())
+			return
+		}
+		if !errors.Is(e, net.ErrClosed) {
+			allClosed = false
+		}
+	}
+	walk(err)
+	return allClosed
+}
+
+// abandonAcquiredActor retains cleanup ownership for an actor that must not be
+// installed (a delete fence, an existing-actor race, or a stale
+// composition/capability generation — repair-2 findings 4/7). The actor is
+// moved into cleanupPending so the background drain (and any later stop) retries
+// its teardown, and the bounded attempt here uses a detached context so a
+// canceled caller context can never strand the listener or mapping without
+// retry ownership. A closing data plane releases directly: closeAll takes its
+// own ownership snapshot after admission drains.
+func (d *dataPlane) abandonAcquiredActor(forwardID string, actor *forwardActor) {
+	if actor == nil {
+		return
+	}
+	d.mu.Lock()
+	if d.closing {
+		d.mu.Unlock()
+		_ = actor.fwd.CloseContext(context.Background())
+		_ = actor.lease.Release(context.Background())
+		return
+	}
+	d.addCleanupPendingLocked(forwardID, actor)
+	d.mu.Unlock()
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupAttemptBudget)
+	defer cancel()
+	_ = d.cleanupActor(cleanupCtx, forwardID, actor)
+}
+
 // cleanupActor is the sole owner of Forward/lease teardown. The actor remains
 // in cleanupPending until both resources report success; a deadline only ends
 // this attempt and never discards ownership.
@@ -2423,8 +2675,24 @@ func (d *dataPlane) cleanupActor(ctx context.Context, forwardID string, actor *f
 	if actor.fwd != nil {
 		cleanupErr = actor.fwd.CloseContext(ctx)
 	}
-	if cleanupErr == nil && actor.lease != nil {
-		cleanupErr = actor.lease.Release(ctx)
+	if actor.lease != nil {
+		if err := actor.lease.Release(ctx); err != nil {
+			// The gateway/manager acquisition and the wrapped tcp.Forward own the
+			// SAME listener: after the forward close succeeded, the acquisition's
+			// listener release reports a redundant second close (net.ErrClosed),
+			// and treating it as a failure would strand the actor in
+			// cleanupPending forever (repair-2 finding 7). The acquisition
+			// release runs its mapping + journal cleanup BEFORE the listener
+			// close, so suppressing a release error that is EXCLUSIVELY the
+			// redundant close never skips real cleanup; the PortRegistry
+			// tolerates the same net.ErrClosed. A release error that also (or
+			// only) carries a real failure — a mapping delete or journal error —
+			// is NOT exclusive and keeps the actor owned. Any forward-close
+			// failure is kept too.
+			if cleanupErr != nil || !exclusiveErrClosed(err) {
+				cleanupErr = errors.Join(cleanupErr, err)
+			}
+		}
 	}
 
 	actor.cleanupMu.Lock()
@@ -2454,6 +2722,9 @@ func (d *dataPlane) cleanupActor(ctx context.Context, forwardID string, actor *f
 	if deleteNotification && d.cfg.OnDeleted != nil {
 		d.cfg.OnDeleted(forwardID)
 	}
+	if !deleteNotification && d.cfg.OnActorCleaned != nil {
+		d.cfg.OnActorCleaned(forwardID)
+	}
 	return nil
 }
 
@@ -2466,6 +2737,9 @@ func (d *dataPlane) markCapabilityLost(ctx context.Context) bool {
 		return false
 	}
 	d.capabilityReady = false
+	// Every loss/restore transition bumps the capability generation so an
+	// in-flight acquisition is refused at install (repair-2 finding 4).
+	d.capabilityGeneration++
 	actors := make(map[string]*forwardActor, len(d.forwards))
 	for id, actor := range d.forwards {
 		actors[id] = actor
@@ -2503,6 +2777,7 @@ func (d *dataPlane) markCapabilityRestored(fingerprint string) bool {
 	}
 	d.capabilityReady = true
 	d.capabilityFingerprint = fingerprint
+	d.capabilityGeneration++
 	return true
 }
 
@@ -2685,6 +2960,15 @@ func (d *dataPlane) reopen(ctx context.Context, spec protocol.ForwardSpec, st pr
 		return nil
 	}
 
+	// Serialize reopen with any concurrent apply for the same ID (repair-2
+	// finding 5): recover and a desired apply must never race two acquisitions
+	// for one forward.
+	releaseOp, err := d.beginForwardOperation(spec.ForwardID)
+	if err != nil {
+		return err
+	}
+	defer releaseOp()
+
 	// Strategy-aware reopen: direct-v4 re-selects the current global source
 	// (the durable tuple is evidence of the previous bind, not an instruction
 	// to reopen a stale source); gateway/manual/stun-only resolve their own
@@ -2800,14 +3084,16 @@ func (d *dataPlane) replayJournalBoundaries() (replayJournalReport, error) {
 func (d *dataPlane) finishReopen(ctx context.Context, spec protocol.ForwardSpec, actor *forwardActor) error {
 	lease := actor.lease
 	// Re-check after listener acquisition so a concurrent durable delete cannot
-	// be followed by actor construction or publication.
+	// be followed by actor construction or publication. The acquired actor is
+	// abandoned (ownership retained for the drain) so a canceled caller context
+	// cannot strand the listener/mapping (repair-2 finding 7).
 	pendingDelete, tombstoned, err := readForwardDeleteFence(d.cfg.Store, spec.ForwardID)
 	if err != nil {
-		_ = lease.Release(ctx)
+		d.abandonAcquiredActor(spec.ForwardID, actor)
 		return fmt.Errorf("agent: forward %q delete fence: %w", spec.ForwardID, err)
 	}
 	if pendingDelete || tombstoned {
-		_ = lease.Release(ctx)
+		d.abandonAcquiredActor(spec.ForwardID, actor)
 		return nil
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
@@ -2820,28 +3106,35 @@ func (d *dataPlane) finishReopen(ctx context.Context, spec protocol.ForwardSpec,
 		_ = lease.Release(ctx)
 		return errDataPlaneClosing
 	}
+	// Generation fence (repair-2 finding 4): a rebuild or capability transition
+	// during reopen must not install an actor built against an obsolete
+	// composition. The actor is abandoned and the error propagates so the next
+	// recovery pass retries after the rebuild settles.
+	if !d.generationCurrentLocked(actor.compositionGeneration, actor.capabilityGeneration, actor.capabilityFingerprint) {
+		d.mu.Unlock()
+		cancel()
+		d.abandonAcquiredActor(spec.ForwardID, actor)
+		return fmt.Errorf("agent: forward %q reopen: %w", spec.ForwardID, errAcquisitionStale)
+	}
 	// A fence may be installed while the listener and actor are being built.
 	// Check once more under the install lock before making the actor reachable.
 	pendingDelete, tombstoned, err = readForwardDeleteFence(d.cfg.Store, spec.ForwardID)
 	if err != nil {
 		d.mu.Unlock()
 		cancel()
-		_ = actor.fwd.CloseContext(context.Background())
-		_ = lease.Release(ctx)
+		d.abandonAcquiredActor(spec.ForwardID, actor)
 		return fmt.Errorf("agent: forward %q delete fence: %w", spec.ForwardID, err)
 	}
 	if pendingDelete || tombstoned {
 		d.mu.Unlock()
 		cancel()
-		_ = actor.fwd.CloseContext(context.Background())
-		_ = lease.Release(ctx)
+		d.abandonAcquiredActor(spec.ForwardID, actor)
 		return nil
 	}
 	if _, exists := d.forwards[spec.ForwardID]; exists || len(d.pendingActorsLocked(spec.ForwardID)) != 0 {
 		d.mu.Unlock()
 		cancel()
-		_ = actor.fwd.CloseContext(context.Background())
-		_ = lease.Release(ctx)
+		d.abandonAcquiredActor(spec.ForwardID, actor)
 		return nil
 	}
 	d.forwards[spec.ForwardID] = actor

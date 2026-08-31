@@ -91,6 +91,19 @@ func (a *App) onMappingLifecycle(forwardID string, mutate func(act *reconcile.Ac
 		a.probeAdmissionMu.Unlock()
 		return
 	}
+	// Durable deletion fence (repair-2 finding 8): a lifecycle event that lands
+	// in the deletion window (the durable tombstone is already committed) must
+	// not recreate activation state for a forward being deleted. The deletion
+	// path removes the activation mirror; this check closes the race between
+	// tombstone commit and mirror removal. Read outside dp.mu (store I/O) under
+	// the admission ordering.
+	if a.store != nil {
+		pendingDelete, tombstoned, err := readForwardDeleteFence(a.store, forwardID)
+		if err != nil || pendingDelete || tombstoned {
+			a.probeAdmissionMu.Unlock()
+			return
+		}
+	}
 	generation := act.Generation()
 	if err := mutate(act, actor); err != nil {
 		a.probeAdmissionMu.Unlock()
