@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gxbrave/AntiNAT/internal/protocol"
 	"github.com/gxbrave/AntiNAT/internal/traversal"
@@ -141,16 +142,23 @@ func (d *dataPlane) resolveForwardRoute(spec protocol.ForwardSpec) (forwardRoute
 		if err != nil {
 			return forwardRoute{}, err
 		}
+		if err := d.validateAutoProfile(profile, haveProfile); err != nil {
+			return forwardRoute{}, err
+		}
 		resolved, err := resolveAutoStrategy(spec, profile, haveProfile, d.cfg.AutoOrder)
 		if err != nil {
 			return forwardRoute{}, err
 		}
 		strategy = resolved
+		// planFor reads spec.Strategy; route the resolved concrete strategy so
+		// the acquisition plan never carries "auto" into the Manager.
+		spec.Strategy = resolved
 	}
 	// UDP is always direct-v4 (P13 UDP stays on the direct path; the Manager
 	// is TCP-listener based).
 	if spec.Protocol == protocol.ProtocolUDP && strategy != protocol.StrategyDirectV4 {
 		strategy = protocol.StrategyDirectV4
+		spec.Strategy = protocol.StrategyDirectV4
 	}
 	switch strategy {
 	case protocol.StrategyDirectV4:
@@ -191,6 +199,28 @@ func (d *dataPlane) loadProfile() (traversal.Profile, bool, error) {
 		return traversal.Profile{}, false, nil
 	}
 	return d.cfg.ProfileStore.Load()
+}
+
+// profileMaxAge is how old a detection profile may be before an auto apply
+// refuses to reuse it (a node's capabilities can change; a stale profile is
+// never silently treated as current).
+const profileMaxAge = 24 * time.Hour
+
+// validateAutoProfile applies the Story 5 staleness gate: an auto forward
+// refuses a cached profile that no longer describes the node (fingerprint
+// changed or older than profileMaxAge). UDP auto never looks at the profile.
+func (d *dataPlane) validateAutoProfile(profile traversal.Profile, haveProfile bool) error {
+	if !haveProfile || profile.Fingerprint == "" {
+		return nil // absent profile handled by resolveAutoStrategy
+	}
+	fingerprint, err := traversal.Fingerprint(d.cfg.RouteTable)
+	if err != nil {
+		return fmt.Errorf("agent: detection fingerprint: %w", err)
+	}
+	if stale, reason := profile.IsStale(fingerprint, profileMaxAge, d.cfg.Clock()); stale {
+		return fmt.Errorf("agent: detection profile is stale (%s)", reason)
+	}
+	return nil
 }
 
 // firstStunServer returns the primary configured STUN endpoint, or "" when

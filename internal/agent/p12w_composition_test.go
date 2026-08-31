@@ -159,9 +159,13 @@ func p12wGatewayCompositionWithObserver(t *testing.T, observed netip.AddrPort) (
 		Journal:     journal,
 		StunObserve: obs.observe,
 	})
+	fp, fpErr := traversal.Fingerprint(p12wRouteTable{})
+	if fpErr != nil {
+		t.Fatal(fpErr)
+	}
 	profiles := newProfileStore(t.TempDir())
 	if err := profiles.Save(traversal.Profile{
-		Fingerprint:     "fp-lab",
+		Fingerprint:     fp,
 		Protocol:        traversal.ProtocolTCP,
 		DefaultStrategy: protocol.StrategyExplicitGateway,
 		ComputedAtUnix:  time.Now().Unix(),
@@ -285,5 +289,147 @@ func TestDataPlaneDirectStillWorksWithoutManager(t *testing.T) {
 	}
 	if err := d.closeAll(context.Background()); err != nil {
 		t.Fatalf("closeAll: %v", err)
+	}
+}
+
+// p12wLoopbackRouteTable is a route table whose temp tuples fall back to
+// loopback (DefaultRouteSource rejects loopback, so the Detector's tempSource
+// returns 127.0.0.1 which binds on any host).
+type p12wLoopbackRouteTable struct{}
+
+func (p12wLoopbackRouteTable) DefaultRouteV4() (netip.Addr, string, bool, error) {
+	return netip.MustParseAddr("127.0.0.1"), "lo", true, nil
+}
+
+func (p12wLoopbackRouteTable) IPv4Addresses() ([]traversal.IPv4Address, error) {
+	return []traversal.IPv4Address{{Interface: "lo", Addr: netip.MustParseAddr("127.0.0.1")}}, nil
+}
+
+// Story 5 (a): a TCP auto forward resolves through the cached detection
+// profile's PASSED default strategy and routes to the concrete gateway
+// acquisition.
+func TestDataPlaneAutoResolvesGatewayFromProfile(t *testing.T) {
+	d, _, _, journal := p12wGatewayComposition(t)
+	spec := protocol.ForwardSpec{
+		ForwardID:       "fwd-auto-gateway",
+		Protocol:        protocol.ProtocolTCP,
+		Target:          "127.0.0.1:9",
+		Strategy:        protocol.StrategyAuto,
+		DesiredRevision: 1,
+		Presence:        protocol.PresencePresent,
+	}
+	applied, err := d.apply(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("auto apply: %v", err)
+	}
+	// The operator's durable choice stays "auto"; the live actor resolves to
+	// the concrete gateway strategy.
+	if applied.Strategy != "auto" {
+		t.Fatalf("applied strategy = %q, want the operator's auto", applied.Strategy)
+	}
+	d.mu.Lock()
+	actor := d.forwards["fwd-auto-gateway"]
+	d.mu.Unlock()
+	if actor == nil || actor.acq == nil {
+		t.Fatal("auto forward must acquire through the gateway manager")
+	}
+	if actor.strategy != protocol.StrategyExplicitGateway {
+		t.Fatalf("auto resolved strategy = %q, want explicit-gateway", actor.strategy)
+	}
+	if actor.acq.JournalID == "" {
+		t.Fatal("auto gateway acquisition must journal")
+	}
+	if records, _ := journal.ListByForward("fwd-auto-gateway"); len(records) != 1 {
+		t.Fatalf("auto gateway journal records = %d, want 1", len(records))
+	}
+}
+
+// Story 5 (b): a stale detection profile (fingerprint mismatch) fails an auto
+// forward rather than silently reusing old capability.
+func TestDataPlaneAutoRejectsStaleProfile(t *testing.T) {
+	d, _, _, _ := p12wGatewayComposition(t)
+	profile, ok, err := d.cfg.ProfileStore.Load()
+	if err != nil || !ok {
+		t.Fatalf("profile load ok=%v err=%v", ok, err)
+	}
+	profile.Fingerprint = "stale-fingerprint"
+	if err := d.cfg.ProfileStore.Save(profile); err != nil {
+		t.Fatal(err)
+	}
+	spec := protocol.ForwardSpec{
+		ForwardID:       "fwd-auto-stale",
+		Protocol:        protocol.ProtocolTCP,
+		Target:          "127.0.0.1:9",
+		Strategy:        protocol.StrategyAuto,
+		DesiredRevision: 1,
+		Presence:        protocol.PresencePresent,
+	}
+	if _, err := d.apply(context.Background(), spec); err == nil {
+		t.Fatal("stale-profile auto apply must fail closed")
+	}
+}
+
+// Story 5 (c): UDP auto resolves to direct-v4 (UDP detection is deferred to
+// P13; the UDP path stays on the direct registry).
+func TestDataPlaneAutoUDPResolvesDirect(t *testing.T) {
+	d, _, _, _ := p12wGatewayComposition(t)
+	spec := protocol.ForwardSpec{
+		ForwardID:       "fwd-auto-udp",
+		Protocol:        protocol.ProtocolUDP,
+		Target:          "127.0.0.1:9",
+		Strategy:        protocol.StrategyAuto,
+		DesiredRevision: 1,
+		Presence:        protocol.PresencePresent,
+	}
+	if _, err := d.apply(context.Background(), spec); err != nil {
+		t.Fatalf("UDP auto apply: %v", err)
+	}
+	d.mu.Lock()
+	actor := d.forwards["fwd-auto-udp"]
+	d.mu.Unlock()
+	if actor == nil {
+		t.Fatal("UDP auto actor missing")
+	}
+	if actor.strategy != protocol.StrategyDirectV4 || actor.acq != nil {
+		t.Fatalf("UDP auto actor = strategy %q acq %v, want direct/v4 and no acquisition",
+			actor.strategy, actor.acq != nil)
+	}
+}
+
+// Story 5 (d): the one-shot detection job runs the Detector and durably saves
+// the profile (which is then fresh for auto resolution).
+func TestDataPlaneRunDetectionSavesProfile(t *testing.T) {
+	mapper := &p12wMapper{
+		mechanism: traversal.LayerPCP,
+		ownership: traversal.OwnershipStrong,
+		control:   traversal.ControlServer{Mechanism: traversal.LayerPCP, Address: "127.0.0.1:5351"},
+		external:  netip.MustParseAddrPort("100.64.0.2:43111"),
+		lease:     time.Hour,
+	}
+	fakeObserve := func(ctx context.Context, server netip.AddrPort, timeout time.Duration) (netip.AddrPort, error) {
+		return netip.MustParseAddrPort("100.64.0.2:51234"), nil
+	}
+	detector := traversal.NewDetector(traversal.DetectorOptions{
+		RouteTable:  p12wLoopbackRouteTable{},
+		Mappers:     map[traversal.MappingLayerKind]traversal.GatewayMapper{traversal.LayerPCP: mapper},
+		Registry:    traversal.NewPortRegistry(),
+		AutoOrder:   []protocol.Strategy{protocol.StrategyExplicitGateway, protocol.StrategyDirectV4, protocol.StrategyStunOnly},
+		StunServers: []string{"stun+tcp://100.64.0.1:3478"},
+		StunObserve: fakeObserve,
+	})
+	profiles := newProfileStore(t.TempDir())
+	d := newDataPlane(dataPlaneConfig{Clock: time.Now, Detector: detector, ProfileStore: profiles})
+	if err := d.runDetection(context.Background()); err != nil {
+		t.Fatalf("runDetection: %v", err)
+	}
+	profile, ok, err := profiles.Load()
+	if err != nil || !ok {
+		t.Fatalf("saved profile ok=%v err=%v", ok, err)
+	}
+	if profile.DefaultStrategy != protocol.StrategyExplicitGateway {
+		t.Fatalf("saved default = %q, want explicit-gateway (pcp passed)", profile.DefaultStrategy)
+	}
+	if result, ok := profile.ResultFor(protocol.StrategyExplicitGateway); !ok || result.State != traversal.DetectionPassed {
+		t.Fatalf("explicit-gateway result = %+v ok=%v, want PASSED", result, ok)
 	}
 }

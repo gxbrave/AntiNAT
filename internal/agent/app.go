@@ -70,6 +70,10 @@ type Config struct {
 	// production default [explicit-gateway, direct-v4, stun-only]. manual-static
 	// is never auto-detected and never appears in the order.
 	AutoOrder []protocol.Strategy
+	// DetectionInterval runs periodic capability detection saving the cached
+	// detection profile (0 disables the autonomous job; P15 owns the full
+	// operator API later).
+	DetectionInterval time.Duration
 }
 
 // App is one composed agent process.
@@ -423,6 +427,13 @@ func (a *App) Start(ctx context.Context) error {
 			defer a.lifecycleWG.Done()
 			a.monitorLiveness(runCtx)
 		}()
+		if a.cfg.DetectionInterval > 0 {
+			a.lifecycleWG.Add(1)
+			go func() {
+				defer a.lifecycleWG.Done()
+				a.detectionLoop(runCtx)
+			}()
+		}
 		a.reconnectWG.Add(1)
 		go func() {
 			defer a.reconnectWG.Done()
@@ -658,6 +669,38 @@ func (a *App) monitorLiveness(ctx context.Context) {
 		}
 	}
 }
+
+// detectionLoop is the one-shot/periodic capability detection job (P12W
+// Story 5): it runs the traversal Detector and saves the profile via the
+// state-dir JSON cache, so auto forwards can resolve a fresh default strategy.
+// The job is bounded per pass and opt-in via Config.DetectionInterval; P15 owns
+// surfacing the operator control for it.
+func (a *App) detectionLoop(ctx context.Context) {
+	a.runDetectionOnce(ctx)
+	ticker := time.NewTicker(a.cfg.DetectionInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.runDetectionOnce(ctx)
+		}
+	}
+}
+
+func (a *App) runDetectionOnce(ctx context.Context) {
+	if a.dp == nil || a.marker != localstate.MarkerActive {
+		return
+	}
+	detectCtx, cancel := context.WithTimeout(ctx, detectionAttemptBudget)
+	defer cancel()
+	_ = a.dp.runDetection(detectCtx)
+}
+
+// detectionAttemptBudget bounds one detection pass (one attempt per strategy
+// at the traversal default timeout plus transport overhead).
+const detectionAttemptBudget = 4 * time.Minute
 
 func (a *App) markActivationsUnverified(ctx context.Context) {
 	a.probeAdmissionMu.Lock()
@@ -1912,6 +1955,21 @@ func (d *dataPlane) acquireViaManager(ctx context.Context, spec protocol.Forward
 // gatewayLease is the requested mapping lifetime in production (the granted
 // lifetime is authoritative for pacing).
 const gatewayLease = 45 * time.Minute
+
+// runDetection performs ONE capability detection pass and durably saves the
+// resulting profile. The traversal Detector samples every strategy on its own
+// temp tuples; a detected capability is never a Forward endpoint (every
+// Forward acquires and probes independently).
+func (d *dataPlane) runDetection(ctx context.Context) error {
+	if d.cfg.Detector == nil || d.cfg.ProfileStore == nil {
+		return nil
+	}
+	profile, err := d.cfg.Detector.Run(ctx, traversal.DetectionRequest{Protocol: traversal.ProtocolTCP})
+	if err != nil {
+		return err
+	}
+	return d.cfg.ProfileStore.Save(profile)
+}
 
 // acquisitionMetaFromAcquisition snapshots the acquisition evidence under the
 // acquisition's own renewal lock (CurrentMapping returns a locked copy).
