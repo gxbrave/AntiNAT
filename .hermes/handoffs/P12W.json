@@ -1,0 +1,160 @@
+{
+  "plan": "P12W",
+  "base_sha": "94e08603ca90cfa75a3a7a22b8da34016e9748d8",
+  "head_sha": "f1ef7665b019e9aa2927448b08294e3d655c4a90",
+  "commits": [
+    "agent: P12W S1 bbolt mapping journal store (TDD)",
+    "agent: P12W S2 manager/detector/adapter wiring for gateway routes (TDD)",
+    "agent: P12W S3 strategy-aware TCP acquisition and hot-update preservation (TDD)",
+    "agent: P12W S4 strategy translation + truthful failure surface tests (TDD)",
+    "agent: P12W S5 auto resolution from fresh persisted detection profile (TDD)",
+    "agent: P12W S6 strategy-aware capability and liveness rebuild (TDD)",
+    "agent: P12W S7 mapping lifecycle degraded/lost/recovered into activation (TDD)",
+    "agent: P12W S8 startup journal replay and recovery ref exposure (TDD)",
+    "test: P12W S9 composed gateway netns lab evidence (TDD)",
+    "cmd: P12W S10 agent flags for STUN servers and auto order (TDD)",
+    "agent: P12W gofmt alignment for lifecycle and netns story files",
+    "f1ef766 hermes: revise P12W plan to declare hot-update test file (spec-review resolution)"
+  ],
+  "files_changed": [
+    "cmd/antinat-agent/main.go",
+    "internal/agent/app.go",
+    "internal/agent/app_test.go",
+    "internal/agent/localstate/mapping_journal.go",
+    "internal/agent/localstate/mapping_journal_test.go",
+    "internal/agent/p12w_composition_test.go",
+    "internal/agent/p12w_hotupdate_test.go",
+    "internal/agent/p12w_lifecycle_test.go",
+    "internal/agent/p12w_recovery_test.go",
+    "internal/agent/profiles.go",
+    "internal/agent/rollback_fence_test.go",
+    "internal/agent/strategy.go",
+    "internal/agent/strategy_test.go",
+    "internal/agent/traversal_lifecycle.go",
+    "test/integration/agent_gateway_test.go",
+    ".hermes/plans/v1-beta/12w-production-wiring.md"
+  ],
+  "tests": [
+    {
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1",
+      "exit_code": 0,
+      "summary": "38 packages ok, 0 FAIL (full repo suite)."
+    },
+    {
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./... -count=1",
+      "exit_code": 0,
+      "summary": "38 packages ok under race; no DATA RACE, no FAIL, no panic."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/traversal/... -race -count=10",
+      "exit_code": 0,
+      "summary": "traversal packages race 10x PASS."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/agent/localstate -run MappingJournal -count=10",
+      "exit_code": 0,
+      "summary": "bbolt mapping journal adapter 10x PASS."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/agent -run 'P12W|Strategy|Composition|Recovery|Lifecycle' -race -count=10",
+      "exit_code": 0,
+      "summary": "focused P12W agent tests race 10x PASS."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/agent -run 'P12W|Strategy|Composition|Recovery|Lifecycle|Capability' -race -count=10",
+      "exit_code": 0,
+      "summary": "extended regex (adds capability tests) race 10x PASS."
+    },
+    {
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./internal/agent -count=1",
+      "exit_code": 0,
+      "summary": "full agent package race PASS (supplementary totality of P12W tests)."
+    },
+    {
+      "command": "GOWORK=off go vet ./...",
+      "exit_code": 0,
+      "summary": "vet clean."
+    },
+    {
+      "command": "GOWORK=off go test ./test/contracts -run TestContractManifest -count=1",
+      "exit_code": 0,
+      "summary": "frozen contract manifest gate PASS."
+    },
+    {
+      "command": "GOWORK=off go test -tags=netns ./test/integration -run 'TestTCPTraversal|TestAgentGatewayTraversal' -count=1 -v",
+      "exit_code": 0,
+      "summary": "TestTCPTraversal + TestAgentGatewayTraversal PASS against real miniupnpd+coturn netns lab; agent child entry verified from independent vantage; gateway nft ruleset empty after release."
+    },
+    {
+      "command": "GOOS=windows GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/traversal/... ./internal/forward/...",
+      "exit_code": 0,
+      "summary": "Windows amd64 cross-build PASS (compile-only; shared-port STUN fails closed at runtime on non-Linux)."
+    },
+    {
+      "command": "GOOS=linux GOARCH=arm64 GOWORK=off go build ./cmd/... ./internal/traversal/... ./internal/forward/...",
+      "exit_code": 0,
+      "summary": "Linux arm64 cross-build PASS (compile-only)."
+    },
+    {
+      "command": "GOOS=darwin GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/traversal/... ./internal/forward/...",
+      "exit_code": 0,
+      "summary": "Darwin amd64 cross-build PASS (compile-only)."
+    },
+    {
+      "command": "gofmt -l <all changed Go files>",
+      "exit_code": 0,
+      "summary": "gofmt clean (one alignment pass committed)."
+    },
+    {
+      "command": "git diff --check 94e08603..HEAD",
+      "exit_code": 0,
+      "summary": "no whitespace errors."
+    }
+  ],
+  "evidence": [
+    "test/integration/agent_gateway_test.go",
+    "internal/agent/p12w_composition_test.go",
+    "internal/agent/p12w_lifecycle_test.go",
+    "internal/agent/p12w_recovery_test.go",
+    "internal/agent/localstate/mapping_journal_test.go"
+  ],
+  "contracts_consumed": [
+    {
+      "path": "docs/protocol.md",
+      "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"
+    },
+    {
+      "path": "docs/state-model.md",
+      "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
+    },
+    {
+      "path": "docs/v1-scope-contract.md",
+      "sha256": "e016cfd0bb0e1395eb23dccf60bc283217139a81db56bf9c1f87ef5f3afe9eaf"
+    },
+    {
+      "path": "docs/support-matrix.md",
+      "sha256": "7288336e0a7b28bb13cfe2db742a65bba852f31326724a2150705ca4ec1cf0b8"
+    },
+    {
+      "path": "api/openapi.yaml",
+      "sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32"
+    }
+  ],
+  "contracts_changed": [],
+  "capability_result": "SUPPORTED_WITH_LIMITS",
+  "known_limits": [
+    "No real CPE/router or public-WAN vantage: traversal capability remains real-daemon netns lab evidence (miniupnpd 2.3.4 + coturn), not industry-hardware evidence.",
+    "Windows/darwin are cross-build compile evidence only; the STUN shared-port gate (StunSharedPortSupported) fails closed at runtime on non-Linux.",
+    "D5 residual stale-window: a trailing OnMapping* lifecycle event that lands after its forward was replaced can satisfy the mapped guard when the replacement forward is also live and mapping-capable (the library has no per-acquisition callback token).",
+    "The detection profile periodic job (Detector.Run) is opt-in via Config.DetectionInterval (default 0); P15 owns surfacing the operator control for the autonomous schedule.",
+    "The durable applied record's MappingJournalRef is refreshed only when reconcile applies a newer revision; recovery attaches the NEW journal ref through OnApplied and classifies the old record as superseded, but same-revision LKG refresh of the applied bucket remains P14's evacuation/ownership scope.",
+    "Pre-existing timing-sensitive internal/agent receipt test (TestPeriodicReceiptRetrySameSessionAfterChallengeNotEstablished) can time out under full parallel race load; it passes when re-run in isolation and is unrelated to P12W (observed once in the S8 commit run, cleared on re-run)."
+  ],
+  "cleanup_done": true,
+  "spec_review_resolution": {
+    "finding": "Undeclared new test file internal/agent/p12w_hotupdate_test.go (Story 3 tests landed in a file absent from the plan owned list), a spec-compliance deviation per AGENTS.md.",
+    "resolution": "Plan revision f1ef766 declares internal/agent/p12w_hotupdate_test.go as an owned Story 3 test file. Test-content only; no production behavior change.",
+    "reassert": null
+  },
+  "reviewed_head_sha": "f1ef7665b019e9aa2927448b08294e3d655c4a90"
+}
