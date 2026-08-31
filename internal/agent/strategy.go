@@ -106,23 +106,49 @@ func explicitGatewayLayer(profile traversal.Profile) (traversal.MappingLayerKind
 	}
 }
 
+// defaultAutoOrder is the production order used when the operator does not
+// provide one. It is kept in the Agent composition (and copied into the data
+// plane) before any detector or route is built, so every resolver observes the
+// same order.
+func defaultAutoOrder() []protocol.Strategy {
+	return []protocol.Strategy{
+		protocol.StrategyExplicitGateway,
+		protocol.StrategyDirectV4,
+		protocol.StrategyStunOnly,
+	}
+}
+
 // resolveAutoStrategy resolves one auto Forward to its concrete strategy.
 // UDP auto stays direct-v4 (P13 owns the UDP dataplane; detection is
-// deferred for UDP). TCP auto requires the cached profile's default strategy
-// to be PASSED: a stale or absent profile fails rather than silently reusing
-// an old capability (Story 5).
+// deferred for UDP). TCP auto walks the CURRENT configured order and accepts
+// only a matching PASSED profile result. Profile.DefaultStrategy is a
+// diagnostic/cache field, not an authority that can override the configured
+// order.
 func resolveAutoStrategy(spec protocol.ForwardSpec, profile traversal.Profile, haveProfile bool, order []protocol.Strategy) (protocol.Strategy, error) {
 	if spec.Protocol == protocol.ProtocolUDP {
 		return protocol.StrategyDirectV4, nil
 	}
-	if !haveProfile || profile.DefaultStrategy == "" {
+	if !haveProfile {
 		return "", errAutoNoPassingDefault
 	}
-	result, ok := profile.ResultFor(profile.DefaultStrategy)
-	if !ok || result.State != traversal.DetectionPassed {
-		return "", errAutoNoPassingDefault
+	if len(order) == 0 {
+		order = defaultAutoOrder()
 	}
-	return profile.DefaultStrategy, nil
+	for _, strategy := range order {
+		switch strategy {
+		case protocol.StrategyDirectV4, protocol.StrategyExplicitGateway, protocol.StrategyStunOnly:
+			result, ok := profile.ResultFor(strategy)
+			if ok && result.State == traversal.DetectionPassed {
+				return strategy, nil
+			}
+		default:
+			// manual-static-v4 and auto are not probeable order entries. The
+			// command parser rejects them; ignoring one here keeps malformed
+			// persisted configuration fail-closed rather than selecting it.
+			continue
+		}
+	}
+	return "", errAutoNoPassingDefault
 }
 
 // forwardRoute is the resolved acquisition direction for one spec: which
@@ -132,25 +158,47 @@ type forwardRoute struct {
 	// manager is the traversal.Manager that acquires the listener; nil for
 	// stun-only (the composer acquires directly through the shared-port seam).
 	manager *traversal.Manager
+	// cfg is the synchronized composition snapshot used for the complete
+	// external acquisition. A rebuild may publish new pointers while this
+	// acquisition is in flight; the generation fields below then reject its
+	// install rather than mixing old and new owners.
+	cfg dataPlaneConfig
 	// isGateway selects the gateway manager path (shared-port listeners).
 	isGateway bool
-	// stunOnly routes through the agent-side STUN-only composer.
-	stunOnly bool
+	// stunOnly routes through the agent-side stun-only composer.
+	stunOnly              bool
+	compositionGeneration uint64
+	capabilityGeneration  uint64
+	capabilityFingerprint string
+	// cfg is a value snapshot; manager/detector pointers in it are published
+	// together under dataPlane.mu.
 }
 
 // resolveForwardRoute translates one ForwardSpec into its acquisition route.
 // Auto is resolved to a concrete strategy first (UDP auto → direct-v4).
 func (d *dataPlane) resolveForwardRoute(spec protocol.ForwardSpec) (forwardRoute, error) {
+	cfg, compositionGeneration, capabilityGeneration, capabilityFingerprint := d.configSnapshot()
 	strategy := spec.Strategy
+	// UDP auto is a deliberate P13 direct-v4 exception. Resolve it before
+	// loading or validating the TCP detection profile: a stale, malformed, or
+	// absent TCP profile must not affect UDP auto.
+	if spec.Protocol == protocol.ProtocolUDP {
+		if strategy == protocol.StrategyAuto {
+			strategy = protocol.StrategyDirectV4
+			spec.Strategy = strategy
+		} else if strategy != protocol.StrategyDirectV4 {
+			return forwardRoute{}, fmt.Errorf("agent: UDP strategy %q is unsupported; only direct-v4 and auto are allowed", strategy)
+		}
+	}
 	if strategy == protocol.StrategyAuto {
-		profile, haveProfile, err := d.loadProfile()
+		profile, haveProfile, err := d.loadProfileFrom(cfg)
 		if err != nil {
 			return forwardRoute{}, err
 		}
-		if err := d.validateAutoProfile(profile, haveProfile); err != nil {
+		if err := validateAutoProfile(cfg.RouteTable, cfg.Clock, profile, haveProfile); err != nil {
 			return forwardRoute{}, err
 		}
-		resolved, err := resolveAutoStrategy(spec, profile, haveProfile, d.cfg.AutoOrder)
+		resolved, err := resolveAutoStrategy(spec, profile, haveProfile, cfg.AutoOrder)
 		if err != nil {
 			return forwardRoute{}, err
 		}
@@ -159,51 +207,74 @@ func (d *dataPlane) resolveForwardRoute(spec protocol.ForwardSpec) (forwardRoute
 		// the acquisition plan never carries "auto" into the Manager.
 		spec.Strategy = resolved
 	}
-	// UDP is always direct-v4 (P13 UDP stays on the direct path; the Manager
-	// is TCP-listener based).
-	if spec.Protocol == protocol.ProtocolUDP && strategy != protocol.StrategyDirectV4 {
-		strategy = protocol.StrategyDirectV4
-		spec.Strategy = protocol.StrategyDirectV4
+	snapshot := forwardRoute{
+		cfg:                   cfg,
+		compositionGeneration: compositionGeneration,
+		capabilityGeneration:  capabilityGeneration,
+		capabilityFingerprint: capabilityFingerprint,
 	}
 	switch strategy {
 	case protocol.StrategyDirectV4:
-		return forwardRoute{plan: traversal.PlanRequest{Strategy: protocol.StrategyDirectV4}, manager: d.cfg.PlainManager}, nil
+		snapshot.plan = traversal.PlanRequest{Strategy: protocol.StrategyDirectV4}
+		snapshot.manager = cfg.PlainManager
+		return snapshot, nil
 	case protocol.StrategyManualStaticV4:
 		plan, err := planFor(spec, traversal.Profile{}, nil)
 		if err != nil {
 			return forwardRoute{}, err
 		}
-		return forwardRoute{plan: plan, manager: d.cfg.PlainManager}, nil
+		if cfg.PlainManager == nil {
+			return forwardRoute{}, errors.New("agent: manual-static route has no plain traversal manager")
+		}
+		snapshot.plan, snapshot.manager = plan, cfg.PlainManager
+		return snapshot, nil
 	case protocol.StrategyExplicitGateway:
-		profile, haveProfile, err := d.loadProfile()
+		profile, haveProfile, err := d.loadProfileFrom(cfg)
 		if err != nil {
 			return forwardRoute{}, err
 		}
 		if !haveProfile {
 			return forwardRoute{}, errNoGatewayLayerInProfile
 		}
-		plan, err := planFor(spec, profile, d.cfg.StunServers)
+		// A present profile without a route fingerprint is malformed evidence;
+		// it is never treated as current capability. Explicit gateway is kept
+		// fail-closed here just like auto, so recovery can quarantine it.
+		if profile.Fingerprint == "" {
+			return forwardRoute{}, fmt.Errorf("agent: detection profile has no network fingerprint: %w", errAutoStaleProfile)
+		}
+		plan, err := planFor(spec, profile, cfg.StunServers)
 		if err != nil {
 			return forwardRoute{}, err
 		}
-		return forwardRoute{plan: plan, manager: d.cfg.GatewayManager, isGateway: true}, nil
+		if cfg.GatewayManager == nil {
+			return forwardRoute{}, errors.New("agent: explicit-gateway route has no gateway traversal manager")
+		}
+		snapshot.plan, snapshot.manager, snapshot.isGateway = plan, cfg.GatewayManager, true
+		return snapshot, nil
 	case protocol.StrategyStunOnly:
-		plan, err := planFor(spec, traversal.Profile{}, d.cfg.StunServers)
+		plan, err := planFor(spec, traversal.Profile{}, cfg.StunServers)
 		if err != nil {
 			return forwardRoute{}, err
 		}
-		return forwardRoute{plan: plan, stunOnly: true}, nil
+		snapshot.plan, snapshot.stunOnly = plan, true
+		return snapshot, nil
 	default:
 		return forwardRoute{}, fmt.Errorf("agent: unknown strategy %q", strategy)
 	}
 }
 
-// loadProfile reads the cached detection profile.
+// loadProfile reads the cached detection profile from a synchronized
+// composition snapshot.
 func (d *dataPlane) loadProfile() (traversal.Profile, bool, error) {
-	if d.cfg.ProfileStore == nil {
+	cfg, _, _, _ := d.configSnapshot()
+	return d.loadProfileFrom(cfg)
+}
+
+func (d *dataPlane) loadProfileFrom(cfg dataPlaneConfig) (traversal.Profile, bool, error) {
+	if cfg.ProfileStore == nil {
 		return traversal.Profile{}, false, nil
 	}
-	return d.cfg.ProfileStore.Load()
+	return cfg.ProfileStore.Load()
 }
 
 // profileMaxAge is how old a detection profile may be before an auto apply
@@ -212,17 +283,24 @@ func (d *dataPlane) loadProfile() (traversal.Profile, bool, error) {
 const profileMaxAge = 24 * time.Hour
 
 // validateAutoProfile applies the Story 5 staleness gate: an auto forward
-// refuses a cached profile that no longer describes the node (fingerprint
-// changed or older than profileMaxAge). UDP auto never looks at the profile.
-func (d *dataPlane) validateAutoProfile(profile traversal.Profile, haveProfile bool) error {
-	if !haveProfile || profile.Fingerprint == "" {
-		return nil // absent profile handled by resolveAutoStrategy
+// refuses a cached profile that no longer describes the node (missing or
+// changed fingerprint, or older than profileMaxAge). UDP auto never looks at
+// the profile and is resolved before this function is called.
+func validateAutoProfile(routeTable traversal.RouteTable, clock func() time.Time, profile traversal.Profile, haveProfile bool) error {
+	if !haveProfile {
+		return nil // absent profile is handled by resolveAutoStrategy
 	}
-	fingerprint, err := traversal.Fingerprint(d.cfg.RouteTable)
+	if profile.Fingerprint == "" {
+		return fmt.Errorf("agent: detection profile has no network fingerprint: %w", errAutoStaleProfile)
+	}
+	fingerprint, err := traversal.Fingerprint(routeTable)
 	if err != nil {
 		return fmt.Errorf("agent: detection fingerprint: %w", err)
 	}
-	if stale, reason := profile.IsStale(fingerprint, profileMaxAge, d.cfg.Clock()); stale {
+	if clock == nil {
+		clock = time.Now
+	}
+	if stale, reason := profile.IsStale(fingerprint, profileMaxAge, clock()); stale {
 		return fmt.Errorf("agent: detection profile is stale (%s): %w", reason, errAutoStaleProfile)
 	}
 	return nil
