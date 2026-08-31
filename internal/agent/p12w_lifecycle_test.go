@@ -181,6 +181,34 @@ func waitForKeepalive(t *testing.T, a *App, forwardID, want string) {
 	t.Fatalf("keepalive_state never became %q (got %+v)", want, snap)
 }
 
+// waitForSavedKeepalive waits until the PERSISTED activation snapshot's
+// keepalive axis settles on want. The in-memory activation is updated before
+// SaveActivationSnapshot completes, so a test that polls only the in-memory
+// state and then reads the store once can race the durable write (repair R1
+// finding 6). Polling the saved snapshot closes that window.
+func waitForSavedKeepalive(t *testing.T, a *App, forwardID, want string) {
+	t.Helper()
+	if a.store == nil {
+		t.Fatal("waitForSavedKeepalive requires a store")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		saved, ok, err := a.store.LoadActivationSnapshot(forwardID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ok && saved.States.KeepaliveState == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	saved, ok, err := a.store.LoadActivationSnapshot(forwardID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Fatalf("saved keepalive_state never became %q (ok=%v snapshot=%+v)", want, ok, saved)
+}
+
 // Story 7 (a): three consecutive renewal failures set keepalive_state DEGRADED
 // and a later success recovers to HEALTHY, with the snapshot persisted and the
 // status sent.
@@ -200,6 +228,9 @@ func TestMappingLifecycleDegradedThenRecovered(t *testing.T) {
 
 	mapper.setRenewErr(nil)
 	waitForKeepalive(t, a, "fwd-life", "HEALTHY")
+	// The durable write races the in-memory poll (repair R1 finding 6):
+	// wait for the SAVED snapshot to report HEALTHY before the final assertion.
+	waitForSavedKeepalive(t, a, "fwd-life", "HEALTHY")
 
 	if client.statusCount() == 0 {
 		t.Fatal("no activation status was sent through sendActivationStatus")
