@@ -23,6 +23,11 @@ ALTER TABLE node_cleanup_tombstones ADD COLUMN updated_at INTEGER NOT NULL DEFAU
 CREATE UNIQUE INDEX idx_cleanup_tombstones_node_unique
     ON node_cleanup_tombstones(node_id);
 
+-- Restore quarantine: the 0002 nodes table gains a durable quarantine flag so
+-- RESTORE_RECONCILIATION can suspend automatic desired/delete/rotation
+-- dispatch per node until an administrator reauthorizes it.
+ALTER TABLE nodes ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0;
+
 -- One key-rotation operation per durable FSM instance. The certificate is
 -- signed by the OLD key; the phase follows PREPARED -> ANNOUNCED -> ACKED ->
 -- ACTIVE -> RETIRED. An offline Agent that never ACKed blocks normal retire;

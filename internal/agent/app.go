@@ -108,8 +108,9 @@ type App struct {
 	activations map[string]*reconcile.Activation
 	// marker/latch are loaded once from the durable terminal boundary. The latch
 	// is shared with the reconciler and all actor admission paths.
-	marker localstate.MarkerState
-	latch  *localstate.Latch
+	marker            localstate.MarkerState
+	latch             *localstate.Latch
+	recoveryQuarantine bool
 	// probeAdmissionMu serializes activation replacement with probe admission.
 	// A probe arm must not observe one revision and transition another.
 	probeAdmissionMu sync.Mutex
@@ -143,6 +144,13 @@ type controlClient interface {
 	Close()
 	Shutdown()
 	Wait()
+}
+
+// connectedControlClient is the optional P14 uninstall-notice connectivity
+// seam. Adopting it via type assertion keeps earlier test doubles compiling.
+type connectedControlClient interface {
+	controlClient
+	Connected() bool
 }
 
 type contextShutdownClient interface {
@@ -183,7 +191,11 @@ func New(cfg Config) (*App, error) {
 		return nil, fmt.Errorf("agent: enrollment token rejected with terminal marker %s", marker)
 	}
 
-	a := &App{cfg: cfg, marker: marker}
+	recoveryQuarantine, err := localstate.LoadRecoveryQuarantine(cfg.StateDir)
+	if err != nil {
+		return nil, fmt.Errorf("agent: load recovery quarantine: %w", err)
+	}
+	a := &App{cfg: cfg, marker: marker, recoveryQuarantine: recoveryQuarantine}
 
 	st, err := localstate.Open(cfg.StateDir)
 	if err != nil {
@@ -495,8 +507,10 @@ func (a *App) Start(ctx context.Context) error {
 	// session. Connect invokes the command handler synchronously, so accepting
 	// frames before this barrier would race a stale activation/listener map.
 	// A terminal marker is a one-way recovery boundary: do not restore stale
-	// activation evidence or LKG listeners from disk.
-	if a.marker == localstate.MarkerActive {
+	// activation evidence or LKG listeners from disk. RECOVERY_QUARANTINE is a
+	// second one-way boundary: after a backup restore the agent does NOT
+	// auto-restore its LKG listeners until the Controller authorizes recovery.
+	if a.marker == localstate.MarkerActive && !a.recoveryQuarantine {
 		if err := a.prepareActivationRecovery(); err != nil {
 			runCancel()
 			a.client.Shutdown()
@@ -963,9 +977,47 @@ func (a *App) handleCommand(ctx context.Context, op control.Operation) ([]byte, 
 		return a.handleKeyRotationPrepare(ctx, op)
 	case "key_rotation_commit":
 		return a.handleKeyRotationCommit(ctx, op)
+	case "restore_reconcile":
+		return a.handleRestoreReconcile(ctx, op)
+	case "restore_result":
+		return a.handleRestoreResult(ctx, op)
 	default:
 		return nil, fmt.Errorf("agent: unexpected command type %q", op.MessageType)
 	}
+}
+
+// NotifyUninstall issues the bounded uninstall notice (P14 Story 6): the
+// installer/P18 calls it before process exit. Online agents queue the notice
+// for a durable controller receipt; offline agents record UNKNOWN. The
+// terminal marker is unchanged and always prevents LKG recovery afterward.
+func (a *App) NotifyUninstall(ctx context.Context, operationID string) (reconcile.UninstallNoticeResult, error) {
+	online := func() bool { return false }
+	if connected, ok := a.client.(connectedControlClient); ok {
+		online = connected.Connected
+	}
+	return reconcile.NotifyUninstall(ctx, a.store, a.cfg.StateDir, operationID, online)
+}
+
+// handleRestoreReconcile puts the agent into RECOVERY_QUARANTINE: the
+// quarantine marker is written durably (and NEVER over a DECOMMISSIONED
+// terminal marker), and LKG listeners are not auto-restored until the
+// Controller issues a recovery authorization.
+func (a *App) handleRestoreReconcile(ctx context.Context, op control.Operation) ([]byte, error) {
+	if err := localstate.WriteRecoveryQuarantine(a.cfg.StateDir); err != nil {
+		return nil, err
+	}
+	a.recoveryQuarantine = true
+	return []byte(`{"status":"quarantined"}`), nil
+}
+
+// handleRestoreResult authorizes recovery: the quarantine marker is cleared and
+// a subsequent recovery pass may restore the LKG listeners.
+func (a *App) handleRestoreResult(ctx context.Context, op control.Operation) ([]byte, error) {
+	if err := localstate.ClearRecoveryQuarantine(a.cfg.StateDir); err != nil {
+		return nil, err
+	}
+	a.recoveryQuarantine = false
+	return []byte(`{"status":"authorized"}`), nil
 }
 
 // handleKeyRotationPrepare verifies the controller key-rotation certificate

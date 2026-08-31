@@ -24,13 +24,21 @@ type BackupFile struct {
 }
 
 // BackupManifest describes a consistent backup: controller instance id,
-// schema version, per-file hashes/permissions and creation time.
+// schema version, per-file hashes/permissions, creation time and the P14
+// anti-rollback high-water + current key id set.
 type BackupManifest struct {
-	Schema               string       `json:"schema"`
-	ControllerInstanceID string       `json:"controller_instance_id"`
-	SchemaVersion        int          `json:"schema_version"`
-	CreatedAt            int64        `json:"created_at"`
-	Files                []BackupFile `json:"files"`
+	Schema               string          `json:"schema"`
+	ControllerInstanceID string          `json:"controller_instance_id"`
+	SchemaVersion        int             `json:"schema_version"`
+	CreatedAt            int64           `json:"created_at"`
+	Files                []BackupFile    `json:"files"`
+	// HighWater carries the desired/deletion/tombstone + node-revision
+	// high-water values at backup time (P14 §7.4). Older backups without them
+	// decode with zero values and are refused for restore (fail closed).
+	HighWater BackupHighWater `json:"high_water,omitempty"`
+	// KeyIDs lists the controller signing key ids present at backup time;
+	// restore refuses a backup whose key set differs from the live keys.
+	KeyIDs []string `json:"key_ids,omitempty"`
 }
 
 const backupDBName = "controller.db"
@@ -40,6 +48,13 @@ const backupManifestName = "manifest.json"
 // destDir (validated P03 backup path; never a bare copy of the WAL file). The
 // file and its parent directory are fsynced before the manifest is recorded.
 func (s *Store) BackupTo(destDir string) (BackupManifest, error) {
+	return s.BackupToWithKeys(destDir, nil)
+}
+
+// BackupToWithKeys writes a VACUUM INTO snapshot with the P14 high-water and
+// key-id set recorded in the manifest. keyIDs are the controller signing key
+// ids at backup time; restore fails closed on a mismatch.
+func (s *Store) BackupToWithKeys(destDir string, keyIDs []string) (BackupManifest, error) {
 	if err := os.MkdirAll(destDir, 0o700); err != nil {
 		return BackupManifest{}, fmt.Errorf("store: backup mkdir: %w", err)
 	}
@@ -48,6 +63,10 @@ func (s *Store) BackupTo(destDir string) (BackupManifest, error) {
 		return BackupManifest{}, err
 	}
 	schemaVersion, err := s.SchemaVersion()
+	if err != nil {
+		return BackupManifest{}, err
+	}
+	highWater, err := s.CurrentBackupHighWater()
 	if err != nil {
 		return BackupManifest{}, err
 	}
@@ -72,6 +91,8 @@ func (s *Store) BackupTo(destDir string) (BackupManifest, error) {
 		Files: []BackupFile{
 			{Name: backupDBName, SHA256: sum, Mode: mode},
 		},
+		HighWater: highWater,
+		KeyIDs:    append([]string(nil), keyIDs...),
 	}
 	if err := writeManifest(destDir, manifest); err != nil {
 		return BackupManifest{}, err

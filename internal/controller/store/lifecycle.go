@@ -333,6 +333,15 @@ func (s *Store) EnforceCleanupOnlyEnqueue(nodeID, messageType string, fetchClean
 		return nil
 	}
 	if cleanupOnlyForbiddenTypes[messageType] {
+		// Restore quarantine / RESTORE_RECONCILIATION suspends ALL automatic
+		// orchestrating dispatch until an administrator reauthorizes nodes.
+		reconciling, err := s.IsRestoreReconciling()
+		if err != nil {
+			return err
+		}
+		if reconciling {
+			return fmt.Errorf("store: controller is in RESTORE_RECONCILIATION; refused to enqueue %q for node %q until reauthorized", messageType, nodeID)
+		}
 		if fetchCleanupOnly == nil {
 			fetchCleanupOnly = s.IsCleanupOnly
 		}

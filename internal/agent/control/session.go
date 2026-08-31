@@ -288,6 +288,16 @@ func (c *Client) stopSession(generation uint64, ownedConn *websocket.Conn) {
 // Wait waits for all session goroutines started by Connect.
 func (c *Client) Wait() { c.wg.Wait() }
 
+// Connected reports whether a transport session is currently established
+// (P14 uninstall notice bounded-receipt seam). It is advisory: a session may
+// die between this check and the next send, which is exactly why the uninstall
+// notice is bounded best-effort.
+func (c *Client) Connected() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.conn != nil
+}
+
 // SendMessage pushes an agent-initiated A2C message (P10 probe plane: the
 // RCT1 probe_ingress_receipt). P08 declares that P10 consumes the control
 // channel via interfaces; this is that outbound interface, the mirror of the
