@@ -89,12 +89,12 @@ func (s *Store) IsNodeQuarantined(nodeID string) (bool, error) {
 // BackupHighWater is the manifest high-water the restore anti-rollback
 // compares (desired/deletion/tombstone counts and the node revision).
 type BackupHighWater struct {
-	Forwards        int   `json:"forwards"`
-	ForwardSpecs    int   `json:"forward_specs"`
-	Deletions       int   `json:"deletions"`
-	CleanupTombstones int `json:"cleanup_tombstones"`
-	NodesRevision   int64 `json:"nodes_revision"`
-	CurrentKeyIDs   []string `json:"current_key_ids"`
+	Forwards          int      `json:"forwards"`
+	ForwardSpecs      int      `json:"forward_specs"`
+	Deletions         int      `json:"deletions"`
+	CleanupTombstones int      `json:"cleanup_tombstones"`
+	NodesRevision     int64    `json:"nodes_revision"`
+	CurrentKeyIDs     []string `json:"current_key_ids"`
 }
 
 // CurrentBackupHighWater computes the durable high-water values for a backup

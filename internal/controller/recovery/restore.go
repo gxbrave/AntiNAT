@@ -104,10 +104,10 @@ func ApplyRestore(ctx context.Context, liveDBPath, backupDir string) (store.Rest
 		return store.RestoreOperation{}, err
 	}
 	op := store.RestoreOperation{
-		ID:                  randomHex16(),
-		ManifestSHA256:      manifestSHA256(backupDir),
-		SchemaVersion:       1,
-		Phase:               "RESTORE_RECONCILIATION",
+		ID:             randomHex16(),
+		ManifestSHA256: manifestSHA256(backupDir),
+		SchemaVersion:  1,
+		Phase:          "RESTORE_RECONCILIATION",
 	}
 	if err := restored.EnterRestoreReconciliation(op); err != nil {
 		restored.Close()

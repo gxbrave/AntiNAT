@@ -24,9 +24,9 @@ func (e errUninstall) Error() string { return string(e) }
 
 // UninstallNoticeResult is the bounded outcome.
 type UninstallNoticeResult struct {
-	OperationID    string `json:"operation_id"`
-	Online         bool   `json:"online"`
-	Status         string `json:"status"` // QUEUED | UNKNOWN
+	OperationID     string `json:"operation_id"`
+	Online          bool   `json:"online"`
+	Status          string `json:"status"` // QUEUED | UNKNOWN
 	TerminalRefused bool   `json:"terminal_refused,omitempty"`
 }
 

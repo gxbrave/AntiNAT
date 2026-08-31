@@ -27,11 +27,11 @@ type BackupFile struct {
 // schema version, per-file hashes/permissions, creation time and the P14
 // anti-rollback high-water + current key id set.
 type BackupManifest struct {
-	Schema               string          `json:"schema"`
-	ControllerInstanceID string          `json:"controller_instance_id"`
-	SchemaVersion        int             `json:"schema_version"`
-	CreatedAt            int64           `json:"created_at"`
-	Files                []BackupFile    `json:"files"`
+	Schema               string       `json:"schema"`
+	ControllerInstanceID string       `json:"controller_instance_id"`
+	SchemaVersion        int          `json:"schema_version"`
+	CreatedAt            int64        `json:"created_at"`
+	Files                []BackupFile `json:"files"`
 	// HighWater carries the desired/deletion/tombstone + node-revision
 	// high-water values at backup time (P14 §7.4). Older backups without them
 	// decode with zero values and are refused for restore (fail closed).

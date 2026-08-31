@@ -108,8 +108,8 @@ type App struct {
 	activations map[string]*reconcile.Activation
 	// marker/latch are loaded once from the durable terminal boundary. The latch
 	// is shared with the reconciler and all actor admission paths.
-	marker            localstate.MarkerState
-	latch             *localstate.Latch
+	marker             localstate.MarkerState
+	latch              *localstate.Latch
 	recoveryQuarantine bool
 	// probeAdmissionMu serializes activation replacement with probe admission.
 	// A probe arm must not observe one revision and transition another.
