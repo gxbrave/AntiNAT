@@ -4,6 +4,16 @@
 
 **Scope:** Fix ONLY the findings listed below from the independent quality/security review of P12W head `7308075` (now `0c7bad3` after the spec-resolution plan/handoff commits). Do not implement new features, broaden scope, re-litigate accepted decisions (D1–D5), or modify the accepted `traversal`/`stun`/`internal/forward/udp` libraries.
 
+## Repair-cycle file boundary
+
+The repair cycle may modify only the following production/test paths, in addition to this repair plan and the P12W handoff metadata:
+
+- `internal/agent/app.go`, `internal/agent/strategy.go`, `internal/agent/p12w_composition_test.go`, `internal/agent/p12w_lifecycle_test.go`, and `internal/agent/p12w_recovery_test.go` — bounded changes for findings 1–4, 6–9.
+- `internal/agent/applied_recovery_regression_test.go` — two-line signature-only adaptation required because `dataPlane.recover` now returns a recovery report; no behavior change.
+- `internal/agent/p12w_quarantine_test.go` — new mixed stale-profile recovery test for finding 3.
+- `cmd/antinat-agent/main.go` and `cmd/antinat-agent/autoorder_test.go` — reject literal `auto` and test that parser boundary for finding 8.
+- No other source/test paths are in scope. The accepted `internal/traversal/**`, `internal/traversal/stun/**`, and `internal/forward/udp/**` libraries, frozen contracts, migrations, and manifests remain out of scope.
+
 ## Findings to fix (severity-ranked)
 
 1. **HIGH — `apply` holds the global `dataPlane.mu` across the gateway manager acquisition (external network RPC).**
