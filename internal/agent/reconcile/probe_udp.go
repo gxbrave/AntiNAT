@@ -14,6 +14,11 @@ import (
 // durably consumes the datagram, then returns the exact ACK and control receipt.
 type UDPProbeResult struct {
 	Matched bool
+	// Drop marks a full-match control frame that cannot be safely processed
+	// (capacity overflow, recovery error, or store failure). The classifier must
+	// consume it without ACK and without forwarding it to the business backend —
+	// fail closed, symmetric with the TCP probe gate quarantine.
+	Drop    bool
 	ProbeID [protocol.ProbeIDLen]byte
 	ACK     []byte
 	Receipt []byte
@@ -39,8 +44,11 @@ func (m *ProbeManager) HandleUDPProbe(forwardID string, source netip.AddrPort, r
 	m.mu.Lock()
 	m.sweep(now)
 	if m.recoveryErr != nil {
+		// Probe state is unavailable or overflowing after recovery: consuming any
+		// probe now would be unverifiable, so fail closed rather than risk a
+		// control frame reaching the business backend.
 		m.mu.Unlock()
-		return UDPProbeResult{}
+		return UDPProbeResult{Drop: true}
 	}
 	if _, replayed := m.replay[frame.ProbeID]; replayed {
 		binding, bound := m.replaySource[frame.ProbeID]
@@ -67,10 +75,17 @@ func (m *ProbeManager) HandleUDPProbe(forwardID string, source netip.AddrPort, r
 		op.arm.ExpectedSourceIP != sourceIP || op.digest != frame.ArmDigest ||
 		op.arm.ProviderID != frame.ProviderID || op.arm.Activation != frame.Activation ||
 		op.arm.Endpoint != frame.Endpoint || op.arm.ExpiryOpaque != frame.ExpiryOpaque ||
-		!ed25519.Verify(op.arm.ProviderKey(), frame.SigningBytes(), frame.Signature) ||
-		m.key == nil || m.store == nil || len(m.replay) >= m.maxReplay {
+		!ed25519.Verify(op.arm.ProviderKey(), frame.SigningBytes(), frame.Signature) {
+		// Not a full outstanding match: indistinguishable from ordinary traffic.
 		m.mu.Unlock()
 		return UDPProbeResult{}
+	}
+	// A structurally complete, full-match WAN1 that cannot be processed because
+	// of capacity or state availability is consumed without ACK and never
+	// forwarded to the business backend (fail closed).
+	if m.key == nil || m.store == nil || len(m.replay) >= m.maxReplay {
+		m.mu.Unlock()
+		return UDPProbeResult{Drop: true}
 	}
 
 	chash := frame.ChallengeHash()
@@ -107,8 +122,10 @@ func (m *ProbeManager) HandleUDPProbe(forwardID string, source netip.AddrPort, r
 	// rare control datagram and preserves exactly-once admission across concurrent
 	// classifier calls without introducing a second state machine.
 	if err := m.store.MarkArmedProbeConsumedWithACK(frame.ProbeID, receipt, ack, chash, receiptID, receiptDeadline); err != nil {
+		// A full-match probe that could not be durably consumed must not reach
+		// the business backend or produce an ack; drop it (fail closed).
 		m.mu.Unlock()
-		return UDPProbeResult{}
+		return UDPProbeResult{Drop: true}
 	}
 	op.used = true
 	m.replay[frame.ProbeID] = receiptDeadline

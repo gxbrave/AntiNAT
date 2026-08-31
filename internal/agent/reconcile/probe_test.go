@@ -36,6 +36,12 @@ type probeSend struct {
 }
 
 func newProbeTestEnv(t *testing.T) *probeTestEnv {
+	return newProbeTestEnvOptions(t, nil)
+}
+
+// newProbeTestEnvOptions builds a probe environment whose ProbeManagerOptions
+// can be mutated (e.g. capacity bounds) before the manager is constructed.
+func newProbeTestEnvOptions(t *testing.T, mutate func(*ProbeManagerOptions)) *probeTestEnv {
 	t.Helper()
 	st, err := localstate.Open(filepath.Join(t.TempDir(), "state"))
 	if err != nil {
@@ -47,7 +53,7 @@ func newProbeTestEnv(t *testing.T) *probeTestEnv {
 		t.Fatalf("node key: %v", err)
 	}
 	sent := make(chan probeSend, 16)
-	mgr := NewProbeManager(ProbeManagerOptions{
+	opts := ProbeManagerOptions{
 		Store:   st,
 		NodeKey: key,
 		Clock:   time.Now,
@@ -55,7 +61,11 @@ func newProbeTestEnv(t *testing.T) *probeTestEnv {
 			sent <- probeSend{messageType: messageType, payload: payload}
 			return nil
 		},
-	})
+	}
+	if mutate != nil {
+		mutate(&opts)
+	}
+	mgr := NewProbeManager(opts)
 	// An applied forward the arm must match.
 	applied := protocol.AppliedForwardState{
 		ForwardID:       "fwd-1",

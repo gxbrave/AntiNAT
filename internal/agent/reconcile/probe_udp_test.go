@@ -72,6 +72,37 @@ func TestHandleUDPProbeReturnsSocketIndependentACKAndReceipt(t *testing.T) {
 	}
 }
 
+func TestHandleUDPProbeReplayCapacityDropsFailClosed(t *testing.T) {
+	// A full-match WAN1 that cannot be processed because the replay fence is at
+	// capacity must be consumed-without-ACK (Drop) and never forwarded to the
+	// business backend.
+	e := newProbeTestEnvOptions(t, func(o *ProbeManagerOptions) {
+		o.MaxReplayEntries = 1
+	})
+	first := e.mustArm(t)
+	rawFirst := signedUDPProviderFrame(t, first, e.provider)
+	source := netip.MustParseAddrPort("127.0.0.1:41000")
+	r1 := e.mgr.HandleUDPProbe(e.forward, source, rawFirst)
+	if !r1.Matched || r1.Drop || len(r1.ACK) == 0 {
+		t.Fatalf("first probe expected consumed with ACK, got %+v", r1)
+	}
+
+	second := e.mustArm(t)
+	rawSecond := signedUDPProviderFrame(t, second, e.provider)
+	r2 := e.mgr.HandleUDPProbe(e.forward, source, rawSecond)
+	if !r2.Drop || r2.Matched || len(r2.ACK) != 0 || len(r2.Receipt) != 0 {
+		t.Fatalf("second probe at capacity must drop without ACK/material, got %+v", r2)
+	}
+	// The dropped probe must not be durably consumed.
+	rec, ok, err := e.store.LoadArmedProbe(second.ProbeID)
+	if err != nil || !ok {
+		t.Fatalf("dropped probe arm missing: rec=%+v ok=%v err=%v", rec, ok, err)
+	}
+	if rec.Consumed || len(rec.ACK) != 0 {
+		t.Fatalf("dropped probe was persisted as consumed: rec=%+v", rec)
+	}
+}
+
 func TestHandleUDPProbeFullMatchTTLAndReplay(t *testing.T) {
 	tests := []struct {
 		name   string

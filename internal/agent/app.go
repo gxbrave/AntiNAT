@@ -1376,6 +1376,13 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 			d.mu.Unlock()
 			return protocol.AppliedForwardState{}, reconcile.ErrCapabilityLost
 		}
+		// A same-ID Forward whose transport changed cannot hot-update in place:
+		// the existing socket would silently keep the old transport while the
+		// backend swaps, so fail closed and require delete/recreate.
+		if tuple := actor.lease.Tuple(); tuple.Protocol != string(spec.Protocol) {
+			d.mu.Unlock()
+			return protocol.AppliedForwardState{}, fmt.Errorf("agent: forward %q transport change %s->%s requires delete/recreate", spec.ForwardID, tuple.Protocol, spec.Protocol)
+		}
 		// Hot update: the listener stays, the backend target swaps
 		// atomically; new sessions resolve the new snapshot at accept time.
 		if err := actor.backend.Update(spec.Target); err != nil {
@@ -1505,6 +1512,11 @@ func (d *dataPlane) newForwardActor(ctx context.Context, spec protocol.ForwardSp
 				return udpforward.Classification{}
 			}
 			res := probeMgr.HandleUDPProbe(spec.ForwardID, p.Source, p.Data)
+			if res.Drop {
+				// Full-match control datagram that cannot be processed safely:
+				// consume it silently, never forward to the business backend.
+				return udpforward.Classification{Matched: true}
+			}
 			if !res.Matched {
 				return udpforward.Classification{}
 			}

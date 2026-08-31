@@ -523,6 +523,44 @@ func TestDataPlaneComposesDirectV4UDPAndHotUpdates(t *testing.T) {
 	}
 }
 
+func TestDataPlaneHotUpdateRejectsTransportChange(t *testing.T) {
+	targetTCP, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer targetTCP.Close()
+	d := newDataPlane(dataPlaneConfig{Clock: time.Now})
+	d.capabilityReady = true
+	tcpSpec := protocol.ForwardSpec{ForwardID: "fwd-mix", Protocol: protocol.ProtocolTCP, Target: targetTCP.Addr().String(), Strategy: protocol.StrategyDirectV4, DesiredRevision: 1, Presence: protocol.PresencePresent}
+	actor, err := d.newForwardActor(context.Background(), tcpSpec, "127.0.0.1", 0)
+	if err != nil {
+		t.Fatalf("compose TCP actor: %v", err)
+	}
+	runCtx, cancel := context.WithCancel(context.Background())
+	actor.stop = cancel
+	d.forwards[tcpSpec.ForwardID] = actor
+	d.startForwardSupervisor(runCtx, tcpSpec.ForwardID, actor)
+	defer d.closeAll(context.Background())
+
+	// A same-ID Forward switching transport must fail closed instead of silently
+	// swapping the backend under a TCP socket.
+	udpTarget, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer udpTarget.Close()
+	udpSpec := protocol.ForwardSpec{ForwardID: "fwd-mix", Protocol: protocol.ProtocolUDP, Target: udpTarget.LocalAddr().String(), Strategy: protocol.StrategyDirectV4, DesiredRevision: 2, Presence: protocol.PresencePresent}
+	if _, err := d.apply(context.Background(), udpSpec); err == nil {
+		t.Fatal("transport change apply must fail")
+	}
+	// The existing TCP actor and its target snapshot must be untouched.
+	tcpSpec.Target = tcpSpec.Target // unchanged; a normal hot update still works
+	tcpSpec.DesiredRevision = 3
+	if _, err := d.apply(context.Background(), tcpSpec); err != nil {
+		t.Fatalf("TCP hot update must still work after rejected transport change: %v", err)
+	}
+}
+
 func TestAgentStartupFailureRollsBack(t *testing.T) {
 	blocker := filepath.Join(t.TempDir(), "blocker")
 	app, err := New(Config{
