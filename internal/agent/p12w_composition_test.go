@@ -106,6 +106,24 @@ func (s *p12wListenerSource) Acquire(ctx context.Context, owner string, key trav
 	}, nil
 }
 
+// p12wBlockerMapper is a gateway mapper whose Map blocks until released. It is
+// the probe for repair R1 finding 1: while an apply is acquiring through the
+// manager, the global dataPlane.mu must be FREE (the acquisition is external
+// network RPC and must not serialize every concurrent forward op).
+type p12wBlockerMapper struct {
+	p12wMapper
+	mu      sync.Mutex
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (m *p12wBlockerMapper) Map(ctx context.Context, req traversal.GatewayMapRequest) (traversal.GatewayMapping, error) {
+	m.once.Do(func() { close(m.entered) })
+	<-m.release
+	return m.p12wMapper.Map(ctx, req)
+}
+
 // p12wObserver is a scripted same-tuple STUN observer returning a fixed
 // endpoint without dialing.
 type p12wObserver struct {
@@ -571,6 +589,97 @@ func (p12wGlobalRouteTable) DefaultRouteV4() (netip.Addr, string, bool, error) {
 
 func (p12wGlobalRouteTable) IPv4Addresses() ([]traversal.IPv4Address, error) {
 	return []traversal.IPv4Address{{Interface: "wan0", Addr: netip.MustParseAddr("8.8.8.8")}}, nil
+}
+
+// Repair R1 finding 1: apply must NOT hold the global dataPlane.mu across the
+// gateway Manager.Acquire (mapper Discover/Map + same-tuple STUN are external
+// network RPC). A blocker mapper whose Map blocks is the probe: while an apply
+// is mid-acquisition, another goroutine must be free to take d.mu (pre-repair
+// the whole apply ran under d.mu, so the lock probe would block until the
+// acquisition finished).
+func TestDataPlaneApplyDoesNotHoldLockDuringGatewayAcquire(t *testing.T) {
+	st, err := localstate.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	blocker := &p12wBlockerMapper{
+		p12wMapper: p12wMapper{
+			mechanism: traversal.LayerPCP,
+			ownership: traversal.OwnershipStrong,
+			control:   traversal.ControlServer{Mechanism: traversal.LayerPCP, Address: "10.0.0.1:5351"},
+			external:  netip.MustParseAddrPort("100.64.0.2:43111"),
+			lease:     time.Hour,
+		},
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	obs := &p12wObserver{result: netip.MustParseAddrPort("100.64.0.2:51234")}
+	journal := traversal.NewMemoryJournal()
+	manager := traversal.NewManager(traversal.ManagerOptions{
+		RouteTable:  p12wRouteTable{},
+		Listeners:   &p12wListenerSource{},
+		Mappers:     map[traversal.MappingLayerKind]traversal.GatewayMapper{traversal.LayerPCP: blocker},
+		Journal:     journal,
+		StunObserve: obs.observe,
+	})
+	fp, fpErr := traversal.Fingerprint(p12wRouteTable{})
+	if fpErr != nil {
+		t.Fatal(fpErr)
+	}
+	profiles := newProfileStore(t.TempDir())
+	if err := profiles.Save(traversal.Profile{
+		Fingerprint: fp, Protocol: traversal.ProtocolTCP,
+		DefaultStrategy: protocol.StrategyExplicitGateway, ComputedAtUnix: time.Now().Unix(),
+		Results: []traversal.StrategyResult{
+			{Strategy: protocol.StrategyExplicitGateway, State: traversal.DetectionPassed, LayerSignature: "pcp"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	d := newDataPlane(dataPlaneConfig{
+		Store: st, RouteTable: p12wRouteTable{}, Clock: time.Now,
+		GatewayManager: manager, Journal: journal,
+		StunServers: []string{"stun+tcp://100.64.0.1:3478"}, ProfileStore: profiles,
+	})
+	t.Cleanup(func() { _ = d.closeAll(context.Background()) })
+
+	spec := protocol.ForwardSpec{
+		ForwardID: "fwd-lock-probe", Protocol: protocol.ProtocolTCP, Target: "127.0.0.1:9",
+		Strategy: protocol.StrategyExplicitGateway, DesiredRevision: 1, Presence: protocol.PresencePresent,
+	}
+	applied := make(chan error, 1)
+	go func() {
+		_, err := d.apply(context.Background(), spec)
+		applied <- err
+	}()
+
+	select {
+	case <-blocker.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("apply never reached the gateway Map call")
+	}
+	// While the acquisition is blocked in Map, the data-plane lock must be free.
+	locked := make(chan struct{})
+	go func() {
+		d.mu.Lock()
+		close(locked)
+		d.mu.Unlock()
+	}()
+	select {
+	case <-locked:
+		// GOOD: d.mu is not held across the gateway acquisition.
+	case <-time.After(2 * time.Second):
+		close(blocker.release)
+		<-applied
+		t.Fatal("dataPlane.mu is held across the gateway manager acquisition")
+	}
+	close(blocker.release)
+	if err := <-applied; err != nil {
+		t.Fatalf("apply: %v", err)
+	}
 }
 
 // Repair R1 finding 2: the UDP branch must resolve traversal.Assess and pass

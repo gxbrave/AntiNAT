@@ -1736,7 +1736,7 @@ func (d *dataPlane) capabilityCheck() error {
 }
 
 // apply implements reconcile.ApplyHook: it opens (or hot-updates) one
-// direct-v4 forward and returns the durable applied state.
+// forward and returns the durable applied state.
 func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (protocol.AppliedForwardState, error) {
 	if !d.beginAdmission() {
 		return protocol.AppliedForwardState{}, errDataPlaneClosing
@@ -1749,6 +1749,18 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 	}
 	if fenceErr := forwardDeleteFenceError(spec.ForwardID, pendingDelete, tombstoned); fenceErr != nil {
 		return protocol.AppliedForwardState{}, fenceErr
+	}
+
+	// Resolve the acquisition route OUTSIDE the data-plane lock (repair R1
+	// finding 1/5). The gateway path's manager acquisition (mapper Discover/Map
+	// + same-tuple STUN observation) is seconds of network I/O and must not
+	// serialize every concurrent forward op (hot-update, delete stop,
+	// monitorLiveness teardown, closeAll admission-wait) behind d.mu. The same
+	// outside-the-lock discipline moves the profile-file and route-fingerprint
+	// reads used by the hot-update strategy comparison out of the lock too.
+	route, err := d.resolveForwardRoute(spec)
+	if err != nil {
+		return protocol.AppliedForwardState{}, err
 	}
 
 	d.mu.Lock()
@@ -1801,15 +1813,13 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 		// turns the error into a preserved LKG with the new desired retained.
 		// The comparison uses the RESOLVED strategy (auto collapses to its
 		// concrete strategy, UDP collapses to direct-v4) so an equivalent
-		// auto→direct rename is not a false strategy change.
+		// auto→direct rename is not a false strategy change. The route was
+		// resolved once above, outside the lock.
 		incomingStrategy := spec.Strategy
-		if incomingRoute, routeErr := d.resolveForwardRoute(spec); routeErr != nil {
-			d.mu.Unlock()
-			return protocol.AppliedForwardState{}, fmt.Errorf("agent: forward %q strategy re-resolution: %w", spec.ForwardID, routeErr)
-		} else if incomingRoute.stunOnly {
+		if route.stunOnly {
 			incomingStrategy = protocol.StrategyStunOnly
 		} else {
-			incomingStrategy = incomingRoute.plan.Strategy
+			incomingStrategy = route.plan.Strategy
 		}
 		// A zero actor strategy marks a hand-constructed actor (tests/legacy)
 		// with no recorded strategy; production actors always carry one.
@@ -1853,29 +1863,56 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 		return protocol.AppliedForwardState{}, fenceErr
 	}
 
-	// The strategy router is inside newForwardActor: direct-v4 stays on the
-	// inline PortRegistry path (byte-identical); manual-static, explicit-gateway
-	// and stun-only resolve through the Managers / shared-port composer.
-	actor, err := d.newForwardActor(ctx, spec, "", spec.RequestedLocalPort)
-	if err != nil {
-		d.mu.Unlock()
-		return protocol.AppliedForwardState{}, err
+	// NEW INSTALL: release the lock and acquire the actor OUTSIDE d.mu,
+	// mirroring recover/reopen's two-phase pattern (repair R1 finding 1). The
+	// strategy router uses the route resolved above: direct-v4 stays on the
+	// inline PortRegistry path (byte-identical); manual-static,
+	// explicit-gateway and stun-only resolve through the Managers /
+	// shared-port composer.
+	d.mu.Unlock()
+	backend, backendErr := forward.NewBackend(spec.Target)
+	if backendErr != nil {
+		return protocol.AppliedForwardState{}, backendErr
+	}
+	actor, actorErr := d.newForwardActorResolved(ctx, spec, backend, "", spec.RequestedLocalPort, route)
+	if actorErr != nil {
+		return protocol.AppliedForwardState{}, actorErr
 	}
 	lease := actor.lease
-	// The delete fence can be installed while the listener (and possibly the
-	// gateway mapping) is being acquired. Re-check before constructing and
-	// publishing the actor, and release the acquisition if deletion won the
-	// race — Release deletes the mapping + journal record + listener.
+
+	// Re-check under the install lock: the delete fence can be installed while
+	// the listener (and possibly the gateway mapping) is being acquired.
+	// Release the acquisition if a fence or a closing data plane won the race —
+	// Release deletes the mapping + journal record + listener.
+	d.mu.Lock()
+	if d.closing {
+		d.mu.Unlock()
+		_ = actor.fwd.CloseContext(context.Background())
+		_ = lease.Release(ctx)
+		return protocol.AppliedForwardState{}, errDataPlaneClosing
+	}
 	pendingDelete, tombstoned, err = readForwardDeleteFence(d.cfg.Store, spec.ForwardID)
 	if err != nil {
-		_ = lease.Release(ctx)
 		d.mu.Unlock()
+		_ = actor.fwd.CloseContext(context.Background())
+		_ = lease.Release(ctx)
 		return protocol.AppliedForwardState{}, fmt.Errorf("agent: forward %q delete fence: %w", spec.ForwardID, err)
 	}
 	if fenceErr := forwardDeleteFenceError(spec.ForwardID, pendingDelete, tombstoned); fenceErr != nil {
-		_ = lease.Release(ctx)
 		d.mu.Unlock()
+		_ = actor.fwd.CloseContext(context.Background())
+		_ = lease.Release(ctx)
 		return protocol.AppliedForwardState{}, fenceErr
+	}
+	// Another actor for the same forward cannot be installed while admission is
+	// held and a delete only ever REMOVES actors, but a concurrent deletion may
+	// have moved this forward into cleanupPending; the durable fence above is
+	// the authoritative rejection. Defensive release mirrors finishReopen.
+	if existing, ok := d.forwards[spec.ForwardID]; ok {
+		d.mu.Unlock()
+		_ = actor.fwd.CloseContext(context.Background())
+		_ = lease.Release(ctx)
+		return appliedStateForAcquisition(spec, existing.lease.Tuple(), d.cfg.Clock, existing.meta), nil
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
 	actor.stop = cancel
@@ -1913,15 +1950,30 @@ func (d *dataPlane) newForwardActor(ctx context.Context, spec protocol.ForwardSp
 	if err != nil {
 		return nil, err
 	}
+	// The reopen/composition entry point resolves the route itself; the apply
+	// path resolves it ONCE outside d.mu and passes it to
+	// newForwardActorResolved (repair R1 finding 1/5).
+	if spec.Protocol != protocol.ProtocolUDP {
+		route, routeErr := d.resolveForwardRoute(spec)
+		if routeErr != nil {
+			return nil, routeErr
+		}
+		return d.newForwardActorResolved(ctx, spec, backend, address, port, route)
+	}
+	key := traversal.TupleKey{Address: address, Port: port, Family: "ipv4", Protocol: string(spec.Protocol)}
+	return d.newUDPActor(ctx, spec, backend, key)
+}
+
+// newForwardActorResolved builds one actor from an already-resolved route (the
+// apply path). The route is never re-resolved here, so the gateway manager
+// acquisition — mapper Discover/Map + same-tuple STUN — runs untouched outside
+// the lock that application already dropped.
+func (d *dataPlane) newForwardActorResolved(ctx context.Context, spec protocol.ForwardSpec, backend *forward.Backend, address string, port uint16, route forwardRoute) (*forwardActor, error) {
 	key := traversal.TupleKey{Address: address, Port: port, Family: "ipv4", Protocol: string(spec.Protocol)}
 	if spec.Protocol == protocol.ProtocolUDP {
-		// UDP is always the P09 direct path (P13); the strategy label is
-		// asserted in the applied record but the socket is the registry's.
+		// UDP always stays on the P09 direct registry (P13); the strategy label
+		// is asserted in the applied record but the socket is the registry's.
 		return d.newUDPActor(ctx, spec, backend, key)
-	}
-	route, err := d.resolveForwardRoute(spec)
-	if err != nil {
-		return nil, err
 	}
 	switch {
 	case route.isGateway:
