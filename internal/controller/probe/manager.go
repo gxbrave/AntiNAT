@@ -678,6 +678,9 @@ func (m *Manager) Arm(ctx context.Context, nodeID, forwardID, activationID, endp
 	if forward.CurrentActivationID != activationID {
 		return store.ProbeOperation{}, errors.New("probe: activation is stale for forward")
 	}
+	if forward.Protocol != "tcp" && forward.Protocol != "udp" {
+		return store.ProbeOperation{}, errors.New("probe: forward has unsupported transport")
+	}
 	m.armMu.Lock()
 	defer m.armMu.Unlock()
 	live, err := m.store.CountLiveProbeOperationsAt(m.clock().Unix())
@@ -1341,8 +1344,19 @@ func (m *Manager) requestProvider(requestCtx context.Context, op store.ProbeOper
 	if err != nil {
 		return errors.Join(err, m.failOperation(op.ID, string(protocol.OutcomeRejected)))
 	}
+	// Bind every initial/recovered request to the durable Forward revision that
+	// created the operation. This prevents retry or restart transport drift.
+	forward, err := m.store.GetForward(op.ForwardID)
+	if err != nil || forward.Revision != op.ExpectedForwardRevision ||
+		forward.CurrentActivationID != op.ActivationID ||
+		(forward.Protocol != "tcp" && forward.Protocol != "udp") {
+		if err == nil {
+			err = errors.New("probe: durable forward transport binding changed")
+		}
+		return errors.Join(err, m.failOperation(op.ID, string(protocol.OutcomeRejected)))
+	}
 	req := providerRequest{
-		Schema:             "antinat.provider-request/v1",
+		Schema:             providerRequestSchemaV2,
 		ControllerInstance: m.instanceID(),
 		ControllerKeyID:    m.keyring.KeyID(),
 		NodePublicKey:      hex.EncodeToString(nodePub),
@@ -1350,6 +1364,7 @@ func (m *Manager) requestProvider(requestCtx context.Context, op store.ProbeOper
 		ProbeID:            op.ID,
 		ProviderID:         hex.EncodeToString(id16Slice(providerWireID(op.ProviderID))),
 		Activation:         hex.EncodeToString(arm.Activation[:]),
+		Transport:          forward.Protocol,
 		Endpoint:           op.Endpoint,
 		ExpectedSourceIP:   hex.EncodeToString(arm.ExpectedSourceIP[:]),
 		ExpiryOpaque:       op.ExpiryOpaque,

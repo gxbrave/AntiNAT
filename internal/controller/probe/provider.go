@@ -22,8 +22,9 @@ import (
 )
 
 const (
-	providerRequestSchema = "antinat.provider-request/v1"
-	providerResultSchema  = "antinat.provider-result/v1"
+	providerRequestSchema   = "antinat.provider-request/v1"
+	providerRequestSchemaV2 = "antinat.provider-request/v2"
+	providerResultSchema    = "antinat.provider-result/v1"
 )
 
 // providerRequest is the signed controller -> provider request. It binds the
@@ -39,6 +40,7 @@ type providerRequest struct {
 	ProbeID            string `json:"probe_id"`
 	ProviderID         string `json:"provider_id"`
 	Activation         string `json:"activation"`
+	Transport          string `json:"transport,omitempty"`
 	Endpoint           string `json:"endpoint"`
 	ExpectedSourceIP   string `json:"expected_source_ip"`
 	ExpiryOpaque       string `json:"expiry_opaque"`
@@ -57,6 +59,7 @@ var providerRequestJSONSchema = map[string]protocol.FieldKind{
 	"probe_id":               protocol.KindString,
 	"provider_id":            protocol.KindString,
 	"activation":             protocol.KindString,
+	"transport":              protocol.KindString,
 	"endpoint":               protocol.KindString,
 	"expected_source_ip":     protocol.KindString,
 	"expiry_opaque":          protocol.KindString,
@@ -134,11 +137,16 @@ func (r *providerRequest) canonical() ([]byte, error) {
 		r.Schema, r.ControllerInstance, r.ControllerKeyID,
 		strings.ToLower(r.NodePublicKey), strings.ToLower(r.NodePublicKeyHash),
 		strings.ToLower(r.ProbeID), strings.ToLower(r.ProviderID),
-		strings.ToLower(r.Activation), r.Endpoint,
-		strings.ToLower(r.ExpectedSourceIP), strings.ToLower(r.ExpiryOpaque),
+		strings.ToLower(r.Activation),
+	}
+	if r.Schema == providerRequestSchemaV2 {
+		fields = append(fields, strings.ToLower(r.Transport))
+	}
+	fields = append(fields,
+		r.Endpoint, strings.ToLower(r.ExpectedSourceIP), strings.ToLower(r.ExpiryOpaque),
 		fmt.Sprintf("%d", r.TTLMS), strings.ToLower(r.ArmDigest),
 		fmt.Sprintf("%d", r.TimestampUnix),
-	}
+	)
 	return []byte(strings.Join(fields, "\x00")), nil
 }
 
@@ -157,7 +165,7 @@ func decodeProviderRequestAt(body io.Reader, controllerPub ed25519.PublicKey, no
 	if err := protocol.DecodeStrictJSONInto(raw, &req); err != nil {
 		return nil, err
 	}
-	if req.Schema != providerRequestSchema {
+	if req.Schema != providerRequestSchema && req.Schema != providerRequestSchemaV2 {
 		return nil, errors.New("provider: wrong request schema")
 	}
 	if req.Signature == "" || req.Endpoint == "" || req.ControllerInstance == "" || req.ControllerKeyID == "" {
@@ -210,6 +218,11 @@ func decodeProviderRequestAt(body io.Reader, controllerPub ed25519.PublicKey, no
 	}
 	if !ed25519.Verify(controllerPub, canonical, sig) {
 		return nil, errors.New("provider: controller signature verification failed")
+	}
+	if req.Schema == providerRequestSchema {
+		req.Transport = "tcp"
+	} else if req.Transport != "tcp" && req.Transport != "udp" {
+		return &req, &providerRequestSemanticError{reason: "invalid_transport", err: errors.New("provider: invalid transport")}
 	}
 	if _, err := protocol.ValidateEndpoint(req.Endpoint); err != nil {
 		return &req, &providerRequestSemanticError{reason: "invalid_endpoint", err: err}

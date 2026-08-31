@@ -64,6 +64,9 @@ type ProviderConfig struct {
 	// DialContext is an injectable TCP dial seam. Production uses net.Dialer;
 	// tests use it to prove deadline-install failure performs no I/O.
 	DialContext func(context.Context, string, string) (net.Conn, error)
+	// ListenUDP is an injectable UDP socket seam. Production binds udp4 to the
+	// authenticated exact source address before sending one WAN1 datagram.
+	ListenUDP func(string, *net.UDPAddr) (*net.UDPConn, error)
 }
 
 // Provider is the bounded antinat-probe service.
@@ -459,6 +462,16 @@ func (p *Provider) sweepReplayLocked(now time.Time) int {
 // exact endpoint, send WAN1, read ACK1, verify it against the node public
 // key bound in the request.
 func (p *Provider) execute(ctx context.Context, req *providerRequest) providerResult {
+	// Transport is authenticated by decodeProviderRequestAt. A schema-less value
+	// exists only in legacy direct unit calls; wire requests can never reach this
+	// compatibility branch because decoding requires v1 or v2.
+	if req.Schema == "" && req.Transport == "" {
+		req.Transport = "tcp"
+	}
+	// Keep this guard at the final I/O boundary as defense in depth.
+	if req.Transport != "tcp" && req.Transport != "udp" {
+		return providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "invalid_transport"}
+	}
 	// Endpoint must be a concrete global IPv4 literal (anti-abuse: reject
 	// DNS, private, CGNAT, loopback, link-local, multicast, reserved).
 	if _, err := protocol.ValidateEndpoint(req.Endpoint); err != nil {
@@ -506,6 +519,9 @@ func (p *Provider) execute(ctx context.Context, req *providerRequest) providerRe
 	sourceBytes, err := hex.DecodeString(req.ExpectedSourceIP)
 	if err != nil || len(sourceBytes) != 4 || net.IP(sourceBytes).IsUnspecified() {
 		return providerResult{ProbeID: req.ProbeID, Accepted: false, Reason: "invalid_source"}
+	}
+	if req.Transport == "udp" {
+		return p.executeUDP(ctx, req, frame, sourceBytes)
 	}
 	ctx, cancel := context.WithTimeout(ctx, p.cfg.DialTimeout)
 	defer cancel()
