@@ -2,19 +2,19 @@
 
 **Snapshot date:** 2026-08-31  
 **Authoritative repository:** `/root/Claude/AntiNAT/p12-integration`  
-**Authoritative baseline:** `a3626376e707ffbdcdc142269dc2db6b03a2479c` (tree `59dec88f3249f08b76754d6d100d4ec726159f74`)  
-**Refs at snapshot:** `integration/P12-staging` and `integration/v1-beta` both point to the baseline above.
+**Authoritative baseline:** `9298a6c2f97c07c443ceda96b8405bc8b01f9188` on `integration/v1-beta` (P13 integrated; prior baseline `a3626376e707ffbdcdc142269dc2db6b03a2479c` in ancestry)  
+**Refs at snapshot:** `integration/v1-beta` = `9298a6c2f97c07c443ceda96b8405bc8b01f9188`; `integration/P12-staging` remains at the P12 acceptance baseline `a3626376e707ffbdcdc142269dc2db6b03a2479c`.
 
 This document is the current consolidation view. August handoff and project-plan documents under `/root/Claude/AntiNAT/AntiNAT` remain preserved historical snapshots; do not rewrite them or treat their earlier “bootstrap-only,” “P10 blocked,” or “P12–P19 not started” statements as current status.
 
 ## Executive state
 
-- P01–P12 are integrated into the authoritative baseline. P04's implementation is in the ancestry, but its integrated record had to be reconstructed from preserved provenance; see `.hermes/handoffs/P04-integrated.json` and its explicit evidence qualifications.
-- P13 is reviewed but **not integrated**. Its branch tip is `8f56e973722ff378881806c11e658ee8c9d96136`; `p13_integration_authorized` is false.
+- P01–P13 are integrated into the authoritative baseline. P04's implementation is in the ancestry, but its integrated record had to be reconstructed from preserved provenance; see `.hermes/handoffs/P04-integrated.json` and its explicit evidence qualifications.
+- P13 is **integrated** (2026-08-31) at integrated tip `9298a6c2f97c07c443ceda96b8405bc8b01f9188`; all P13 files byte-identical to reviewed candidate tip `8f56e973722ff378881806c11e658ee8c9d96136`. See `.hermes/handoffs/P13-integrated.json`.
 - P14–P19 are unstarted and dependency-blocked.
-- P12 is accepted at implementation/library and declared lab-evidence level. The current Agent production composition does not instantiate its `Manager` or `Detector`, register its PCP/NAT-PMP/UPnP adapters, or supply a durable bbolt `JournalStore` adapter. `MemoryJournal` exists for tests/labs and is not wired as a production store.
+- P12 is accepted at implementation/library and declared lab-evidence level. The current Agent production composition does not instantiate its `Manager` or `Detector`, register its PCP/NAT-PMP/UPnP adapters, or supply a durable bbolt `JournalStore` adapter. `MemoryJournal` exists for tests/labs and is not wired as a production store. **P13 integration does not close this gap**; ownership is assigned to the P12W follow-up plan before P14.
 - Preservation of the dirty P10 base is complete. After explicit user confirmation, only the four exact ignored generated binaries in `HANDOFF/CLEANUP_LEDGER.md` were removed (33,278,267 bytes); all other cleanup remains deferred.
-- No release, remote push, or P13 integration is authorized by this documentation update.
+- No release or remote push is authorized by this documentation update. P13 integration was authorized by the user's master-controller instruction (develop in order, complete project, sync to GitHub).
 
 ## Plan ledger
 

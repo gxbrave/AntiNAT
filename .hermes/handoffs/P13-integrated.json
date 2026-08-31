@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "plan": "P13",
+  "stage": "INTEGRATED",
+  "branch": "integration/v1-beta",
+  "integration_base_sha": "a3626376e707ffbdcdc142269dc2db6b03a2479c",
+  "integration_base_tree_sha": "59dec88f3249f08b76754d6d100d4ec726159f74",
+  "dependencies": {
+    "P10": "265ad24c92719eaaf73351917622605c64f1d536",
+    "P11": "15db812553014a40cb530b6f449f80b938fdb2a8",
+    "P12": "a3626376e707ffbdcdc142269dc2db6b03a2479c"
+  },
+  "candidate_branch": "ai/P13-udp-dataplane",
+  "candidate_metadata_tip_sha": "8f56e973722ff378881806c11e658ee8c9d96136",
+  "candidate_metadata_tip_tree_sha": "50b17468c0888bc43cd55c497ac8ca7165bd1cff",
+  "candidate_implementation_head_sha": "f0cacd34c2d28a27a91411e6570c8f705bde927f",
+  "candidate_implementation_tree_sha": "e4112a78017ce849a5b70758d7370788fa9760a2",
+  "candidate_handoff": {
+    "path": "commit 8f56e973722ff378881806c11e658ee8c9d96136:.hermes/handoffs/P13.json",
+    "sha256_at_integrated_tree": "9d43ba6bc70b867e226bbb7ead14d18fd6f01670f7a9e53f6ad62ab7f045b3b1",
+    "evidence_manifest_sha256": "from .hermes/evidence/p13/SHA256SUMS"
+  },
+  "integrated_sha": "9298a6c2f97c07c443ceda96b8405bc8b01f9188",
+  "integrated_tree_sha": "23f8f4688314f23541586023d3791e5623e369d9",
+  "tree_equivalence": "All P13 implementation and metadata files are byte-identical to the exact reviewed candidate tip (8f56e97, tree 50b17468). The integration also carries the orchestrator-landed consolidation records (d714adc: README/HANDOFF/docs/development), which are not part of P13 and were added before P13 integration; git diff 8f56e97..HEAD changed only those seven documentation paths.",
+  "source_to_integrated_commits": [
+    ["575ad2d73a35631e86708949efdec62833421a26", "85921a1c5c9bd655d09fe654ce168354b343b350"],
+    ["567f2c179878234e4a65dc300c0d17e04e59aa6a", "02b8e7d877cffa61b5c4413a212e2510cd4de73d"],
+    ["813c164c3fc882352b5c686bbe824ed3e26d2399", "6498cf129c631136493cbbfa24ea2805fbfd1085"],
+    ["fc02feb1b40f3c496c9d0398e434a28f2f72da59", "9a2c15cf5c98b88f3db20dc24ee4b6eabea89392"],
+    ["3026a2744fff77907d079bdb6936facd8983956b", "a90b2d78d9a0fce7fdcd0cba2d83b96e9b1752ce"],
+    ["fc1a3baf957e9b8dfa78ac8d29adc12525284239", "385f12c3f247914855d2e933eebe336b32dd4b29"],
+    ["04a66a5af1eb1b9924023a8fd65ce7c09c077751", "3931051b3e868fdb44ea65b9b4bb1789b23419fb"],
+    ["f0cacd34c2d28a27a91411e6570c8f705bde927f", "ff52373f7e277ff9963e47b126a50affffaebcb6"],
+    ["470ac95123b31520d268a4e3bf837bb90f674f00", "f9141dd5f1283a1489273b6288fa6f68042c5070"],
+    ["c61003786137636748ef66e1ba051b00934204eb", "ba974b21dfe546c6c18f57b28f634723a5e400d5"],
+    ["7f9faead95336c1b4a2769f992e91bd3b4b7275d", "8c929e1c5ccd07b2c8296b80693ddb8b96f10a74"],
+    ["e577d36723cd8aa171fae0effe2af5bce99cf56c", "2083182bd507f9fd00fde95971cac4b5f78d0e5d"],
+    ["cb96dae5ac468f01ba87c728dadbf3513f0bd76c", "97e8cb87701d12e873223f751722d90c4d70eca5"],
+    ["375e9d48c6fff2205a65249e079942c596b61fd3", "083d8d5bbad6edab3c8afbbaf4a4c7344067b312"],
+    ["4025d7e3b7f73a04c15b5f32a65cd4ef7764254e", "c85a6355d7ccc3a060a0a6a61ea635c89ae8dad3"],
+    ["b8a0bcd6080cd6acaba88bc559a4572fd04170d3", "24896f4d52ba6321a34bc7eec147e6f7d659174c"],
+    ["8f56e973722ff378881806c11e658ee8c9d96136", "9298a6c2f97c07c443ceda96b8405bc8b01f9188"]
+  ],
+  "reviews": {
+    "status": "REVIEW_COMPLETE_ALL_ANGLES_PASS",
+    "reviewed_four_angle_head_sha": "3026a2744fff77907d079bdb6936facd8983956b",
+    "reviewed_four_angle_tree_sha": "e5277c3370e25526f3b008faaf5ae2c72a0ca989",
+    "repair_delta_review": {
+      "specification_ownership": "PASS",
+      "quality_security": "PASS",
+      "network_protocol": "PASS",
+      "lifecycle_integration": "PASS with FIND-1 resolved at close-out"
+    },
+    "contract_gate": "PASS (frozen WAN1/ACK1/RCT1 bytes, manifest, fixtures unchanged; provider-request/v2 is operator-owned code-level revision; git diff base..candidate showed zero changes to docs/protocol.md, docs/state-model.md, api/openapi.yaml, docs/v1-scope-contract.md, docs/requirements-traceability.md, docs/support-matrix.md)"
+  },
+  "verification_at_integrated_tip": [
+    {"command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1", "exit_code": 0, "summary": "38 ok packages, 0 FAIL"},
+    {"command": "GOWORK=off go vet ./...", "exit_code": 0},
+    {"command": "GOWORK=off go build ./cmd/...", "exit_code": 0},
+    {"command": "GOWORK=off go test -race ./internal/forward/udp ./internal/agent/control ./internal/agent/localstate ./internal/agent/reconcile ./internal/controller/probe ./internal/traversal/... -count=1", "exit_code": 0},
+    {"command": "GOWORK=off go test -tags=netns ./test/integration -run TestUDP -count=1", "exit_code": 0},
+    {"command": "GOWORK=off go test ./test/contracts -run TestContractManifest -count=1", "exit_code": 0},
+    {"command": "GOWORK=off go test -race ./internal/agent -run TestPeriodicReceiptRetrySameSessionAfterChallengeNotEstablished -count=10", "exit_code": 0, "summary": "pre-existing timing-sensitive receipt test passes in isolation; also passes at base a362637. Under full parallel race load it timed out (15s) in one run exactly as the candidate handoff's known_limits disclosed; not a P13 regression."}
+  ],
+  "p13_integration_authorized": true,
+  "authorization": "User master-controller instruction (2026-08-31) to develop in order, complete the project, and sync to GitHub; P13 is next in sequence and review-complete. Recorded here as the explicit decision the handoff required.",
+  "p12_wiring_gap_impact": "Feed-forward note from candidate: P13 does not close the P12 production-wiring gap. P13 wires only the UDP protocol through the existing P12 direct/manual/gateway composition interfaces; no new traversal adapter and no Manager/Detector/durable-journal composition. Ownership of that gap is assigned to the P12W follow-up pre-P14 plan.",
+  "capability_result": "SUPPORTED_WITH_LIMITS",
+  "known_limits": [
+    "Windows and generic read paths use a conservative full-buffer heuristic instead of Linux MSG_TRUNC; a legal 65,507-byte datagram that exactly fills the buffer is dropped on those platforms.",
+    "Target-side error isolation exercises injected connected-reader failure; no real kernel ICMP quoted-packet correlation implemented.",
+    "Native Windows UDP runtime is not exercised; only a cross-build declares compile evidence. Windows gate returns false.",
+    "No real CPE/router or public-WAN vantage; traversal capability remains lab evidence.",
+    "Pre-existing timing-sensitive internal/agent receipt test can time out under full parallel race load; passes in isolation (verified at base and tip)."
+  ],
+  "self_approval": false,
+  "release_performed": false,
+  "remote_push": "NONE"
+}
