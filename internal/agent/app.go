@@ -26,6 +26,7 @@ import (
 	"github.com/gxbrave/AntiNAT/internal/agent/reconcile"
 	"github.com/gxbrave/AntiNAT/internal/forward"
 	"github.com/gxbrave/AntiNAT/internal/forward/tcp"
+	udpforward "github.com/gxbrave/AntiNAT/internal/forward/udp"
 	"github.com/gxbrave/AntiNAT/internal/protocol"
 	"github.com/gxbrave/AntiNAT/internal/security"
 	"github.com/gxbrave/AntiNAT/internal/traversal"
@@ -1099,9 +1100,19 @@ type dataPlaneConfig struct {
 	OnCleanupError func(forwardID string, actor *forwardActor, err error)
 }
 
+type socketLease interface {
+	Tuple() traversal.TupleKey
+	Release() error
+}
+
+type forwardLifecycle interface {
+	Run(context.Context) error
+	CloseContext(context.Context) error
+}
+
 type forwardActor struct {
-	lease   *traversal.Lease
-	fwd     *tcp.Forward
+	lease   socketLease
+	fwd     forwardLifecycle
 	backend *forward.Backend
 	stop    context.CancelFunc
 
@@ -1375,7 +1386,7 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 		if fence := reconcile.SideEffectFenceFromContext(ctx); fence != nil {
 			fence.SetValue(actor.updateFenceToken(actor.updateSeq))
 		}
-		st := appliedState(spec, actor.lease, d.cfg.Clock)
+		st := appliedState(spec, actor.lease.Tuple(), d.cfg.Clock)
 		onApplied := d.cfg.OnApplied
 		d.mu.Unlock()
 		if onApplied != nil {
@@ -1410,16 +1421,12 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 		d.mu.Unlock()
 		return protocol.AppliedForwardState{}, traversal.NewCapabilityError(capability, assessErr)
 	}
-	lease, err := d.registry.Acquire(ctx, spec.ForwardID, traversal.TupleKey{
-		Address:  sel.Source.String(),
-		Port:     spec.RequestedLocalPort,
-		Family:   "ipv4",
-		Protocol: "tcp",
-	})
+	actor, err := d.newForwardActor(ctx, spec, sel.Source.String(), spec.RequestedLocalPort)
 	if err != nil {
 		d.mu.Unlock()
 		return protocol.AppliedForwardState{}, err
 	}
+	lease := actor.lease
 	// The delete fence can be installed while the OS listener is being
 	// acquired. Re-check before constructing and publishing the actor, and
 	// release the lease if deletion won the race.
@@ -1434,51 +1441,94 @@ func (d *dataPlane) apply(ctx context.Context, spec protocol.ForwardSpec) (proto
 		d.mu.Unlock()
 		return protocol.AppliedForwardState{}, fenceErr
 	}
-	gate := reconcile.NewProbeGate(lease.Listener, d.cfg.ProbeMgr, reconcile.ProbeGateOptions{
-		ForwardID:   spec.ForwardID,
-		ReadTimeout: 2 * time.Second,
-	})
-	backend, err := forward.NewBackend(spec.Target)
-	if err != nil {
-		_ = lease.Release()
-		d.mu.Unlock()
-		return protocol.AppliedForwardState{}, err
-	}
-	fwd, err := tcp.New(gate, tcp.Options{Backend: backend, DialTimeout: 5 * time.Second})
-	if err != nil {
-		_ = lease.Release()
-		d.mu.Unlock()
-		return protocol.AppliedForwardState{}, err
-	}
 	runCtx, cancel := context.WithCancel(context.Background())
-	actor := &forwardActor{lease: lease, fwd: fwd, backend: backend, stop: cancel, updateFence: reconcile.NewSideEffectFence()}
+	actor.stop = cancel
 	// Re-check immediately before actor installation. The fence is durable and
 	// independent of the data-plane mutex, so deletion may win while backend and
 	// forwarding resources are being constructed.
 	pendingDelete, tombstoned, err = readForwardDeleteFence(d.cfg.Store, spec.ForwardID)
 	if err != nil {
 		cancel()
-		_ = fwd.Close()
+		_ = actor.fwd.CloseContext(context.Background())
 		_ = lease.Release()
 		d.mu.Unlock()
 		return protocol.AppliedForwardState{}, fmt.Errorf("agent: forward %q delete fence: %w", spec.ForwardID, err)
 	}
 	if fenceErr := forwardDeleteFenceError(spec.ForwardID, pendingDelete, tombstoned); fenceErr != nil {
 		cancel()
-		_ = fwd.Close()
+		_ = actor.fwd.CloseContext(context.Background())
 		_ = lease.Release()
 		d.mu.Unlock()
 		return protocol.AppliedForwardState{}, fenceErr
 	}
 	d.forwards[spec.ForwardID] = actor
 	d.startForwardSupervisor(runCtx, spec.ForwardID, actor)
-	st := appliedState(spec, lease, d.cfg.Clock)
+	st := appliedState(spec, lease.Tuple(), d.cfg.Clock)
 	onApplied := d.cfg.OnApplied
 	d.mu.Unlock()
 	if onApplied != nil {
 		onApplied(spec, st)
 	}
 	return st, nil
+}
+
+func (d *dataPlane) newForwardActor(ctx context.Context, spec protocol.ForwardSpec, address string, port uint16) (*forwardActor, error) {
+	backend, err := forward.NewBackend(spec.Target)
+	if err != nil {
+		return nil, err
+	}
+	key := traversal.TupleKey{Address: address, Port: port, Family: "ipv4", Protocol: string(spec.Protocol)}
+	switch spec.Protocol {
+	case protocol.ProtocolTCP:
+		lease, err := d.registry.Acquire(ctx, spec.ForwardID, key)
+		if err != nil {
+			return nil, err
+		}
+		gate := reconcile.NewProbeGate(lease.Listener, d.cfg.ProbeMgr, reconcile.ProbeGateOptions{ForwardID: spec.ForwardID, ReadTimeout: 2 * time.Second})
+		fwd, err := tcp.New(gate, tcp.Options{Backend: backend, DialTimeout: 5 * time.Second})
+		if err != nil {
+			_ = lease.Release()
+			return nil, err
+		}
+		return &forwardActor{lease: lease, fwd: fwd, backend: backend, updateFence: reconcile.NewSideEffectFence()}, nil
+	case protocol.ProtocolUDP:
+		lease, err := d.registry.AcquireUDP(ctx, spec.ForwardID, key)
+		if err != nil {
+			return nil, err
+		}
+		// One socket-independent classifier routes full-match WAN1 probes through
+		// the existing durable ProbeManager; the single ingress reader owns the
+		// ACK write and only then marks ACK/receipt transport delivery.
+		probeMgr := d.cfg.ProbeMgr
+		classifier := udpforward.ClassifierFunc(func(p udpforward.Packet) udpforward.Classification {
+			if probeMgr == nil {
+				return udpforward.Classification{}
+			}
+			res := probeMgr.HandleUDPProbe(spec.ForwardID, p.Source, p.Data)
+			if !res.Matched {
+				return udpforward.Classification{}
+			}
+			return udpforward.Classification{
+				Matched: true,
+				Reply:   res.ACK,
+				OnReply: func(err error) {
+					if err != nil {
+						return
+					}
+					_ = probeMgr.MarkUDPProbeACKSent(res.ProbeID)
+					probeMgr.SendUDPProbeReceipt(res)
+				},
+			}
+		})
+		fwd, err := udpforward.New(lease.Conn, udpforward.Options{Backend: backend, DialTimeout: 5 * time.Second, Classifiers: []udpforward.Classifier{classifier}})
+		if err != nil {
+			_ = lease.Release()
+			return nil, err
+		}
+		return &forwardActor{lease: lease, fwd: fwd, backend: backend, updateFence: reconcile.NewSideEffectFence()}, nil
+	default:
+		return nil, fmt.Errorf("agent: protocol %q not supported by direct-v4 data plane", spec.Protocol)
+	}
 }
 
 // actorUpdateFence is the compare-and-swap token for one accepted target
@@ -1832,15 +1882,11 @@ func (d *dataPlane) reopen(ctx context.Context, spec protocol.ForwardSpec, st pr
 	if port == 0 {
 		port = st.ActualBindPort
 	}
-	lease, err := d.registry.Acquire(ctx, spec.ForwardID, traversal.TupleKey{
-		Address:  sel.Source.String(),
-		Port:     port,
-		Family:   "ipv4",
-		Protocol: "tcp",
-	})
+	actor, err := d.newForwardActor(ctx, spec, sel.Source.String(), port)
 	if err != nil {
 		return err
 	}
+	lease := actor.lease
 	// Re-check after listener acquisition so a concurrent durable delete cannot
 	// be followed by actor construction or publication.
 	pendingDelete, tombstoned, err = readForwardDeleteFence(d.cfg.Store, spec.ForwardID)
@@ -1852,27 +1898,13 @@ func (d *dataPlane) reopen(ctx context.Context, spec protocol.ForwardSpec, st pr
 		_ = lease.Release()
 		return nil
 	}
-	gate := reconcile.NewProbeGate(lease.Listener, d.cfg.ProbeMgr, reconcile.ProbeGateOptions{
-		ForwardID:   spec.ForwardID,
-		ReadTimeout: 2 * time.Second,
-	})
-	backend, err := forward.NewBackend(spec.Target)
-	if err != nil {
-		lease.Release()
-		return err
-	}
-	fwd, err := tcp.New(gate, tcp.Options{Backend: backend, DialTimeout: 5 * time.Second})
-	if err != nil {
-		lease.Release()
-		return err
-	}
 	runCtx, cancel := context.WithCancel(context.Background())
-	actor := &forwardActor{lease: lease, fwd: fwd, backend: backend, stop: cancel, updateFence: reconcile.NewSideEffectFence()}
+	actor.stop = cancel
 	d.mu.Lock()
 	if d.closing {
 		d.mu.Unlock()
 		cancel()
-		_ = fwd.Close()
+		_ = actor.fwd.CloseContext(context.Background())
 		_ = lease.Release()
 		return errDataPlaneClosing
 	}
@@ -1882,21 +1914,21 @@ func (d *dataPlane) reopen(ctx context.Context, spec protocol.ForwardSpec, st pr
 	if err != nil {
 		d.mu.Unlock()
 		cancel()
-		_ = fwd.Close()
+		_ = actor.fwd.CloseContext(context.Background())
 		_ = lease.Release()
 		return fmt.Errorf("agent: forward %q delete fence: %w", spec.ForwardID, err)
 	}
 	if pendingDelete || tombstoned {
 		d.mu.Unlock()
 		cancel()
-		_ = fwd.Close()
+		_ = actor.fwd.CloseContext(context.Background())
 		_ = lease.Release()
 		return nil
 	}
 	if _, exists := d.forwards[spec.ForwardID]; exists || len(d.pendingActorsLocked(spec.ForwardID)) != 0 {
 		d.mu.Unlock()
 		cancel()
-		_ = fwd.Close()
+		_ = actor.fwd.CloseContext(context.Background())
 		_ = lease.Release()
 		return nil
 	}
@@ -1904,7 +1936,7 @@ func (d *dataPlane) reopen(ctx context.Context, spec protocol.ForwardSpec, st pr
 	d.startForwardSupervisor(runCtx, spec.ForwardID, actor)
 	d.mu.Unlock()
 	if d.cfg.OnApplied != nil {
-		d.cfg.OnApplied(spec, appliedState(spec, lease, d.cfg.Clock))
+		d.cfg.OnApplied(spec, appliedState(spec, lease.Tuple(), d.cfg.Clock))
 	}
 	return nil
 }
@@ -1950,13 +1982,13 @@ func (d *dataPlane) closeAll(ctx context.Context) error {
 	return cleanupErr
 }
 
-func appliedState(spec protocol.ForwardSpec, lease *traversal.Lease, clock func() time.Time) protocol.AppliedForwardState {
+func appliedState(spec protocol.ForwardSpec, tuple traversal.TupleKey, clock func() time.Time) protocol.AppliedForwardState {
 	return protocol.AppliedForwardState{
 		ForwardID:       spec.ForwardID,
 		SpecRevision:    spec.DesiredRevision,
 		DesiredRevision: spec.DesiredRevision,
-		ActualBindHost:  lease.Actual.Address,
-		ActualBindPort:  lease.Actual.Port,
+		ActualBindHost:  tuple.Address,
+		ActualBindPort:  tuple.Port,
 		Strategy:        string(spec.Strategy),
 		LayerVersion:    1,
 		AppliedAtUnix:   clock().Unix(),

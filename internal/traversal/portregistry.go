@@ -64,7 +64,7 @@ func (k TupleKey) String() string {
 	return fmt.Sprintf("%s/%s/%s:%d", k.Family, k.Protocol, k.Address, k.Port)
 }
 
-// Lease owns one actual OS listener. The registry entry is removed only
+// Lease owns one actual OS TCP listener. The registry entry is removed only
 // after the OS close succeeds, so a failed close keeps ownership.
 type Lease struct {
 	Listener   net.Listener
@@ -77,6 +77,9 @@ type Lease struct {
 // Owner returns the lease owner identity.
 func (l *Lease) Owner() string { return l.owner }
 
+// Tuple returns the concrete bound ownership tuple.
+func (l *Lease) Tuple() TupleKey { return l.Actual }
+
 // Generation returns the registry generation the lease was issued at.
 func (l *Lease) Generation() uint64 { return l.generation }
 
@@ -87,40 +90,33 @@ func (l *Lease) Release() error {
 	if l == nil || l.registry == nil || l.Listener == nil {
 		return ErrStaleLease
 	}
-	registry := l.registry
-	registry.mu.Lock()
-	entry, ok := registry.entries[l.Actual]
-	if !ok || entry.owner != l.owner || entry.generation != l.generation || entry.lease != l {
-		registry.mu.Unlock()
-		return ErrStaleLease
-	}
-	registry.mu.Unlock()
+	return l.registry.release(l.Actual, l.owner, l.generation, l, l.Listener.Close)
+}
 
-	// Do not hold the registry mutex across an arbitrary listener Close: a
-	// platform/test listener can block, and unrelated Acquire/Has/Len calls must
-	// remain responsive. Revalidate the exact lease before removing ownership.
-	err := l.Listener.Close()
-	if err != nil && !errors.Is(err, net.ErrClosed) {
-		return err
-	}
-	registry.mu.Lock()
-	defer registry.mu.Unlock()
-	entry, ok = registry.entries[l.Actual]
-	if !ok || entry.owner != l.owner || entry.generation != l.generation || entry.lease != l {
+// UDPLease owns one actual OS UDP ingress socket with the same generation and
+// stale-release guarantees as Lease.
+type UDPLease struct {
+	Conn       *net.UDPConn
+	Actual     TupleKey
+	owner      string
+	generation uint64
+	registry   *PortRegistry
+}
+
+func (l *UDPLease) Owner() string      { return l.owner }
+func (l *UDPLease) Tuple() TupleKey    { return l.Actual }
+func (l *UDPLease) Generation() uint64 { return l.generation }
+func (l *UDPLease) Release() error {
+	if l == nil || l.registry == nil || l.Conn == nil {
 		return ErrStaleLease
 	}
-	// net.ErrClosed means the descriptor is provably already gone (the
-	// documented delete flow is Forward.Close then Release): treat it as a
-	// successful close so the tuple can be re-acquired instead of leaving
-	// a ghost entry that blocks delete->recreate until process restart.
-	delete(registry.entries, l.Actual)
-	return nil
+	return l.registry.release(l.Actual, l.owner, l.generation, l, l.Conn.Close)
 }
 
 type leaseEntry struct {
 	owner      string
 	generation uint64
-	lease      *Lease
+	lease      any
 }
 
 // PortRegistry is the Agent-global socket-ownership table.
@@ -143,17 +139,10 @@ func (r *PortRegistry) Acquire(ctx context.Context, owner string, key TupleKey) 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if owner == "" {
-		return nil, ErrOwnerRequired
-	}
-	if key.Family != "ipv4" || key.Protocol != "tcp" {
-		return nil, ErrUnsupportedTuple
+	if err := r.validateAcquireLocked(owner, key, "tcp"); err != nil {
+		return nil, err
 	}
 	key = key.normalize()
-	if key.Port != 0 && r.overlapsLocked(key) {
-		return nil, ErrTupleOverlap
-	}
-
 	socket, err := listenTCP4(ctx, key)
 	if err != nil {
 		return nil, err
@@ -161,23 +150,78 @@ func (r *PortRegistry) Acquire(ctx context.Context, owner string, key TupleKey) 
 	actual := key
 	actual.Port = uint16(socket.Addr().(*net.TCPAddr).Port)
 	if r.overlapsLocked(actual) {
-		// Defensive: the OS allocated a port that conflicts with an existing
-		// entry (cannot happen while the lock is held, but never publish a
-		// tuple that overlaps).
 		_ = socket.Close()
 		return nil, ErrTupleOverlap
 	}
 
 	r.generation++
-	lease := &Lease{
-		Listener:   socket,
-		Actual:     actual,
-		owner:      owner,
-		generation: r.generation,
-		registry:   r,
-	}
+	lease := &Lease{Listener: socket, Actual: actual, owner: owner, generation: r.generation, registry: r}
 	r.entries[actual] = leaseEntry{owner: owner, generation: lease.generation, lease: lease}
 	return lease, nil
+}
+
+// AcquireUDP atomically validates, binds, resolves and publishes one UDP
+// ingress socket. It shares the registry table and generation sequence with
+// TCP while protocol remains part of the overlap key.
+func (r *PortRegistry) AcquireUDP(ctx context.Context, owner string, key TupleKey) (*UDPLease, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if err := r.validateAcquireLocked(owner, key, "udp"); err != nil {
+		return nil, err
+	}
+	key = key.normalize()
+	socket, err := listenUDP4(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	actual := key
+	actual.Port = uint16(socket.LocalAddr().(*net.UDPAddr).Port)
+	if r.overlapsLocked(actual) {
+		_ = socket.Close()
+		return nil, ErrTupleOverlap
+	}
+
+	r.generation++
+	lease := &UDPLease{Conn: socket, Actual: actual, owner: owner, generation: r.generation, registry: r}
+	r.entries[actual] = leaseEntry{owner: owner, generation: lease.generation, lease: lease}
+	return lease, nil
+}
+
+func (r *PortRegistry) validateAcquireLocked(owner string, key TupleKey, protocol string) error {
+	if owner == "" {
+		return ErrOwnerRequired
+	}
+	if key.Family != "ipv4" || key.Protocol != protocol {
+		return ErrUnsupportedTuple
+	}
+	if key.Port != 0 && r.overlapsLocked(key.normalize()) {
+		return ErrTupleOverlap
+	}
+	return nil
+}
+
+func (r *PortRegistry) release(actual TupleKey, owner string, generation uint64, lease any, closeSocket func() error) error {
+	r.mu.Lock()
+	entry, ok := r.entries[actual]
+	if !ok || entry.owner != owner || entry.generation != generation || entry.lease != lease {
+		r.mu.Unlock()
+		return ErrStaleLease
+	}
+	r.mu.Unlock()
+
+	err := closeSocket()
+	if err != nil && !errors.Is(err, net.ErrClosed) {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok = r.entries[actual]
+	if !ok || entry.owner != owner || entry.generation != generation || entry.lease != lease {
+		return ErrStaleLease
+	}
+	delete(r.entries, actual)
+	return nil
 }
 
 func (r *PortRegistry) overlapsLocked(candidate TupleKey) bool {
@@ -211,6 +255,20 @@ func (r *PortRegistry) Has(key TupleKey) bool {
 func listenTCP4(ctx context.Context, key TupleKey) (net.Listener, error) {
 	address := net.JoinHostPort(key.Address, strconv.Itoa(int(key.Port)))
 	return (&net.ListenConfig{}).Listen(ctx, "tcp4", address)
+}
+
+func listenUDP4(ctx context.Context, key TupleKey) (*net.UDPConn, error) {
+	address := net.JoinHostPort(key.Address, strconv.Itoa(int(key.Port)))
+	packetConn, err := (&net.ListenConfig{}).ListenPacket(ctx, "udp4", address)
+	if err != nil {
+		return nil, err
+	}
+	udpConn, ok := packetConn.(*net.UDPConn)
+	if !ok {
+		_ = packetConn.Close()
+		return nil, fmt.Errorf("traversal: udp4 listener has type %T", packetConn)
+	}
+	return udpConn, nil
 }
 
 // InstanceLock is the OS-level single-instance lock. The path is never

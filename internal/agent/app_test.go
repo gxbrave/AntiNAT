@@ -456,6 +456,73 @@ func TestDataPlaneApplyDoesNotDeadlockActivationCallback(t *testing.T) {
 	}
 }
 
+func TestDataPlaneComposesDirectV4UDPAndHotUpdates(t *testing.T) {
+	targetOne, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer targetOne.Close()
+	targetTwo, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer targetTwo.Close()
+	serve := func(conn *net.UDPConn, prefix string) {
+		go func() {
+			buf := make([]byte, 64)
+			for {
+				n, addr, readErr := conn.ReadFromUDP(buf)
+				if readErr != nil {
+					return
+				}
+				_, _ = conn.WriteToUDP(append([]byte(prefix), buf[:n]...), addr)
+			}
+		}()
+	}
+	serve(targetOne, "one:")
+	serve(targetTwo, "two:")
+	d := newDataPlane(dataPlaneConfig{Clock: time.Now})
+	d.capabilityReady = true
+	spec := protocol.ForwardSpec{ForwardID: "udp-direct", Protocol: protocol.ProtocolUDP, Target: targetOne.LocalAddr().String(), Strategy: protocol.StrategyDirectV4, DesiredRevision: 1, Presence: protocol.PresencePresent}
+	actor, err := d.newForwardActor(context.Background(), spec, "127.0.0.1", 0)
+	if err != nil {
+		t.Fatalf("compose UDP actor: %v", err)
+	}
+	runCtx, cancel := context.WithCancel(context.Background())
+	actor.stop = cancel
+	d.forwards[spec.ForwardID] = actor
+	d.startForwardSupervisor(runCtx, spec.ForwardID, actor)
+	state := appliedState(spec, actor.lease.Tuple(), time.Now)
+	defer d.closeAll(context.Background())
+
+	exchange := func(client *net.UDPConn, payload string) string {
+		t.Helper()
+		_, _ = client.WriteToUDP([]byte(payload), &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: int(state.ActualBindPort)})
+		_ = client.SetReadDeadline(time.Now().Add(time.Second))
+		buf := make([]byte, 64)
+		n, _, readErr := client.ReadFromUDP(buf)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		return string(buf[:n])
+	}
+	clientOne, _ := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	defer clientOne.Close()
+	if got := exchange(clientOne, "a"); got != "one:a" {
+		t.Fatalf("first UDP response = %q", got)
+	}
+	spec.Target = targetTwo.LocalAddr().String()
+	spec.DesiredRevision = 2
+	if _, err := d.apply(context.Background(), spec); err != nil {
+		t.Fatalf("hot update UDP: %v", err)
+	}
+	clientTwo, _ := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	defer clientTwo.Close()
+	if got := exchange(clientTwo, "b"); got != "two:b" {
+		t.Fatalf("new UDP session response = %q", got)
+	}
+}
+
 func TestAgentStartupFailureRollsBack(t *testing.T) {
 	blocker := filepath.Join(t.TempDir(), "blocker")
 	app, err := New(Config{

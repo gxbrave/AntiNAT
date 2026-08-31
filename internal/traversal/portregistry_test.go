@@ -32,6 +32,72 @@ func bindConflict(t *testing.T, address *net.TCPAddr) {
 	}
 }
 
+func acquireUDPLocalhost(t *testing.T, registry *PortRegistry, owner string, port uint16) (*UDPLease, error) {
+	t.Helper()
+	return registry.AcquireUDP(context.Background(), owner, TupleKey{
+		Family: "ipv4", Protocol: "udp", Address: "127.0.0.1", Port: port,
+	})
+}
+
+func bindUDPConflict(t *testing.T, address *net.UDPAddr) {
+	t.Helper()
+	competitor, err := net.ListenUDP("udp4", address)
+	if competitor != nil {
+		competitor.Close()
+	}
+	if !errors.Is(err, syscall.EADDRINUSE) {
+		t.Fatalf("competing UDP bind error = %v, want EADDRINUSE", err)
+	}
+}
+
+func TestAcquireUDPOwnershipLifecycle(t *testing.T) {
+	registry := NewPortRegistry()
+	oldLease, err := acquireUDPLocalhost(t, registry, "udp-old", 0)
+	if err != nil {
+		t.Fatalf("acquire UDP: %v", err)
+	}
+	address := oldLease.Conn.LocalAddr().(*net.UDPAddr)
+	if oldLease.Actual.Port != uint16(address.Port) || address.Port == 0 {
+		t.Fatalf("UDP actual tuple = %v, socket = %v", oldLease.Actual, address)
+	}
+	bindUDPConflict(t, address)
+	if _, err := registry.AcquireUDP(context.Background(), "overlap", TupleKey{
+		Family: "ipv4", Protocol: "udp", Address: "0.0.0.0", Port: uint16(address.Port),
+	}); !errors.Is(err, ErrTupleOverlap) {
+		t.Fatalf("UDP wildcard overlap error = %v, want ErrTupleOverlap", err)
+	}
+	if err := oldLease.Release(); err != nil {
+		t.Fatalf("release UDP: %v", err)
+	}
+	newLease, err := acquireUDPLocalhost(t, registry, "udp-new", uint16(address.Port))
+	if err != nil {
+		t.Fatalf("re-acquire UDP: %v", err)
+	}
+	defer newLease.Release()
+	if err := oldLease.Release(); !errors.Is(err, ErrStaleLease) {
+		t.Fatalf("stale UDP release error = %v, want ErrStaleLease", err)
+	}
+	bindUDPConflict(t, address)
+}
+
+func TestTCPAndUDPSamePortDoNotOverlap(t *testing.T) {
+	registry := NewPortRegistry()
+	tcpLease, err := acquireLocalhost(t, registry, "tcp", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tcpLease.Release()
+	port := uint16(tcpLease.Listener.Addr().(*net.TCPAddr).Port)
+	udpLease, err := acquireUDPLocalhost(t, registry, "udp", port)
+	if err != nil {
+		t.Fatalf("acquire UDP alongside TCP: %v", err)
+	}
+	defer udpLease.Release()
+	if registry.Len() != 2 {
+		t.Fatalf("registry length = %d, want 2", registry.Len())
+	}
+}
+
 func TestAcquirePortZeroOwnsActualSocketAtomically(t *testing.T) {
 	registry := NewPortRegistry()
 	lease, err := acquireLocalhost(t, registry, "owner-a", 0)
