@@ -2108,9 +2108,20 @@ func acquisitionMetaFromAcquisition(acq *traversal.Acquisition) acquisitionMeta 
 }
 
 // newUDPActor is the unchanged P09/P13 UDP path: one registry ingress socket
-// with the shared classifier routing full-match WAN1 probes through the
-// durable ProbeManager.
+// bound to the selected global source (repair R1 finding 2) with the shared
+// classifier routing full-match WAN1 probes through the durable ProbeManager.
+// The caller passes an empty key.Address exactly like apply/reopen do for TCP
+// direct-v4; the actor resolves traversal.Assess and asks AcquireUDP for the
+// SELECTED source, restoring the pre-P12W bind host instead of silently
+// degenerating to the 0.0.0.0 wildcard.
 func (d *dataPlane) newUDPActor(ctx context.Context, spec protocol.ForwardSpec, backend *forward.Backend, key traversal.TupleKey) (*forwardActor, error) {
+	if key.Address == "" {
+		sel, capability, assessErr := traversal.Assess(d.cfg.RouteTable)
+		if assessErr != nil || capability != traversal.CapabilityDirectV4Ready {
+			return nil, traversal.NewCapabilityError(capability, assessErr)
+		}
+		key.Address = sel.Source.String()
+	}
 	lease, err := d.registry.AcquireUDP(ctx, spec.ForwardID, key)
 	if err != nil {
 		return nil, err

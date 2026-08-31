@@ -373,7 +373,16 @@ func TestDataPlaneAutoRejectsStaleProfile(t *testing.T) {
 // Story 5 (c): UDP auto resolves to direct-v4 (UDP detection is deferred to
 // P13; the UDP path stays on the direct registry).
 func TestDataPlaneAutoUDPResolvesDirect(t *testing.T) {
-	d, _, _, _ := p12wGatewayComposition(t)
+	// Repair R1 finding 2 restored the pre-P12W contract: the UDP apply path
+	// resolves traversal.Assess and binds the SELECTED global source, so a
+	// private-source-only node cannot complete a UDP apply (exactly as before
+	// P12W). On hosts with a global source the full apply path runs; elsewhere
+	// the strategy-level assertion is skipped.
+	routeTable := traversal.HostRouteTable{}
+	if _, capability, err := traversal.Assess(routeTable); err != nil || capability != traversal.CapabilityDirectV4Ready {
+		t.Skipf("no global direct-v4 source for a UDP apply: %v (%s)", err, capability)
+	}
+	d := newDataPlane(dataPlaneConfig{RouteTable: routeTable, Clock: time.Now})
 	spec := protocol.ForwardSpec{
 		ForwardID:       "fwd-auto-udp",
 		Protocol:        protocol.ProtocolUDP,
@@ -547,4 +556,72 @@ func TestMonitorLivenessRebuildsManagersOnFingerprintRestore(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("fingerprint restore did not rebuild the traversal managers")
+}
+
+// p12wGlobalRouteTable is a route table whose default-route interface carries a
+// global V4 source that Assess accepts but no test host owns (8.8.8.8). It is
+// the probe for the UDP bind-host repair: resolving the source and requesting
+// AcquireUDP on it must fail with a non-local bind, whereas the pre-repair
+// wildcard fallback silently binds 0.0.0.0.
+type p12wGlobalRouteTable struct{}
+
+func (p12wGlobalRouteTable) DefaultRouteV4() (netip.Addr, string, bool, error) {
+	return netip.MustParseAddr("8.8.8.9"), "wan0", true, nil
+}
+
+func (p12wGlobalRouteTable) IPv4Addresses() ([]traversal.IPv4Address, error) {
+	return []traversal.IPv4Address{{Interface: "wan0", Addr: netip.MustParseAddr("8.8.8.8")}}, nil
+}
+
+// Repair R1 finding 2: the UDP branch must resolve traversal.Assess and pass
+// the SELECTED global source to AcquireUDP (the pre-P12W "UDP path untouched"
+// behavior), never fall back to the wildcard 0.0.0.0. A global source that no
+// host interface owns is the probe: the resolved-source path fails the bind;
+// the buggy wildcard path binds 0.0.0.0 and silently succeeds.
+func TestDataPlaneUDPBindsSelectedGlobalSourceNotWildcard(t *testing.T) {
+	sel, capability, err := traversal.Assess(p12wGlobalRouteTable{})
+	if err != nil || capability != traversal.CapabilityDirectV4Ready {
+		t.Fatalf("probe route table must assess direct-v4 ready: %v (%s)", err, capability)
+	}
+	d := newDataPlane(dataPlaneConfig{RouteTable: p12wGlobalRouteTable{}, Clock: time.Now})
+	spec := protocol.ForwardSpec{
+		ForwardID: "udp-bind-source", Protocol: protocol.ProtocolUDP, Target: "127.0.0.1:9",
+		Strategy: protocol.StrategyDirectV4, DesiredRevision: 1, Presence: protocol.PresencePresent,
+	}
+	// The apply/reopen UDP path passes an EMPTY address so the actor resolves
+	// the selected global source itself.
+	actor, err := d.newForwardActor(context.Background(), spec, "", 0)
+	if actor != nil {
+		// Best-effort cleanup for the pre-repair wildcard fallback.
+		defer func() { _ = actor.fwd.CloseContext(context.Background()) }()
+	}
+	if err == nil {
+		t.Fatalf("UDP actor bound %s (wildcard fallback); want the selected global source %s to be requested and rejected as non-local",
+			actor.lease.Tuple().Address, sel.Source)
+	}
+}
+
+// Repair R1 finding 2 (positive): on a host with a real global direct-v4
+// source, the UDP listener must bind that selected source, not the wildcard.
+// Skipped where no global source exists (no bindable address to pin).
+func TestDataPlaneUDPApplyBindsSelectedSource(t *testing.T) {
+	routeTable := traversal.HostRouteTable{}
+	sel, capability, err := traversal.Assess(routeTable)
+	if err != nil || capability != traversal.CapabilityDirectV4Ready {
+		t.Skipf("no global direct-v4 source to bind: %v (%s)", err, capability)
+	}
+	d := newDataPlane(dataPlaneConfig{RouteTable: routeTable, Clock: time.Now})
+	d.capabilityReady = true
+	spec := protocol.ForwardSpec{
+		ForwardID: "udp-bind-host", Protocol: protocol.ProtocolUDP, Target: "127.0.0.1:9",
+		Strategy: protocol.StrategyDirectV4, DesiredRevision: 1, Presence: protocol.PresencePresent,
+	}
+	actor, err := d.newForwardActor(context.Background(), spec, "", 0)
+	if err != nil {
+		t.Fatalf("UDP apply on a global-source host: %v", err)
+	}
+	defer func() { _ = d.closeAll(context.Background()) }()
+	if got := actor.lease.Tuple().Address; got != sel.Source.String() {
+		t.Fatalf("UDP bind host = %s, want the selected global source %s", got, sel.Source)
+	}
 }
