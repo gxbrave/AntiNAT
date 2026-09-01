@@ -108,22 +108,6 @@ func reconcilePreparedRotationLocked(s *store.Store, keyringDir, operationID str
 	if err == nil && staged.KeyID() == op.NewKeyID && staged.Generation() == op.NewGeneration {
 		return nil
 	}
-	// Repair-5 could leave one legacy shared stage after a crash. Migrate it
-	// only when its identity exactly matches this operation, and only after the
-	// operation-specific copy is durable. A stale row whose identity differs
-	// must never remove that shared material: a newer operation may own it.
-	if errors.Is(err, os.ErrNotExist) {
-		if legacy, legacyErr := security.LoadStagedKeyring(keyringDir); legacyErr == nil &&
-			legacy.KeyID() == op.NewKeyID && legacy.Generation() == op.NewGeneration {
-			if stageErr := legacy.StageForOperation(keyringDir, operationID); stageErr != nil {
-				return fmt.Errorf("lifecycle: migrate legacy staged successor: %w", stageErr)
-			}
-			if removeErr := security.RemoveStaged(keyringDir); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-				return fmt.Errorf("lifecycle: remove migrated legacy staged successor: %w", removeErr)
-			}
-			return nil
-		}
-	}
 	if removeErr := s.DeleteKeyRotationOperation(operationID); removeErr != nil {
 		return fmt.Errorf("lifecycle: reconcile prepared rotation staging (%v): %w", err, removeErr)
 	}
