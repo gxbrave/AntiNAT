@@ -72,7 +72,7 @@ func writeRecoveryQuarantineUnlocked(dir string, q RecoveryQuarantine) error {
 			return nil
 		}
 		if q.Generation <= current.Generation {
-			return fmt.Errorf("%w: generation %d is older than %d", ErrRecoveryOperationMismatch, q.Generation, current.Generation)
+			return fmt.Errorf("%w: generation %d is not newer than %d", ErrRecoveryOperationMismatch, q.Generation, current.Generation)
 		}
 	}
 	raw, err := json.Marshal(q)
