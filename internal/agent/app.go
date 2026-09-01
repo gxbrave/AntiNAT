@@ -1095,7 +1095,7 @@ func (a *App) handleRestoreResult(ctx context.Context, op control.Operation) ([]
 	if err != nil {
 		return nil, err
 	}
-	if !found || current.OperationID != result.OperationID || (result.Generation != 0 && current.Generation != result.Generation) {
+	if !found || result.Generation == 0 || current.OperationID != result.OperationID || current.Generation != result.Generation {
 		return nil, localstate.ErrRecoveryOperationMismatch
 	}
 	if err := localstate.ClearRecoveryQuarantineForOperation(a.cfg.StateDir, current.OperationID, current.Generation); err != nil {

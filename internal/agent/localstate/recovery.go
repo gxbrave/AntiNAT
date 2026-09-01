@@ -71,7 +71,7 @@ func writeRecoveryQuarantineUnlocked(dir string, q RecoveryQuarantine) error {
 		if current.OperationID == q.OperationID && current.Generation == q.Generation {
 			return nil
 		}
-		if q.Generation < current.Generation {
+		if q.Generation <= current.Generation {
 			return fmt.Errorf("%w: generation %d is older than %d", ErrRecoveryOperationMismatch, q.Generation, current.Generation)
 		}
 	}

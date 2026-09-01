@@ -37,6 +37,20 @@ func TestRecoveryQuarantineWriteLoadClear(t *testing.T) {
 // TestRecoveryQuarantineNeverOverTerminal: quarantine over a DECOMMISSIONED
 // marker is refused — the current terminal/uninstall marker can never be
 // overwritten by an old backup.
+func TestRecoveryQuarantineRejectsEqualGenerationDifferentOperation(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteRecoveryQuarantineForOperation(dir, "restore-a", 9); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteRecoveryQuarantineForOperation(dir, "restore-b", 9); err == nil {
+		t.Fatal("equal-generation different-operation quarantine was accepted")
+	}
+	q, found, err := LoadRecoveryQuarantineBinding(dir)
+	if err != nil || !found || q.OperationID != "restore-a" || q.Generation != 9 {
+		t.Fatalf("quarantine=%+v found=%v err=%v, equal-generation overwrite occurred", q, found, err)
+	}
+}
+
 func TestRecoveryQuarantineNeverOverTerminal(t *testing.T) {
 	dir := t.TempDir()
 	if err := WriteMarker(dir, MarkerDecommissioning); err != nil {
