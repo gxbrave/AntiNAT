@@ -22,6 +22,7 @@ Only the paths below may be created or modified in repair cycle 5. Any other pat
 - `internal/agent/control/session.go`
 - `internal/agent/control/session_test.go`
 - `internal/agent/control/lifecycle_commands_transport_test.go`
+- `internal/agent/p14_repair4_lifecycle_test.go`
 
 ### Agent localstate transfer
 
@@ -33,6 +34,7 @@ Only the paths below may be created or modified in repair cycle 5. Any other pat
 - `internal/agent/localstate/marker.go`
 - `internal/agent/localstate/recovery.go`
 - `internal/agent/localstate/recovery_quarantine_test.go`
+- `internal/agent/localstate/store_test.go`
 - `internal/agent/localstate/uninstall.go`
 
 ### Agent reconciler transfer
@@ -46,6 +48,7 @@ Only the paths below may be created or modified in repair cycle 5. Any other pat
 - `internal/agent/reconcile/rotation_test.go`
 - `internal/agent/reconcile/uninstall.go`
 - `internal/agent/reconcile/uninstall_test.go`
+- `internal/agent/reconcile/operation.go`
 
 ### Controller AgentHub transfer
 
