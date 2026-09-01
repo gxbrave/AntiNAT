@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/gxbrave/AntiNAT/internal/security/framecrypto"
 )
@@ -203,6 +204,9 @@ func RemoveStaged(dir string) error {
 }
 
 func syncStagedDirectory(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
 	return syncDirForStaging(dir)
 }
 
