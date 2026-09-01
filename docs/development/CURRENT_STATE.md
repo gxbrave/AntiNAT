@@ -1,17 +1,18 @@
 # Current Development State
 
-**Snapshot date:** 2026-08-31  
+**Snapshot date:** 2026-09-01
 **Authoritative repository:** `/root/Claude/AntiNAT/p12-integration`  
-**Authoritative baseline:** `708931ec8667e460b73e05f741cb18a3c4b6dbe6` on `integration/v1-beta` (P12W integrated; prior P13 integrated tip `9298a6c2f97c07c443ceda96b8405bc8b01f9188` in ancestry)
+**Authoritative baseline:** `52e6922f50e3cb98ee8c2a611ee757753a73aa69` on `integration/v1-beta` (P14 integrated; P12W and prior P13 are in ancestry)
 
 This document is the current consolidation view. August handoff and project-plan documents under `/root/Claude/AntiNAT/AntiNAT` remain preserved historical snapshots; do not rewrite them or treat their earlier “bootstrap-only,” “P10 blocked,” or “P12–P19 not started” statements as current status.
 
 ## Executive state
 
-- P01–P13 and P12W are integrated into the authoritative baseline. P04's implementation is in the ancestry, but its integrated record had to be reconstructed from preserved provenance; see `.hermes/handoffs/P04-integrated.json` and its explicit evidence qualifications.
+- P01–P13, P12W, and P14 are integrated into the authoritative baseline. P04's implementation is in the ancestry, but its integrated record had to be reconstructed from preserved provenance; see `.hermes/handoffs/P04-integrated.json` and its explicit evidence qualifications.
 - P13 is **integrated** (2026-08-31) at integrated tip `9298a6c2f97c07c443ceda96b8405bc8b01f9188`; all P13 files byte-identical to reviewed candidate tip `8f56e973722ff378881806c11e658ee8c9d96136`. See `.hermes/handoffs/P13-integrated.json`.
-- **P12W is **integrated** (2026-08-31) at integrated tip `708931ec8667e460b73e05f741cb18a3c4b6dbe6`** (all candidate commits adopted by fast-forward with byte-identical identity; code tree identical to the freshly reviewed final head `82ceec5`). The **P12 production-composition gap is CLOSED**: the composed Agent now constructs `traversal.Manager`/`Detector`, registers PCP/NAT-PMP/UPnP adapters, injects same-source STUN, provides a durable bbolt `traversal.JournalStore` adapter (`localstate.MappingJournal` on the existing `mapping_journal` bucket, agent schema v3 unchanged), translates Forward strategies, replays the durable journal at startup, and wires route/resume/loss lifecycle into activation. All three independent reviews APPROVE at the final head; `P12W-integrated.json` records the gate. See `.hermes/handoffs/P12W.json` (repair_cycle_1/2/3) and `.hermes/handoffs/P12W-development-session-handoff.md`.
-- P14–P19 remain unstarted. P14 (lifecycle/rotation/recovery) is the next module and is now unblocked: durable traversal state has a named production owner and a testable composition boundary.
+- **P12W is integrated** (2026-08-31) at integrated tip `708931ec8667e460b73e05f741cb18a3c4b6dbe6`; it closes the P12 production-composition gap. See `.hermes/handoffs/P12W-integrated.json`.
+- **P14 is integrated** (2026-09-01) at integrated tip `52e6922f50e3cb98ee8c2a611ee757753a73aa69`, fast-forwarded from `ecdd115284c728d8b89960d8619a6d0cf69e047c` with the approved repair-7 candidate. It delivers Forward deletion, normal/force decommission and cleanup-only gating, key rotation, backup/restore anti-rollback, recovery quarantine, and uninstall notice lifecycle. Independent final spec/ownership and quality/security reviews both APPROVE. See `.hermes/handoffs/P14-integrated.json` and `.hermes/handoffs/P14.json`.
+- P15–P19 remain unstarted. P15 (Controller API, metrics, SSE, rate limiting) is now unblocked and is the next module.
 - Preservation of the dirty P10 base is complete. After explicit user confirmation, only the four exact ignored generated binaries in `HANDOFF/CLEANUP_LEDGER.md` were removed (33,278,267 bytes); all other cleanup remains deferred.
 - No release or remote push is authorized by this documentation update. P13/P12W integration was authorized by the user's master-controller instruction (develop in order, complete project, sync to GitHub).
 
@@ -33,8 +34,8 @@ This document is the current consolidation view. August handoff and project-plan
 | P12 | Integrated and independently accepted | Implementation `897a0f836b768296b5743f11ba32ad7ef15bce71`; acceptance/baseline `a3626376e707ffbdcdc142269dc2db6b03a2479c`; M2 `PASS_WITH_DECLARED_LIMITS` |
 | P13 | Integrated | Integrated tip `9298a6c2f97c07c443ceda96b8405bc8b01f9188`; see `.hermes/handoffs/P13-integrated.json` |
 | P12W | **Integrated** | Integrated tip `708931ec8667e460b73e05f741cb18a3c4b6dbe6`; closes the P12 production-composition gap; all three reviews APPROVE at `82ceec5`; see `.hermes/handoffs/P12W-integrated.json` |
-| P14 | Unstarted | **Unblocked** (P12W integrated); next module in sequence |
-| P15 | Unstarted | Depends on P14 and P06 |
+| P14 | **Integrated** | `52e6922f50e3cb98ee8c2a611ee757753a73aa69`; final spec/ownership and quality/security reviews APPROVE; `SUPPORTED_WITH_LIMITS` |
+| P15 | Unstarted | **Unblocked** (P14 and P06 integrated); next module in sequence |
 | P16 | Unstarted | Depends on P14, P15, and P03 |
 | P17 | Unstarted | Depends on P15 and P16 |
 | P18 | Unstarted | Depends on P17, P14, and P08 |
@@ -49,14 +50,16 @@ The P01–P12W statement is a plan-level integration ledger, not a claim that ev
 | M0 (after P04) | Technical contract/spike gate achieved; historical integrated-handoff provenance was missing from the current tree and is now reconstructed with partial-evidence labels. |
 | M1 (after P10) | Passed locally with declared limits. The walking skeleton used local/loopback evidence and does not prove independent public-WAN reachability. |
 | M2 (after P12) | `PASS_WITH_DECLARED_LIMITS` for reviewed libraries/adapters and declared lab evidence. `FIRST_HOP_MAPPED` was not promoted to verified. The production-composition gap that kept gateway traversal out of the Agent Forward path is now closed by P12W. |
-| M3 (after P14) | Not reached. P14 is the next module after P12W. |
+| M3 (after P14) | `PASS_WITH_DECLARED_LIMITS`; P14 integrated at `52e6922f50e3cb98ee8c2a611ee757753a73aa69` with final independent reviews APPROVE. |
 | Product complete (after P17) | Not reached. |
 | Platform complete (after P18) | Not reached. |
 | v1.0-beta (after P19) | Not reached; no exact release digest or release approval exists. |
 
-No milestone tags were present at inspection; these statuses are derived from reviewed handoffs and plan gates.
+No milestone tags were present at inspection; these statuses are derived from reviewed handoffs and plan gates. P14's full verification limitations are recorded verbatim in `.hermes/handoffs/P14-integrated.json`.
 
 ## P12 production-wiring gap: CLOSED by P12W
+
+P14 lifecycle integration is recorded in `.hermes/handoffs/P14-integrated.json`; P15 is the next unblocked module.
 
 P12 added reviewed traversal components: `internal/traversal/manager.go` (`NewManager`), `internal/traversal/detection.go` (`NewDetector`), PCP/NAT-PMP/UPnP mapper packages, strategy/profile/fingerprint/journal/direct-manual/STUN-observer seams, migration `0007_traversal.sql`, and a Linux netns traversal lab. The production-composition inspection at P12 acceptance found no production call constructing `traversal.Manager`/`Detector`, no adapter registration, no bbolt `JournalStore` wiring, and no Forward creation routed through `Manager.Acquire`. `MemoryJournal` remained test-only.
 
@@ -82,7 +85,8 @@ Repair cycles: R1 (9 findings incl. acquisition lock), R2 (auto semantics, gener
 - P12W known limits (D5 residual stale-window; opt-in detection job until P15; applied-bucket same-revision refresh deferred to P14; once-only `Acquisition.Release`; three non-blocking L-level nits) are recorded in `P12W-integrated.json`.
 - A crash after successful map but before journal persistence may leave an unjournaled mapping; evacuation/decode of adapter `State []byte` is P14 scope.
 - The current profile state cannot always distinguish “mapper not configured/not attempted” from “failed.”
-- A pre-existing timing-sensitive `internal/agent` receipt test and `test/e2e` `TestLinuxDirectV4WalkingSkeleton` can time out under full parallel race load; both pass in isolation (verified at base and integrated tip) and are not regression signals.
+- The final P14 candidate's broad full-race run had one existing `internal/controller/agenthub` receipt-test failure under whole-repository parallel load; the exact test passed in isolation at candidate and base with race x20. The broad focused package race x20 invocation timed out in the existing controller/store fairness test; isolated fairness x3 and P14-specialized controller/store race x20 passed. No DATA RACE report was observed in these limited runs; see `.hermes/handoffs/P14-integrated.json` for exact commands and exit codes.
+- A pre-existing timing-sensitive `internal/agent` receipt test and `test/e2e` `TestLinuxDirectV4WalkingSkeleton` can also time out under full parallel race load; both pass in isolation and are not regression signals.
 
 ## Stop conditions
 
@@ -97,6 +101,10 @@ Stop rather than silently proceeding if any of the following occurs:
 - Release work encounters a Critical/High security finding, race, panic, unbounded growth, stale publication, deletion resurrection, secret leak, primary Linux lifecycle failure, missing exact-digest evidence, Controller payload relay, or false verified UI state.
 - P14 begins before durable traversal state has a named production owner and testable composition boundary — this condition is now satisfied by the integrated P12W.
 
+## P14 integration summary
+
+P14 was integrated on 2026-09-01 by fast-forwarding `integration/v1-beta` from `ecdd115284c728d8b89960d8619a6d0cf69e047c` to `52e6922f50e3cb98ee8c2a611ee757753a73aa69`. The final repair-7 candidate had independent specification/ownership and quality/security APPROVE results. Its handoff records the exact full-suite and race outcomes, including the broad-run timing limitation; no failed run is represented as PASS. The integrated acceptance record is `.hermes/handoffs/P14-integrated.json`.
+
 ## Next decision
 
-The next module is **P14 (deletion, decommission, key rotation, backup, recovery)** per `.hermes/plans/v1-beta/14-lifecycle-rotation-recovery.md` (depends on P08, P12, P13 — all integrated; P12W cleared the pre-P14 composition requirement). Dispatch a coding sub-agent on `ai/P14-lifecycle-recovery`, then fresh-context reviews, then integrate. GitHub push remains deferred to the P19 milestone.
+The next module is **P15 (complete Controller API, metrics, SSE, rate limiting)** per `.hermes/plans/v1-beta/15-controller-api-metrics-sse.md` (depends on P14 and P06, both integrated). Dispatch a coding sub-agent on `ai/P15-controller-api-metrics` in an isolated worktree from the exact current `integration/v1-beta` tip, then run fresh specification/ownership and quality/security reviews before integration. GitHub push remains deferred to the P19 milestone.

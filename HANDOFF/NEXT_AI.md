@@ -5,10 +5,11 @@
 Use `/root/Claude/AntiNAT/p12-integration` as the authoritative repository.
 
 ```text
-integration/v1-beta = 708931ec8667e460b73e05f741cb18a3c4b6dbe6 (P12W integrated; fast-forward, identity preserved)
-P12W reviewed head  = 82ceec57a71efe839838f12e0178be41d9adade5 (code tree identical to integrated tip)
-P12W integrated     = true
-P14 status          = unstarted (next module; unblocked)
+integration/v1-beta = 52e6922f50e3cb98ee8c2a611ee757753a73aa69 (P14 integrated; fast-forward, identity preserved)
+P14 canonical head  = c70be35d509491825bf93daae8dc6b8eb2248e98 (self-referential record commit excluded)
+P14 implementation   = 428eb75657b8144ddcf49c8e3a32c19101eaf92d
+P14 integrated      = true; see .hermes/handoffs/P14-integrated.json
+P15 status          = unstarted (next module; unblocked)
 preservation commit = bcb9cdba4835e5af39d79792f3209214dd39c8cd
 ```
 
@@ -19,22 +20,28 @@ Read in order:
 3. `HANDOFF/CLEANUP_LEDGER.md`
 4. `.hermes/handoffs/P12W-integrated.json`
 5. `.hermes/handoffs/P12W.json` (candidate record, incl. repair_cycle_1/2/3)
-6. `.hermes/handoffs/P12W-development-session-handoff.md`
-7. `.hermes/plans/v1-beta/00-master-orchestration.md`
+6. `.hermes/handoffs/P14-integrated.json`
+7. `.hermes/handoffs/P14.json` (candidate record, incl. repair_cycle_1 through repair_cycle_7)
+8. `.hermes/plans/v1-beta/15-controller-api-metrics-sse.md`
+9. `.hermes/plans/v1-beta/00-master-orchestration.md`
 
 Historical August documents under `/root/Claude/AntiNAT/AntiNAT` remain historical preservation material. Do not edit them and do not use their earlier bootstrap/P10/P12 status as the current baseline.
 
 ## Current truth
 
-- P01–P13 and P12W are integrated on `integration/v1-beta`. P04's code is in the ancestry; its missing integrated record has been reconstructed with explicit partial-evidence qualifications.
+- P01–P13, P12W, and P14 are integrated on `integration/v1-beta`. P04's code is in the ancestry; its missing integrated record has been reconstructed with explicit partial-evidence qualifications.
 - P10 is complete/accepted with M1 local evidence limits; P12 is accepted `PASS_WITH_DECLARED_LIMITS`; P13 is integrated (UDP dataplane).
-- **P12W is integrated** (2026-08-31): the P12 production-composition gap is CLOSED — the composed Agent now builds `traversal.Manager`/`Detector`, registers PCP/NAT-PMP/UPnP adapters, injects same-source STUN, uses a durable bbolt `JournalStore` adapter (`localstate.MappingJournal`), translates Forward strategies, replays the journal at startup, and wires route/resume/loss lifecycle into activation. All three independent reviews (spec/ownership, quality/security, network/protocol) APPROVE at `82ceec5`; the full verification matrix was re-recorded at that head (all exit codes 0). See `.hermes/handoffs/P12W-integrated.json`, `.hermes/handoffs/P12W.json`, and the dev-session handoff doc.
-- P14 (lifecycle/rotation/recovery) is **unstarted** and is the next module — it is unblocked now that durable traversal state has a named production owner and testable composition boundary.
-- P15–P19 are unstarted. No release or remote push has been performed.
+- **P12W is integrated** (2026-08-31) and closes the P12 production-composition gap; see `.hermes/handoffs/P12W-integrated.json`.
+- **P14 is integrated** (2026-09-01) at `52e6922f50e3cb98ee8c2a611ee757753a73aa69`, with final independent specification/ownership and quality/security reviews APPROVE. It implements deletion, decommission/cleanup-only, key rotation, backup/restore, recovery quarantine, and uninstall lifecycle. See `.hermes/handoffs/P14-integrated.json` and `.hermes/handoffs/P14.json`.
+- P15 (complete Controller API, metrics, SSE, rate limiting) is now the next unblocked module. P16–P19 remain unstarted. No release or remote push has been performed.
 
 ## Evidence limits to retain
 
-Never promote local/loopback/netns/fake-server/cross-build evidence into claims of independent WAN, real-router, native Windows, installer/platform completion, or release readiness. `govulncheck` remains unavailable/skipped in the recorded gates. P18 and P19 have not run. P14 must follow the `docs/development/CURRENT_STATE.md` evidence-limits section.
+Never promote local/loopback/netns/fake-server/cross-build evidence into claims of independent WAN, real-router, native Windows, installer/platform completion, or release readiness. `govulncheck` remains unavailable/skipped in the recorded gates. P16–P19 have not run. P14's exact limitations, including the broad race stress limitation, are recorded in `.hermes/handoffs/P14-integrated.json`; follow the `docs/development/CURRENT_STATE.md` evidence-limits section.
+
+## Next decision
+
+Dispatch P15 from the exact integrated tip `52e6922f50e3cb98ee8c2a611ee757753a73aa69` on branch `ai/P15-controller-api-metrics` in an isolated worktree. Follow `.hermes/plans/v1-beta/15-controller-api-metrics-sse.md`; P15 owns the full Controller API, durable SSE, metrics/traffic ingest, rate limiting, and aggregate Forward limits. Run fresh specification/ownership and quality/security reviews before integration. Do not modify frozen OpenAPI or protocol contracts without an approved contract-change handoff. Remote push remains deferred to P19.
 
 ## Stop conditions
 

@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "plan": "P14",
+  "stage": "INTEGRATED",
+  "branch": "integration/v1-beta",
+  "integration_base_sha": "ecdd115284c728d8b89960d8619a6d0cf69e047c",
+  "integration_base_tree_sha": "e586a2c7a0a42b9fe54405db9470807a8cf80a1a",
+  "integration_method": "FAST-FORWARD (integration base was ecdd115; approved candidate record tip 52e6922 was fast-forwarded with byte-identical commit identity; no cherry-pick rewrite, no conflict, no semantic resolution).",
+  "candidate_branch": "ai/P14-lifecycle-recovery",
+  "candidate_record_tip_sha": "52e6922f50e3cb98ee8c2a611ee757753a73aa69",
+  "candidate_record_tip_tree_sha": "8296f149fba8566ac3715ebbe5df168f44af9bab",
+  "candidate_canonical_head_sha": "c70be35d509491825bf93daae8dc6b8eb2248e98",
+  "candidate_canonical_head_tree_sha": "bd36b4bea8fe10abc28ab5ba77d0156b293b36be",
+  "candidate_implementation_head_sha": "428eb75657b8144ddcf49c8e3a32c19101eaf92d",
+  "integrated_sha": "52e6922f50e3cb98ee8c2a611ee757753a73aa69",
+  "integrated_tree_sha": "8296f149fba8566ac3715ebbe5df168f44af9bab",
+  "tree_equivalence": "The integration is a fast-forward to the exact candidate record tip. The candidate handoff canonical head remains c70be35 by the established self-referential convention: the final P14 record commit 52e6922 is excluded from the canonical commits[] identity list, while the record itself is present in files_changed[].",
+  "reviews": {
+    "status": "REVIEW_COMPLETE_ALL_ANGLES_PASS",
+    "specification_ownership": "APPROVE at final repair-7 candidate",
+    "quality_security": "APPROVE at final repair-7 candidate; no new H/M/L production findings",
+    "reviewed_candidate_canonical_head_sha": "c70be35d509491825bf93daae8dc6b8eb2248e98",
+    "reviewed_candidate_implementation_head_sha": "428eb75657b8144ddcf49c8e3a32c19101eaf92d",
+    "contract_gate": "PASS; frozen contracts and protected libraries remain unchanged by the P14 candidate range"
+  },
+  "verification_at_candidate": [
+    {
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1",
+      "exit_code": 0,
+      "summary": "PASS in final P14 candidate worktree at record tip 52e6922; 41 packages reported ok."
+    },
+    {
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./... -count=1",
+      "exit_code": 1,
+      "summary": "The final-candidate full race run reached 40 ok packages but failed once in the pre-existing timing-sensitive internal/controller/agenthub TestForwardDeleteControllerReceiptsBothAgentResults: connection reset while the test's session was closed after CONTROL_OUTBOX_MARK_SENT_FAILED reported a stale durable owner. No DATA RACE report. The exact test passes in isolation at the candidate (race -count=20) and at the integration base (race -count=20); this broad run is not recorded as PASS."
+    },
+    {
+      "command": "GOWORK=off go test -race ./internal/controller/agenthub -run '^TestForwardDeleteControllerReceiptsBothAgentResults$' -count=20 -timeout=20m",
+      "exit_code": 0,
+      "summary": "PASS in isolation at the final candidate; the pre-existing receipt test passed all 20 race repetitions."
+    },
+    {
+      "command": "GOWORK=off go test -race ./internal/controller/agenthub -run '^TestForwardDeleteControllerReceiptsBothAgentResults$' -count=20 -timeout=20m (integration base ecdd115)",
+      "exit_code": 0,
+      "summary": "PASS in isolation at the pre-integration base; the same pre-existing receipt test passed all 20 race repetitions."
+    },
+    {
+      "command": "GOWORK=off go test -race ./internal/agent/localstate ./internal/agent/reconcile ./internal/controller/lifecycle ./internal/controller/recovery ./internal/security ./internal/controller/store ./internal/controller/agenthub -race -count=20 -timeout=10m",
+      "exit_code": 1,
+      "summary": "The broad final-candidate focused x20 invocation timed out after 10 minutes in the existing controller/store TestR16Q2ControlInboxCleanupMakesFairProgressPastProtectedPrefix. No DATA RACE report. This fairness test passes in isolation; the timeout is retained as an honest limitation, not promoted to PASS."
+    },
+    {
+      "command": "GOWORK=off go test -race ./internal/controller/store -run 'Repair[456]|Rotation|Prepared|Staged|ApplyRestore|Lifecycle|Cleanup|Restore|Decommission|Outbox' -count=20 -timeout=20m",
+      "exit_code": 0,
+      "summary": "PASS; P14-specialized controller/store race matrix passed x20."
+    },
+    {
+      "command": "GOWORK=off go test -race ./internal/controller/store -run '^TestR16Q2ControlInboxCleanupMakesFairProgressPastProtectedPrefix$' -count=3",
+      "exit_code": 0,
+      "summary": "PASS; the existing fairness test passed all three isolated race repetitions, approximately 12.7 seconds each."
+    }
+  ],
+  "verification_at_integrated_tip": [
+    {
+      "command": "git merge --ff-only 52e6922f50e3cb98ee8c2a611ee757753a73aa69",
+      "exit_code": 0,
+      "summary": "PASS; integration/v1-beta advanced from ecdd115 to the exact candidate record tip without rewrite or conflict."
+    },
+    {
+      "command": "git merge-base ecdd115284c728d8b89960d8619a6d0cf69e047c 52e6922f50e3cb98ee8c2a611ee757753a73aa69",
+      "exit_code": 0,
+      "summary": "PASS; merge-base equals ecdd115, proving fast-forward ancestry."
+    },
+    {
+      "command": "python3 canonical P14 handoff verification (exact commits/files_changed, repair-5 head, top-level test fields)",
+      "exit_code": 0,
+      "summary": "PASS; canonical head c70be35, full-SHA commits list length 84, files_changed list length 75, repair-5 head 28d8fbb, and every top-level test row has command/exit_code/summary."
+    },
+    {
+      "command": "git diff --name-only ecdd115284c728d8b89960d8619a6d0cf69e047c 52e6922f50e3cb98ee8c2a611ee757753a73aa69 | protected-path check",
+      "exit_code": 0,
+      "summary": "PASS; 44 P14 paths integrated and no frozen contract, traversal, UDP, test-contract, go.mod/go.sum, or migrations 0001-0007 path changed."
+    },
+    {
+      "command": "git diff --check ecdd115284c728d8b89960d8619a6d0cf69e047c..52e6922f50e3cb98ee8c2a611ee757753a73aa69",
+      "exit_code": 0,
+      "summary": "PASS; no whitespace errors."
+    },
+    {
+      "command": "git status --short --branch",
+      "exit_code": 0,
+      "summary": "PASS; integration/v1-beta worktree clean at integrated tip."
+    }
+  ],
+  "capability_result": "SUPPORTED_WITH_LIMITS",
+  "milestone": "M3 reached at plan/integration scope with declared evidence limits; P14 lifecycle crash/reconnect gates and focused matrices are recorded, but no public-WAN/router/native-Windows/release claim is made.",
+  "known_limits": [
+    "No real CPE/router/public-WAN evidence; traversal evidence remains the declared Linux miniupnpd + coturn netns lab level.",
+    "Windows/arm64/darwin evidence remains compile-only where recorded; no native runtime claim.",
+    "govulncheck is unavailable in this environment and is not recorded as PASS.",
+    "The final-candidate broad full race run had one existing agenthub receipt-test failure under whole-repository parallel load; isolated candidate race x20 passed. The broad focused package race x20 invocation timed out in the existing store fairness test; isolated fairness x3 and the P14-specialized store race x20 passed. No DATA RACE report was observed in either limited run.",
+    "P15 still owns the operator API surfaces that advance restore authorization/reauthorization and expose lifecycle controls."
+  ],
+  "p14_integration_authorized": true,
+  "authorization": "The user's master-controller instruction to develop AntiNAT modules in order, independently review them, integrate them, complete the project, and defer remote push/release until the appropriate milestone authorizes those actions.",
+  "release_performed": false,
+  "remote_push": "NONE",
+  "self_approval": false
+}
