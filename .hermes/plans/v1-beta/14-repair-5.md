@@ -59,6 +59,7 @@ Only the paths below may be created or modified in repair cycle 5. Any other pat
 
 ### Controller lifecycle/recovery
 
+- `internal/controller/app.go`
 - `internal/controller/lifecycle/decommission.go`
 - `internal/controller/lifecycle/lifecycle_test.go`
 - `internal/controller/lifecycle/recovery_authorize.go`
@@ -93,6 +94,8 @@ Only the paths below may be created or modified in repair cycle 5. Any other pat
 - `internal/security/keyring.go`
 - `internal/security/rotation.go`
 - `internal/security/rotation_test.go`
+- `internal/security/staged_dir_unix.go`
+- `internal/security/staged_dir_windows.go`
 
 ### Migration
 

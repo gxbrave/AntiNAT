@@ -196,10 +196,14 @@ func RemoveStaged(dir string) error {
 		}
 		return fmt.Errorf("security: remove staged keyring: %w", err)
 	}
-	if err := syncDir(dir); err != nil {
+	if err := syncStagedDirectory(dir); err != nil {
 		return fmt.Errorf("security: remove staged keyring directory sync: %w", err)
 	}
 	return nil
+}
+
+func syncStagedDirectory(dir string) error {
+	return syncDirForStaging(dir)
 }
 
 // ActivateStaged atomically promotes previously staged successor material to
