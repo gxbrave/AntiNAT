@@ -131,6 +131,26 @@ func ReconcilePreparedRotation(ctx context.Context, s *store.Store, keyringDir, 
 	return fmt.Errorf("lifecycle: prepared rotation successor is not recoverable: %w", err)
 }
 
+// ReconcilePreparedRotations scans durable rotation intents and reconciles every
+// PREPARED operation. Controller startup/retry callers should invoke this before
+// announcing any successor; an unrecoverable intent is removed fail-closed while
+// the old signer remains active.
+func ReconcilePreparedRotations(ctx context.Context, s *store.Store, keyringDir string) error {
+	ops, err := s.ListKeyRotationOperations()
+	if err != nil {
+		return err
+	}
+	for _, op := range ops {
+		if op.Phase != "PREPARED" {
+			continue
+		}
+		if err := ReconcilePreparedRotation(ctx, s, keyringDir, op.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // AdvanceRotationPhase is the single-step FSM transition guard. A normal
 // retire is refused before the overlap deadline or while any known Agent lacks
 // a durable ACK. Force retire is an explicit atomic bypass.

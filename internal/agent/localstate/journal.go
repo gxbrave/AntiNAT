@@ -884,6 +884,27 @@ func (s *Store) OutboxContains(operationID string) bool {
 	return present
 }
 
+// ResultForOperationAnySession returns a durable semantic result without
+// requiring a fabricated or currently-active session identity. It is used by
+// lifecycle tests and recovery diagnostics for session-independent terminal
+// results; transport delivery still binds the row when a live session claims it.
+func (s *Store) ResultForOperationAnySession(operationID string) ([]byte, error) {
+	var result []byte
+	err := s.db.View(func(tx *bolt.Tx) error {
+		ops := tx.Bucket([]byte(bucketOperations))
+		if ops.Get(receiptKey(operationID)) != nil {
+			return fmt.Errorf("%w: operation %q", ErrAlreadyReceipted, operationID)
+		}
+		value := ops.Get([]byte(operationID))
+		if value == nil {
+			return fmt.Errorf("%w: operation %q result", ErrOperationNotFound, operationID)
+		}
+		result = append([]byte(nil), value...)
+		return nil
+	})
+	return result, err
+}
+
 // ResultForOperation returns the durable semantic result for the current
 // session. A receipted operation reports ErrAlreadyReceipted.
 func (s *Store) ResultForOperation(epoch uint64, sessionID, operationID string) ([]byte, error) {

@@ -183,6 +183,30 @@ func TestDecommissionCleanupClearsForwardSecrets(t *testing.T) {
 // when the deadline passes before the forward cleanup finishes, secrets are
 // still cleared and the state is marked DROPPED_DUE_TO_DECOMMISSION (never a
 // permanent at-least-once promise for decommission).
+func TestDecommissionDeadlineUsesLiveSessionIdentity(t *testing.T) {
+	st, dir := openDecommissionStore(t)
+	if err := st.AdvanceSession(8, "live-session"); err != nil {
+		t.Fatal(err)
+	}
+	dc := NewDecommissioner(st, localstate.NewLatch(), dir, nil)
+	dc.SetSessionIdentity(func() (uint64, string, error) { return 8, "live-session", nil })
+	req := DecommissionRequest{NodeID: "node-1", OperationID: "decom-live-r5", DeadlineUnix: time.Now().Unix() - 1}
+	if err := dc.Begin(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	result, err := dc.ReconcileDeadline(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.DroppedDueToDecommission {
+		t.Fatalf("result=%+v, want deadline drop", result)
+	}
+	if _, err := st.ResultForOperation(8, "live-session", req.OperationID); err != nil {
+		t.Fatalf("deadline ACK was not queued for live session: %v", err)
+	}
+}
+
+// TestDecommissionDeadlineDropsSecrets is the bounded best-effort semantics:
 func TestDecommissionDeadlineDropsSecrets(t *testing.T) {
 	st, dir := openDecommissionStore(t)
 	latch := localstate.NewLatch()
@@ -347,7 +371,7 @@ func TestDecommissionCleanupLeavesAckDeliverable(t *testing.T) {
 	if err := dc.QueueAck(context.Background(), req); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := st.ResultForOperation(0, "", "decom-op-5")
+	raw, err := st.ResultForOperationAnySession("decom-op-5")
 	if err != nil {
 		t.Fatalf("decommission result missing: %v", err)
 	}
