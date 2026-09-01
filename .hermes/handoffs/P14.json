@@ -4,7 +4,7 @@
   "stage": "CANDIDATE",
   "branch": "ai/P14-lifecycle-recovery",
   "base_sha": "973cfa60ff2390fd4cbf9f9fa9f8b3afd28cd6e8",
-  "head_sha": "fb442b8ee5ecc40f3a4a3eb0d43814f17b13799f",
+  "head_sha": "5a09c37dea4a4ac50fd5aa467fcce9c132122cb2",
   "commits": [
     "a1c23dc P14 Story 1: Forward delete FSM crash matrix + orphaned-journal evacuation with adapter State decode",
     "614554c P14 Story 2: normal node decommission FSM (marker-before-stop, cleanup tombstone, DROPPED_DUE_TO_DECOMMISSION, minimal ACK identity)",
@@ -14,18 +14,43 @@
     "1e07196 P14 Story 6: agent uninstall notice — online bounded receipt vs offline UNKNOWN",
     "ff81fb0 P14: gofmt formatting pass across new lifecycle files",
     "3bf9214 P14: lifecycle crash/integration tests (delete, decommission, rotation, recovery) in test/integration",
-    "fb442b8 P14: reconcile.RecoveryDeferred one-way boundary helper + Start wiring"
+    "fb442b8 P14: reconcile.RecoveryDeferred one-way boundary helper + Start wiring",
+    "e9b7834 P14: handoff record (master schema §4.3 + ownership_transfers)",
+    "209b5fa P14 repair-1: bounded repair spec (finding -> fix -> file boundary -> verification)",
+    "67f67ba P14 repair-1 R1f5 (H1): route key_rotation_*/restore_* commands on the control transport; transport-level test drives all four types over real signed frames. R1f4 (S4): RED-reason headers on Story 4/6 tests.",
+    "ffbad43 P14 repair-1 R1f7 (M1): AcceptControllerRotationPin compares the certificate generations against the persisted pin (old==pin.gen, new>pin.gen) before persisting; forged downgrade and cross-chain certs signed by the legit pinned key are refused (TDD).",
+    "82b6071 P14 repair-1 R1f6 (H2+M3+L4): delivery-time quarantine/cleanup gate. (a) lifecycle.FinalizeRestore advances restore ops to AUTHORIZED (was dead code, dispatch suspended forever); (b) EnforceCleanupOnlyEnqueue + DeliveryAllowed gate on per-node quarantine AND global phase; (c) the outbox pump re-reads IsCleanupOnly per tick and skips+requeues forbidden rows for quarantined/unreconciled/cleanup-only nodes instead of stranding them CLAIMED; ForceDeleteNode closes an established online session; CreateForwardBundle and probe-outcome insert paths enforce the enqueue guard inside their transactions. TDD.",
+    "ac63f38 P14 repair-1 R1f8+R1f9 (M2+M4): recover reads traversal seams from the config snapshot taken under d.mu (-race oracle test interleaves a rebuild with recover); EvacuateOrphanedJournals retains the LIVE acquisition journal set (a live gateway forward with an empty/stale applied ref is never released); finishReopen propagates the same-revision refresh error before publication instead of swallowing it. TDD.",
+    "6a14347 P14 repair-1 R1f10 (M5): terminal latch gates dataPlane.recover and finishReopen (no applied LKG reopen once decommission Begin engages the latch); the in-memory marker flips to DECOMMISSIONING at Begin so monitorLiveness/runDetectionOnce stop immediately, not only at Complete. TDD: the Begin->Complete window recover does not resurrect an applied gateway forward.",
+    "260377b P14 repair-1 R1f11 (M6): restore switch ordering + high-water validation. (a) The RESTORE_RECONCILIATION intent is written into the STAGED database before the atomic rename (EnterRestoreReconciliation is now idempotent INSERT OR IGNORE), so a crash mid-switch can never leave a live restored DB unreconciled; crash-mid-switch test proves the staged file already quarantines and the committed live never silently dispatches. (b) ValidateRestore compares the manifest HighWater against the backup DB contents (tamper resistance) AND against the live store's deletion/tombstone/node-revision high-water (pre-deletion backups refused). TDD.",
+    "0968919 P14 repair-1 R1f12-R1f17 + R1f3: atomic force-retire (L1); cleanup-tombstone duplicate refusal + corrupted-JSON fail-closed (L2/L3); remove dead security.signRotation (L5); RecoveryDeferred fails closed on ambiguous quarantine (L6); OpenBackup bare-basename validation + restore size bound (L7); backup refused while a rotation is non-terminal + docs/recovery.md made truthful (S3). TDD.",
+    "f00038c P14 repair-1 R1f6 follow-up: DeliveryAllowed keeps the restricted-session strictness — a cleanup-only node receives ONLY the node_decommission retry at delivery time (probe_outcome/restore_result also refused), preserving the pre-existing pump semantics over the delivery-time gate.",
+    "22cb277 P14 repair-1: handoff record (S1 ownership_transfers names, S2 vet summary, repair_cycle_1 block with per-finding mapping, verification log, deviations).",
+    "2966115 P14 repair-1: gofmt newline-at-EOF on the H1 transport test file.",
+    "e36c711 P14 repair-2: bounded repair spec (M-A marker race -> mutex guard + oracle, L-B outbox spin -> cleanup-only enqueue refusal + denied-row backoff, L-A sibling size bound, M-B recovery doc truthfulness, handoff metadata refresh)",
+    "3055019 P14 repair-2 R2f1 (M-A): guard a.marker with markerMu sync.RWMutex; setMarker/currentMarker/markerIsActive accessors at every read/write site (handleDecommission writes, monitorLiveness/reconnectControl/runDetectionOnce reads). Live-app -race oracle (real monitorLiveness + handleDecommission) failed with WARNING: DATA RACE at app.go:1153/:1170 vs :791 before the fix; clean after; revert-proof recorded.",
+    "309274a P14 repair-2 R2f2 (L-B): cleanup-only nodes now refuse probe_outcome/restore_result at ENQUEUE (cleanupOnlyForbiddenTypes), and a delivery-refused outbox row is requeued with a bounded retry_after_unix backoff (0008 additive ALTER) so the outbox pump no longer PENDING->CLAIMED-hot-spins a persistently-refused row. RED: EnqueueControlOutbox accepted probe_outcome/restore_result for a tombstoned node and QueueProbeOutcome enqueued without error. Revert-proof: backoff=0 makes the pump no-spin test fail (hot spin).",
+    "9a6f328 P14 repair-2 R2f3 (L-A): store.hashAndMode stats each manifest-declared file BEFORE reading and refuses anything over the shared store.MaxBackupFileBytes bound (256 MiB), so OpenBackup/ValidateRestore/backup-creation all fail closed on an oversized sibling instead of slurping it; restore.prepareRestoreStage now aliases the same constant. RED: OpenBackup accepted an oversized manifest-declared sibling (sparse-truncate, true manifest hash+mode); GREEN: both OpenBackup and ValidateRestore refuse.",
+    "5a09c37 P14 repair-2 R2f4 (M-B): docs/recovery.md states truthfully that the restore/reconcile machinery is code-complete and crash-safe, but the operator flow advancing RESTORE_RECONCILIATION->AUTHORIZED + per-node reauthorization is wired by the P15 operator API (FinalizeRestore/ReauthorizeNode are library surfaces, not an in-artifact operator endpoint); until P15 ships it requires direct DB/store access. No claim of an in-artifact operator flow."
   ],
   "files_changed": [
+    ".hermes/handoffs/P14.json",
+    ".hermes/plans/v1-beta/14-repair-1.md",
+    ".hermes/plans/v1-beta/14-repair-2.md",
     "docs/recovery.md",
     "internal/agent/app.go",
+    "internal/agent/control/lifecycle_commands_transport_test.go",
     "internal/agent/control/session.go",
     "internal/agent/localstate/decommission.go",
     "internal/agent/localstate/journal_evacuation.go",
     "internal/agent/localstate/recovery.go",
     "internal/agent/localstate/recovery_quarantine_test.go",
     "internal/agent/localstate/uninstall.go",
+    "internal/agent/p12w_recovery_test.go",
     "internal/agent/p14_evacuation_test.go",
+    "internal/agent/p14_repair1_m2_race_test.go",
+    "internal/agent/p14_repair1_m5_test.go",
+    "internal/agent/p14_repair2_marker_race_test.go",
     "internal/agent/reconcile/decommission.go",
     "internal/agent/reconcile/decommission_test.go",
     "internal/agent/reconcile/delete.go",
@@ -36,20 +61,29 @@
     "internal/agent/reconcile/rotation_test.go",
     "internal/agent/reconcile/uninstall.go",
     "internal/agent/reconcile/uninstall_test.go",
+    "internal/controller/agenthub/lifecycle_repair1_pump_test.go",
+    "internal/controller/agenthub/lifecycle_repair2_pump_test.go",
     "internal/controller/agenthub/session.go",
     "internal/controller/lifecycle/decommission.go",
     "internal/controller/lifecycle/lifecycle_test.go",
+    "internal/controller/lifecycle/recovery_authorize.go",
     "internal/controller/lifecycle/rotation.go",
     "internal/controller/lifecycle/rotation_test.go",
     "internal/controller/recovery/restore.go",
     "internal/controller/recovery/restore_test.go",
     "internal/controller/store/backup.go",
     "internal/controller/store/backup_test.go",
+    "internal/controller/store/control.go",
     "internal/controller/store/corrupt_internal_test.go",
     "internal/controller/store/lifecycle.go",
+    "internal/controller/store/lifecycle_repair1_internal_test.go",
+    "internal/controller/store/lifecycle_repair1_test.go",
+    "internal/controller/store/lifecycle_repair2_test.go",
     "internal/controller/store/migrate_test.go",
+    "internal/controller/store/minapi.go",
     "internal/controller/store/outbox.go",
     "internal/controller/store/p10_r14_migration_test.go",
+    "internal/controller/store/probe.go",
     "internal/controller/store/probe_test.go",
     "internal/controller/store/restore.go",
     "internal/security/keyring.go",
@@ -60,31 +94,101 @@
     "test/integration/lifecycle_test.go"
   ],
   "tests": [
-    {"command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1", "exit_code": 0, "summary": "40 packages ok on REQUIRED run after a transient; one first-attempt FAIL was the documented pre-existing flake TestPeriodicReceiptRetrySameSessionAfterChallengeNotEstablished, which passed both in isolation and on the next full run (no P14 regression)."},
-    {"command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./... -count=1", "exit_code": 0, "summary": "Full race suite pass on the required consecutive re-run; the one first-run FAIL was the documented pre-existing test/e2e TestLinuxDirectV4WalkingSkeleton parallel-race timeout, which passes in isolation (2.7s) and on the re-run. No DATA RACE, no panic, no non-documented FAIL."},
-    {"command": "GOWORK=off go test ./internal/agent/localstate ./internal/agent/reconcile ./internal/controller/lifecycle ./internal/controller/recovery -race -count=20", "exit_code": 0, "summary": "P14 focused race x20 clean on all four packages (32-77s each)."},
-    {"command": "GOWORK=off go vet ./...", "exit_code": 0, "summary": "vet clean"},
-    {"command": "GOWORK=off go test ./test/contracts -run TestContractManifest -count=1", "exit_code": 0, "summary": "frozen contract manifest gate PASS."},
-    {"command": "GOWORK=off go test -tags=netns ./test/integration -run 'TestTCPTraversal|TestAgentGatewayTraversal|TestUDP' -count=1", "exit_code": 0, "summary": "prior netns lab stays green (real miniupnpd + coturn)."},
-    {"command": "GOWORK=off go test ./test/integration -run 'Delete|Decommission|Recovery|Rotation' -count=1 -v", "exit_code": 0, "summary": "P14 lifecycle integration tests (forward delete no-resurrect, decommission marker-before-stop + cleanup tombstone, rotation pin accept, recovery quarantine vs terminal marker) all PASS."},
-    {"command": "GOOS=windows GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/...", "exit_code": 0, "summary": "compile-only cross-build."},
-    {"command": "GOOS=linux GOARCH=arm64 GOWORK=off go build ./cmd/... ./internal/...", "exit_code": 0, "summary": "compile-only cross-build."},
-    {"command": "GOOS=darwin GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/...", "exit_code": 0, "summary": "compile-only cross-build."},
-    {"command": "gofmt -l <all changed Go files>", "exit_code": 0, "summary": "empty (formatting pass committed separately as ff81fb0)."},
-    {"command": "git diff --check 973cfa60..HEAD", "exit_code": 0, "summary": "no whitespace errors."},
-    {"command": "govulncheck", "exit_code": -1, "summary": "UNAVAILABLE in this environment (not installed). Recorded honestly; not a pass/fail gate."}
+    {
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1",
+      "exit_code": 0,
+      "summary": "40 packages ok on REQUIRED run after a transient; one first-attempt FAIL was the documented pre-existing flake TestPeriodicReceiptRetrySameSessionAfterChallengeNotEstablished, which passed both in isolation and on the next full run (no P14 regression)."
+    },
+    {
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./... -count=1",
+      "exit_code": 0,
+      "summary": "Full race suite pass on the required consecutive re-run; the one first-run FAIL was the documented pre-existing test/e2e TestLinuxDirectV4WalkingSkeleton parallel-race timeout, which passes in isolation (2.7s) and on the re-run. No DATA RACE, no panic, no non-documented FAIL."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/agent/localstate ./internal/agent/reconcile ./internal/controller/lifecycle ./internal/controller/recovery -race -count=20",
+      "exit_code": 0,
+      "summary": "P14 focused race x20 clean on all four packages (32-77s each)."
+    },
+    {
+      "command": "GOWORK=off go vet ./...",
+      "exit_code": 0,
+      "summary": "vet clean"
+    },
+    {
+      "command": "GOWORK=off go test ./test/contracts -run TestContractManifest -count=1",
+      "exit_code": 0,
+      "summary": "frozen contract manifest gate PASS."
+    },
+    {
+      "command": "GOWORK=off go test -tags=netns ./test/integration -run 'TestTCPTraversal|TestAgentGatewayTraversal|TestUDP' -count=1",
+      "exit_code": 0,
+      "summary": "prior netns lab stays green (real miniupnpd + coturn)."
+    },
+    {
+      "command": "GOWORK=off go test ./test/integration -run 'Delete|Decommission|Recovery|Rotation' -count=1 -v",
+      "exit_code": 0,
+      "summary": "P14 lifecycle integration tests (forward delete no-resurrect, decommission marker-before-stop + cleanup tombstone, rotation pin accept, recovery quarantine vs terminal marker) all PASS."
+    },
+    {
+      "command": "GOOS=windows GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/...",
+      "exit_code": 0,
+      "summary": "compile-only cross-build."
+    },
+    {
+      "command": "GOOS=linux GOARCH=arm64 GOWORK=off go build ./cmd/... ./internal/...",
+      "exit_code": 0,
+      "summary": "compile-only cross-build."
+    },
+    {
+      "command": "GOOS=darwin GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/...",
+      "exit_code": 0,
+      "summary": "compile-only cross-build."
+    },
+    {
+      "command": "gofmt -l <all changed Go files>",
+      "exit_code": 0,
+      "summary": "empty (formatting pass committed separately as ff81fb0)."
+    },
+    {
+      "command": "git diff --check 973cfa60..HEAD",
+      "exit_code": 0,
+      "summary": "no whitespace errors."
+    },
+    {
+      "command": "govulncheck",
+      "exit_code": -1,
+      "summary": "UNAVAILABLE in this environment (not installed). Recorded honestly; not a pass/fail gate."
+    }
   ],
   "evidence": [
     ".hermes/handoffs/P14.json",
     "docs/recovery.md"
   ],
   "contracts_consumed": [
-    {"path": "docs/protocol.md", "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"},
-    {"path": "docs/state-model.md", "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"},
-    {"path": "docs/v1-scope-contract.md", "sha256": "e016cfd0bb0e1395eb23dccf60bc283217139a81db56bf9c1f87ef5f3afe9eaf"},
-    {"path": "docs/support-matrix.md", "sha256": "7288336e0a7b28bb13cfe2db742a65bba852f31326724a2150705ca4ec1cf0b8"},
-    {"path": "api/openapi.yaml", "sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32"},
-    {"path": "/root/AntiNAT/.hermes/plans/2026-08-09_055007-antinat-v1-reviewed-execution-plan.md", "sha256": "5fb4216ae41c4fb77a757596274b9f8e1df6f32a81c399971b82e60c07527226"}
+    {
+      "path": "docs/protocol.md",
+      "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"
+    },
+    {
+      "path": "docs/state-model.md",
+      "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
+    },
+    {
+      "path": "docs/v1-scope-contract.md",
+      "sha256": "e016cfd0bb0e1395eb23dccf60bc283217139a81db56bf9c1f87ef5f3afe9eaf"
+    },
+    {
+      "path": "docs/support-matrix.md",
+      "sha256": "7288336e0a7b28bb13cfe2db742a65bba852f31326724a2150705ca4ec1cf0b8"
+    },
+    {
+      "path": "api/openapi.yaml",
+      "sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32"
+    },
+    {
+      "path": "/root/AntiNAT/.hermes/plans/2026-08-09_055007-antinat-v1-reviewed-execution-plan.md",
+      "sha256": "5fb4216ae41c4fb77a757596274b9f8e1df6f32a81c399971b82e60c07527226"
+    }
   ],
   "contracts_changed": [],
   "ownership_transfers": [
@@ -100,11 +204,13 @@
   ],
   "capability_result": "SUPPORTED_WITH_LIMITS",
   "known_limits": [
-    "Force-delete restricted session is enforced at the controller enqueue barrier (EnqueueControlOutbox) and at the agenthub session inbound/outbox gate; the visual UI surfaces and P15 owner APIs are P15 scope.",
+    "Force-delete restricted session is enforced at the controller enqueue barrier (EnqueueControlOutbox) and at the agenthub session inbound/outbox gate; the visual UI surfaces and P15 owner APIs are P15 scope. A delivery-refused outbox row (cleanup-only, RESTORE_RECONCILIATION, per-node quarantine) is requeued with a bounded retry_after_unix backoff (30s, repair-2 L-B) so the pump never hot-spins a persistently-refused row; the enqueue guard now refuses probe_outcome/restore_result for a cleanup-only node and QueueProbeOutcome refuses the whole delivery transaction for a tombstoned node (the probe sweeper may re-attempt it at the sweep cadence — fail-closed, not a hot loop).",
     "Key rotation per-node ACK tracking is modeled as the durable operation FSM phases (PREPARED->ANNOUNCED->ACKED->ACTIVE->RETIRED) and the offline/une-ACKed normal-retire block; a dedicated per-node rotation-ACK table is not added. The succeed-or-fail cert verification and agent pin accept+ACK are implemented and tested.",
-    "Restore is a whole-database staging + atomic switch with RESTORE_RECONCILIATION quarantine and no auto-dispatch; the final explicit operator reauthorization + merge of Agent-relative high-water (Agent hello tombstones/outbox high-water) is the P19/integration reconciliation step documented in docs/recovery.md, not a silent automatic merge.",
+    "Restore is a whole-database staging + atomic switch with RESTORE_RECONCILIATION quarantine and no auto-dispatch. The restore/reconcile machinery is code-complete and crash-safe (repair-2 M-B): the operator flow that advances RESTORE_RECONCILIATION->AUTHORIZED and reauthorizes each per-node quarantine is wired by the P15 OPERATOR API — lifecycle.FinalizeRestore / lifecycle.ReauthorizeNode are library surfaces with no production caller in the shipped P14 artifacts. Until the P15 API ships, advancing the restore operation and clearing per-node quarantine requires direct controller-DB/store access or a P15-provided surface; the system fails closed (restore gate stays RESTORE_RECONCILIATION, no wrong-state dispatch) and the outbox pump re-checks the gate at delivery time. The Agent-relative high-water merge (Agent hello tombstones/outbox high-water) is the P19/integration reconciliation step documented in docs/recovery.md, not a silent automatic merge.",
+    "Restore/backup file reads are bounded (repair-2 L-A): store.hashAndMode stats every manifest-declared file and refuses anything over the shared store.MaxBackupFileBytes (256 MiB) BEFORE reading, so OpenBackup / ValidateRestore / backup-creation fail closed on an oversized sibling file instead of slurping it; restore.prepareRestoreStage uses the same constant for the in-memory controller.db read.",
     "No real CPE/router/WAN evidence; traversal capability stays at the prior real-daemon netns lab level. The uninstall notice and rotation are exercised via unit/integration tests with scripted adapters, not real gateways.",
-    "The two documented pre-existing flake classes (internal/agent receipt retry test and test/e2e TestLinuxDirectV4WalkingSkeleton under full parallel -race) were hit and confirmed to pass in isolation and on the required re-run; neither is a P14 regression.",
+    "repair-2 M-A is permanently closed and proven: the in-memory agent marker is mutex-guarded (a.marker under App.markerMu; setMarker/currentMarker/markerIsActive at every read+write site) and the committed live-app -race oracle (real monitorLiveness ticking while handleDecommission runs) FAILS with WARNING: DATA RACE at app.go:1153/:1170 vs :791 when the guard is reverted and is clean with it.",
+    "The two documented pre-existing flake classes (internal/agent receipt retry test and test/e2e TestLinuxDirectV4WalkingSkeleton under full parallel -race) were not triggered in this cycle; they pass in isolation and are not P14 regressions.",
     "govulncheck is not installed in this environment; vulnerability scanning is unexecuted (same caveat as every prior cycle)."
   ],
   "cleanup_done": true,
@@ -186,24 +292,200 @@
       "internal/controller/store/lifecycle_repair1_internal_test.go"
     ],
     "repair_cycle_1_verification": [
-      {"command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1", "exit_code": 0, "summary": "full suite green (spike/sandbox TestBoundedActionRealCPULimitTermination needs the dedicated identity env; passes with it; recorded as an environment requirement, not a defect)."},
-      {"command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./... -count=1", "exit_code": 0, "summary": "full race suite green, including the new M2 recover-vs-rebuild race oracle, M5 terminal-latch window test, H1 transport test, and M3 pump tests. No DATA RACE."},
-      {"command": "GOWORK=off go test ./internal/agent/localstate ./internal/agent/reconcile ./internal/controller/lifecycle ./internal/controller/recovery -race -count=20", "exit_code": 0, "summary": "focused race x20 clean on all four packages."},
-      {"command": "GOWORK=off go vet ./...", "exit_code": 0, "summary": "vet clean."},
-      {"command": "GOWORK=off go test ./test/contracts -run TestContractManifest -count=1", "exit_code": 0, "summary": "frozen contract manifest gate PASS."},
-      {"command": "GOWORK=off go test -tags=netns ./test/integration -run 'TestTCPTraversal|TestAgentGatewayTraversal|TestUDP' -count=1", "exit_code": 0, "summary": "prior netns lab stays green."},
-      {"command": "GOWORK=off go test ./test/integration -run 'Delete|Decommission|Recovery|Rotation' -count=1 -v", "exit_code": 0, "summary": "P14 lifecycle integration tests all PASS."},
-      {"command": "GOOS=windows GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/...", "exit_code": 0, "summary": "cross-build windows/amd64 ok."},
-      {"command": "GOOS=linux GOARCH=arm64 GOWORK=off go build ./cmd/... ./internal/...", "exit_code": 0, "summary": "cross-build linux/arm64 ok."},
-      {"command": "GOOS=darwin GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/...", "exit_code": 0, "summary": "cross-build darwin/amd64 ok."},
-      {"command": "gofmt -l <all 35 changed Go files>", "exit_code": 0, "summary": "empty after the format pass."},
-      {"command": "git diff --check", "exit_code": 0, "summary": "no whitespace errors."},
-      {"command": "govulncheck", "exit_code": -1, "summary": "UNAVAILABLE in this environment (not installed). Recorded honestly; not a gate."}
+      {
+        "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1",
+        "exit_code": 0,
+        "summary": "full suite green (spike/sandbox TestBoundedActionRealCPULimitTermination needs the dedicated identity env; passes with it; recorded as an environment requirement, not a defect)."
+      },
+      {
+        "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./... -count=1",
+        "exit_code": 0,
+        "summary": "full race suite green, including the new M2 recover-vs-rebuild race oracle, M5 terminal-latch window test, H1 transport test, and M3 pump tests. No DATA RACE."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/agent/localstate ./internal/agent/reconcile ./internal/controller/lifecycle ./internal/controller/recovery -race -count=20",
+        "exit_code": 0,
+        "summary": "focused race x20 clean on all four packages."
+      },
+      {
+        "command": "GOWORK=off go vet ./...",
+        "exit_code": 0,
+        "summary": "vet clean."
+      },
+      {
+        "command": "GOWORK=off go test ./test/contracts -run TestContractManifest -count=1",
+        "exit_code": 0,
+        "summary": "frozen contract manifest gate PASS."
+      },
+      {
+        "command": "GOWORK=off go test -tags=netns ./test/integration -run 'TestTCPTraversal|TestAgentGatewayTraversal|TestUDP' -count=1",
+        "exit_code": 0,
+        "summary": "prior netns lab stays green."
+      },
+      {
+        "command": "GOWORK=off go test ./test/integration -run 'Delete|Decommission|Recovery|Rotation' -count=1 -v",
+        "exit_code": 0,
+        "summary": "P14 lifecycle integration tests all PASS."
+      },
+      {
+        "command": "GOOS=windows GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/...",
+        "exit_code": 0,
+        "summary": "cross-build windows/amd64 ok."
+      },
+      {
+        "command": "GOOS=linux GOARCH=arm64 GOWORK=off go build ./cmd/... ./internal/...",
+        "exit_code": 0,
+        "summary": "cross-build linux/arm64 ok."
+      },
+      {
+        "command": "GOOS=darwin GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/...",
+        "exit_code": 0,
+        "summary": "cross-build darwin/amd64 ok."
+      },
+      {
+        "command": "gofmt -l <all 35 changed Go files>",
+        "exit_code": 0,
+        "summary": "empty after the format pass."
+      },
+      {
+        "command": "git diff --check",
+        "exit_code": 0,
+        "summary": "no whitespace errors."
+      },
+      {
+        "command": "govulncheck",
+        "exit_code": -1,
+        "summary": "UNAVAILABLE in this environment (not installed). Recorded honestly; not a gate."
+      }
     ],
     "deviations": [
       "M6b interpretation: 'compare high-water counters against the live store' is implemented as BOTH a semantic-integrity check (manifest HighWater must equal the backup DB's actual contents, catching a tampered DB with a recomputed hash) AND an anti-rollback check (a backup whose deletion/tombstone/node-revision high-water is BELOW the live store is refused as a pre-deletion rollback). The latter refuses restoring an older snapshot outright; docs/recovery.md was updated to state this. Forward/forward_spec counts are NOT compared against live because they are not monotone facts.",
       "L3 'corrupted JSON' RED test uses an ENOTDIR stateDir for the quarantine ambiguity (recovery.quarantine is an existence marker, not a JSON resource) — the fail-closed path is exercised the same way.",
       "The M3a ForceDeleteNode session-termination callback is variadic so the two existing lifecycle tests keep compiling; no production caller exists yet (P15 owns the API), so Hub.ForceCloseNodeSession is provided for that wiring."
+    ],
+    "known_flakes": "None hit in this cycle. The two documented pre-existing flake classes (internal/agent periodic receipt retry, test/e2e TestLinuxDirectV4WalkingSkeleton under parallel -race) were not triggered; they remain pre-existing and pass in isolation per the original handoff."
+  },
+  "repair_cycle_2": {
+    "trigger": "Two fresh second-pass independent reviews of the repaired P14 candidate returned REQUEST_CHANGES on FIVE findings: M-A (HIGH data race on a.marker), L-B (outbox pump claim/requeue spin on cleanup-only probe_outcome/restore_result rows), L-A (size-bound gap on manifest sibling files in hashAndMode), M-B (functional-completeness overclaim on the operator restore gate), and a spec-review handoff-metadata refresh (top-level head_sha/commits/files_changed were the pre-repair candidate). Bound repair per .hermes/plans/v1-beta/14-repair-2.md.",
+    "base_sha": "973cfa60ff2390fd4cbf9f9fa9f8b3afd28cd6e8",
+    "repair_base_sha": "2966115f2694cbdd87acff5920d745475da13c35",
+    "repair_head_sha": "5a09c37dea4a4ac50fd5aa467fcce9c132122cb2",
+    "finding_to_fix": {
+      "M-A": "R2f1 - a.marker data race: handleDecommission writes (:1153 DECOMMISSIONING, :1170 DECOMMISSIONED) raced monitorLiveness (:791) / reconnectControl (:726/:730) / runDetectionOnce (:853) background reads with no lock/atomic/happens-before edge. FIX: App.markerMu sync.RWMutex + setMarker/currentMarker/markerIsActive accessors used at every read and write site; read-side predicate (marker != MarkerActive) preserved exactly. Oracle: committed live-app -race test (real a.monitorLiveness at 1ms + a.handleDecommission) FAILED with WARNING: DATA RACE at app.go:1153/:1170 vs :791 pre-fix; clean post-fix; revert-proof recorded in verification.",
+      "L-B": "R2f2 - cleanupOnlyForbiddenTypes omitted probe_outcome and restore_result, so QueueProbeOutcome inserted an outbox row for a cleanup-only node, DeliveryAllowed refused it at delivery, and RequeueControlOutboxItemOwned reset it to PENDING every pump tick — permanent claim/requeue spin. FIX: add both types to the forbidden set (ENQUEUE refuses for cleanup-only nodes; QueueProbeOutcome rolls back the whole delivery transaction) AND requeue any delivery-refused row with a bounded retry_after_unix backoff (0008 additive ALTER, default 0) so the claim query excludes it until the backoff elapses. Non-vacuous: backoff=0 revert makes the pump no-spin test fail (hot spin).",
+      "L-A": "R2f3 - store.hashAndMode os.ReadFile-ed every manifest-declared sibling file with no size cap (the 256 MiB bound at restore.prepareRestoreStage covered only controller.db). FIX: stat BEFORE reading and refuse anything over the shared exported store.MaxBackupFileBytes (256 MiB); restore aliases the same constant. OpenBackup / ValidateRestore / backup-creation all fail closed on an oversized sibling. Test: oversized manifest-declared sibling (sparse truncate, true hash+mode so size is the only refusal reason) refused by both OpenBackup and ValidateRestore.",
+      "M-B": "R2f4 - lifecycle.FinalizeRestore / lifecycle.ReauthorizeNode are library surfaces with NO production caller (P15 owns the operator API). docs/recovery.md and the handoff implied dispatch resumes through an in-artifact operator gate. FIX (documentary, no P15 API built): docs/recovery.md states the restore/reconcile machinery is code-complete and crash-safe but the operator flow RESTORE_RECONCILIATION->AUTHORIZED + per-node reauthorization is wired by the P15 API; until then it requires direct DB/store access or a P15-provided surface. No claim of an in-artifact operator flow. A cheap controller CLI subcommand was NOT added because cmd/ is P10/P15 scope (see deviations).",
+      "spec-review": "R2f5 - P14.json top-level head_sha/commits[]/files_changed[] were authored at the pre-repair candidate (fb442b8; 9 commits; 41 files) so repair commits/files vanished from the canonical range. FIX: top-level fields now describe the ENTIRE candidate: head_sha = repair-2 final implementation head, commits[] = full 973cfa60..head list (9 story + 12 repair-1 + 5 repair-2), files_changed = full git diff --name-only 973cfa60..head set. This handoff file is self-referential (it is itself in files_changed)."
+    },
+    "reassert_with_code_evidence": [],
+    "new_or_changed_files": [
+      ".hermes/plans/v1-beta/14-repair-2.md",
+      "docs/recovery.md",
+      "internal/agent/app.go",
+      "internal/agent/p14_repair2_marker_race_test.go",
+      "internal/controller/agenthub/lifecycle_repair2_pump_test.go",
+      "internal/controller/recovery/restore.go",
+      "internal/controller/recovery/restore_test.go",
+      "internal/controller/store/backup.go",
+      "internal/controller/store/control.go",
+      "internal/controller/store/lifecycle.go",
+      "internal/controller/store/lifecycle_repair2_test.go",
+      "internal/controller/store/outbox.go",
+      "migrations/0008_lifecycle.sql"
+    ],
+    "new_files_this_cycle": [
+      ".hermes/plans/v1-beta/14-repair-2.md",
+      "internal/agent/p14_repair2_marker_race_test.go",
+      "internal/controller/store/lifecycle_repair2_test.go",
+      "internal/controller/agenthub/lifecycle_repair2_pump_test.go"
+    ],
+    "repair_cycle_2_verification": [
+      {
+        "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1",
+        "exit_code": 0,
+        "summary": "full suite green (needs the dedicated identity env for spike/sandbox TestBoundedActionRealCPULimitTermination, same as every prior cycle)."
+      },
+      {
+        "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./... -count=1",
+        "exit_code": 0,
+        "summary": "full race suite green including the new M-A marker oracle, L-B pump no-spin test, L-A oversized-sibling tests. No DATA RACE."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/agent/localstate ./internal/agent/reconcile ./internal/controller/lifecycle ./internal/controller/recovery -race -count=20",
+        "exit_code": 0,
+        "summary": "focused race x20 clean on all four packages (32-111s each)."
+      },
+      {
+        "command": "GOWORK=off go test -race ./internal/agent -run 'Decommission|Marker|Begin|Latch|Terminal|Evacuat|Recover' -count=5",
+        "exit_code": 0,
+        "summary": "decommission/marker/latch/recover -race x5 green, INCLUDING the new live-app marker race oracle."
+      },
+      {
+        "command": "M-A oracle revert-proof: temporarily revert setMarker->bare a.marker writes in handleDecommission; go test -race ./internal/agent -run TestMarkerRaceOracleMonitorLivenessDuringDecommission",
+        "exit_code": 1,
+        "summary": "PROVED: WARNING: DATA RACE (x5) at app.go:1153/:1170 vs :791 monitorLiveness read; guard restored and the oracle is clean again (exit 0)."
+      },
+      {
+        "command": "L-B pump revert-proof: set deniedOutboxRowBackoffSeconds=0; go test ./internal/controller/agenthub -run TestOutboxPumpDoesNotHotSpinRefusedProbeOutcomeRow",
+        "exit_code": 1,
+        "summary": "PROVED: row retry_after_unix is not in the future -> hot spin (hot-spin assertion fires); backoff restored and the test passes (exit 0)."
+      },
+      {
+        "command": "GOWORK=off go vet ./...",
+        "exit_code": 0,
+        "summary": "vet clean."
+      },
+      {
+        "command": "GOWORK=off go test ./test/contracts -run TestContractManifest -count=1",
+        "exit_code": 0,
+        "summary": "frozen contract manifest gate PASS."
+      },
+      {
+        "command": "GOWORK=off go test -tags=netns ./test/integration -run 'TestTCPTraversal|TestAgentGatewayTraversal|TestUDP' -count=1",
+        "exit_code": 0,
+        "summary": "prior netns lab stays green."
+      },
+      {
+        "command": "GOWORK=off go test ./test/integration -run 'Delete|Decommission|Recovery|Rotation' -count=1 -v",
+        "exit_code": 0,
+        "summary": "P14 lifecycle integration tests all PASS."
+      },
+      {
+        "command": "GOOS=windows GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/...",
+        "exit_code": 0,
+        "summary": "cross-build windows/amd64 ok."
+      },
+      {
+        "command": "GOOS=linux GOARCH=arm64 GOWORK=off go build ./cmd/... ./internal/...",
+        "exit_code": 0,
+        "summary": "cross-build linux/arm64 ok."
+      },
+      {
+        "command": "GOOS=darwin GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/...",
+        "exit_code": 0,
+        "summary": "cross-build darwin/amd64 ok."
+      },
+      {
+        "command": "gofmt -l <all changed Go files>",
+        "exit_code": 0,
+        "summary": "empty (formatting committed with the changes; the .sql migration is not gofmt'd)."
+      },
+      {
+        "command": "git diff --check 973cfa60..HEAD",
+        "exit_code": 0,
+        "summary": "no whitespace errors."
+      },
+      {
+        "command": "govulncheck",
+        "exit_code": -1,
+        "summary": "UNAVAILABLE in this environment (not installed). Recorded honestly; not a gate."
+      }
+    ],
+    "deviations": [
+      "M-B deliberately does NOT add a controller CLI subcommand: cmd/ is P10/P15 scope and a CLI would not be cleanly inside P14's owned-file list, so the documentary fix (docs/recovery.md + handoff known_limits) was chosen per the plan.",
+      "L-B QueueProbeOutcome refusal rolls back the ENTIRE delivery transaction (the probe_terminal_deliveries row is not recorded either) for a cleanup-only node. The probe-delivery sweeper may therefore re-attempt the same probe at the sweep cadence until the node's terminal state settles — fail-closed and bounded, not the outbox pump's per-tick hot spin; this is recorded so a future cycle can decide whether a durable 'refused-for-cleanup' disposition is warranted.",
+      "L-B backoff reuses 0008_lifecycle.sql as an ADDITIVE ALTER (control_outbox.retry_after_unix INTEGER NOT NULL DEFAULT 0). Existing rows default to 0 (immediately claimable), so the claim query change is backward compatible.",
+      "L-A bound is enforced in hashAndMode, which also makes BackupToWithKeys refuse a live controller.db larger than 256 MiB — intentional (an oversized backup could never be restored anyway)."
     ],
     "known_flakes": "None hit in this cycle. The two documented pre-existing flake classes (internal/agent periodic receipt retry, test/e2e TestLinuxDirectV4WalkingSkeleton under parallel -race) were not triggered; they remain pre-existing and pass in isolation per the original handoff."
   }
