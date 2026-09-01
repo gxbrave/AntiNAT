@@ -48,6 +48,35 @@ func ValidateRestore(ctx context.Context, live *store.Store, backupDir string, l
 	if !sameStringSet(manifest.KeyIDs, liveKeyIDs) {
 		return store.BackupManifest{}, fmt.Errorf("%w: key mismatch: backup keys %v vs live keys %v (anti-rollback)", ErrRestoreRefused, manifest.KeyIDs, liveKeyIDs)
 	}
+	// repair-1 M6b: the manifest HighWater recorded at backup is now COMPARED.
+	// First the semantic-integrity check: the manifest's high-water must equal
+	// the actual contents of the backup DB. A tampered backup (rows removed or
+	// recreated, with the per-file hash recomputed to match) is rejected even
+	// though OpenBackup's hash check passes. Second the anti-rollback check
+	// against the LIVE store: restoring a backup whose deletion/tombstone/
+	// node-revision high-water is BELOW the live store's current values would
+	// silently DROP facts the operator has already made (a pre-deletion backup),
+	// so it is refused here — the dispatch-level quarantine is what rejects any
+	// row that would resurrect a deletion "via any window".
+	backupHW, err := bs.CurrentBackupHighWater()
+	if err != nil {
+		return store.BackupManifest{}, fmt.Errorf("%w: backup high-water: %v", ErrRestoreRefused, err)
+	}
+	m := manifest.HighWater
+	if m.Forwards != backupHW.Forwards || m.ForwardSpecs != backupHW.ForwardSpecs ||
+		m.Deletions != backupHW.Deletions || m.CleanupTombstones != backupHW.CleanupTombstones ||
+		m.NodesRevision != backupHW.NodesRevision {
+		return store.BackupManifest{}, fmt.Errorf("%w: high-water mismatch: manifest %+v vs backup database contents %+v", ErrRestoreRefused, m, backupHW)
+	}
+	liveHW, err := live.CurrentBackupHighWater()
+	if err != nil {
+		return store.BackupManifest{}, fmt.Errorf("%w: live high-water: %v", ErrRestoreRefused, err)
+	}
+	if m.Deletions < liveHW.Deletions || m.CleanupTombstones < liveHW.CleanupTombstones ||
+		m.NodesRevision < liveHW.NodesRevision {
+		return store.BackupManifest{}, fmt.Errorf("%w: backup high-water is older than the live store (deletions %d<%d, tombstones %d<%d, node revision %d<%d) — restoring would drop operator facts", ErrRestoreRefused,
+			m.Deletions, liveHW.Deletions, m.CleanupTombstones, liveHW.CleanupTombstones, m.NodesRevision, liveHW.NodesRevision)
+	}
 	if err := lifecycle.RotationXBackupBarrier(ctx, live); err != nil {
 		return store.BackupManifest{}, fmt.Errorf("%w: rotation barrier: %v", ErrRestoreRefused, err)
 	}
@@ -59,49 +88,71 @@ func ValidateRestore(ctx context.Context, live *store.Store, backupDir string, l
 	return manifest, nil
 }
 
+// maxRestoreDBBytes bounds the in-memory backup DB read (repair-1 L7): the
+// restore path reads the whole controller.db into memory before staging it, so
+// an oversized backup must fail closed rather than exhaust the controller.
+const maxRestoreDBBytes = 256 * 1024 * 1024
+
 // ApplyRestore stages the backup database into the live directory, verifies it
-// under the frozen integrity checks, atomically switches it over the live
-// database file, then enters RESTORE_RECONCILIATION on the restored store. The
-// caller must have quiesced (closed) the live store on liveDBPath first.
+// under the frozen integrity checks, WRITES the RESTORE_RECONCILIATION intent
+// INTO the staged copy, then atomically switches it over the live database
+// file. The durable restore_operations row therefore exists BEFORE the rename
+// (repair-1 M6a): a crash at ANY point between staging and the switch leaves
+// either the OLD live database (harmless, nothing was switched) or the NEW live
+// database that ALREADY carries RESTORE_RECONCILIATION. The live controller can
+// never come back up on a switched-in restored DB and silently resume automatic
+// dispatch. The caller must have quiesced (closed) the live store on
+// liveDBPath first.
 func ApplyRestore(ctx context.Context, liveDBPath, backupDir string) (store.RestoreOperation, error) {
-	if liveDBPath == "" || backupDir == "" {
-		return store.RestoreOperation{}, fmt.Errorf("%w: paths required", ErrRestoreRefused)
-	}
-	backupDB := filepath.Join(backupDir, "controller.db")
-	src, err := os.ReadFile(backupDB)
+	stagePath, op, err := prepareRestoreStage(liveDBPath, backupDir)
 	if err != nil {
 		return store.RestoreOperation{}, err
+	}
+	if err := commitRestore(liveDBPath, stagePath); err != nil {
+		_ = os.Remove(stagePath)
+		return store.RestoreOperation{}, err
+	}
+	return op, nil
+}
+
+// prepareRestoreStage copies the backup DB to the live dir, verifies integrity,
+// and writes the RESTORE_RECONCILIATION intent into the staged copy. It returns
+// the staged path and the durable op WITHOUT switching anything. This is the
+// durable-PREPARE phase of the restore switch (repair-1 M6a/L7).
+func prepareRestoreStage(liveDBPath, backupDir string) (string, store.RestoreOperation, error) {
+	if liveDBPath == "" || backupDir == "" {
+		return "", store.RestoreOperation{}, fmt.Errorf("%w: paths required", ErrRestoreRefused)
+	}
+	backupDB := filepath.Join(backupDir, "controller.db")
+	// repair-1 L7: bound the in-memory read.
+	st, err := os.Stat(backupDB)
+	if err != nil {
+		return "", store.RestoreOperation{}, err
+	}
+	if st.Size() > maxRestoreDBBytes {
+		return "", store.RestoreOperation{}, fmt.Errorf("%w: backup database %d bytes exceeds the %d byte restore bound", ErrRestoreRefused, st.Size(), maxRestoreDBBytes)
+	}
+	src, err := os.ReadFile(backupDB)
+	if err != nil {
+		return "", store.RestoreOperation{}, err
 	}
 	dir := filepath.Dir(liveDBPath)
 	stagePath := filepath.Join(dir, "controller.db.stage")
 	if err := os.WriteFile(stagePath, src, 0o600); err != nil {
-		return store.RestoreOperation{}, fmt.Errorf("recovery: stage restore: %w", err)
+		return "", store.RestoreOperation{}, fmt.Errorf("recovery: stage restore: %w", err)
 	}
 	if err := syncFileAndParent(stagePath); err != nil {
-		return store.RestoreOperation{}, err
+		return "", store.RestoreOperation{}, err
 	}
 	// Verify the staged copy with the same frozen integrity checks the store
-	// applies on Open.
+	// applies on Open, then WRITE the reconciliation intent into it. Entering
+	// RESTORE_RECONCILIATION on the STAGED copy (repair-1 M6a) makes the intent
+	// durable inside the exact file that will become live, so there is no window
+	// where a live switched-in DB lacks the quarantine row.
 	staged, err := store.Open(stagePath)
 	if err != nil {
 		_ = os.Remove(stagePath)
-		return store.RestoreOperation{}, fmt.Errorf("%w: staged database failed integrity: %v", ErrRestoreRefused, err)
-	}
-	if err := staged.Close(); err != nil {
-		_ = os.Remove(stagePath)
-		return store.RestoreOperation{}, err
-	}
-	if err := os.Rename(stagePath, liveDBPath); err != nil {
-		_ = os.Remove(stagePath)
-		return store.RestoreOperation{}, fmt.Errorf("recovery: atomic switch restore: %w", err)
-	}
-	if err := syncFileAndParent(liveDBPath); err != nil {
-		return store.RestoreOperation{}, err
-	}
-	// Open the restored database and enter RESTORE_RECONCILIATION.
-	restored, err := store.Open(liveDBPath)
-	if err != nil {
-		return store.RestoreOperation{}, err
+		return "", store.RestoreOperation{}, fmt.Errorf("%w: staged database failed integrity: %v", ErrRestoreRefused, err)
 	}
 	op := store.RestoreOperation{
 		ID:             randomHex16(),
@@ -109,11 +160,34 @@ func ApplyRestore(ctx context.Context, liveDBPath, backupDir string) (store.Rest
 		SchemaVersion:  1,
 		Phase:          "RESTORE_RECONCILIATION",
 	}
-	if err := restored.EnterRestoreReconciliation(op); err != nil {
-		restored.Close()
-		return store.RestoreOperation{}, err
+	if err := staged.EnterRestoreReconciliation(op); err != nil {
+		staged.Close()
+		_ = os.Remove(stagePath)
+		return "", store.RestoreOperation{}, err
 	}
-	return op, nil
+	if err := staged.Close(); err != nil {
+		_ = os.Remove(stagePath)
+		return "", store.RestoreOperation{}, err
+	}
+	// The SQLite close checkpoints the WAL into the main file; fsync it so the
+	// durable intent survives the crash window up to the rename.
+	if err := syncFileAndParent(stagePath); err != nil {
+		_ = os.Remove(stagePath)
+		return "", store.RestoreOperation{}, err
+	}
+	return stagePath, op, nil
+}
+
+// commitRestore atomically switches the prepared staged DB over the live path
+// and fsyncs the parent directory.
+func commitRestore(liveDBPath, stagePath string) error {
+	if err := os.Rename(stagePath, liveDBPath); err != nil {
+		return fmt.Errorf("recovery: atomic switch restore: %w", err)
+	}
+	if err := syncFileAndParent(liveDBPath); err != nil {
+		return err
+	}
+	return nil
 }
 
 // EnterRestoreReconciliationOn wraps the durable reconciliation entry for an

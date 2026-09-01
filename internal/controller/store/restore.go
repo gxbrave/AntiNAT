@@ -16,7 +16,10 @@ import (
 // EnterRestoreReconciliation durably enters RESTORE_RECONCILIATION: create the
 // restore operation row, revoke live web sessions, invalidate unused
 // enrollment tokens and quarantine every node — one side-effect guard before
-// the controller reopens on the restored database.
+// the controller reopens on the restored database. The operation-row insert is
+// idempotent (INSERT OR IGNORE on the primary key), so re-entering the SAME
+// operation after a crash mid-switch (repair-1 M6a) is safe and always leaves
+// the controller in RESTORE_RECONCILIATION, never silently resumed.
 func (s *Store) EnterRestoreReconciliation(op RestoreOperation) error {
 	if op.ID == "" || op.ManifestSHA256 == "" {
 		return errors.New("store: restore reconciliation requires operation id and manifest hash")
@@ -31,7 +34,7 @@ func (s *Store) EnterRestoreReconciliation(op RestoreOperation) error {
 	defer tx.Rollback()
 	now := s.currentUnix()
 	if _, err := tx.Exec(
-		`INSERT INTO restore_operations
+		`INSERT OR IGNORE INTO restore_operations
 		    (id, controller_instance, manifest_sha256, schema_version, phase, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		op.ID, op.ControllerInstance, op.ManifestSHA256, op.SchemaVersion, op.Phase, now, now,
