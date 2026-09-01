@@ -80,6 +80,35 @@ func TestPrepareRotationStagingFailureDoesNotLeavePreparedGap(t *testing.T) {
 }
 
 // TestRotationFSMReachesRetired drives a full controller rotation lifecycle.
+func TestReconcilePreparedRotationRejectsMissingSuccessor(t *testing.T) {
+	s := openStore(t)
+	dir := t.TempDir()
+	oldKey, err := security.LoadOrCreateKeyring(dir, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Unix()
+	if _, err := PrepareRotation(context.Background(), s, dir, oldKey, "controller", "rot-reconcile-r5", now, now+3600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, security.KeyringStagedFile)); err != nil {
+		t.Fatal(err)
+	}
+	if err := ReconcilePreparedRotation(context.Background(), s, dir, "rot-reconcile-r5"); err == nil {
+		t.Fatal("missing staged successor was treated as recoverable")
+	}
+	if _, err := s.GetKeyRotationOperation("rot-reconcile-r5"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unrecoverable PREPARED operation remained after reconciliation: %v", err)
+	}
+	active, err := security.LoadOrCreateKeyring(dir, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.KeyID() != oldKey.KeyID() || active.Generation() != oldKey.Generation() {
+		t.Fatalf("old signer changed during reconciliation: %s/%d", active.KeyID(), active.Generation())
+	}
+}
+
 func TestRotationFSMReachesRetired(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()

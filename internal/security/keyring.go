@@ -176,6 +176,32 @@ func (k *Keyring) Stage(dir string) error {
 	return nil
 }
 
+// LoadStagedKeyring loads and validates the durable successor staging file
+// without activating it. Lifecycle recovery uses this to distinguish a
+// recoverable PREPARED operation from an orphaned or corrupt staged file.
+func LoadStagedKeyring(dir string) (*Keyring, error) {
+	raw, err := loadKeyFile(filepath.Join(dir, KeyringStagedFile))
+	if err != nil {
+		return nil, err
+	}
+	return parseKeyring(raw)
+}
+
+// RemoveStaged removes successor material that is not referenced by a durable
+// PREPARED operation. It is idempotent and fsyncs the containing directory.
+func RemoveStaged(dir string) error {
+	if err := os.Remove(filepath.Join(dir, KeyringStagedFile)); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("security: remove staged keyring: %w", err)
+	}
+	if err := syncDir(dir); err != nil {
+		return fmt.Errorf("security: remove staged keyring directory sync: %w", err)
+	}
+	return nil
+}
+
 // ActivateStaged atomically promotes previously staged successor material to
 // the active signer only after the caller has durably journaled PREPARED.
 func ActivateStaged(dir string) (*Keyring, error) {

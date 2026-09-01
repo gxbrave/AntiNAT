@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
@@ -87,6 +88,36 @@ func PrepareRotation(ctx context.Context, s *store.Store, keyringDir string, old
 		return store.KeyRotationOperation{}, fmt.Errorf("lifecycle: stage successor keyring: %w", err)
 	}
 	return op, nil
+}
+
+// ReconcilePreparedRotation verifies that a durable PREPARED operation still
+// has the exact successor material it declared. If staging is missing/corrupt,
+// the operation is removed while the old signer remains active, allowing a
+// caller to retry preparation. This is safe to invoke on startup and retry.
+func ReconcilePreparedRotation(ctx context.Context, s *store.Store, keyringDir, operationID string) error {
+	reservation, err := store.AcquireLifecycleReservation(ctx, s)
+	if err != nil {
+		return err
+	}
+	defer reservation.Release()
+	op, err := s.GetKeyRotationOperation(operationID)
+	if err != nil {
+		return err
+	}
+	if op.Phase != "PREPARED" {
+		return nil
+	}
+	staged, err := security.LoadStagedKeyring(keyringDir)
+	if err == nil && staged.KeyID() == op.NewKeyID && staged.Generation() == op.NewGeneration {
+		return nil
+	}
+	if removeErr := s.DeleteKeyRotationOperation(operationID); removeErr != nil {
+		return fmt.Errorf("lifecycle: reconcile prepared rotation staging (%v): %w", err, removeErr)
+	}
+	if removeErr := security.RemoveStaged(keyringDir); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+		return fmt.Errorf("lifecycle: remove unrecoverable staged successor: %w", removeErr)
+	}
+	return fmt.Errorf("lifecycle: prepared rotation successor is not recoverable: %w", err)
 }
 
 // AdvanceRotationPhase is the single-step FSM transition guard. A normal
