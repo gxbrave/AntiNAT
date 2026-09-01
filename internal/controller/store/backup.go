@@ -44,6 +44,14 @@ type BackupManifest struct {
 const backupDBName = "controller.db"
 const backupManifestName = "manifest.json"
 
+// MaxBackupFileBytes is the single source of truth for the largest file a
+// backup manifest may declare (and the largest controller.db the restore path
+// will read into memory). restore.prepareRestoreStage bounds its in-memory DB
+// read with this same value; repair-2 L-A adds the stat-before-read bound to
+// hashAndMode so a crafted/oversized manifest sibling file is refused at
+// verification time instead of being slurped unbounded.
+const MaxBackupFileBytes = 256 * 1024 * 1024
+
 // BackupTo writes a consistent VACUUM INTO snapshot plus a hash/manifest into
 // destDir (validated P03 backup path; never a bare copy of the WAL file). The
 // file and its parent directory are fsynced before the manifest is recorded.
@@ -203,13 +211,22 @@ func writeManifest(dir string, m BackupManifest) error {
 }
 
 func hashAndMode(path string) (string, uint32, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", 0, fmt.Errorf("store: read %s: %w", path, err)
-	}
+	// repair-2 L-A: refuse (fail-closed) an oversized file BEFORE reading it. A
+	// malicious/oversized manifest-declared sibling file in the snapshot dir was
+	// previously slurped unbounded by os.ReadFile; the size cap is the same
+	// bound the restore path uses for the in-memory DB read, so an oversized
+	// backup is refused consistently at creation, verification (OpenBackup),
+	// and restore (ValidateRestore).
 	st, err := os.Stat(path)
 	if err != nil {
 		return "", 0, fmt.Errorf("store: stat %s: %w", path, err)
+	}
+	if st.Size() > MaxBackupFileBytes {
+		return "", 0, fmt.Errorf("store: file %s is %d bytes, exceeds the %d byte backup bound", path, st.Size(), MaxBackupFileBytes)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", 0, fmt.Errorf("store: read %s: %w", path, err)
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:]), uint32(st.Mode().Perm()), nil

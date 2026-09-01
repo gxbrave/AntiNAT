@@ -555,3 +555,103 @@ func TestRestoreOversizedBackupDBRefused(t *testing.T) {
 		t.Fatal("oversized backup DB passed the restore size bound")
 	}
 }
+
+// TestOversizedManifestSiblingFileRefused (repair-2 L-A): a manifest-declared
+// sibling file larger than the size cap must be refused at VERIFICATION time by
+// BOTH store.OpenBackup and recovery.ValidateRestore. The repair-1 bound only
+// covered the controller.db read on the restores path; a crafted/oversized
+// sibling file was still slurped by hashAndMode with no cap. The file is a
+// sparse truncate so no real byte allocation happens; the manifest carries the
+// TRUE hash so the size check (not a hash mismatch) is the only refusal reason.
+func TestOversizedManifestSiblingFileRefused(t *testing.T) {
+	dir := t.TempDir()
+	livePath := filepath.Join(dir, "controller.db")
+	live, err := store.Open(livePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := live.CreateNode(store.Node{ID: "node-1", Name: "n1"}); err != nil {
+		t.Fatal(err)
+	}
+	backupDir := filepath.Join(dir, "backup")
+	if _, err := live.BackupToWithKeys(backupDir, []string{"key-A"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Add a manifest-declared sibling "extra.bin" just over the size bound.
+	bigPath := filepath.Join(backupDir, "extra.bin")
+	bf, err := os.Create(bigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bf.Truncate(store.MaxBackupFileBytes + 1); err != nil {
+		bf.Close()
+		t.Fatal(err)
+	}
+	if err := bf.Close(); err != nil {
+		t.Fatal(err)
+	}
+	addManifestFile(t, backupDir, "extra.bin", store.MaxBackupFileBytes+1)
+
+	if _, _, err := store.OpenBackup(backupDir); err == nil {
+		t.Fatal("OpenBackup accepted an oversized manifest-declared sibling file")
+	}
+	if _, err := ValidateRestore(context.Background(), live, backupDir, []string{"key-A"}); err == nil {
+		t.Fatal("ValidateRestore accepted an oversized manifest-declared sibling file")
+	}
+	live.Close()
+}
+
+// addManifestFile records a real-size, true-hash, true-mode entry for a
+// (sparse) sibling file in the backup manifest so the ONLY refusal reason is
+// the size cap.
+func addManifestFile(t *testing.T, backupDir, name string, size int64) {
+	t.Helper()
+	st, err := os.Stat(filepath.Join(backupDir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(backupDir, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var man struct {
+		Schema string `json:"schema"`
+		Files  []struct {
+			Name   string `json:"name"`
+			SHA256 string `json:"sha256"`
+			Mode   uint32 `json:"mode"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(raw, &man); err != nil {
+		t.Fatal(err)
+	}
+	man.Files = append(man.Files, struct {
+		Name   string `json:"name"`
+		SHA256 string `json:"sha256"`
+		Mode   uint32 `json:"mode"`
+	}{Name: name, SHA256: sha256OfRepeatedZeros(size), Mode: uint32(st.Mode().Perm())})
+	out, err := json.MarshalIndent(man, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(backupDir, "manifest.json"), out, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// sha256OfRepeatedZeros returns the SHA256 of a size-byte buffer of NUL bytes
+// without allocating the whole buffer (matches what hashAndMode would compute).
+func sha256OfRepeatedZeros(size int64) string {
+	h := sha256.New()
+	block := make([]byte, 1<<20) // 1 MiB of zeros
+	for remaining := size; remaining > 0; {
+		n := remaining
+		if n > int64(len(block)) {
+			n = int64(len(block))
+		}
+		_, _ = h.Write(block[:n])
+		remaining -= n
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}

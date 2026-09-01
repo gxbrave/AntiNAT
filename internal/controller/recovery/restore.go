@@ -91,7 +91,9 @@ func ValidateRestore(ctx context.Context, live *store.Store, backupDir string, l
 // maxRestoreDBBytes bounds the in-memory backup DB read (repair-1 L7): the
 // restore path reads the whole controller.db into memory before staging it, so
 // an oversized backup must fail closed rather than exhaust the controller.
-const maxRestoreDBBytes = 256 * 1024 * 1024
+// The single source of truth is store.MaxBackupFileBytes (repair-2 L-A also
+// applies it to the manifest sibling-file verification in store.hashAndMode).
+const maxRestoreDBBytes = store.MaxBackupFileBytes
 
 // ApplyRestore stages the backup database into the live directory, verifies it
 // under the frozen integrity checks, WRITES the RESTORE_RECONCILIATION intent
