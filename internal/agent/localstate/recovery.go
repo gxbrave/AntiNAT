@@ -122,6 +122,26 @@ func WriteRecoveryQuarantineForOperation(dir, operationID string, generation uin
 	})
 }
 
+// WriteNextRecoveryQuarantineForOperation allocates the next generation and
+// writes it while holding one lifecycle lock, preventing concurrent callers
+// from selecting the same generation.
+func WriteNextRecoveryQuarantineForOperation(dir, operationID string) (RecoveryQuarantine, error) {
+	var result RecoveryQuarantine
+	err := withLifecycleLock(dir, func() error {
+		current, found, err := loadRecoveryQuarantineUnlocked(dir)
+		if err != nil {
+			return err
+		}
+		generation := uint64(1)
+		if found {
+			generation = current.Generation + 1
+		}
+		result = RecoveryQuarantine{OperationID: operationID, Generation: generation}
+		return writeRecoveryQuarantineUnlocked(dir, result)
+	})
+	return result, err
+}
+
 // ClearRecoveryQuarantine removes the legacy binding. Real restore flows must
 // call ClearRecoveryQuarantineForOperation with the exact operation/generation.
 // Keeping the legacy form only for the explicitly legacy marker preserves old

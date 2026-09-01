@@ -1062,17 +1062,12 @@ func (a *App) handleRestoreReconcile(ctx context.Context, op control.Operation) 
 	if operationID == "" {
 		operationID = op.OperationID
 	}
-	generation := uint64(1)
-	if current, found, err := localstate.LoadRecoveryQuarantineBinding(a.cfg.StateDir); err != nil {
-		return nil, err
-	} else if found {
-		generation = current.Generation + 1
-	}
-	if err := localstate.WriteRecoveryQuarantineForOperation(a.cfg.StateDir, operationID, generation); err != nil {
+	binding, err := localstate.WriteNextRecoveryQuarantineForOperation(a.cfg.StateDir, operationID)
+	if err != nil {
 		return nil, err
 	}
 	a.recoveryQuarantine = true
-	return []byte(fmt.Sprintf(`{"status":"quarantined","operation_id":%q,"generation":%d}`, operationID, generation)), nil
+	return []byte(fmt.Sprintf(`{"status":"quarantined","operation_id":%q,"generation":%d}`, operationID, binding.Generation)), nil
 }
 
 // handleRestoreResult authorizes recovery only for the exact current restore

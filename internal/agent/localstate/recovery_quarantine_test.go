@@ -4,6 +4,7 @@
 package localstate
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -37,6 +38,32 @@ func TestRecoveryQuarantineWriteLoadClear(t *testing.T) {
 // TestRecoveryQuarantineNeverOverTerminal: quarantine over a DECOMMISSIONED
 // marker is refused — the current terminal/uninstall marker can never be
 // overwritten by an old backup.
+func TestRecoveryQuarantineConcurrentNextGenerationKeepsOneWinner(t *testing.T) {
+	dir := t.TempDir()
+	results := make(chan error, 2)
+	for _, operationID := range []string{"restore-a", "restore-b"} {
+		go func(operationID string) {
+			_, err := WriteNextRecoveryQuarantineForOperation(dir, operationID)
+			results <- err
+		}(operationID)
+	}
+	var successes int
+	for i := 0; i < 2; i++ {
+		if err := <-results; err == nil {
+			successes++
+		} else if !errors.Is(err, ErrRecoveryOperationMismatch) {
+			t.Fatalf("unexpected concurrent quarantine error: %v", err)
+		}
+	}
+	if successes != 2 {
+		t.Fatalf("concurrent quarantine successes=%d, want both serialized generations", successes)
+	}
+	q, found, err := LoadRecoveryQuarantineBinding(dir)
+	if err != nil || !found || q.Generation != 2 {
+		t.Fatalf("quarantine=%+v found=%v err=%v, want serialized generation-2 binding", q, found, err)
+	}
+}
+
 func TestRecoveryQuarantineRejectsEqualGenerationDifferentOperation(t *testing.T) {
 	dir := t.TempDir()
 	if err := WriteRecoveryQuarantineForOperation(dir, "restore-a", 9); err != nil {
