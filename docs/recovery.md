@@ -69,9 +69,13 @@ the successor pin, then ACKs.
 - An offline Agent that never ACKs blocks a normal retire. Force retire
   fast-forwards the journal and then **requires manual re-pin/re-enroll**.
 - Rotation is mutually exclusive with backup/restore (and coordinated with
-  decommission/force delete) via the phase journal: the backup barrier refuses
-  a backup while any rotation is non-terminal, and restore refuses while the
-  live controller has a non-terminal rotation.
+  decommission/force delete) via one process-safe controller-state reservation
+  held across each barrier check and its filesystem/SQLite side effect. The
+  backup barrier refuses a backup while any rotation is non-terminal, and
+  restore refuses while the live controller has a non-terminal rotation. A
+  controller restart reconciles PREPARED operations: missing or corrupt staged
+  successor material is removed with the PREPARED journal row while the old
+  signer remains active, so the operation can be retried safely.
 - Ciphertext records carry `key_id`; master/hook rotation writes with the new
   key first, rewraps in the background, re-validates every record and only then
   retires the old key.
