@@ -1,8 +1,8 @@
 # Current Development State
 
 **Snapshot date:** 2026-09-01
-**Authoritative repository:** `/root/Claude/AntiNAT/p12-integration`  
-**Authoritative baseline:** `807c9ff26b457fbcad8115fd65098a0c2ddbb909` on `integration/v1-beta` (P14 integrated; P12W and prior P13 are in ancestry)
+**Authoritative repository:** `/root/Claude/AntiNAT/p12-integration`
+**Authoritative baseline:** `2af27e4a4bec6bcbcb9266150a3babb317a43e4e` on `integration/v1-beta` (P14 integrated; P12W and prior P13 are in ancestry)
 
 This document is the current consolidation view. August handoff and project-plan documents under `/root/Claude/AntiNAT/AntiNAT` remain preserved historical snapshots; do not rewrite them or treat their earlier “bootstrap-only,” “P10 blocked,” or “P12–P19 not started” statements as current status.
 
