@@ -14,6 +14,33 @@ import (
 	"github.com/gxbrave/AntiNAT/internal/security"
 )
 
+// TestPrepareRotationDoesNotStageBeforeJournalFailure is the R4-7 RED oracle:
+// when PREPARED cannot be recorded, successor material must not appear on disk.
+// Before the ordering fix, staging ran first and left controller-signing.key.stage
+// behind after CreateKeyRotationOperation rejected the empty operation id.
+func TestPrepareRotationDoesNotStageBeforeJournalFailure(t *testing.T) {
+	s := openStore(t)
+	dir := t.TempDir()
+	oldKey, err := security.LoadOrCreateKeyring(dir, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Unix()
+	if _, err := PrepareRotation(context.Background(), s, dir, oldKey, "controller", "", now, now+3600); err == nil {
+		t.Fatal("rotation with empty operation id unexpectedly succeeded")
+	}
+	if _, err := os.Stat(filepath.Join(dir, security.KeyringStagedFile)); !os.IsNotExist(err) {
+		t.Fatalf("staged successor exists after journal rejection: stat err=%v", err)
+	}
+	active, err := security.LoadOrCreateKeyring(dir, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.Generation() != oldKey.Generation() || active.KeyID() != oldKey.KeyID() {
+		t.Fatalf("active signer changed after journal rejection: generation=%d key=%s", active.Generation(), active.KeyID())
+	}
+}
+
 // TestRotationFSMReachesRetired drives a full controller rotation lifecycle.
 func TestRotationFSMReachesRetired(t *testing.T) {
 	s := openStore(t)
