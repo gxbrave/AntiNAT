@@ -1,0 +1,183 @@
+{
+  "schema_version": 1,
+  "plan": "P15",
+  "stage": "CANDIDATE",
+  "branch": "ai/P15-controller-api-metrics",
+  "base_sha": "d335b09f127de03254ca5119244006c41444ff0a",
+  "base_tree_sha": "3358d516726ec8810bbc6e91df78112e4352fb72",
+  "head_sha": "29306b9f0ec53efc32f74c8b982bee03b26dd108",
+  "head_tree_sha": "782280c2e9785e01ed4743890d7c822c0c021947",
+  "candidate_record_tip_sha": "29306b9f0ec53efc32f74c8b982bee03b26dd108",
+  "candidate_record_tip_tree_sha": "782280c2e9785e01ed4743890d7c822c0c021947",
+  "canonical_head_sha": "67f0c16531cebf0880fa5601e5467ad4c8106350",
+  "canonical_head_tree_sha": "5e4b86cb94db91ee8f32a153440ebb7d22895a00",
+  "implementation_head_sha": "67f0c16531cebf0880fa5601e5467ad4c8106350",
+  "implementation_head_tree_sha": "5e4b86cb94db91ee8f32a153440ebb7d22895a00",
+  "commits": [
+    "67f0c16531cebf0880fa5601e5467ad4c8106350"
+  ],
+  "files_changed": [
+    "internal/controller/api/auth.go",
+    "internal/controller/api/forward_ops.go",
+    "internal/controller/api/forwards_min.go",
+    "internal/controller/api/navigation.go",
+    "internal/controller/api/node_ops.go",
+    "internal/controller/api/nodes_min.go",
+    "internal/controller/api/observability.go",
+    "internal/controller/api/operations.go",
+    "internal/controller/api/p10_r13_regression_test.go",
+    "internal/controller/api/p15_red_test.go",
+    "internal/controller/api/settings.go",
+    "internal/controller/store/backup_test.go",
+    "internal/controller/store/corrupt_internal_test.go",
+    "internal/controller/store/migrate.go",
+    "internal/controller/store/migrate_test.go",
+    "internal/controller/store/node_bundle.go",
+    "internal/controller/store/p10_r14_migration_test.go",
+    "internal/controller/store/probe_test.go",
+    "internal/controller/store/traffic.go",
+    "internal/controller/web/middleware.go",
+    "internal/controller/web/p15_red_test.go",
+    "internal/controller/web/router_min.go",
+    "internal/controller/web/sse.go",
+    "internal/forward/limiter.go",
+    "internal/forward/limiter_test.go",
+    "internal/metrics/metrics.go",
+    "internal/metrics/metrics_test.go",
+    "internal/metrics/p15_red_test.go",
+    "migrations/0009_api_metrics.sql",
+    "migrations/migrations.go"
+  ],
+  "tests": [
+    {
+      "command": "GOWORK=off go test ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward -count=1",
+      "exit_code": 0,
+      "summary": "PASS; all five affected packages passed."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/controller/api -run TestP15 -race -count=5",
+      "exit_code": 0,
+      "summary": "PASS; focused P15 API race tests passed five repetitions."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/controller/web -run TestP15 -race -count=10",
+      "exit_code": 0,
+      "summary": "PASS; origin/trusted-proxy middleware tests passed ten repetitions."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/metrics ./internal/forward -race -count=10",
+      "exit_code": 0,
+      "summary": "PASS; limiter and traffic accumulator race tests passed ten repetitions."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/controller/store -count=1",
+      "exit_code": 0,
+      "summary": "PASS; full affected store package passed."
+    },
+    {
+      "command": "GOWORK=off go vet ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward",
+      "exit_code": 0,
+      "summary": "PASS; affected packages vet clean."
+    },
+    {
+      "command": "python3 test/contracts/validate_openapi.py .",
+      "exit_code": 0,
+      "summary": "PASS; frozen OpenAPI valid, 32 paths, 13 referenced/registered error statuses."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward -race -count=10",
+      "exit_code": 1,
+      "summary": "LIMITATION; API and web passed, then pre-existing internal/controller/store TestR16Q2ProbeLookupCountsLookaheadDuplicateAsAmbiguous timed out after 10 minutes. No data-race report was emitted."
+    },
+    {
+      "command": "git diff --check && protected-path diff check",
+      "exit_code": 0,
+      "summary": "PASS; no whitespace errors and no changes to api/openapi.yaml, docs contracts, migrations 0001-0008, protocol/traversal/UDP libraries, or agenthub."
+    },
+    {
+      "command": "git status --short",
+      "exit_code": 0,
+      "summary": "PASS at commit; worktree clean before handoff artifact creation."
+    }
+  ],
+  "evidence": [
+    "api/openapi.yaml sha256 aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32",
+    "docs/error-codes.md sha256 be4f4c22c0cd7a5a04bc9076e14efef7028a4c7634eb926aa675e7f87cbfa3b5",
+    "docs/protocol.md sha256 cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74",
+    "docs/state-model.md sha256 0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
+  ],
+  "contracts_consumed": [
+    {
+      "path": "api/openapi.yaml",
+      "sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32"
+    },
+    {
+      "path": "docs/error-codes.md",
+      "sha256": "be4f4c22c0cd7a5a04bc9076e14efef7028a4c7634eb926aa675e7f87cbfa3b5"
+    },
+    {
+      "path": "docs/protocol.md",
+      "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"
+    },
+    {
+      "path": "docs/state-model.md",
+      "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
+    }
+  ],
+  "contracts_changed": [],
+  "capability_result": "SUPPORTED_WITH_LIMITS",
+  "known_limits": [
+    "Login rate limiting is an in-process fixed ten-attempt-per-minute-per-peer guard; it is not a distributed or persisted limiter.",
+    "Trusted proxy forwarded host/scheme handling is peer allowlisted and only used for Origin same-origin evaluation; deployment still owns proxy/network configuration.",
+    "SSE uses durable polling and replay/redaction but does not yet provide a bounded subscriber queue/backpressure implementation or a single canonical handler wiring in App composition.",
+    "Traversal detection route records a pending API operation but does not execute/persist the full P12 detector profile; P14 restore/reauthorization surfaces have no invented frozen API routes.",
+    "Normal and force node deletion API paths enqueue decommission intents but do not fully expose operation progression or invoke the P14 Hub.ForceCloseNodeSession/lifecycle service from App composition.",
+    "Forward creation/PATCH now preserve and validate frozen optional fields, but rate/stat changes are persisted desired-state fields and are not wired to live Agent session counters/limiter lifecycle; disconnect_existing is accepted but not connected to live sessions.",
+    "Navigation create routes validate Idempotency-Key but do not yet persist/replay idempotency records.",
+    "Settings persistence is JSON-backed and ETag-checked, but private-site enforcement, full controller listen-address projection, and all deployment profile API routes are not complete.",
+    "Traffic ingest/rollups are durable store APIs; no Agent traffic wire message exists in the frozen protocol implementation, so live Agent ingest remains unwired.",
+    "The required combined focused race command exited 1 after a ten-minute timeout in pre-existing store TestR16Q2ProbeLookupCountsLookaheadDuplicateAsAmbiguous; targeted P15 race suites passed."
+  ],
+  "ownership_transfers": [
+    {
+      "path": "migrations/migrations.go",
+      "reason": "Required migration registry/embed integration for P15 migration 0009."
+    },
+    {
+      "path": "internal/controller/store/migrate.go",
+      "reason": "Required schema-9 object validation for migration 0009."
+    },
+    {
+      "path": "internal/controller/store/migrate_test.go",
+      "reason": "Update affected schema-version expectations from P14 version 8 to P15 version 9."
+    },
+    {
+      "path": "internal/controller/store/backup_test.go",
+      "reason": "Update backup manifest schema-version expectations to migration 0009/version 9."
+    },
+    {
+      "path": "internal/controller/store/corrupt_internal_test.go",
+      "reason": "Update migration rollback precondition to current P15 schema version 9."
+    },
+    {
+      "path": "internal/controller/store/p10_r14_migration_test.go",
+      "reason": "Update P14 migration regression expectations for the additive P15 schema tip."
+    },
+    {
+      "path": "internal/controller/store/probe_test.go",
+      "reason": "Update affected migration-version expectation to additive P15 schema 9."
+    },
+    {
+      "path": "internal/controller/store/node_bundle.go",
+      "reason": "Keep durable idempotent node-create response date-time shape conformant with frozen OpenAPI Node.created_at."
+    },
+    {
+      "path": "internal/controller/api/p10_r13_regression_test.go",
+      "reason": "Update existing REST payload-cap regression to the frozen 413/PAYLOAD_TOO_LARGE distinction."
+    }
+  ],
+  "self_approval": false,
+  "review_ready": true,
+  "merge_push_release": "not performed",
+  "cleanup_done": true
+}
