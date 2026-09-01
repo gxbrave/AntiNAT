@@ -250,7 +250,9 @@
     "P14 repair-2 explicit file: internal/agent/p14_repair2_marker_race_test.go",
     "P14 repair-2 explicit file: internal/controller/agenthub/lifecycle_repair2_pump_test.go",
     "P14 repair-2 explicit file: internal/controller/store/lifecycle_repair2_test.go",
-    "P14 repair-3 explicit file: .hermes/plans/v1-beta/14-repair-3.md"
+    "P14 repair-3 explicit file: .hermes/plans/v1-beta/14-repair-3.md",
+    "P14 repair-1 explicit plan: .hermes/plans/v1-beta/14-repair-1.md",
+    "P14 repair-2 explicit plan: .hermes/plans/v1-beta/14-repair-2.md"
   ],
   "capability_result": "SUPPORTED_WITH_LIMITS",
   "known_limits": [
