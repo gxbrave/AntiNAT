@@ -33,7 +33,7 @@ func AcceptControllerRotationPin(store *localstate.Store, instanceID string, cer
 	if err != nil {
 		return localstate.ControllerPin{}, security.RotationCertificate{}, fmt.Errorf("%w: certificate: %v", ErrRotationPinRefused, err)
 	}
-	if cert.Scope != "controller" && cert.Scope != "" {
+	if cert.Scope != "controller" {
 		return localstate.ControllerPin{}, security.RotationCertificate{}, fmt.Errorf("%w: scope %q", ErrRotationPinRefused, cert.Scope)
 	}
 	// repair-1 M1: the anti-downgrade comparison is the CERTIFICATE vs the
@@ -51,6 +51,9 @@ func AcceptControllerRotationPin(store *localstate.Store, instanceID string, cer
 	newPub, _, err := cert.PublicKeys()
 	if err != nil {
 		return localstate.ControllerPin{}, security.RotationCertificate{}, err
+	}
+	if cert.OldKeyID != security.KeyIDOf(pin.PublicKey()) {
+		return localstate.ControllerPin{}, security.RotationCertificate{}, fmt.Errorf("%w: certificate old key id does not match persisted pin", ErrRotationPinRefused)
 	}
 	next := localstate.ControllerPin{
 		InstanceID: instanceID, KeyID: cert.NewKeyID,

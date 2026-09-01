@@ -6,6 +6,8 @@ package lifecycle
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -21,21 +23,24 @@ func TestRotationFSMReachesRetired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	notBefore := time.Now().Unix()
-	op, err := PrepareRotation(ctx, s, dir, oldKey, "controller", "rot-1", notBefore, notBefore+3600)
+	notBefore := time.Now().Unix() - 3600
+	op, err := PrepareRotation(ctx, s, dir, oldKey, "controller", "rot-1", notBefore, notBefore+1)
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
 	if op.Phase != "PREPARED" || op.Certificate == "" {
 		t.Fatalf("operation = %+v", op)
 	}
-	// The successor keyring exists on disk with generation 2.
-	next, err := security.LoadOrCreateKeyring(dir, 2)
+	// The active signer remains generation 1; successor material is staged.
+	active, err := security.LoadOrCreateKeyring(dir, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if next.Generation() != 2 || next.KeyID() != op.NewKeyID {
-		t.Fatalf("successor generation/id = %d/%s", next.Generation(), next.KeyID())
+	if active.Generation() != 1 || active.KeyID() == op.NewKeyID {
+		t.Fatalf("active signer unexpectedly changed generation/id = %d/%s", active.Generation(), active.KeyID())
+	}
+	if _, err := os.Stat(filepath.Join(dir, security.KeyringStagedFile)); err != nil {
+		t.Fatalf("staged successor missing: %v", err)
 	}
 	for _, step := range []struct {
 		next  string

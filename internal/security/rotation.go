@@ -154,8 +154,21 @@ func DecodeRotationCertificate(raw []byte, pinnedPub ed25519.PublicKey) (Rotatio
 	if c.Version != RotateVersion {
 		return c, fmt.Errorf("%w: unsupported version %d", ErrRotationInvalid, c.Version)
 	}
+	// Controller rotation certificates have one protocol scope. Accepting a
+	// blank or foreign scope would let a valid old-key signature be replayed in
+	// another key domain.
+	if c.Scope != "controller" {
+		return c, fmt.Errorf("%w: unsupported rotation scope %q", ErrRotationInvalid, c.Scope)
+	}
 	if c.NewGeneration <= c.OldGeneration {
 		return c, fmt.Errorf("%w: generation does not increase (%d -> %d)", ErrRotationInvalid, c.OldGeneration, c.NewGeneration)
+	}
+	// The window is structurally required, but the decoder deliberately does
+	// not compare NotBefore with wall clock: a future not-before is a legitimate
+	// overlap schedule and runtime clock policy is outside this certificate
+	// parser's contract.
+	if c.NotBeforeUnix == 0 || c.OverlapDeadlineUnix == 0 || c.NotBeforeUnix > c.OverlapDeadlineUnix {
+		return c, fmt.Errorf("%w: malformed rotation validity window", ErrRotationInvalid)
 	}
 	oldPub, newPub, err := c.PublicKeys()
 	if err != nil {
@@ -163,6 +176,9 @@ func DecodeRotationCertificate(raw []byte, pinnedPub ed25519.PublicKey) (Rotatio
 	}
 	if !bytesEqual(oldPub, pinnedPub) {
 		return c, fmt.Errorf("%w: certificate is not bound to the currently pinned key", ErrRotationInvalid)
+	}
+	if c.OldKeyID != KeyIDOf(pinnedPub) {
+		return c, fmt.Errorf("%w: old key id does not match the pinned public key", ErrRotationInvalid)
 	}
 	if len(c.SignatureHex) == 0 || c.NewKeyID == "" || c.OldKeyID == "" {
 		return c, fmt.Errorf("%w: incomplete certificate", ErrRotationInvalid)

@@ -143,6 +143,23 @@ func (d *Decommissioner) StopAll(ctx context.Context) error {
 // Complete clears every Forward LKG/secret/job row, writes the cleanup
 // tombstone with the allowed key versions, then writes DECOMMISSIONED.
 func (d *Decommissioner) Complete(ctx context.Context, req DecommissionRequest) error {
+	marker, err := d.markerState()
+	if err != nil {
+		return err
+	}
+	if marker == localstate.MarkerDecommissioned {
+		intent, found, err := d.store.LoadAgentCleanupTombstone()
+		if err != nil {
+			return err
+		}
+		if !found || intent.OperationID != req.OperationID || intent.NodeID != req.NodeID {
+			return fmt.Errorf("%w: terminal marker belongs to a different operation", ErrDecommissionedAgent)
+		}
+		return nil
+	}
+	if marker != localstate.MarkerDecommissioning {
+		return fmt.Errorf("reconcile: complete requires DECOMMISSIONING marker, got %s", marker)
+	}
 	if err := d.store.ClearForwardStateForDecommission(); err != nil {
 		return fmt.Errorf("reconcile: decommission clear forward state: %w", err)
 	}
@@ -168,6 +185,16 @@ func (d *Decommissioner) Complete(ctx context.Context, req DecommissionRequest) 
 // QueueAck queues the minimal node_decommission_ack for the operation so an
 // ACK loss is retryable across reconnects without retaining any forward secret.
 func (d *Decommissioner) QueueAck(ctx context.Context, req DecommissionRequest) error {
+	if marker, err := d.markerState(); err != nil {
+		return err
+	} else if marker != localstate.MarkerDecommissioned {
+		return fmt.Errorf("reconcile: queue decommission ACK requires DECOMMISSIONED marker, got %s", marker)
+	}
+	if existing, found, err := d.store.LoadAgentCleanupTombstone(); err != nil {
+		return err
+	} else if !found || existing.OperationID != req.OperationID || existing.NodeID != req.NodeID {
+		return fmt.Errorf("%w: terminal ACK identity mismatch", ErrDecommissionedAgent)
+	}
 	payload, err := json.Marshal(DecommissionAck{
 		NodeID: req.NodeID, OperationID: req.OperationID,
 		Status: "DECOMMISSIONED", Force: req.Force,
@@ -175,7 +202,14 @@ func (d *Decommissioner) QueueAck(ctx context.Context, req DecommissionRequest) 
 	if err != nil {
 		return err
 	}
-	return RecordResult(ctx, d.store, 0, "", req.OperationID, payload)
+	epoch, session, err := d.store.CurrentSession()
+	if err != nil {
+		return err
+	}
+	if epoch == 0 || session == "" {
+		return d.store.QueueResultSessionIndependent(req.OperationID, payload)
+	}
+	return RecordResult(ctx, d.store, epoch, session, req.OperationID, payload)
 }
 
 // ReconcileDeadline implements the bounded best-effort deadline rule: when the

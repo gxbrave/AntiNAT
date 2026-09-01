@@ -21,7 +21,7 @@ import (
 func seedPin(t *testing.T, st *localstate.Store, instanceID string, pub ed25519.PublicKey) {
 	t.Helper()
 	if err := st.SaveControllerPin(localstate.ControllerPin{
-		InstanceID: instanceID, KeyID: "pin-key-1",
+		InstanceID: instanceID, KeyID: security.KeyIDOf(pub),
 		PublicKeyRaw: append(ed25519.PublicKey(nil), pub...), Generation: 1,
 	}); err != nil {
 		t.Fatal(err)
@@ -51,7 +51,7 @@ func TestAgentAcceptsRotationPinEndToEnd(t *testing.T) {
 
 	now := time.Now().Unix()
 	cert := security.NewRotationCertificate(
-		"controller", oldPub, 1, "pin-key-1", newPub, 2, security.KeyIDOf(newPub), now, now+3600)
+		"controller", oldPub, 1, security.KeyIDOf(oldPub), newPub, 2, security.KeyIDOf(newPub), now, now+3600)
 	if err := security.SignRotationCertificate(&cert, oldPriv); err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestAgentRefusesDowngradePin(t *testing.T) {
 	seedPin(t, st, "inst-1", oldPub)
 
 	now := time.Now().Unix()
-	cert := security.NewRotationCertificate("controller", oldPub, 1, "pin-key-1", newPub, 1, security.KeyIDOf(newPub), now, now+3600)
+	cert := security.NewRotationCertificate("controller", oldPub, 1, security.KeyIDOf(oldPub), newPub, 1, security.KeyIDOf(newPub), now, now+3600)
 	_ = security.SignRotationCertificate(&cert, oldPriv)
 	raw, _ := cert.Encode()
 	if _, _, err := AcceptControllerRotationPin(st, "inst-1", []byte(raw)); err == nil {
@@ -123,7 +123,7 @@ func TestAgentRefusesForgedDowngradeSignedByLegitGen4Key(t *testing.T) {
 	}
 	gen4Pub := gen4Priv.Public().(ed25519.PublicKey)
 	if err := st.SaveControllerPin(localstate.ControllerPin{
-		InstanceID: "inst-1", KeyID: "gen4-key-id",
+		InstanceID: "inst-1", KeyID: security.KeyIDOf(gen4Pub),
 		PublicKeyRaw: append(ed25519.PublicKey(nil), gen4Pub...), Generation: 4,
 	}); err != nil {
 		t.Fatal(err)
@@ -146,13 +146,13 @@ func TestAgentRefusesForgedDowngradeSignedByLegitGen4Key(t *testing.T) {
 	}
 	// (a) The exact M1 scenario: gen-1 -> gen-3 downgrade signed by the gen-4 key.
 	tryAccept("gen-1->3 downgrade", security.NewRotationCertificate(
-		"controller", gen4Pub, 1, "gen4-key-id", forgedNewPub, 3, security.KeyIDOf(forgedNewPub), now, now+3600))
+		"controller", gen4Pub, 1, security.KeyIDOf(gen4Pub), forgedNewPub, 3, security.KeyIDOf(forgedNewPub), now, now+3600))
 	// (b) Cross-chain forgery: gen-1 -> gen-5 signed by the gen-4 key. Decode and
 	// storage both accept gen 5 > gen 4, but the certificate's OldGeneration (1)
 	// does not equal the persisted pin generation (4) — a cert chain the agent
 	// never witnessed. Must be refused by AcceptControllerRotationPin itself.
 	tryAccept("gen-1->5 oldGeneration mismatch", security.NewRotationCertificate(
-		"controller", gen4Pub, 1, "gen4-key-id", forgedNewPub, 5, security.KeyIDOf(forgedNewPub), now, now+3600))
+		"controller", gen4Pub, 1, security.KeyIDOf(gen4Pub), forgedNewPub, 5, security.KeyIDOf(forgedNewPub), now, now+3600))
 
 	persisted, found, err := st.ControllerPin("inst-1")
 	if err != nil || !found {
@@ -178,7 +178,7 @@ func TestAgentRefusesWrongInstance(t *testing.T) {
 	seedPin(t, st, "inst-A", oldPub)
 
 	now := time.Now().Unix()
-	cert := security.NewRotationCertificate("controller", oldPub, 1, "pin-key-1", newPub, 2, security.KeyIDOf(newPub), now, now+3600)
+	cert := security.NewRotationCertificate("controller", oldPub, 1, security.KeyIDOf(oldPub), newPub, 2, security.KeyIDOf(newPub), now, now+3600)
 	_ = security.SignRotationCertificate(&cert, oldPriv)
 	raw, _ := cert.Encode()
 	if _, _, err := AcceptControllerRotationPin(st, "inst-B", []byte(raw)); err == nil {

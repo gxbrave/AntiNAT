@@ -24,6 +24,10 @@ import (
 // KeyringFile is the Controller signing key filename.
 const KeyringFile = "controller-signing.key"
 
+// KeyringStagedFile is the non-active successor key filename. Staged material
+// is never used for signing until an explicit lifecycle activation.
+const KeyringStagedFile = "controller-signing.key.stage"
+
 // maxSupportedGeneration is the highest keyring generation this build
 // understands. A file carrying a higher generation was written by a newer
 // AntiNAT build and load fails closed (mirrors the bbolt schema gate).
@@ -124,7 +128,9 @@ func (k *Keyring) saveAtomic(path string) error {
 // fsync + rename + parent-fsync pattern as the initial write) and returns the
 // new Keyring. The old Keyring remains the signer for the overlap window until
 // the rotation operation reaches RETIRED; the successor's public key is what
-// the signed rotation certificate binds.
+// the signed rotation certificate binds. This historical API is retained for
+// callers that explicitly request activation; lifecycle.PrepareRotation uses
+// GenerateNewKeyringKey plus Stage instead so journal intent precedes activation.
 func (k *Keyring) Rotate(dir string) (*Keyring, error) {
 	if k.generation >= maxSupportedGeneration {
 		return nil, fmt.Errorf("security: keyring rotation beyond supported generation %d", maxSupportedGeneration)
@@ -139,6 +145,56 @@ func (k *Keyring) Rotate(dir string) (*Keyring, error) {
 	}
 	if err := next.saveAtomic(filepath.Join(dir, KeyringFile)); err != nil {
 		return nil, fmt.Errorf("security: rotate persist keyring: %w", err)
+	}
+	return next, nil
+}
+
+// GenerateSuccessor creates successor key material without touching the active
+// signer file. Callers can journal intent and then Stage the returned key.
+func (k *Keyring) GenerateSuccessor() (*Keyring, error) {
+	if k.generation >= maxSupportedGeneration {
+		return nil, fmt.Errorf("security: keyring rotation beyond supported generation %d", maxSupportedGeneration)
+	}
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("security: generate successor key: %w", err)
+	}
+	return &Keyring{priv: priv, generation: k.generation + 1}, nil
+}
+
+// Stage persists successor key material separately from the active signer.
+func (k *Keyring) Stage(dir string) error {
+	if k == nil || k.generation == 0 {
+		return errors.New("security: staged key is empty")
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("security: stage key dir: %w", err)
+	}
+	if err := k.saveAtomic(filepath.Join(dir, KeyringStagedFile)); err != nil {
+		return fmt.Errorf("security: stage successor keyring: %w", err)
+	}
+	return nil
+}
+
+// ActivateStaged atomically promotes previously staged successor material to
+// the active signer only after the caller has durably journaled PREPARED.
+func ActivateStaged(dir string) (*Keyring, error) {
+	path := filepath.Join(dir, KeyringStagedFile)
+	raw, err := loadKeyFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("security: load staged keyring: %w", err)
+	}
+	next, err := parseKeyring(raw)
+	if err != nil {
+		return nil, err
+	}
+	if err := withKeyLock(dir, func() error {
+		if err := os.Rename(path, filepath.Join(dir, KeyringFile)); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("security: activate staged keyring: %w", err)
 	}
 	return next, nil
 }

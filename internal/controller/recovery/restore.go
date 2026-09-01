@@ -95,17 +95,21 @@ func ValidateRestore(ctx context.Context, live *store.Store, backupDir string, l
 // applies it to the manifest sibling-file verification in store.hashAndMode).
 const maxRestoreDBBytes = store.MaxBackupFileBytes
 
-// ApplyRestore stages the backup database into the live directory, verifies it
-// under the frozen integrity checks, WRITES the RESTORE_RECONCILIATION intent
-// INTO the staged copy, then atomically switches it over the live database
-// file. The durable restore_operations row therefore exists BEFORE the rename
-// (repair-1 M6a): a crash at ANY point between staging and the switch leaves
-// either the OLD live database (harmless, nothing was switched) or the NEW live
-// database that ALREADY carries RESTORE_RECONCILIATION. The live controller can
-// never come back up on a switched-in restored DB and silently resume automatic
-// dispatch. The caller must have quiesced (closed) the live store on
-// liveDBPath first.
-func ApplyRestore(ctx context.Context, liveDBPath, backupDir string) (store.RestoreOperation, error) {
+// ApplyRestore is the validated restore orchestration. The live store and the
+// live controller key-id set are mandatory context; the function validates the
+// backup (including manifest hashes, key identity, high-water anti-rollback,
+// and rotation/reconciliation barriers) before closing the live store and
+// switching the prepared database. The raw stage/switch helpers are private.
+func ApplyRestore(ctx context.Context, live *store.Store, liveDBPath, backupDir string, liveKeyIDs []string) (store.RestoreOperation, error) {
+	if live == nil || len(liveKeyIDs) == 0 {
+		return store.RestoreOperation{}, fmt.Errorf("%w: live store and key context are required", ErrRestoreRefused)
+	}
+	if _, err := ValidateRestore(ctx, live, backupDir, liveKeyIDs); err != nil {
+		return store.RestoreOperation{}, err
+	}
+	if err := live.Close(); err != nil {
+		return store.RestoreOperation{}, fmt.Errorf("%w: close live store before switch: %v", ErrRestoreRefused, err)
+	}
 	stagePath, op, err := prepareRestoreStage(liveDBPath, backupDir)
 	if err != nil {
 		return store.RestoreOperation{}, err

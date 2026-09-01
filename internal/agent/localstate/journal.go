@@ -716,6 +716,19 @@ func (s *Store) QueueResult(epoch uint64, sessionID, operationID string, result 
 	})
 }
 
+// QueueResultSessionIndependent records a local durable result without a live
+// session binding. It is reserved for terminal lifecycle ACKs: an offline
+// decommissioned agent must retain the semantic ACK and let the next session
+// deliver it, rather than manufacturing epoch zero and losing the result.
+func (s *Store) QueueResultSessionIndependent(operationID string, result []byte) error {
+	if operationID == "" {
+		return ErrOperationNotFound
+	}
+	return s.db.Update(func(tx *bolt.Tx) error {
+		return s.recordResultAndQueue(tx, operationID, result)
+	})
+}
+
 // ClaimOutbox advances PENDING -> CLAIMED.
 func (s *Store) ClaimOutbox(epoch uint64, sessionID, operationID string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {

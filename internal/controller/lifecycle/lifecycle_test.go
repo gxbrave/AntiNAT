@@ -171,7 +171,7 @@ func TestFinalizeRestoreResumesDispatch(t *testing.T) {
 	}); err == nil {
 		t.Fatal("desired enqueued for a still-quarantined node after global finalize")
 	}
-	if err := ReauthorizeNode(ctx, s, "node-reauth"); err != nil {
+	if err := ReauthorizeNodeForOperation(ctx, s, "node-reauth", "rest-final-1"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.EnqueueControlOutbox(store.ControlOutboxItem{

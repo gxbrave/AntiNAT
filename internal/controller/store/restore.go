@@ -49,7 +49,14 @@ func (s *Store) EnterRestoreReconciliation(op RestoreOperation) error {
 	); err != nil {
 		return fmt.Errorf("store: revoke unused enrollment tokens for restore: %w", err)
 	}
-	if _, err := tx.Exec(`UPDATE nodes SET quarantined = 1, updated_at = ?`, now); err != nil {
+	if _, err := tx.Exec(`UPDATE nodes SET quarantined = 1,
+		quarantine_restore_operation_id = ?,
+		quarantine_generation = CASE
+			WHEN quarantined = 1 AND quarantine_restore_operation_id = ?
+			THEN quarantine_generation
+			ELSE quarantine_generation + 1
+		END,
+		updated_at = ?`, op.ID, op.ID, now); err != nil {
 		return fmt.Errorf("store: quarantine nodes for restore: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -58,19 +65,61 @@ func (s *Store) EnterRestoreReconciliation(op RestoreOperation) error {
 	return nil
 }
 
-// ReauthorizeNode clears a single node's restore quarantine; the controller
-// may then resume normal dispatch for it.
-func (s *Store) ReauthorizeNode(nodeID string) error {
-	res, err := s.db.Exec(
-		`UPDATE nodes SET quarantined = 0, updated_at = ? WHERE id = ?`, s.currentUnix(), nodeID,
-	)
-	if err != nil {
-		return fmt.Errorf("store: reauthorize node: %w", err)
+// ReauthorizeNodeForOperation clears a node quarantine only when the named
+// restore operation is AUTHORIZED and is the exact operation recorded on the
+// node. The check and clear are one transaction, so stale authorization cannot
+// race a newer restore operation.
+func (s *Store) ReauthorizeNodeForOperation(nodeID, restoreOperationID string) error {
+	if nodeID == "" || restoreOperationID == "" {
+		return fmt.Errorf("%w: node and restore operation are required", ErrCASConflict)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNodeNotFound
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("store: begin reauthorize node: %w", err)
+	}
+	defer tx.Rollback()
+	var phase string
+	if err := tx.QueryRow(`SELECT phase FROM restore_operations WHERE id = ?`, restoreOperationID).Scan(&phase); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return fmt.Errorf("store: read restore operation for reauthorize: %w", err)
+	}
+	if phase != "AUTHORIZED" {
+		return fmt.Errorf("%w: restore operation %q is %s, want AUTHORIZED", ErrIllegalPhase, restoreOperationID, phase)
+	}
+	res, err := tx.Exec(`UPDATE nodes SET quarantined = 0, updated_at = ?
+		WHERE id = ? AND quarantined = 1 AND quarantine_restore_operation_id = ?`, s.currentUnix(), nodeID, restoreOperationID)
+	if err != nil {
+		return fmt.Errorf("store: reauthorize node for operation: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("store: reauthorize node rows: %w", err)
+	}
+	if n == 0 {
+		var quarantined, binding int
+		var currentOp string
+		if err := tx.QueryRow(`SELECT quarantined, quarantine_restore_operation_id FROM nodes WHERE id = ?`, nodeID).Scan(&quarantined, &currentOp); errors.Is(err, sql.ErrNoRows) {
+			return ErrNodeNotFound
+		} else if err != nil {
+			return err
+		}
+		if quarantined == 0 {
+			return nil
+		}
+		_ = binding
+		return fmt.Errorf("%w: node %q is bound to restore operation %q", ErrCASConflict, nodeID, currentOp)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: commit reauthorize node: %w", err)
 	}
 	return nil
+}
+
+// ReauthorizeNode is intentionally fail-closed: callers must name the restore
+// operation because a node-only clear cannot prove it is not stale.
+func (s *Store) ReauthorizeNode(nodeID string) error {
+	return fmt.Errorf("%w: restore operation binding required for node %q", ErrCASConflict, nodeID)
 }
 
 // IsNodeQuarantined reports the durable restore quarantine flag.

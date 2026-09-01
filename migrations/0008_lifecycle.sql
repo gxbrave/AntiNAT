@@ -27,6 +27,8 @@ CREATE UNIQUE INDEX idx_cleanup_tombstones_node_unique
 -- RESTORE_RECONCILIATION can suspend automatic desired/delete/rotation
 -- dispatch per node until an administrator reauthorizes it.
 ALTER TABLE nodes ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE nodes ADD COLUMN quarantine_restore_operation_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE nodes ADD COLUMN quarantine_generation INTEGER NOT NULL DEFAULT 0;
 
 -- Delivery-denied outbox backoff (repair-2 L-B): a control_outbox row whose
 -- delivery is refused (cleanup-only node, RESTORE_RECONCILIATION, per-node
@@ -56,6 +58,16 @@ CREATE TABLE IF NOT EXISTS key_rotation_operations (
 CREATE INDEX IF NOT EXISTS idx_key_rotation_ops_phase
     ON key_rotation_operations(phase, updated_at, id);
 
+-- Per-agent rotation acknowledgements are required before normal retirement.
+CREATE TABLE IF NOT EXISTS key_rotation_agent_acks (
+    operation_id TEXT NOT NULL REFERENCES key_rotation_operations(id) ON DELETE CASCADE,
+    node_id      TEXT NOT NULL,
+    acked_at     INTEGER NOT NULL,
+    PRIMARY KEY (operation_id, node_id)
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_key_rotation_agent_acks_operation
+    ON key_rotation_agent_acks(operation_id, node_id);
+
 -- One restore/recovery operation: the durable record of a Controller restore
 -- entering RESTORE_RECONCILIATION. Nodes are quarantined (no automatic
 -- desired/delete/rotation dispatch) until an administrator reauthorizes them.
@@ -68,5 +80,7 @@ CREATE TABLE IF NOT EXISTS restore_operations (
     created_at          INTEGER NOT NULL,
     updated_at          INTEGER NOT NULL
 ) STRICT;
+CREATE INDEX IF NOT EXISTS idx_restore_ops_authorized
+    ON restore_operations(id, phase);
 CREATE INDEX IF NOT EXISTS idx_restore_ops_phase
     ON restore_operations(phase, created_at, id);

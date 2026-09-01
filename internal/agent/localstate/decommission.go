@@ -22,8 +22,10 @@ import (
 )
 
 var (
-	keyDecommissionIntent = []byte("decommission-intent:")
-	keyCleanupTombstone   = []byte("cleanup-tombstone:")
+	keyDecommissionIntent          = []byte("decommission-intent:")
+	keyCleanupTombstone            = []byte("cleanup-tombstone:")
+	keyDecommissionIntentCanonical = []byte("decommission-intent:current")
+	keyCleanupTombstoneCanonical   = []byte("cleanup-tombstone:current")
 	// ErrDecommissionConflict rejects a second decommission intent whose
 	// operation identity differs from the durable one.
 	ErrDecommissionConflict = errors.New("localstate: decommission intent conflicts with persisted intent")
@@ -66,17 +68,39 @@ func (s *Store) PutDecommissionIntent(intent DecommissionIntent) (bool, error) {
 	created := false
 	err = s.db.Update(func(tx *bolt.Tx) error {
 		ops := tx.Bucket([]byte(bucketOperations))
-		key := append(append([]byte{}, keyDecommissionIntent...), []byte(intent.OperationID)...)
-		if existing := ops.Get(key); existing != nil {
+		if existing := ops.Get(keyDecommissionIntentCanonical); existing != nil {
 			var old DecommissionIntent
 			if err := json.Unmarshal(existing, &old); err != nil {
 				return fmt.Errorf("localstate: decode decommission intent: %w", err)
 			}
-			if old.OperationID != intent.OperationID {
-				return fmt.Errorf("%w: %q vs %q", ErrDecommissionConflict, old.OperationID, intent.OperationID)
+			if old.OperationID != intent.OperationID || old.NodeID != intent.NodeID {
+				return fmt.Errorf("%w: existing %s/%s vs new %s/%s", ErrDecommissionConflict, old.OperationID, old.NodeID, intent.OperationID, intent.NodeID)
 			}
 			return nil
 		}
+		// Migrate a legacy operation-keyed singleton if present, but reject when
+		// the first durable fact belongs to another node/operation.
+		var legacy *DecommissionIntent
+		if err := ops.ForEach(func(k, value []byte) error {
+			if !bytes.HasPrefix(k, keyDecommissionIntent) || bytes.Equal(k, keyDecommissionIntentCanonical) {
+				return nil
+			}
+			var old DecommissionIntent
+			if err := json.Unmarshal(value, &old); err != nil {
+				return err
+			}
+			legacy = &old
+			return nil
+		}); err != nil {
+			return err
+		}
+		if legacy != nil && (legacy.OperationID != intent.OperationID || legacy.NodeID != intent.NodeID) {
+			return fmt.Errorf("%w: existing %s/%s vs new %s/%s", ErrDecommissionConflict, legacy.OperationID, legacy.NodeID, intent.OperationID, intent.NodeID)
+		}
+		if err := ops.Put(keyDecommissionIntentCanonical, raw); err != nil {
+			return err
+		}
+		key := append(append([]byte{}, keyDecommissionIntent...), []byte(intent.OperationID)...)
 		if err := ops.Put(key, raw); err != nil {
 			return err
 		}
@@ -93,7 +117,7 @@ func (s *Store) LoadDecommissionIntent() (DecommissionIntent, bool, error) {
 	err := s.db.View(func(tx *bolt.Tx) error {
 		ops := tx.Bucket([]byte(bucketOperations))
 		return ops.ForEach(func(key, raw []byte) error {
-			if !bytes.HasPrefix(key, keyDecommissionIntent) {
+			if !bytes.HasPrefix(key, keyDecommissionIntent) || bytes.Equal(key, keyDecommissionIntentCanonical) {
 				return nil
 			}
 			if found {
@@ -119,7 +143,38 @@ func (s *Store) WriteAgentCleanupTombstone(ts AgentCleanupTombstone) error {
 		return err
 	}
 	return s.db.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket([]byte(bucketOperations)).Put(append(append([]byte{}, keyCleanupTombstone...), []byte(ts.OperationID)...), raw)
+		ops := tx.Bucket([]byte(bucketOperations))
+		if existing := ops.Get(keyCleanupTombstoneCanonical); existing != nil {
+			var old AgentCleanupTombstone
+			if err := json.Unmarshal(existing, &old); err != nil {
+				return fmt.Errorf("localstate: decode cleanup tombstone: %w", err)
+			}
+			if old.OperationID != ts.OperationID || old.NodeID != ts.NodeID {
+				return fmt.Errorf("%w: cleanup tombstone %s/%s vs %s/%s", ErrDecommissionConflict, old.OperationID, old.NodeID, ts.OperationID, ts.NodeID)
+			}
+			return nil
+		}
+		var legacy *AgentCleanupTombstone
+		if err := ops.ForEach(func(k, value []byte) error {
+			if !bytes.HasPrefix(k, keyCleanupTombstone) || bytes.Equal(k, keyCleanupTombstoneCanonical) {
+				return nil
+			}
+			var old AgentCleanupTombstone
+			if err := json.Unmarshal(value, &old); err != nil {
+				return err
+			}
+			legacy = &old
+			return nil
+		}); err != nil {
+			return err
+		}
+		if legacy != nil && (legacy.OperationID != ts.OperationID || legacy.NodeID != ts.NodeID) {
+			return fmt.Errorf("%w: cleanup tombstone %s/%s vs %s/%s", ErrDecommissionConflict, legacy.OperationID, legacy.NodeID, ts.OperationID, ts.NodeID)
+		}
+		if err := ops.Put(keyCleanupTombstoneCanonical, raw); err != nil {
+			return err
+		}
+		return ops.Put(append(append([]byte{}, keyCleanupTombstone...), []byte(ts.OperationID)...), raw)
 	})
 }
 
@@ -130,7 +185,7 @@ func (s *Store) LoadAgentCleanupTombstone() (AgentCleanupTombstone, bool, error)
 	err := s.db.View(func(tx *bolt.Tx) error {
 		ops := tx.Bucket([]byte(bucketOperations))
 		return ops.ForEach(func(key, raw []byte) error {
-			if !bytes.HasPrefix(key, keyCleanupTombstone) {
+			if !bytes.HasPrefix(key, keyCleanupTombstone) || bytes.Equal(key, keyCleanupTombstoneCanonical) {
 				return nil
 			}
 			if found {

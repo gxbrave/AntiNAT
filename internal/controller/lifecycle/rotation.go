@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
 	"github.com/gxbrave/AntiNAT/internal/security"
@@ -37,7 +38,16 @@ func PrepareRotation(ctx context.Context, s *store.Store, keyringDir string, old
 	if oldKey == nil {
 		return store.KeyRotationOperation{}, errors.New("lifecycle: rotation requires the current keyring")
 	}
-	newKey, err := oldKey.Rotate(keyringDir)
+	if scope != "controller" {
+		return store.KeyRotationOperation{}, fmt.Errorf("%w: controller rotation scope must be controller", ErrRotationPhaseRefuses)
+	}
+	if notBeforeUnix == 0 || overlapDeadlineUnix == 0 || notBeforeUnix > overlapDeadlineUnix {
+		return store.KeyRotationOperation{}, fmt.Errorf("%w: malformed rotation validity window", ErrRotationPhaseRefuses)
+	}
+	// Generate and sign the successor without touching the active signer file.
+	// PREPARED is the journal intent; only an explicit later activation may
+	// replace the active keyring.
+	newKey, err := oldKey.GenerateSuccessor()
 	if err != nil {
 		return store.KeyRotationOperation{}, fmt.Errorf("lifecycle: create successor keyring: %w", err)
 	}
@@ -62,13 +72,15 @@ func PrepareRotation(ctx context.Context, s *store.Store, keyringDir string, old
 	if err := s.CreateKeyRotationOperation(op); err != nil {
 		return store.KeyRotationOperation{}, err
 	}
+	if err := newKey.Stage(keyringDir); err != nil {
+		return store.KeyRotationOperation{}, fmt.Errorf("lifecycle: stage successor keyring: %w", err)
+	}
 	return op, nil
 }
 
 // AdvanceRotationPhase is the single-step FSM transition guard. A normal
-// retire is refused while the operation is not ACTIVE (the offline/une-ACKed
-// block); force retire transitions from ACTIVE regardless and the caller
-// records that manual re-pin/re-enroll is now required.
+// retire is refused before the overlap deadline or while any known Agent lacks
+// a durable ACK. Force retire is an explicit atomic bypass.
 func AdvanceRotationPhase(ctx context.Context, s *store.Store, operationID, next string, forceRetire bool) (store.KeyRotationOperation, error) {
 	op, err := s.GetKeyRotationOperation(operationID)
 	if err != nil {
@@ -88,10 +100,22 @@ func AdvanceRotationPhase(ctx context.Context, s *store.Store, operationID, next
 		}
 		return store.KeyRotationOperation{}, fmt.Errorf("%w: %s -> %s", ErrRotationPhaseRefuses, op.Phase, next)
 	}
-	if next == "RETIRED" && !forceRetire && op.Phase != "ACTIVE" {
-		return store.KeyRotationOperation{}, fmt.Errorf("%w: normal retire blocked until the rotation is ACTIVE (offline/une-ACKed Agent)", ErrRotationPhaseRefuses)
+	if next == "RETIRED" && !forceRetire {
+		if op.Phase != "ACTIVE" {
+			return store.KeyRotationOperation{}, fmt.Errorf("%w: normal retire blocked until the rotation is ACTIVE (offline/une-ACKed Agent)", ErrRotationPhaseRefuses)
+		}
+		if time.Now().Unix() < op.OverlapDeadlineUnix {
+			return store.KeyRotationOperation{}, fmt.Errorf("%w: overlap deadline has not passed", ErrRotationPhaseRefuses)
+		}
+		allACKed, err := s.AllRotationAgentsAcknowledged(operationID)
+		if err != nil {
+			return store.KeyRotationOperation{}, err
+		}
+		if !allACKed {
+			return store.KeyRotationOperation{}, fmt.Errorf("%w: normal retire blocked until all Agents ACK", ErrRotationPhaseRefuses)
+		}
 	}
-	if err := s.AdvanceKeyRotationPhase(operationID, next); err != nil {
+	if err := s.AdvanceKeyRotationPhaseCAS(operationID, op.Phase, next); err != nil {
 		return store.KeyRotationOperation{}, err
 	}
 	op.Phase = next

@@ -1045,17 +1045,60 @@ func (a *App) NotifyUninstall(ctx context.Context, operationID string) (reconcil
 // terminal marker), and LKG listeners are not auto-restored until the
 // Controller issues a recovery authorization.
 func (a *App) handleRestoreReconcile(ctx context.Context, op control.Operation) ([]byte, error) {
-	if err := localstate.WriteRecoveryQuarantine(a.cfg.StateDir); err != nil {
+	if a.currentMarker() != localstate.MarkerActive {
+		return nil, reconcile.ErrDecommissionedAgent
+	}
+	var request struct {
+		RestoreOperationID string `json:"restore_operation_id"`
+	}
+	if len(op.Payload) != 0 {
+		if err := protocol.DecodeStrictJSONInto(op.Payload, &request); err != nil {
+			return nil, fmt.Errorf("agent: restore reconcile decode: %w", err)
+		}
+	}
+	operationID := request.RestoreOperationID
+	if operationID == "" {
+		operationID = op.OperationID
+	}
+	generation := uint64(1)
+	if current, found, err := localstate.LoadRecoveryQuarantineBinding(a.cfg.StateDir); err != nil {
+		return nil, err
+	} else if found {
+		generation = current.Generation + 1
+	}
+	if err := localstate.WriteRecoveryQuarantineForOperation(a.cfg.StateDir, operationID, generation); err != nil {
 		return nil, err
 	}
 	a.recoveryQuarantine = true
-	return []byte(`{"status":"quarantined"}`), nil
+	return []byte(fmt.Sprintf(`{"status":"quarantined","operation_id":%q,"generation":%d}`, operationID, generation)), nil
 }
 
-// handleRestoreResult authorizes recovery: the quarantine marker is cleared and
-// a subsequent recovery pass may restore the LKG listeners.
+// handleRestoreResult authorizes recovery only for the exact current restore
+// operation/generation and a success result. Authenticated transport identity
+// alone is not an authorization binding.
 func (a *App) handleRestoreResult(ctx context.Context, op control.Operation) ([]byte, error) {
-	if err := localstate.ClearRecoveryQuarantine(a.cfg.StateDir); err != nil {
+	var result struct {
+		OperationID string `json:"restore_operation_id"`
+		Generation  uint64 `json:"generation"`
+		Status      string `json:"status"`
+	}
+	if err := protocol.DecodeStrictJSONInto(op.Payload, &result); err != nil {
+		return nil, fmt.Errorf("agent: restore result decode: %w", err)
+	}
+	if result.OperationID == "" {
+		result.OperationID = op.OperationID
+	}
+	if result.Status != "authorized" && result.Status != "AUTHORIZED" && result.Status != "success" && result.Status != "SUCCESS" {
+		return nil, errors.New("agent: restore result is not an authorization success")
+	}
+	current, found, err := localstate.LoadRecoveryQuarantineBinding(a.cfg.StateDir)
+	if err != nil {
+		return nil, err
+	}
+	if !found || current.OperationID != result.OperationID || (result.Generation != 0 && current.Generation != result.Generation) {
+		return nil, localstate.ErrRecoveryOperationMismatch
+	}
+	if err := localstate.ClearRecoveryQuarantineForOperation(a.cfg.StateDir, current.OperationID, current.Generation); err != nil {
 		return nil, err
 	}
 	a.recoveryQuarantine = false
@@ -1068,6 +1111,9 @@ func (a *App) handleRestoreResult(ctx context.Context, op control.Operation) ([]
 // operation FSM. A stale-signer or downgrade certificate is refused fail
 // closed.
 func (a *App) handleKeyRotationPrepare(ctx context.Context, op control.Operation) ([]byte, error) {
+	if a.currentMarker() != localstate.MarkerActive {
+		return nil, reconcile.ErrDecommissionedAgent
+	}
 	if a.store == nil {
 		return nil, errors.New("agent: key rotation prepare requires localstate")
 	}
@@ -1170,6 +1216,18 @@ func (a *App) handleDecommission(ctx context.Context, op control.Operation) ([]b
 		dcReq.NodeID = a.cfg.NodeID
 	}
 	dc := a.decommissioner()
+	// A durable terminal marker is final, but a lost terminal ACK is retryable.
+	// Replay the same operation's minimal ACK without reopening the lifecycle;
+	// another operation remains refused fail-closed by QueueAck's identity check.
+	if marker, err := localstate.LoadMarker(a.cfg.StateDir); err != nil {
+		return nil, err
+	} else if marker == localstate.MarkerDecommissioned {
+		if err := dc.QueueAck(ctx, dcReq); err != nil {
+			return nil, err
+		}
+		a.setMarker(localstate.MarkerDecommissioned)
+		return []byte(`{"status":"decommissioned"}`), nil
+	}
 	if err := dc.Begin(ctx, dcReq); err != nil {
 		return nil, err
 	}
@@ -1191,10 +1249,13 @@ func (a *App) handleDecommission(ctx context.Context, op control.Operation) ([]b
 			return nil, err
 		}
 	}
+	// The durable marker is final before attempting network delivery. Mirror it
+	// now so a stale-session ACK failure cannot leave the live app in the
+	// DECOMMISSIONING state and make a retry refuse incorrectly.
+	a.setMarker(localstate.MarkerDecommissioned)
 	if err := dc.QueueAck(ctx, dcReq); err != nil {
 		return nil, err
 	}
-	a.setMarker(localstate.MarkerDecommissioned)
 	return []byte(`{"status":"decommissioned"}`), nil
 }
 

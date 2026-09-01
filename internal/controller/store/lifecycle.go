@@ -236,22 +236,100 @@ func (s *Store) CreateKeyRotationOperation(op KeyRotationOperation) error {
 	return nil
 }
 
-// AdvanceKeyRotationPhase moves a rotation operation through its exact single
-// step (PREPARED -> ANNOUNCED -> ACKED -> ACTIVE -> RETIRED).
-func (s *Store) AdvanceKeyRotationPhase(id, next string) error {
+// rotationPhaseNext is the only legal single-step edge in the durable
+// rotation FSM. Keeping this graph in the store (rather than only in the
+// lifecycle wrapper) prevents direct store callers from bypassing it.
+var rotationPhaseNext = map[string]string{
+	"PREPARED":  "ANNOUNCED",
+	"ANNOUNCED": "ACKED",
+	"ACKED":     "ACTIVE",
+	"ACTIVE":    "RETIRED",
+}
+
+// AdvanceKeyRotationPhaseCAS moves a rotation operation through one exact
+// single-step edge and atomically compares the expected current phase. A
+// concurrent caller that observed the same phase loses at the UPDATE predicate
+// and receives ErrCASConflict; it can never overwrite the winner's phase.
+func (s *Store) AdvanceKeyRotationPhaseCAS(id, expected, next string) error {
+	if id == "" || expected == "" || next == "" {
+		return fmt.Errorf("%w: rotation phase identity is incomplete", ErrIllegalPhase)
+	}
+	if rotationPhaseNext[expected] != next {
+		return fmt.Errorf("%w: rotation transition %s -> %s is not allowed", ErrIllegalPhase, expected, next)
+	}
 	res, err := s.db.Exec(
 		`UPDATE key_rotation_operations
 		    SET phase = ?, updated_at = ?
-		  WHERE id = ?`,
-		next, s.currentUnix(), id,
+		  WHERE id = ? AND phase = ?`,
+		next, s.currentUnix(), id, expected,
 	)
 	if err != nil {
-		return fmt.Errorf("store: advance key rotation phase: %w", err)
+		return fmt.Errorf("store: advance key rotation phase CAS: %w", err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("store: advance key rotation phase CAS rows: %w", err)
+	}
+	if n == 1 {
+		return nil
+	}
+	var current string
+	if err := s.db.QueryRow(`SELECT phase FROM key_rotation_operations WHERE id = ?`, id).Scan(&current); errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
+	} else if err != nil {
+		return fmt.Errorf("store: read rotation phase after CAS conflict: %w", err)
+	}
+	return fmt.Errorf("%w: rotation operation %q is %s, expected %s", ErrCASConflict, id, current, expected)
+}
+
+// AdvanceKeyRotationPhase is the compatibility form. The target phase
+// determines its sole legal predecessor, so the SQL still contains an atomic
+// compare-and-swap predicate rather than an unconditional UPDATE.
+func (s *Store) AdvanceKeyRotationPhase(id, next string) error {
+	var current string
+	if err := s.db.QueryRow(`SELECT phase FROM key_rotation_operations WHERE id = ?`, id).Scan(&current); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return fmt.Errorf("store: read rotation phase: %w", err)
+	}
+	if rotationPhaseNext[current] != next {
+		return fmt.Errorf("%w: rotation transition %s -> %s is not allowed", ErrIllegalPhase, current, next)
+	}
+	return s.AdvanceKeyRotationPhaseCAS(id, current, next)
+}
+
+// RecordKeyRotationAgentACK durably records one node's acknowledgement for a
+// rotation operation. Repeating the same ACK is idempotent.
+func (s *Store) RecordKeyRotationAgentACK(operationID, nodeID string) error {
+	if operationID == "" || nodeID == "" {
+		return fmt.Errorf("%w: rotation ACK identity is incomplete", ErrCASConflict)
+	}
+	if _, err := s.GetKeyRotationOperation(operationID); err != nil {
+		return err
+	}
+	if _, err := s.GetNode(nodeID); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`INSERT OR IGNORE INTO key_rotation_agent_acks(operation_id, node_id, acked_at) VALUES (?, ?, ?)`, operationID, nodeID, s.currentUnix())
+	if err != nil {
+		return fmt.Errorf("store: record rotation agent ACK: %w", err)
 	}
 	return nil
+}
+
+// AllRotationAgentsAcknowledged reports whether every node currently known to
+// the controller has acknowledged this rotation. An empty node set is true.
+func (s *Store) AllRotationAgentsAcknowledged(operationID string) (bool, error) {
+	if operationID == "" {
+		return false, fmt.Errorf("%w: rotation operation is required", ErrCASConflict)
+	}
+	var missing int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM nodes n WHERE NOT EXISTS (
+		SELECT 1 FROM key_rotation_agent_acks a WHERE a.operation_id = ? AND a.node_id = n.id
+	)`, operationID).Scan(&missing); err != nil {
+		return false, fmt.Errorf("store: count unacknowledged rotation agents: %w", err)
+	}
+	return missing == 0, nil
 }
 
 // ForceRetireKeyRotationOperation atomically fast-forwards a rotation operation
@@ -356,6 +434,24 @@ func (s *Store) GetRestoreOperation(id string) (RestoreOperation, error) {
 	return op, nil
 }
 
+// ListRestoreOperations returns restore operations newest first.
+func (s *Store) ListRestoreOperations() ([]RestoreOperation, error) {
+	rows, err := s.db.Query(`SELECT id, controller_instance, manifest_sha256, schema_version, phase, created_at, updated_at FROM restore_operations ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("store: list restore operations: %w", err)
+	}
+	defer rows.Close()
+	var out []RestoreOperation
+	for rows.Next() {
+		var op RestoreOperation
+		if err := rows.Scan(&op.ID, &op.ControllerInstance, &op.ManifestSHA256, &op.SchemaVersion, &op.Phase, &op.CreatedAt, &op.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, op)
+	}
+	return out, rows.Err()
+}
+
 // CreateRestoreOperation persists a restore row in RESTORE_RECONCILIATION.
 func (s *Store) CreateRestoreOperation(op RestoreOperation) error {
 	if op.ID == "" || op.ManifestSHA256 == "" {
@@ -379,9 +475,31 @@ func (s *Store) CreateRestoreOperation(op RestoreOperation) error {
 
 // AdvanceRestorePhase moves a restore row through its reconciliation phases.
 func (s *Store) AdvanceRestorePhase(id, next string) error {
+	if id == "" || next == "" {
+		return fmt.Errorf("%w: restore transition identity is incomplete", ErrIllegalPhase)
+	}
+	allowed := map[string]bool{
+		"RESTORE_RECONCILIATION": next == "RECONCILING",
+		"RECONCILING":            next == "AUTHORIZED",
+		"AUTHORIZED":             next == "AUTHORIZED",
+	}
+	var current string
+	if err := s.db.QueryRow(`SELECT phase FROM restore_operations WHERE id = ?`, id).Scan(&current); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	if !allowed[current] {
+		// Preserve the existing direct finalize behavior while refusing arbitrary
+		// backwards/skip transitions; RESTORE_RECONCILIATION may be finalized as
+		// an operator shortcut to AUTHORIZED.
+		if !(current == "RESTORE_RECONCILIATION" && next == "AUTHORIZED") {
+			return fmt.Errorf("%w: restore transition %s -> %s is not allowed", ErrIllegalPhase, current, next)
+		}
+	}
 	res, err := s.db.Exec(
-		`UPDATE restore_operations SET phase = ?, updated_at = ? WHERE id = ?`,
-		next, s.currentUnix(), id,
+		`UPDATE restore_operations SET phase = ?, updated_at = ? WHERE id = ? AND phase = ?`,
+		next, s.currentUnix(), id, current,
 	)
 	if err != nil {
 		return fmt.Errorf("store: advance restore phase: %w", err)

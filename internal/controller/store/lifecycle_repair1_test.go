@@ -112,7 +112,7 @@ func TestDeliveryAllowedGatesPerNodeQuarantineAndRestoreReconciliation(t *testin
 	}
 
 	// Per-node reauthorization + global finalize resumes dispatch.
-	if err := s.ReauthorizeNode("node-q"); err != nil {
+	if err := s.ReauthorizeNodeForOperation("node-q", "rest-op-global"); err != nil {
 		t.Fatal(err)
 	}
 	if allowed, err := s.DeliveryAllowed("node-q", "desired"); err != nil || !allowed {

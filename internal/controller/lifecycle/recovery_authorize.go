@@ -32,6 +32,9 @@ func FinalizeRestore(ctx context.Context, s *store.Store, operationID string) (s
 		// Idempotent finalize: already authorized is success.
 		return op, nil
 	}
+	if op.Phase != "RESTORE_RECONCILIATION" && op.Phase != "RECONCILING" {
+		return store.RestoreOperation{}, fmt.Errorf("%w: cannot finalize restore from %s", ErrRestorePhaseRefuses, op.Phase)
+	}
 	if err := s.AdvanceRestorePhase(operationID, "AUTHORIZED"); err != nil {
 		return store.RestoreOperation{}, err
 	}
@@ -39,13 +42,17 @@ func FinalizeRestore(ctx context.Context, s *store.Store, operationID string) (s
 	return op, nil
 }
 
-// ReauthorizeNode is the per-node gate exposed at the lifecycle layer: it clears
-// a single node's restore quarantine so normal dispatch can resume for it after
-// the global FinalizeRestore. It is a thin wrapper over store.ReauthorizeNode so
-// the API layer has a lifecycle-owned surface.
-func ReauthorizeNode(ctx context.Context, s *store.Store, nodeID string) error {
-	if err := s.ReauthorizeNode(nodeID); err != nil {
+// ReauthorizeNodeForOperation is the per-node gate exposed at the lifecycle
+// layer. It requires the exact authorized restore operation binding.
+func ReauthorizeNodeForOperation(ctx context.Context, s *store.Store, nodeID, operationID string) error {
+	if err := s.ReauthorizeNodeForOperation(nodeID, operationID); err != nil {
 		return fmt.Errorf("lifecycle: reauthorize node: %w", err)
 	}
 	return nil
+}
+
+// ReauthorizeNode is retained as a fail-closed compatibility surface. A node
+// identifier alone cannot establish which restore operation authorized it.
+func ReauthorizeNode(ctx context.Context, s *store.Store, nodeID string) error {
+	return fmt.Errorf("%w: restore operation binding required for node %q", ErrRestorePhaseRefuses, nodeID)
 }

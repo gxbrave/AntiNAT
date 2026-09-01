@@ -68,7 +68,7 @@ func TestRestoreAfterDeleteEntersReconciliationWithoutResurrection(t *testing.T)
 
 	// Phase 2: restore the old state. After ApplyRestore the controller must be
 	// in RESTORE_RECONCILIATION and refuse auto-dispatch.
-	op, err := ApplyRestore(ctx, livePath, backupDir)
+	op, err := applyRestoreForTest(ctx, live, livePath, backupDir)
 	if err != nil {
 		t.Fatalf("apply restore: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestRestoreOldBackupDoesNotResurrectDeletedForward(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Restore the PRE-delete snapshot.
-	if _, err := ApplyRestore(ctx, livePath, preDeleteBackup); err != nil {
+	if _, err := applyRestoreForTest(ctx, live, livePath, preDeleteBackup); err != nil {
 		t.Fatalf("apply restore: %v", err)
 	}
 	restored, err := store.Open(livePath)
@@ -315,7 +315,7 @@ func TestRestoreReauthorizeNodeClearsQuarantine(t *testing.T) {
 	if err := live.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ApplyRestore(context.Background(), livePath, backupDir); err != nil {
+	if _, err := applyRestoreForTest(context.Background(), live, livePath, backupDir); err != nil {
 		t.Fatal(err)
 	}
 	restored, err := store.Open(livePath)
@@ -323,13 +323,37 @@ func TestRestoreReauthorizeNodeClearsQuarantine(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer restored.Close()
-	if err := restored.ReauthorizeNode("node-1"); err != nil {
+	ops, err := restored.ListRestoreOperations()
+	if err != nil || len(ops) != 1 {
+		t.Fatalf("restore operations=%+v err=%v", ops, err)
+	}
+	if err := restored.AdvanceRestorePhase(ops[0].ID, "AUTHORIZED"); err != nil {
+		t.Fatal(err)
+	}
+	if err := restored.ReauthorizeNodeForOperation("node-1", ops[0].ID); err != nil {
 		t.Fatal(err)
 	}
 	q, err := restored.IsNodeQuarantined("node-1")
 	if err != nil || q {
 		t.Fatalf("node still quarantined after reauthorization: %v %v", q, err)
 	}
+}
+
+func applyRestoreForTest(ctx context.Context, live *store.Store, livePath, backupDir string) (store.RestoreOperation, error) {
+	if _, _, err := store.OpenBackup(backupDir); err != nil {
+		return store.RestoreOperation{}, err
+	}
+	if err := live.Close(); err != nil {
+		return store.RestoreOperation{}, err
+	}
+	stagePath, op, err := prepareRestoreStage(livePath, backupDir)
+	if err != nil {
+		return store.RestoreOperation{}, err
+	}
+	if err := commitRestore(livePath, stagePath); err != nil {
+		return store.RestoreOperation{}, err
+	}
+	return op, nil
 }
 
 func lifeCreateNode(t *testing.T, s *store.Store) error {

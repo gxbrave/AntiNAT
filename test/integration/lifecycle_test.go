@@ -199,13 +199,13 @@ func TestIntegrationRotationPinAccept(t *testing.T) {
 	_, newPriv, _ := ed25519.GenerateKey(rand.Reader)
 	newPub := newPriv.Public().(ed25519.PublicKey)
 	if err := st.SaveControllerPin(localstate.ControllerPin{
-		InstanceID: "inst-1", KeyID: "old-id",
+		InstanceID: "inst-1", KeyID: security.KeyIDOf(oldPub),
 		PublicKeyRaw: append(ed25519.PublicKey(nil), oldPub...), Generation: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().Unix()
-	cert := security.NewRotationCertificate("controller", oldPub, 1, "old-id",
+	cert := security.NewRotationCertificate("controller", oldPub, 1, security.KeyIDOf(oldPub),
 		newPub, 2, security.KeyIDOf(newPub), now, now+3600)
 	if err := security.SignRotationCertificate(&cert, oldPriv); err != nil {
 		t.Fatal(err)
