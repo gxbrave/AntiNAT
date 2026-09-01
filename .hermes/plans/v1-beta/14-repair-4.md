@@ -41,6 +41,9 @@ Only the following paths may be created or modified in this cycle. Any path not 
 - `internal/agent/localstate/marker.go`
 - `internal/agent/localstate/recovery.go`
 - `internal/agent/localstate/decommission.go`
+- `internal/agent/localstate/journal.go`
+- `internal/agent/localstate/lifecycle_lock_unix.go`
+- `internal/agent/localstate/lifecycle_lock_windows.go`
 - `internal/agent/localstate/marker_test.go`
 - `internal/agent/localstate/recovery_quarantine_test.go`
 - `internal/agent/localstate/decommission_test.go`
@@ -77,30 +80,30 @@ Existing tests may be amended only when one of these listed files already contai
 - **GREEN:** additive `nodes` quarantine operation/generation binding (or equivalent durable metadata) and transactional `ReauthorizeNodeForOperation(nodeID, restoreOperationID)` requiring a current matching restore row in `AUTHORIZED` and matching node quarantine binding. Preserve old `ReauthorizeNode` only as a fail-closed wrapper that cannot bypass binding (or update all safe callers). Ensure restore entry records the operation binding for every node and finalization/reauthorization are atomic enough to prevent stale clears.
 - **Verification:** store/lifecycle tests cover stale operation, wrong phase, matching operation, idempotence, and concurrent attempts.
 
-### R4-4 — agent delayed restore result bound to current quarantine operation/generation (HIGH)
+### R4-4 — agent delayed restore result bound to current quarantine operation/generation (HIGH; supplemental B)
 
-- **Finding:** `handleRestoreResult` ignores operation identity and current quarantine generation; an old authenticated success can clear a newer quarantine.
+- **Finding:** `handleRestoreResult` ignores operation identity and current quarantine generation; an old authenticated success can clear a newer quarantine. The supplemental validator independently confirms stale restore-result binding must fail closed.
 - **RED:** add delayed-result test that writes quarantine for operation A, replaces it with newer operation B, delivers authenticated success for A, and proves quarantine remains.
 - **GREEN:** extend `localstate/recovery.go` payload/companion metadata with operation ID and monotonic generation/nonce; `WriteRecoveryQuarantine` records the current restore operation ID from reconcile flow. `handleRestoreReconcile` persists the binding; `handleRestoreResult` accepts only success with matching current operation/generation and expected result semantics, and rejects unknown/stale results fail-closed. Keep terminal marker precedence.
 - **Verification:** localstate/reconcile/agent tests and full race suite.
 
-### R4-5 — shared disk lock and monotonic marker/quarantine operations (HIGH)
+### R4-5 — shared disk lock and monotonic marker/quarantine operations (HIGH; supplemental E)
 
-- **Finding:** marker writes can downgrade DECOMMISSIONED and marker/quarantine check-then-rename/remove operations race.
+- **Finding:** marker writes can downgrade DECOMMISSIONED and marker/quarantine check-then-rename/remove operations race. The supplemental validator independently confirms disk marker monotonicity and marker/quarantine atomicity.
 - **RED:** add concurrent marker/quarantine tests, including DECOMMISSIONED versus DECOMMISSIONING and quarantine clear/write races; assert terminal state never downgrades or reopens. Include a non-vacuous cross-operation oracle where feasible.
 - **GREEN:** add a shared process/file lock for marker and recovery files (portable project pattern), perform all load/write/clear checks under that lock, enforce monotonic marker transitions (`DECOMMISSIONED` rejects every non-terminal marker), re-check terminal state immediately before quarantine rename/remove under the same lock, fsync directory, and fail closed on lock/I/O errors. Avoid relying on P12W in-memory `App.markerMu`; disk synchronization must work cross-process.
 - **Verification:** `-race` focused x20, crash/atomicity tests, and if available a cross-process lock test.
 
-### R4-6 — per-node singleton decommission identity and reconcile latch (HIGH; covers R4-11)
+### R4-6 — per-node singleton decommission identity and reconcile latch (HIGH; covers R4-11 and supplemental A)
 
-- **Finding:** intents/tombstones keyed by supplied operation ID allow multiple facts per node; reconcile accepts a different operation while DECOMMISSIONING.
+- **Finding:** intents/tombstones keyed by supplied operation ID allow multiple facts per node; reconcile accepts a different operation while DECOMMISSIONING. The supplemental validator calls out the same per-node intent/tombstone singleton requirement.
 - **RED:** add localstate/reconcile tests for same-op idempotent retry, different-op/different-node rejection, and conflicting tombstone/intent attempts; prove no second side effect.
 - **GREEN:** add durable per-node canonical identity/index using compatible bbolt key/index or transactional scan (schema version unchanged), compare complete operation+node identity before latching/side effects, allow same-op idempotence only, reject mismatches fail-closed. Ensure reconcile checks durable marker/latch before accepting commands and tombstone creation remains singleton.
 - **Verification:** localstate/reconcile tests, restart/idempotence test, and race run.
 
-### R4-7 — rotation journal intent before keyring side effect (HIGH)
+### R4-7 — rotation journal intent before keyring side effect (HIGH; supplemental C duplicate)
 
-- **Finding:** `PrepareRotation` overwrites active signer before journaling PREPARED; crash can lose old signer or leave orphan state.
+- **Finding:** `PrepareRotation` overwrites active signer before journaling PREPARED; crash can lose old signer or leave orphan state. The supplemental validator confirms this same ordering defect; it is fixed once here, not duplicated as a separate finding.
 - **RED:** add lifecycle rotation failure/crash oracle with an injected keyring activation failure/inspection showing no active-key side effect before journal intent and retries do not skip journal.
 - **GREEN:** stage successor material separately, persist PREPARED operation first, then atomically activate only after journal commit; reconcile orphan/staged material on restart while preserving old signer through overlap. Keep private material out of journal/DB.
 - **Verification:** focused rotation tests and a revert→FAIL→restore→PASS ordering oracle.
@@ -112,16 +115,16 @@ Existing tests may be amended only when one of these listed files already contai
 - **GREEN:** make public `ApplyRestore` require a validated restore token/manifest and live store/key context and call `ValidateRestore`; keep low-level switch private or expose a clearly validated helper used by existing tests. Preserve atomic staging and restore-intent ordering.
 - **Verification:** controller recovery tests, DB hash/high-water checks, and full integration recovery subset.
 
-### R4-9 — normal rotation retire waits for deadline and all agent ACKs (HIGH)
+### R4-9 — normal rotation retire waits for deadline and all agent ACKs (HIGH; supplemental D)
 
-- **Finding:** ACTIVE→RETIRED is allowed immediately without overlap deadline or per-node ACK tracking.
+- **Finding:** ACTIVE→RETIRED is allowed immediately without overlap deadline or per-node ACK tracking. The supplemental validator independently confirms future-deadline/unACKed agents must block normal retirement.
 - **RED:** add tests with a future deadline/unACKed required node asserting normal retire refuses, and force-retire asserting explicit bypass only.
 - **GREEN:** add additive durable per-node rotation ACK tracking/table or truthful conservative policy. Implement conservative policy if existing schema cannot enumerate requirements: normal retire refuses until overlap deadline and required ACK evidence exists; never mark RETIRED with offline/unACKed agents. Force-retire is explicit and remains atomic. Record required-agent/ACK semantics in operation/store APIs.
 - **Verification:** lifecycle/store tests for deadline, ACK completion, offline/unACKed, and force path.
 
-### R4-10 — decommission terminal marker/ACK ordering and stale-session retry (MEDIUM)
+### R4-10 — decommission terminal marker/ACK ordering and stale-session retry (MEDIUM; supplemental F)
 
-- **Finding:** durable DECOMMISSIONED is followed by `QueueAck(epoch=0,session="")`, which can fail stale-session; in-memory state remains DECOMMISSIONING and retry refuses terminal operation.
+- **Finding:** durable DECOMMISSIONED is followed by `QueueAck(epoch=0,session="")`, which can fail stale-session; in-memory state remains DECOMMISSIONING and retry refuses terminal operation. The supplemental validator independently confirms QueueAck must use the live epoch/session (or a session-independent queue) and same-op terminal retry must be idempotent.
 - **RED:** add live-session ACK failure/retry test proving durable terminal state exists while ACK fails and a same-op retry is accepted/idempotent; stale desired/rotation/restore commands remain refused.
 - **GREEN:** use current session identity or a session-independent durable result queue for decommission ACK, set in-memory marker DECOMMISSIONED immediately after durable marker and before ACK, and allow same-op terminal ACK replay while rejecting different/stale operations. Preserve fail-closed behavior for non-terminal marker writes.
 - **Verification:** agent lifecycle tests and full race suite.
