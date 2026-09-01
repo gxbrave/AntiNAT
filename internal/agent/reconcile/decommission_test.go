@@ -206,6 +206,46 @@ func TestDecommissionDeadlineUsesLiveSessionIdentity(t *testing.T) {
 	}
 }
 
+// RED R5-5: a deadline ACK failure must leave the terminal result retryable;
+// a later call with the current session must queue the same ACK without
+// repeating or reopening terminal cleanup.
+func TestDecommissionDeadlineRetriesAckAfterSessionFailure(t *testing.T) {
+	st, dir := openDecommissionStore(t)
+	if err := st.AdvanceSession(8, "live-session"); err != nil {
+		t.Fatal(err)
+	}
+	current := false
+	dc := NewDecommissioner(st, localstate.NewLatch(), dir, nil)
+	dc.SetSessionIdentity(func() (uint64, string, error) {
+		if !current {
+			return 7, "stale-session", nil
+		}
+		return 8, "live-session", nil
+	})
+	req := DecommissionRequest{NodeID: "node-1", OperationID: "decom-retry-r5", DeadlineUnix: time.Now().Unix() - 1}
+	if err := dc.Begin(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dc.ReconcileDeadline(context.Background(), req); err == nil {
+		t.Fatal("deadline ACK failure was swallowed")
+	}
+	marker, err := localstate.LoadMarker(dir)
+	if err != nil || marker != localstate.MarkerDecommissioned {
+		t.Fatalf("marker=%q err=%v after ACK failure", marker, err)
+	}
+	current = true
+	result, err := dc.ReconcileDeadline(context.Background(), req)
+	if err != nil {
+		t.Fatalf("deadline ACK retry: %v", err)
+	}
+	if result.Status != "DECOMMISSIONED" || result.DroppedDueToDecommission {
+		t.Fatalf("retry result=%+v, want idempotent terminal ACK retry", result)
+	}
+	if _, err := st.ResultForOperation(8, "live-session", req.OperationID); err != nil {
+		t.Fatalf("deadline ACK was not retained for retry: %v", err)
+	}
+}
+
 // TestDecommissionDeadlineDropsSecrets is the bounded best-effort semantics:
 func TestDecommissionDeadlineDropsSecrets(t *testing.T) {
 	st, dir := openDecommissionStore(t)

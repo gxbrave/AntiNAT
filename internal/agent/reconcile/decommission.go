@@ -235,6 +235,12 @@ func (d *Decommissioner) ReconcileDeadline(ctx context.Context, req Decommission
 		return DecommissionDeadlineResult{}, err
 	}
 	if marker == localstate.MarkerDecommissioned {
+		// A prior terminal attempt may have failed only while queuing its ACK.
+		// Re-drive the idempotent terminal ACK on every retry using the current
+		// session identity or the session-independent queue.
+		if err := d.QueueAck(ctx, req); err != nil {
+			return DecommissionDeadlineResult{}, err
+		}
 		return DecommissionDeadlineResult{Status: "DECOMMISSIONED"}, nil
 	}
 	sooner := req.DeadlineUnix
