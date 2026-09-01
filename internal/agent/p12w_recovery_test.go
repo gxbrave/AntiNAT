@@ -185,7 +185,7 @@ func TestDataPlaneRecoveryReopensGatewayWithNewJournalRef(t *testing.T) {
 	if _, ok, err := st.MappingJournal().Get(oldRef); err != nil || !ok {
 		t.Fatalf("stale journal record deleted or unreadable: ok=%v err=%v", ok, err)
 	}
-	report, err := d.replayJournalBoundaries()
+	report, err := d.replayJournalBoundaries(d.cfg.Journal, d.cfg.Store, d.liveJournalRefs())
 	if err != nil {
 		t.Fatalf("replayJournalBoundaries: %v", err)
 	}

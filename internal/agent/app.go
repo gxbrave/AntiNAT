@@ -3135,18 +3135,24 @@ func (d *dataPlane) recover(ctx context.Context) (recoverReport, error) {
 		return report, errDataPlaneClosing
 	}
 	defer d.admissionWG.Done()
-	if d.cfg.Store == nil {
+	// repair-1 M2: read every traversal seam (Journal/Mappers/Store/OnRecovery)
+	// from the synchronized config snapshot captured under d.mu. A liveness
+	// fingerprint-change rebuild (rebuildTraversal) re-publishes
+	// d.cfg.Mappers/StunObserver/StunSource under the SAME lock; an unlocked
+	// d.cfg read here raced those writes (P12W repair-3 discipline).
+	cfg, _, _, _ := d.configSnapshot()
+	if cfg.Store == nil {
 		return report, nil
 	}
 	// Received desired state is retry intent, not the source of the serving
 	// target. Recovery is fenced by durable deletion facts, rather than assuming
 	// a received snapshot contains an explicit ABSENT entry.
-	records, err := d.cfg.Store.ListAppliedRecords()
+	records, err := cfg.Store.ListAppliedRecords()
 	if err != nil {
 		return report, err
 	}
 	for _, record := range records {
-		pendingDelete, tombstoned, err := readForwardDeleteFence(d.cfg.Store, record.State.ForwardID)
+		pendingDelete, tombstoned, err := readForwardDeleteFence(cfg.Store, record.State.ForwardID)
 		if err != nil {
 			return report, fmt.Errorf("agent: forward %q delete fence: %w", record.State.ForwardID, err)
 		}
@@ -3194,14 +3200,21 @@ func (d *dataPlane) recover(ctx context.Context) (recoverReport, error) {
 	// the owning gateway adapter, then deleted (applied/tombstone adjacency in
 	// one bbolt transaction). Records whose adapter State cannot be decoded are
 	// retained and surfaced — a live mapping is never released on a guess.
-	if d.cfg.Journal != nil {
-		journal, journalErr := d.replayJournalBoundaries()
+	// The journal replay and evacuation are driven OFF THE SNAPSHOT (M2): the
+	// fence reads and the Mappers registry are the same values the locked
+	// snapshot captured, so a concurrent rebuild cannot race them. The LIVE
+	// acquisition set is computed once under d.mu and passed to both the replay
+	// boundary report and the evacuation so a live mapping is never classified
+	// orphaned and released (M4).
+	liveRefs := d.liveJournalRefs()
+	if cfg.Journal != nil {
+		journal, journalErr := d.replayJournalBoundaries(cfg.Journal, cfg.Store, liveRefs)
 		if journalErr != nil {
 			return report, journalErr
 		}
 		report.Journal = journal
-		if d.cfg.Mappers != nil {
-			evac, evacErr := reconcile.EvacuateOrphanedJournals(ctx, d.cfg.Store, reconcile.MapperRegistry(d.cfg.Mappers))
+		if cfg.Mappers != nil {
+			evac, evacErr := reconcile.EvacuateOrphanedJournals(ctx, cfg.Store, reconcile.MapperRegistry(cfg.Mappers), liveRefs)
 			if evacErr != nil {
 				return report, evacErr
 			}
@@ -3211,7 +3224,7 @@ func (d *dataPlane) recover(ctx context.Context) (recoverReport, error) {
 	// The diagnostic hook fires on every pass (the report may be empty). The
 	// consumer (App/main) decides whether to surface anything, so a later pass
 	// that un-quarantines everything is observable.
-	if onRecovery := d.cfg.OnRecovery; onRecovery != nil {
+	if onRecovery := cfg.OnRecovery; onRecovery != nil {
 		onRecovery(report)
 	}
 	return report, nil
@@ -3300,21 +3313,15 @@ type replayJournalReport struct {
 	Orphaned []traversal.JournalRecord
 }
 
-// replayJournalBoundaries reconciles the durable mapping journal against the
-// live acquisitions and the durable applied forwards. Superseded and orphaned
-// records are listed, never deleted — the no-resurrection authority (durable
-// deletion fence) already gates which forwards reopen.
-func (d *dataPlane) replayJournalBoundaries() (replayJournalReport, error) {
-	var report replayJournalReport
-	if d.cfg.Journal == nil {
-		return report, nil
-	}
-	records, err := d.cfg.Journal.List()
-	if err != nil {
-		return report, fmt.Errorf("agent: journal replay list: %w", err)
-	}
+// liveJournalRefs returns the LIVE acquisition journal references: ForwardID ->
+// actor.acq.JournalID for every currently-running forward actor. It is computed
+// under d.mu and shared by the journal replay boundary report and by the P14
+// evacuation (repair-1 M4: a live mapping is never treated as orphaned even when
+// its durable applied ref is empty/stale).
+func (d *dataPlane) liveJournalRefs() map[string]string {
 	liveRefs := make(map[string]string, len(d.forwards))
 	d.mu.Lock()
+	defer d.mu.Unlock()
 	for id, actor := range d.forwards {
 		// JournalID is read without renewMu, like acquisitionMetaFromAcquisition:
 		// it is monotone "" -> stable (the first confirmed journalPut sets it once;
@@ -3324,10 +3331,27 @@ func (d *dataPlane) replayJournalBoundaries() (replayJournalReport, error) {
 			liveRefs[id] = actor.acq.JournalID
 		}
 	}
-	d.mu.Unlock()
+	return liveRefs
+}
+
+// replayJournalBoundaries reconciles the durable mapping journal against the
+// live acquisitions and the durable applied forwards. Superseded and orphaned
+// records are listed, never deleted — the no-resurrection authority (durable
+// deletion fence) already gates which forwards reopen. journal/store are the
+// synchronized config-snapshot values (repair-1 M2); liveRefs is the live
+// acquisition set computed under d.mu.
+func (d *dataPlane) replayJournalBoundaries(journal traversal.JournalStore, store *localstate.Store, liveRefs map[string]string) (replayJournalReport, error) {
+	var report replayJournalReport
+	if journal == nil {
+		return report, nil
+	}
+	records, err := journal.List()
+	if err != nil {
+		return report, fmt.Errorf("agent: journal replay list: %w", err)
+	}
 	appliedRefs := make(map[string]string)
-	if d.cfg.Store != nil {
-		if applied, err := d.cfg.Store.ListAppliedStates(); err != nil {
+	if store != nil {
+		if applied, err := store.ListAppliedStates(); err != nil {
 			return report, fmt.Errorf("agent: journal replay applied: %w", err)
 		} else {
 			for _, st := range applied {
@@ -3418,18 +3442,29 @@ func (d *dataPlane) finishReopen(ctx context.Context, spec protocol.ForwardSpec,
 		d.abandonAcquiredActor(spec.ForwardID, actor)
 		return nil
 	}
+	// Same-revision LKG refresh (P14 ownership) — run BEFORE publication while
+	// the actor is still acquirable-only. A restart re-acquired the mapping
+	// under a NEW journal record; the durable applied row must point at the live
+	// record without moving SpecRevision so a later recovery never renews the
+	// superseded record and evacuation classifies the old one. repair-1 M4: a
+	// refresh failure is NEVER swallowed — the actor is abandoned (not yet
+	// published, so abandonAcquiredActor is the correct teardown) and the error
+	// propagates, so a live mapping ref that failed to refresh is never later
+	// treated as orphaned and released. The forward stays retry-intent for the
+	// next recovery pass.
+	if d.cfg.Store != nil && actor.meta.journalID != "" {
+		if _, err := d.cfg.Store.RefreshAppliedJournalRef(spec.ForwardID, actor.meta.journalID); err != nil {
+			d.mu.Unlock()
+			cancel()
+			d.abandonAcquiredActor(spec.ForwardID, actor)
+			return fmt.Errorf("agent: forward %q same-revision journal-ref refresh: %w", spec.ForwardID, err)
+		}
+	}
 	d.forwards[spec.ForwardID] = actor
 	d.startForwardSupervisor(runCtx, spec.ForwardID, actor)
 	d.mu.Unlock()
 	if d.cfg.OnApplied != nil {
 		d.cfg.OnApplied(spec, appliedStateForAcquisition(spec, lease.Tuple(), d.cfg.Clock, actor.meta))
-	}
-	// Same-revision LKG refresh (P14 ownership): a restart re-acquired the
-	// mapping under a NEW journal record; the durable applied row must point at
-	// the live record without moving SpecRevision so a later recovery never
-	// renews the superseded record and evacuation classifies the old one.
-	if d.cfg.Store != nil && actor.meta.journalID != "" {
-		_, _ = d.cfg.Store.RefreshAppliedJournalRef(spec.ForwardID, actor.meta.journalID)
 	}
 	return nil
 }

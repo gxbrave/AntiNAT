@@ -148,6 +148,11 @@ type EvacuationReport struct {
 //     the typed renewal/delete authority) and the record is deleted.
 //   - A journal record that is the applied ref of a live applied forward is
 //     the durable LKG reference: it is never deleted.
+//   - A journal record whose ID is in liveRefs is the LIVE acquisition's
+//     current record: it is retained EVEN IF the durable applied ref is empty
+//     or stale (repair-1 M4 keeps the authoritative live mapping set as a
+//     first-class retention input so a live gateway forward with an
+//     un-refreshed applied row is never released as orphaned).
 //   - An applied forward whose MappingJournalRef points at a journal record
 //     that no longer exists has a dangling reference: the applied record is
 //     refreshed at the same revision to an empty ref so restart recovery
@@ -158,7 +163,7 @@ type EvacuationReport struct {
 // decode is retained (Kept) and never dropped silently: releasing a live
 // gateway mapping is an external side effect that must only run when the
 // decode is authoritative.
-func EvacuateOrphanedJournals(ctx context.Context, store *localstate.Store, mappers MapperRegistry) (EvacuationReport, error) {
+func EvacuateOrphanedJournals(ctx context.Context, store *localstate.Store, mappers MapperRegistry, liveRefs map[string]string) (EvacuationReport, error) {
 	var report EvacuationReport
 	if store == nil {
 		return report, nil
@@ -180,6 +185,15 @@ func EvacuateOrphanedJournals(ctx context.Context, store *localstate.Store, mapp
 	// only allowed after the dangling-ref check has run.
 	if len(records) == 0 && len(applied) == 0 {
 		return report, nil
+	}
+	// liveIDs is the set of journal record ids backing LIVE acquisitions
+	// (repair-1 M4). A live mapping is never released on a stale/empty applied
+	// ref, so its record joins the retention set below.
+	liveIDs := make(map[string]bool, len(liveRefs))
+	for _, id := range liveRefs {
+		if id != "" {
+			liveIDs[id] = true
+		}
 	}
 	appliedRefs := make(map[string]string, len(applied))
 	appliedRevs := make(map[string]uint64, len(applied))
@@ -238,9 +252,10 @@ func EvacuateOrphanedJournals(ctx context.Context, store *localstate.Store, mapp
 		_, appliedRef := appliedRefs[record.ForwardID]
 		_, isTombstoned := tombstoned[record.ForwardID]
 		_, isFenced := fenced[record.ForwardID]
-		if appliedRef || isTombstoned || isFenced {
-			// A durable fact (LKG applied ref, tombstone, or pending delete
-			// intent) retains the record. Recovery/apply paths own those.
+		if liveIDs[record.ID] || appliedRef || isTombstoned || isFenced {
+			// A LIVE backing record (repair-1 M4), a durable fact (LKG applied
+			// ref, tombstone, or pending delete intent) retains the record.
+			// Recovery/apply paths own those.
 			continue
 		}
 		// Orphaned: no durable fact describes this forward. Decode and release

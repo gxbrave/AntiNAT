@@ -164,7 +164,7 @@ func TestRecoveryRefreshAppliedRefOnReopen(t *testing.T) {
 		t.Fatal("continue: stale ref unexpectedly present in journal")
 	}
 	// The applied ref points at a vanished record: evacuate must refresh it to "".
-	report, err := reconcile.EvacuateOrphanedJournals(ctx, st, reconcile.MapperRegistry{})
+	report, err := reconcile.EvacuateOrphanedJournals(ctx, st, reconcile.MapperRegistry{}, nil)
 	if err != nil {
 		t.Fatalf("evacuate: %v", err)
 	}

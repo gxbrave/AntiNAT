@@ -226,7 +226,7 @@ func TestEvacuateOrphanedJournalDecodesPCPState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	report, err := EvacuateOrphanedJournals(ctx, st, MapperRegistry{traversal.LayerPCP: mapper})
+	report, err := EvacuateOrphanedJournals(ctx, st, MapperRegistry{traversal.LayerPCP: mapper}, nil)
 	if err != nil {
 		t.Fatalf("evacuate: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestEvacuateSkipsLiveAppliedRef(t *testing.T) {
 	}
 
 	mapper := &fakeMapper{mechanism: traversal.LayerPCP, ownership: traversal.OwnershipStrong}
-	report, err := EvacuateOrphanedJournals(ctx, st, MapperRegistry{traversal.LayerPCP: mapper})
+	report, err := EvacuateOrphanedJournals(ctx, st, MapperRegistry{traversal.LayerPCP: mapper}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,5 +353,64 @@ func TestRefreshAppliedJournalRefSameRevision(t *testing.T) {
 	}
 	if rec.State.DesiredRevision != 1 {
 		t.Fatalf("DesiredRevision changed to %d", rec.State.DesiredRevision)
+	}
+}
+
+// TestLiveForwardJournalRetainedByLiveAcquisitionSet (repair-1 M4): a journal
+// record that is the LIVE acquisition's current record must never be released
+// as orphaned EVEN when the durable applied ref is empty/stale (the forward is
+// live but its applied row has no refreshed journal reference yet). The live
+// acquisition set is a first-class retention input; without it the same record
+// IS evacuated.
+func TestLiveForwardJournalRetainedByLiveAcquisitionSet(t *testing.T) {
+	ctx := context.Background()
+	st, err := localstate.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	stateRaw, _ := json.Marshal(pcp.MapResult{
+		InternalPort: 4321, AssignedExternalPort: 42000, Lifetime: 1200,
+	})
+	record := traversal.JournalRecord{
+		ID: "jr-live", ForwardID: "fwd-live", Mechanism: traversal.LayerPCP,
+		Ownership: traversal.OwnershipStrong, Protocol: "tcp",
+		InternalIP: "10.0.0.2", InternalPort: 4321,
+		ExternalIP: "100.64.0.2", ExternalPort: 42000,
+		LeaseExpiryUnix: time.Now().Add(time.Hour).Unix(),
+		State:           stateRaw, CreatedAtUnix: time.Now().Unix(),
+	}
+	if err := st.MappingJournal().Put(record); err != nil {
+		t.Fatal(err)
+	}
+
+	// No applied row, no tombstone, no delete intent: only the LIVE acquisition
+	// set retains the mapping.
+	mapper := &fakeMapper{mechanism: traversal.LayerPCP, ownership: traversal.OwnershipStrong}
+	report, err := EvacuateOrphanedJournals(ctx, st, MapperRegistry{traversal.LayerPCP: mapper},
+		map[string]string{"fwd-live": "jr-live"})
+	if err != nil {
+		t.Fatalf("evacuate with live set: %v", err)
+	}
+	if len(report.Evacuated) != 0 || mapper.deleteCount() != 0 {
+		t.Fatalf("live mapping released: evacuated=%v deletes=%d", report.Evacuated, mapper.deleteCount())
+	}
+	if _, ok, err := st.MappingJournal().Get("jr-live"); err != nil || !ok {
+		t.Fatalf("live journal record deleted ok=%v err=%v", ok, err)
+	}
+
+	// Control: WITHOUT the live set, the same record IS classified orphaned and
+	// released (proves the live set is what retained it).
+	mapper2 := &fakeMapper{mechanism: traversal.LayerPCP, ownership: traversal.OwnershipStrong}
+	report2, err := EvacuateOrphanedJournals(ctx, st, MapperRegistry{traversal.LayerPCP: mapper2}, nil)
+	if err != nil {
+		t.Fatalf("evacuate without live set: %v", err)
+	}
+	if len(report2.Evacuated) != 1 || report2.Evacuated[0] != "jr-live" {
+		t.Fatalf("control evacuated = %v, want [jr-live]", report2.Evacuated)
+	}
+	if mapper2.deleteCount() != 1 {
+		t.Fatalf("control mapper deletes = %d, want 1", mapper2.deleteCount())
 	}
 }
