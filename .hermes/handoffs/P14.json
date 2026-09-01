@@ -4,8 +4,23 @@
   "stage": "CANDIDATE",
   "branch": "ai/P14-lifecycle-recovery",
   "base_sha": "973cfa60ff2390fd4cbf9f9fa9f8b3afd28cd6e8",
-  "head_sha": "fd222543f28fb8181f9bcf0c969cb10064abda22",
+  "head_sha": "428eb75657b8144ddcf49c8e3a32c19101eaf92d",
   "commits": [
+    "428eb75657b8144ddcf49c8e3a32c19101eaf92d",
+    "157aeff43e47b2a60c917ef2789528a5395e8fbc",
+    "4826ee7f644d146dde014070fe74619621a62b19",
+    "b3e07b9c5fda55bed6a22f35b2daf0c9c5ad8327",
+    "8d3ee310dd6dd37181296dd78f496818e7080d52",
+    "f9d0176b768713d3828863748f2e36357289d1ba",
+    "3c3b3dbd3a3b2c4f6e1e7f6e5253d6824f0c4b52",
+    "fb9b339fb31e9b911f6fffc14bc2e48c791f88f1",
+    "8655fb281d691dfad7dafb59b8854b525500f073",
+    "09ce01c795d58adf53d1edb7d1ef30d7428716da",
+    "90415ed9f706bc890c2c3841ab6d493b9b754f5f",
+    "28d8fbb3cc10de9a089f93b83f8379d358b8d4dd",
+    "0670ebd445b7f63bccf5f86e1141b2f9fae11be5",
+    "4359259b361dec2e765172470afa3f7342e8dad1",
+    "15550fa1488ee3cc3d9cee4977a713603438541a",
     "fd222543f28fb8181f9bcf0c969cb10064abda22",
     "9db561e2877e09453785c54e79cc7d84a7a6fa47",
     "4a740c2be89876e8576772d42cbdba9551e1d994",
@@ -80,6 +95,7 @@
     ".hermes/plans/v1-beta/14-repair-3.md",
     ".hermes/plans/v1-beta/14-repair-4.md",
     ".hermes/plans/v1-beta/14-repair-5.md",
+    ".hermes/plans/v1-beta/14-repair-6.md",
     "docs/recovery.md",
     "internal/agent/app.go",
     "internal/agent/control/lifecycle_commands_transport_test.go",
@@ -131,6 +147,7 @@
     "internal/controller/store/lifecycle_repair1_test.go",
     "internal/controller/store/lifecycle_repair2_test.go",
     "internal/controller/store/lifecycle_repair4_test.go",
+    "internal/controller/store/lifecycle_repair6_test.go",
     "internal/controller/store/migrate_test.go",
     "internal/controller/store/minapi.go",
     "internal/controller/store/outbox.go",
@@ -381,7 +398,20 @@
     "P14 repair-5 explicit: internal/security/keyring.go",
     "P14 repair-5 explicit: internal/security/staged_dir_unix.go",
     "P14 repair-5 explicit: internal/security/staged_dir_windows.go",
-    "P14 repair-5 record explicit: .hermes/handoffs/P14.json"
+    "P14 repair-5 record explicit: .hermes/handoffs/P14.json",
+    "P07 -> P14 explicit repair-5 ownership: internal/agent/reconcile/delete.go",
+    "P07 -> P14 explicit repair-5 ownership: internal/agent/reconcile/delete_lifecycle_test.go",
+    "P07 -> P14 explicit repair-5 ownership: internal/agent/reconcile/recovery.go",
+    "P07 -> P14 explicit repair-5 ownership: internal/agent/reconcile/recovery_test.go",
+    "P14 explicit repair-5 ownership: internal/controller/lifecycle/decommission.go",
+    "P14 repair-6 explicit plan: .hermes/plans/v1-beta/14-repair-6.md",
+    "P14 repair-6 explicit handoff: .hermes/handoffs/P14.json",
+    "P14 repair-6 explicit production: internal/controller/lifecycle/rotation.go",
+    "P14 repair-6 explicit production: internal/controller/store/lifecycle.go",
+    "P14 repair-6 explicit production: internal/security/keyring.go",
+    "P14 repair-6 explicit migration: migrations/0008_lifecycle.sql",
+    "P14 repair-6 explicit test: internal/controller/lifecycle/rotation_test.go",
+    "P14 repair-6 explicit test: internal/controller/store/lifecycle_repair6_test.go"
   ],
   "capability_result": "SUPPORTED_WITH_LIMITS",
   "known_limits": [
@@ -1031,9 +1061,14 @@
       "summary": "PASS; complete repository race suite with no race reports."
     },
     {
-      "command": "GOWORK=off go test ./internal/agent/localstate ./internal/agent/reconcile ./internal/controller/lifecycle ./internal/controller/recovery ./internal/security ./internal/controller/store ./internal/controller/agenthub -race -count=5 -timeout=10m",
+      "command": "GOWORK=off go test ./internal/controller/lifecycle ./internal/controller/store ./internal/security -race -run 'Rotation|Prepared|Staged|ApplyRestore|R6' -count=20 -timeout=20m",
       "exit_code": 0,
-      "summary": "PASS; bounded focused lifecycle race suite x5. The required x20 attempt was stopped at 10m in an unrelated store migration/enrollment contention test; no race report."
+      "summary": "PASS; R6 rotation scope, operation-specific staging, reconciliation isolation, retirement, store invariant, ApplyRestore evidence, and security tests race-stressed x20."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/agent/localstate ./internal/agent/reconcile ./internal/controller/lifecycle ./internal/controller/recovery ./internal/security ./internal/controller/store ./internal/controller/agenthub -race -count=20 -timeout=30m",
+      "exit_code": 0,
+      "summary": "PASS; required focused package race stress x20."
     },
     {
       "command": "GOWORK=off go test -race ./internal/agent -run 'Repair4|Repair5|Restore|Decommission|Marker|Rotation|Quarantine|Terminal|Journal|Uninstall|Begin' -count=5",
@@ -1058,7 +1093,7 @@
     {
       "command": "GOWORK=off go test ./test/integration -run 'Delete|Decommission|Recovery|Rotation' -count=1 -v",
       "exit_code": 0,
-      "summary": "PASS; lifecycle integration subset."
+      "summary": "PASS; P14 lifecycle integration subset."
     },
     {
       "command": "GOOS=windows GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/...",
@@ -1076,19 +1111,14 @@
       "summary": "PASS; compile-only Darwin/amd64."
     },
     {
-      "command": "gofmt -l <all changed Go files>",
+      "command": "gofmt -l <all changed Go files> && git diff --check 973cfa60ff2390fd4cbf9f9fa9f8b3afd28cd6e8..428eb75657b8144ddcf49c8e3a32c19101eaf92d",
       "exit_code": 0,
-      "summary": "PASS; no changed Go files require formatting."
+      "summary": "PASS; no formatting output and no whitespace errors."
     },
     {
-      "command": "git diff --check 572423b1695c3089f50f7bde12d8945aa0dcfdc1..fd222543f28fb8181f9bcf0c969cb10064abda22",
-      "exit_code": 0,
-      "summary": "PASS; no whitespace errors in repair-5 implementation range."
-    },
-    {
-      "command": "govulncheck",
+      "command": "govulncheck ./...",
       "exit_code": -1,
-      "summary": "UNAVAILABLE; executable not installed."
+      "summary": "UNAVAILABLE; govulncheck executable is not installed in this environment."
     }
   ],
   "repair_cycle_5": {
@@ -1111,6 +1141,7 @@
     },
     "reassert_with_code_evidence": [],
     "new_or_changed_files": [
+      ".hermes/handoffs/P14.json",
       ".hermes/plans/v1-beta/14-repair-5.md",
       "docs/recovery.md",
       "internal/agent/app.go",
@@ -1222,5 +1253,158 @@
       "The broad focused race x20 command previously timed out in store TestConsumeEnrollmentTokenNodeMismatch during migration under contention; a bounded x5 focused race run passed. Required full race passed."
     ],
     "known_flakes": "The non-dedicated full test invocation fails only because the environment lacks the provisioned ANTINAT_DEDICATED_UID/GID service identity; the dedicated full suite passes. govulncheck is unavailable. The broad focused x20 run timed out after 10 minutes in an unrelated store migration/enrollment contention test; bounded x5 focused race passed. No new behavioral flakes observed."
+  },
+  "repair_cycle_6": {
+    "trigger": "Fresh adversarial quality/security review confirmed R6-1 HIGH (multiple PREPARED rotation operations can corrupt staging during reconciliation) and R6-2 through R6-5 MEDIUM metadata/evidence defects. Bounded repair-6 plan was committed before production edits.",
+    "base_sha": "973cfa60ff2390fd4cbf9f9fa9f8b3afd28cd6e8",
+    "repair_base_sha": "28d8fbb3cc10de9a089f93b83f8379d358b8d4dd",
+    "repair_head_sha": "428eb75657b8144ddcf49c8e3a32c19101eaf92d",
+    "finding_to_fix": {
+      "R6-1": "Operation-specific hashed staging paths, durable one-nonterminal-operation-per-signing-scope enforcement, one reservation across reconciliation scan/per-operation cleanup, and non-vacuous concurrent/stale-stage isolation tests. Old signer remains untouched.",
+      "R6-2": "Top-level canonical head/commits/files metadata now advances through the repair-5 implementation/content tip before this repair-6 record, with exact full SHAs and diff paths.",
+      "R6-3": "Explicit ownership entries cover the five previously omitted canonical paths and every repair-6 plan, implementation, migration, and test path.",
+      "R6-4": "repair_cycle_4 and repair_cycle_5 new_or_changed_files are generated from their exact implementation/content git diff ranges rather than the full canonical set.",
+      "R6-5": "Focused lifecycle/store tests reassert normal-retire deadline+ACK policy and exported ApplyRestore validation/bypass refusal; existing exact named tests are cited for decommission identity, quarantine concurrency, and stale-session terminal ACK retry."
+    },
+    "reassert_with_code_evidence": [
+      {
+        "finding": "R6-5 decommission identity",
+        "path": "internal/agent/reconcile/decommission_test.go",
+        "tests": [
+          "TestDecommissionCompleteRejectsMismatchedPersistedIntent",
+          "TestDecommissionDeadlineRejectsMismatchedPersistedIntent"
+        ],
+        "lines": "356-398",
+        "command": "GOWORK=off go test ./internal/agent/reconcile -run 'TestDecommission(Complete|Deadline)RejectsMismatchedPersistedIntent' -count=1"
+      },
+      {
+        "finding": "R6-5 concurrent quarantine write/clear",
+        "path": "internal/agent/localstate/recovery_quarantine_test.go",
+        "tests": [
+          "TestRecoveryQuarantineConcurrentNextGenerationKeepsOneWinner",
+          "TestRecoveryQuarantineRejectsEqualGenerationDifferentOperation"
+        ],
+        "lines": "41-79",
+        "command": "GOWORK=off go test ./internal/agent/localstate -run 'TestRecoveryQuarantine(ConcurrentNextGenerationKeepsOneWinner|RejectsEqualGenerationDifferentOperation)' -count=1"
+      },
+      {
+        "finding": "R6-5 terminal ACK stale-session failure/retry",
+        "path": "internal/agent/reconcile/decommission_test.go",
+        "tests": [
+          "TestDecommissionDeadlineRetriesAckAfterSessionFailure"
+        ],
+        "lines": "209-255",
+        "command": "GOWORK=off go test ./internal/agent/reconcile -run TestDecommissionDeadlineRetriesAckAfterSessionFailure -count=1"
+      },
+      {
+        "finding": "R6-5 validated exported ApplyRestore bypass refusal",
+        "path": "internal/controller/store/lifecycle_repair6_test.go",
+        "tests": [
+          "TestApplyRestoreRequiresValidatedLiveContext"
+        ],
+        "lines": "59-80",
+        "command": "GOWORK=off go test ./internal/controller/store -run TestApplyRestoreRequiresValidatedLiveContext -count=1"
+      },
+      {
+        "finding": "R6-5 deadline/normal-retire ACK status",
+        "path": "internal/controller/lifecycle/rotation_test.go",
+        "tests": [
+          "TestNormalRetireRequiresDeadlineAndAllAgentACK"
+        ],
+        "lines": "327-367",
+        "command": "GOWORK=off go test ./internal/controller/lifecycle -run TestNormalRetireRequiresDeadlineAndAllAgentACK -count=1"
+      }
+    ],
+    "new_or_changed_files": [
+      ".hermes/plans/v1-beta/14-repair-6.md",
+      "internal/controller/lifecycle/rotation.go",
+      "internal/controller/lifecycle/rotation_test.go",
+      "internal/controller/store/lifecycle.go",
+      "internal/controller/store/lifecycle_repair6_test.go",
+      "internal/security/keyring.go",
+      "migrations/0008_lifecycle.sql"
+    ],
+    "new_files_this_cycle": [
+      ".hermes/plans/v1-beta/14-repair-6.md",
+      "internal/controller/store/lifecycle_repair6_test.go"
+    ],
+    "verification": [
+      {
+        "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1",
+        "exit_code": 0,
+        "summary": "PASS; complete repository suite with dedicated sandbox identity."
+      },
+      {
+        "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./... -count=1",
+        "exit_code": 0,
+        "summary": "PASS; complete repository race suite with no race reports."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/controller/lifecycle ./internal/controller/store ./internal/security -race -run 'Rotation|Prepared|Staged|ApplyRestore|R6' -count=20 -timeout=20m",
+        "exit_code": 0,
+        "summary": "PASS; R6 rotation scope, operation-specific staging, reconciliation isolation, retirement, store invariant, ApplyRestore evidence, and security tests race-stressed x20."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/agent/localstate ./internal/agent/reconcile ./internal/controller/lifecycle ./internal/controller/recovery ./internal/security ./internal/controller/store ./internal/controller/agenthub -race -count=20 -timeout=30m",
+        "exit_code": 0,
+        "summary": "PASS; required focused package race stress x20."
+      },
+      {
+        "command": "GOWORK=off go test -race ./internal/agent -run 'Repair4|Repair5|Restore|Decommission|Marker|Rotation|Quarantine|Terminal|Journal|Uninstall|Begin' -count=5",
+        "exit_code": 0,
+        "summary": "PASS; focused Agent repair/lifecycle race suite x5."
+      },
+      {
+        "command": "GOWORK=off go vet ./...",
+        "exit_code": 0,
+        "summary": "PASS; vet clean."
+      },
+      {
+        "command": "GOWORK=off go test ./test/contracts -run TestContractManifest -count=1",
+        "exit_code": 0,
+        "summary": "PASS; frozen contract manifest gate."
+      },
+      {
+        "command": "GOWORK=off go test -tags=netns ./test/integration -run 'TestTCPTraversal|TestAgentGatewayTraversal|TestUDP' -count=1",
+        "exit_code": 0,
+        "summary": "PASS; prior netns traversal lab."
+      },
+      {
+        "command": "GOWORK=off go test ./test/integration -run 'Delete|Decommission|Recovery|Rotation' -count=1 -v",
+        "exit_code": 0,
+        "summary": "PASS; P14 lifecycle integration subset."
+      },
+      {
+        "command": "GOOS=windows GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/...",
+        "exit_code": 0,
+        "summary": "PASS; compile-only Windows/amd64."
+      },
+      {
+        "command": "GOOS=linux GOARCH=arm64 GOWORK=off go build ./cmd/... ./internal/...",
+        "exit_code": 0,
+        "summary": "PASS; compile-only Linux/arm64."
+      },
+      {
+        "command": "GOOS=darwin GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/...",
+        "exit_code": 0,
+        "summary": "PASS; compile-only Darwin/amd64."
+      },
+      {
+        "command": "gofmt -l <all changed Go files> && git diff --check 973cfa60ff2390fd4cbf9f9fa9f8b3afd28cd6e8..428eb75657b8144ddcf49c8e3a32c19101eaf92d",
+        "exit_code": 0,
+        "summary": "PASS; no formatting output and no whitespace errors."
+      },
+      {
+        "command": "govulncheck ./...",
+        "exit_code": -1,
+        "summary": "UNAVAILABLE; govulncheck executable is not installed in this environment."
+      }
+    ],
+    "deviations": [
+      "The frozen 0008 schema remains additive-only: operation identity is bound to a SHA-256-derived operation-specific staging filename and a new partial unique index enforces one nonterminal rotation per scope.",
+      "The old shared staging API remains for compatibility, but lifecycle PrepareRotation and reconciliation use only operation-specific APIs. Stale durable rows are explicitly removed and cleanup can remove only the matching operation stage.",
+      "R6-5 existing evidence is cited rather than duplicated where exact named tests already cover decommission identity, quarantine concurrency, and stale-session terminal ACK retry."
+    ],
+    "known_flakes": "No new behavioral flakes observed. Full dedicated test and race suites, focused race stress, vet, contract, netns, lifecycle integration, cross-build, formatting, and diff checks passed. govulncheck unavailable because executable is not installed."
   }
 }
