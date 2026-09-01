@@ -30,6 +30,7 @@ Only the following paths may be created or modified in this cycle. Any path not 
 - `internal/controller/store/restore.go`
 - `internal/controller/store/outbox.go`
 - `internal/controller/store/lifecycle_repair4_test.go`
+- `internal/controller/store/lifecycle_repair1_test.go`
 - `internal/controller/store/migrate_test.go`
 
 ### Security transfer paths (P08 → P14)
