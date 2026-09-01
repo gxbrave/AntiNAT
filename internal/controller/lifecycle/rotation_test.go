@@ -191,14 +191,14 @@ func TestReconcilePreparedRotationsDoesNotDeleteAnotherOperationStage(t *testing
 		t.Fatal(err)
 	}
 	if err := s.CreateKeyRotationOperation(store.KeyRotationOperation{
-		ID: "rot-stale-a", Scope: "controller", OldKeyID: oldKey.KeyID(), OldKeyGeneration: 1,
+		ID: "z-stale-a", Scope: "controller", OldKeyID: oldKey.KeyID(), OldKeyGeneration: 1,
 		NewKeyID: "missing-a", NewGeneration: 2, Phase: "PREPARED", NotBeforeUnix: now,
 		OverlapDeadlineUnix: now + 3600,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.CreateKeyRotationOperation(store.KeyRotationOperation{
-		ID: "rot-valid-b", Scope: "agent", OldKeyID: oldKey.KeyID(), OldKeyGeneration: 1,
+		ID: "a-valid-b", Scope: "agent", OldKeyID: oldKey.KeyID(), OldKeyGeneration: 1,
 		NewKeyID: valid.KeyID(), NewGeneration: 2, Phase: "PREPARED", NotBeforeUnix: now,
 		OverlapDeadlineUnix: now + 3600,
 	}); err != nil {
@@ -209,23 +209,23 @@ func TestReconcilePreparedRotationsDoesNotDeleteAnotherOperationStage(t *testing
 	if err := valid.Stage(dir); err != nil {
 		t.Fatal(err)
 	}
-	if err := valid.StageForOperation(dir, "rot-valid-b"); err != nil {
+	if err := valid.StageForOperation(dir, "a-valid-b"); err != nil {
 		t.Fatal(err)
 	}
 	if err := ReconcilePreparedRotations(context.Background(), s, dir); err == nil {
 		t.Fatal("reconciliation unexpectedly reported all prepared rows recoverable")
 	}
-	if _, err := s.GetKeyRotationOperation("rot-stale-a"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.GetKeyRotationOperation("z-stale-a"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("stale operation was not explicitly removed: %v", err)
 	}
-	remaining, err := s.GetKeyRotationOperation("rot-valid-b")
+	remaining, err := s.GetKeyRotationOperation("a-valid-b")
 	if err != nil {
 		t.Fatalf("valid operation removed with stale predecessor: %v", err)
 	}
 	if remaining.Phase != "PREPARED" {
 		t.Fatalf("valid operation phase=%q, want PREPARED", remaining.Phase)
 	}
-	staged, err := security.LoadStagedKeyringForOperation(dir, "rot-valid-b")
+	staged, err := security.LoadStagedKeyringForOperation(dir, "a-valid-b")
 	if err != nil {
 		t.Fatalf("valid operation stage removed by stale cleanup: %v", err)
 	}
