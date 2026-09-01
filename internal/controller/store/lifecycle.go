@@ -303,6 +303,25 @@ func (s *Store) CreateKeyRotationOperation(op KeyRotationOperation) error {
 	return nil
 }
 
+// DeleteKeyRotationOperation removes a just-created PREPARED row when successor
+// staging fails. It is intentionally restricted to PREPARED so a staging
+// failure cannot erase an announced or active lifecycle operation.
+func (s *Store) DeleteKeyRotationOperation(id string) error {
+	if id == "" {
+		return ErrNotFound
+	}
+	res, err := s.db.Exec(`DELETE FROM key_rotation_operations WHERE id = ? AND phase = 'PREPARED'`, id)
+	if err != nil {
+		return fmt.Errorf("store: delete prepared key rotation operation: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // rotationPhaseNext is the only legal single-step edge in the durable
 // rotation FSM. Keeping this graph in the store (rather than only in the
 // lifecycle wrapper) prevents direct store callers from bypassing it.

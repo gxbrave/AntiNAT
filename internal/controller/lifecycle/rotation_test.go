@@ -6,11 +6,13 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/gxbrave/AntiNAT/internal/controller/store"
 	"github.com/gxbrave/AntiNAT/internal/security"
 )
 
@@ -38,6 +40,42 @@ func TestPrepareRotationDoesNotStageBeforeJournalFailure(t *testing.T) {
 	}
 	if active.Generation() != oldKey.Generation() || active.KeyID() != oldKey.KeyID() {
 		t.Fatalf("active signer changed after journal rejection: generation=%d key=%s", active.Generation(), active.KeyID())
+	}
+}
+
+// RED R5-3: a staging failure must not leave a PREPARED operation without
+// recoverable successor material. The old signer remains authoritative and a
+// retry after the staging fault is repaired must be possible.
+func TestPrepareRotationStagingFailureDoesNotLeavePreparedGap(t *testing.T) {
+	s := openStore(t)
+	dir := t.TempDir()
+	oldKey, err := security.LoadOrCreateKeyring(dir, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	badDir := filepath.Join(dir, "not-a-directory")
+	if err := os.WriteFile(badDir, []byte("block"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Unix()
+	if _, err := PrepareRotation(context.Background(), s, badDir, oldKey, "controller", "rot-stage-r5", now, now+3600); err == nil {
+		t.Fatal("rotation unexpectedly succeeded with an unusable keyring directory")
+	}
+	if _, err := s.GetKeyRotationOperation("rot-stage-r5"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("staging failure left a durable PREPARED operation: %v", err)
+	}
+	active, err := security.LoadOrCreateKeyring(dir, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.KeyID() != oldKey.KeyID() || active.Generation() != oldKey.Generation() {
+		t.Fatalf("active signer changed after staging failure: %s/%d", active.KeyID(), active.Generation())
+	}
+	if err := os.Remove(badDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PrepareRotation(context.Background(), s, dir, oldKey, "controller", "rot-stage-r5", now, now+3600); err != nil {
+		t.Fatalf("retry after staging repair failed: %v", err)
 	}
 }
 

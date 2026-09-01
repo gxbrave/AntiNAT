@@ -78,6 +78,12 @@ func PrepareRotation(ctx context.Context, s *store.Store, keyringDir string, old
 		return store.KeyRotationOperation{}, err
 	}
 	if err := newKey.Stage(keyringDir); err != nil {
+		// The PREPARED row must never claim a successor exists when staging did
+		// not complete. Remove the just-created intent so a retry can safely
+		// regenerate and stage successor material while the old signer remains.
+		if removeErr := s.DeleteKeyRotationOperation(operationID); removeErr != nil {
+			return store.KeyRotationOperation{}, fmt.Errorf("lifecycle: stage successor keyring: %v (rollback prepared journal: %w)", err, removeErr)
+		}
 		return store.KeyRotationOperation{}, fmt.Errorf("lifecycle: stage successor keyring: %w", err)
 	}
 	return op, nil
