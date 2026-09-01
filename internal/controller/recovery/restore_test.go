@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gxbrave/AntiNAT/internal/controller/lifecycle"
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
@@ -242,6 +243,53 @@ func TestBackupRefusedDuringInFlightRotation(t *testing.T) {
 	backupDir := filepath.Join(dir, "backup")
 	if _, err := live.BackupToWithKeys(backupDir, []string{"key-A"}); err == nil {
 		t.Fatal("backup accepted during an in-flight rotation")
+	}
+}
+
+// RED R5-2: ValidateRestore must hold the same lifecycle reservation through
+// its barrier check, so a concurrent PrepareRotation cannot begin mid-validation.
+func TestRestoreValidationUsesSharedLifecycleReservation(t *testing.T) {
+	dir := t.TempDir()
+	livePath := filepath.Join(dir, "controller.db")
+	live, err := store.Open(livePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer live.Close()
+	backupDir := filepath.Join(dir, "backup")
+	if _, err := live.BackupToWithKeys(backupDir, []string{"key-A"}); err != nil {
+		t.Fatal(err)
+	}
+	reservation, err := store.AcquireLifecycleReservation(context.Background(), live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	go func() {
+		keyDir := filepath.Join(dir, "keys")
+		oldKey, err := security.LoadOrCreateKeyring(keyDir, 1)
+		if err != nil {
+			result <- err
+			return
+		}
+		_, err = lifecycle.PrepareRotation(context.Background(), live, keyDir, oldKey, "controller", "rot-reservation-r5", time.Now().Unix(), time.Now().Unix()+3600)
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		t.Fatalf("rotation entered while restore reservation held: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+	if err := reservation.Release(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("rotation did not proceed after reservation release: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("rotation did not acquire reservation after release")
 	}
 }
 
