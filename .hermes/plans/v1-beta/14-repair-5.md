@@ -23,6 +23,7 @@ Only the paths below may be created or modified in repair cycle 5. Any other pat
 - `internal/agent/control/session_test.go`
 - `internal/agent/control/lifecycle_commands_transport_test.go`
 - `internal/agent/p14_repair4_lifecycle_test.go`
+- `internal/agent/p14_repair5_lifecycle_test.go`
 
 ### Agent localstate transfer
 
@@ -84,6 +85,8 @@ Only the paths below may be created or modified in repair cycle 5. Any other pat
 - `internal/controller/store/probe.go`
 - `internal/controller/store/probe_test.go`
 - `internal/controller/store/restore.go`
+- `internal/controller/store/lifecycle_lock_unix.go`
+- `internal/controller/store/lifecycle_lock_windows.go`
 
 ### Security transfer
 
