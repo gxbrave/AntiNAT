@@ -29,10 +29,17 @@ type NodeCleanupTombstone struct {
 	UpdatedAt              int64
 }
 
+// ErrCleanupTombstoneConflict reports a second cleanup tombstone for a node
+// whose operation id differs from the persisted terminal fact (the terminal
+// fact never forks; see CreateNodeCleanupTombstone).
+var ErrCleanupTombstoneConflict = errors.New("store: cleanup tombstone for node already exists with a different operation id")
+
 // CreateNodeCleanupTombstone persists the cleanup tombstone for one node. The
 // operation id is the durable identity; a second tombstone for the same node is
-// allowed only when it is a retry of the same operation (idempotent) and is
-// refused otherwise (the terminal fact never forks).
+// allowed only when it is an idempotent retry of the SAME operation (repair-1
+// L2 — the docstring previously claimed duplicates are "refused" while the
+// upsert silently kept the first operation_id). A DIFFERENT operation id for an
+// already-tombstoned node is refused fail-closed: the terminal fact never forks.
 func (s *Store) CreateNodeCleanupTombstone(ts NodeCleanupTombstone) error {
 	if ts.NodeID == "" || ts.OperationID == "" {
 		return errors.New("store: cleanup tombstone requires node and operation id")
@@ -46,19 +53,42 @@ func (s *Store) CreateNodeCleanupTombstone(ts NodeCleanupTombstone) error {
 		return err
 	}
 	now := s.currentUnix()
-	_, err = s.db.Exec(
-		`INSERT INTO node_cleanup_tombstones
-		    (id, node_id, operation_id, force, remote_cleanup_confirmed,
-		     allowed_key_hashes, credential_versions, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(node_id) DO UPDATE SET
-		    updated_at = excluded.updated_at`,
-		orDefault(ts.ID, deterministicMessageID(ts.OperationID, "node_cleanup_tombstone")),
-		ts.NodeID, ts.OperationID, boolInt(ts.Force), boolInt(ts.RemoteCleanupConfirmed),
-		string(hashes), string(versions), now, now,
-	)
+	tx, err := s.db.Begin()
 	if err != nil {
-		return fmt.Errorf("store: create cleanup tombstone: %w", err)
+		return fmt.Errorf("store: begin cleanup tombstone: %w", err)
+	}
+	defer tx.Rollback()
+	var existingOp string
+	err = tx.QueryRow(`SELECT operation_id FROM node_cleanup_tombstones WHERE node_id = ?`, ts.NodeID).Scan(&existingOp)
+	switch {
+	case err != nil && !errors.Is(err, sql.ErrNoRows):
+		return fmt.Errorf("store: read cleanup tombstone: %w", err)
+	case err == nil && existingOp != ts.OperationID:
+		return fmt.Errorf("%w: existing %q vs new %q", ErrCleanupTombstoneConflict, existingOp, ts.OperationID)
+	case err == nil:
+		// Idempotent retry of the SAME operation: the terminal fact is
+		// unchanged; refresh the timestamp only.
+		if _, err := tx.Exec(
+			`UPDATE node_cleanup_tombstones SET updated_at = ? WHERE node_id = ?`,
+			now, ts.NodeID,
+		); err != nil {
+			return fmt.Errorf("store: idempotent cleanup tombstone retry: %w", err)
+		}
+	default:
+		if _, err := tx.Exec(
+			`INSERT INTO node_cleanup_tombstones
+			    (id, node_id, operation_id, force, remote_cleanup_confirmed,
+			     allowed_key_hashes, credential_versions, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			orDefault(ts.ID, deterministicMessageID(ts.OperationID, "node_cleanup_tombstone")),
+			ts.NodeID, ts.OperationID, boolInt(ts.Force), boolInt(ts.RemoteCleanupConfirmed),
+			string(hashes), string(versions), now, now,
+		); err != nil {
+			return fmt.Errorf("store: create cleanup tombstone: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: commit cleanup tombstone: %w", err)
 	}
 	return nil
 }
@@ -82,8 +112,15 @@ func (s *Store) NodeCleanupTombstone(nodeID string) (NodeCleanupTombstone, error
 	}
 	ts.Force = force != 0
 	ts.RemoteCleanupConfirmed = confirmed != 0
-	_ = json.Unmarshal([]byte(hashes), &ts.AllowedKeyHashes)
-	_ = json.Unmarshal([]byte(versions), &ts.CredentialVersions)
+	// repair-1 L3: corrupted JSON decodes SILENTLY to nil before; a cleanup
+	// tombstone with silently-empty allowed key hashes would falsely admit an
+	// old key. Fail closed instead.
+	if err := json.Unmarshal([]byte(hashes), &ts.AllowedKeyHashes); err != nil {
+		return NodeCleanupTombstone{}, fmt.Errorf("store: decode cleanup tombstone key hashes: %w", err)
+	}
+	if err := json.Unmarshal([]byte(versions), &ts.CredentialVersions); err != nil {
+		return NodeCleanupTombstone{}, fmt.Errorf("store: decode cleanup tombstone credential versions: %w", err)
+	}
 	return ts, nil
 }
 
@@ -141,11 +178,20 @@ func (s *Store) ListCleanupTombstones() ([]NodeCleanupTombstone, error) {
 		}
 		ts.Force = force != 0
 		ts.RemoteCleanupConfirmed = confirmed != 0
-		_ = json.Unmarshal([]byte(hashes), &ts.AllowedKeyHashes)
-		_ = json.Unmarshal([]byte(versions), &ts.CredentialVersions)
+		if err := json.Unmarshal([]byte(hashes), &ts.AllowedKeyHashes); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("store: decode cleanup tombstone key hashes: %w", err)
+		}
+		if err := json.Unmarshal([]byte(versions), &ts.CredentialVersions); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("store: decode cleanup tombstone credential versions: %w", err)
+		}
 		out = append(out, ts)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // KeyRotationOperation is one durable key-rotation FSM row (v0.8 §8.3).
@@ -204,6 +250,35 @@ func (s *Store) AdvanceKeyRotationPhase(id, next string) error {
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
+	}
+	return nil
+}
+
+// ForceRetireKeyRotationOperation atomically fast-forwards a rotation operation
+// to RETIRED in a SINGLE UPDATE from ACKED or ACTIVE (repair-1 L1). The prior
+// force-retire path wrote ACTIVE then RETIRED as two separate UPDATEs; a crash
+// between them left the durable row claiming RETIRED while it was ACTIVE. One
+// statement means the journal can only ever observe ACKED/ACTIVE or RETIRED,
+// never a half-updated ACTIVE trailing a claimed RETIRED.
+func (s *Store) ForceRetireKeyRotationOperation(id string) error {
+	res, err := s.db.Exec(
+		`UPDATE key_rotation_operations SET phase = 'RETIRED', updated_at = ?
+		  WHERE id = ? AND phase IN ('ACKED', 'ACTIVE')`,
+		s.currentUnix(), id,
+	)
+	if err != nil {
+		return fmt.Errorf("store: force retire key rotation: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		var phase string
+		qerr := s.db.QueryRow(`SELECT phase FROM key_rotation_operations WHERE id = ?`, id).Scan(&phase)
+		if errors.Is(qerr, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if qerr != nil {
+			return qerr
+		}
+		return fmt.Errorf("%w: force retire refused from phase %q", ErrIllegalPhase, phase)
 	}
 	return nil
 }
@@ -427,6 +502,24 @@ func (s *Store) EnforceCleanupOnlyEnqueue(nodeID, messageType string, fetchClean
 		}
 		builder.WriteString(joinSorted(keys, ", "))
 		return fmt.Errorf("store: node %q is cleanup-only; refused to enqueue %q (allowed: %s)", nodeID, messageType, builder.String())
+	}
+	return nil
+}
+
+// EnforceRotationBackupBarrier returns an error while any key rotation
+// operation is non-terminal (NOT RETIRED), mirroring the lifecycle restore
+// barrier at the BACKUP path (repair-1 S3). A backup taken mid-rotation would
+// capture a half-rotated key set and a non-terminal operation journal, so it is
+// refused like restore is.
+func (s *Store) EnforceRotationBackupBarrier() error {
+	ops, err := s.ListKeyRotationOperations()
+	if err != nil {
+		return err
+	}
+	for _, op := range ops {
+		if op.Phase != "RETIRED" {
+			return fmt.Errorf("store: active key rotation operation %q in phase %q blocks backup", op.ID, op.Phase)
+		}
 	}
 	return nil
 }

@@ -9,6 +9,8 @@
 package reconcile
 
 import (
+	"fmt"
+
 	"github.com/gxbrave/AntiNAT/internal/agent/localstate"
 )
 
@@ -33,7 +35,11 @@ func RecoveryDeferred(stateDir string, marker localstate.MarkerState) (bool, Def
 	}
 	quarantined, err := localstate.LoadRecoveryQuarantine(stateDir)
 	if err != nil {
-		return false, RecoveryAllowed, err
+		// repair-1 L6: an ambiguous/unreadable quarantine file must fail CLOSED.
+		// The side-effect-deferred result is true (LKG recovery is NOT allowed)
+		// and the error is surfaced, so even a caller that ignores the error
+		// never auto-recovers listeners on an ambiguous quarantine file.
+		return true, DeferredByRecoveryQuarantine, fmt.Errorf("reconcile: load recovery quarantine: %w", err)
 	}
 	if quarantined {
 		return true, DeferredByRecoveryQuarantine, nil

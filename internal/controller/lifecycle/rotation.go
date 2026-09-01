@@ -75,13 +75,12 @@ func AdvanceRotationPhase(ctx context.Context, s *store.Store, operationID, next
 		return store.KeyRotationOperation{}, err
 	}
 	if !RotationFSMSingleStep[[2]string{op.Phase, next}] {
-		// Force retire may fast-forward ACKED -> ACTIVE -> RETIRED through the
-		// two legal single steps; the phase journal records both.
+		// Force retire fast-forwards an une-ACKed ACKED -> RETIRED through the
+		// two legal single steps; the phase journal records RETIRED in ONE
+		// atomic write (repair-1 L1), so a crash can never leave the row ACTIVE
+		// while the operation claims RETIRED.
 		if forceRetire && next == "RETIRED" && op.Phase == "ACKED" {
-			if err := s.AdvanceKeyRotationPhase(operationID, "ACTIVE"); err != nil {
-				return store.KeyRotationOperation{}, err
-			}
-			if err := s.AdvanceKeyRotationPhase(operationID, "RETIRED"); err != nil {
+			if err := s.ForceRetireKeyRotationOperation(operationID); err != nil {
 				return store.KeyRotationOperation{}, err
 			}
 			op.Phase = "RETIRED"

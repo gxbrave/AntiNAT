@@ -12,6 +12,38 @@ import (
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
 )
 
+// TestCleanupTombstoneDuplicateRefused (repair-1 L2): a second tombstone for an
+// already-tombstoned node with a DIFFERENT operation id is refused and the
+// terminal fact keeps the FIRST operation id; an idempotent retry of the SAME
+// operation succeeds and refreshes the timestamp.
+func TestCleanupTombstoneDuplicateRefused(t *testing.T) {
+	s, _, _ := openTest(t)
+	if err := s.CreateNodeCleanupTombstone(store.NodeCleanupTombstone{
+		NodeID: "node-1", OperationID: "tomb-first", Force: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A different operation id must be refused (the terminal fact never forks).
+	if err := s.CreateNodeCleanupTombstone(store.NodeCleanupTombstone{
+		NodeID: "node-1", OperationID: "tomb-second", Force: true,
+	}); err == nil {
+		t.Fatal("second cleanup tombstone with a different operation id was accepted")
+	}
+	ts, err := s.NodeCleanupTombstone("node-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ts.OperationID != "tomb-first" {
+		t.Fatalf("terminal fact operation id = %q, want tomb-first (silently kept?)", ts.OperationID)
+	}
+	// Idempotent retry of the SAME operation succeeds.
+	if err := s.CreateNodeCleanupTombstone(store.NodeCleanupTombstone{
+		NodeID: "node-1", OperationID: "tomb-first", Force: true,
+	}); err != nil {
+		t.Fatalf("idempotent retry of the same operation refused: %v", err)
+	}
+}
+
 // TestCreateForwardBundleRefusedAfterCleanupTombstone (repair-1 M3b): the
 // forward-bundle transaction inserts its desired control_outbox row directly
 // (bypassing EnqueueControlOutbox). Once a cleanup tombstone exists, creating a
@@ -95,5 +127,51 @@ func TestDeliveryAllowedGatesPerNodeQuarantineAndRestoreReconciliation(t *testin
 	}
 	if allowed, _ := s.DeliveryAllowed("node-q", "desired"); allowed {
 		t.Fatal("DeliveryAllowed(desired) true after cleanup tombstone")
+	}
+}
+
+// TestForceRetireKeyRotationOperationAtomic (repair-1 L1): the force-retire
+// fast-forward lands on RETIRED in ONE statement. Seeding an ACKED operation and
+// calling the atomic store method must produce RETIRED (never a transient ACTIVE
+// that a crash could leave behind while the operation claims RETIRED), and the
+// FSM guard is preserved: a PREPARED operation is refused.
+func TestForceRetireKeyRotationOperationAtomic(t *testing.T) {
+	s, _, _ := openTest(t)
+
+	op := store.KeyRotationOperation{
+		ID: "rot-atomic", Scope: "controller", OldKeyID: "old", NewKeyID: "new",
+		NewGeneration: 2, Phase: "ACKED", NotBeforeUnix: 1, OverlapDeadlineUnix: 2,
+	}
+	if err := s.CreateKeyRotationOperation(op); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ForceRetireKeyRotationOperation("rot-atomic"); err != nil {
+		t.Fatalf("atomic force retire: %v", err)
+	}
+	got, err := s.GetKeyRotationOperation("rot-atomic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Phase != "RETIRED" {
+		t.Fatalf("phase = %q, want RETIRED (single atomic write, no half-updated ACTIVE)", got.Phase)
+	}
+
+	// A PREPARED operation is NOT force-retirable (preserves the FSM guard).
+	pre := store.KeyRotationOperation{
+		ID: "rot-pre", Scope: "controller", OldKeyID: "old", NewKeyID: "new",
+		NewGeneration: 2, Phase: "PREPARED", NotBeforeUnix: 1, OverlapDeadlineUnix: 2,
+	}
+	if err := s.CreateKeyRotationOperation(pre); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ForceRetireKeyRotationOperation("rot-pre"); err == nil {
+		t.Fatal("force retire accepted from PREPARED")
+	}
+	preGot, err := s.GetKeyRotationOperation("rot-pre")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preGot.Phase != "PREPARED" {
+		t.Fatalf("PREPARED operation phase changed to %q after refused force retire", preGot.Phase)
 	}
 }

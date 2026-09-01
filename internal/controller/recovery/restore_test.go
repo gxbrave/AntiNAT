@@ -217,7 +217,37 @@ func TestRestoreBitFlipRefused(t *testing.T) {
 	}
 }
 
-// TestRestoreRotationBarrierRefused: an in-flight key rotation blocks restore.
+// TestBackupRefusedDuringInFlightRotation (repair-1 S3): a BACKUP is refused
+// while any key rotation operation is non-terminal. docs/recovery.md claims
+// "the backup barrier refuses while any rotation is non-terminal"; the barrier
+// previously existed only on the restore path, so the doc overclaimed. The
+// claim is now true at the backup path too.
+func TestBackupRefusedDuringInFlightRotation(t *testing.T) {
+	dir := t.TempDir()
+	livePath := filepath.Join(dir, "controller.db")
+	live, err := store.Open(livePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer live.Close()
+	keyDir := t.TempDir()
+	oldKey, err := security.LoadOrCreateKeyring(keyDir, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := int64(1700000000)
+	if _, err := lifecycle.PrepareRotation(context.Background(), live, keyDir, oldKey, "controller", "rot-b", now, now+3600); err != nil {
+		t.Fatal(err)
+	}
+	backupDir := filepath.Join(dir, "backup")
+	if _, err := live.BackupToWithKeys(backupDir, []string{"key-A"}); err == nil {
+		t.Fatal("backup accepted during an in-flight rotation")
+	}
+}
+
+// TestRestoreRotationBarrierRefused: a clean backup is refused for RESTORE once
+// the live store has an in-flight rotation (the restore-side barrier still
+// stands even though the backup itself was taken cleanly before the rotation).
 func TestRestoreRotationBarrierRefused(t *testing.T) {
 	dir := t.TempDir()
 	livePath := filepath.Join(dir, "controller.db")
@@ -226,7 +256,12 @@ func TestRestoreRotationBarrierRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer live.Close()
-	// Prepare a rotation (leaves a non-terminal key_rotation_operations row).
+	// Backup while NO rotation exists.
+	backupDir := filepath.Join(dir, "backup")
+	if _, err := live.BackupToWithKeys(backupDir, []string{"key-A"}); err != nil {
+		t.Fatal(err)
+	}
+	// The rotation starts AFTER the backup; ValidateRestore must still refuse.
 	keyDir := t.TempDir()
 	oldKey, err := security.LoadOrCreateKeyring(keyDir, 1)
 	if err != nil {
@@ -236,12 +271,8 @@ func TestRestoreRotationBarrierRefused(t *testing.T) {
 	if _, err := lifecycle.PrepareRotation(context.Background(), live, keyDir, oldKey, "controller", "rot-x", now, now+3600); err != nil {
 		t.Fatal(err)
 	}
-	backupDir := filepath.Join(dir, "backup")
-	if _, err := live.BackupToWithKeys(backupDir, []string{"key-A"}); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := ValidateRestore(context.Background(), live, backupDir, []string{"key-A"}); err == nil {
-		t.Fatal("restore accepted during an in-flight rotation")
+		t.Fatal("restore accepted while the live store has an in-flight rotation")
 	}
 }
 
@@ -496,5 +527,31 @@ func recomputeManifestHash(t *testing.T, backupDir, dbName string) {
 	}
 	if err := os.WriteFile(manPath, out, 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestRestoreOversizedBackupDBRefused (repair-1 L7): the restore read is
+// bounded — a backup DB larger than the size cap fails closed instead of being
+// read into memory wholesale. The file is a sparse truncate so the test does
+// not actually allocate the bytes.
+func TestRestoreOversizedBackupDBRefused(t *testing.T) {
+	dir := t.TempDir()
+	backupDir := filepath.Join(dir, "backup")
+	if err := os.MkdirAll(backupDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(filepath.Join(backupDir, "controller.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(maxRestoreDBBytes + 1); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := prepareRestoreStage(filepath.Join(dir, "controller.db"), backupDir); err == nil {
+		t.Fatal("oversized backup DB passed the restore size bound")
 	}
 }

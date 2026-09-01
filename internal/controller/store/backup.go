@@ -53,8 +53,14 @@ func (s *Store) BackupTo(destDir string) (BackupManifest, error) {
 
 // BackupToWithKeys writes a VACUUM INTO snapshot with the P14 high-water and
 // key-id set recorded in the manifest. keyIDs are the controller signing key
-// ids at backup time; restore fails closed on a mismatch.
+// ids at backup time; restore fails closed on a mismatch. A backup is refused
+// while any key rotation operation is non-terminal (repair-1 S3) so the
+// manifest key set is never captured mid-overlap — mirroring the restore-side
+// barrier and making docs/recovery.md's mutual-exclusion claim true.
 func (s *Store) BackupToWithKeys(destDir string, keyIDs []string) (BackupManifest, error) {
+	if err := s.EnforceRotationBackupBarrier(); err != nil {
+		return BackupManifest{}, err
+	}
 	if err := os.MkdirAll(destDir, 0o700); err != nil {
 		return BackupManifest{}, fmt.Errorf("store: backup mkdir: %w", err)
 	}
@@ -109,6 +115,12 @@ func OpenBackup(dir string) (*Store, BackupManifest, error) {
 		return nil, BackupManifest{}, err
 	}
 	for _, f := range manifest.Files {
+		// repair-1 L7: the manifest file name must be a bare basename. A crafted
+		// manifest naming "../controller.db" or an absolute path could escape the
+		// backup dir and read an arbitrary file into the hash checks.
+		if !validBackupFileName(f.Name) {
+			return nil, BackupManifest{}, fmt.Errorf("store: backup manifest file %q is not a bare basename", f.Name)
+		}
 		path := filepath.Join(dir, f.Name)
 		got, mode, err := hashAndMode(path)
 		if err != nil {
@@ -151,6 +163,16 @@ func (s *Store) ForeignKeyCheck() error {
 		return errors.New("store: foreign key violation")
 	}
 	return rows.Err()
+}
+
+// validBackupFileName rejects manifest file names that are not a bare basename:
+// empty, ".", "..", path separators (including backslashes) and absolute paths
+// are all refused (repair-1 L7).
+func validBackupFileName(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	return name == filepath.Base(name)
 }
 
 func readManifest(dir string) (BackupManifest, error) {

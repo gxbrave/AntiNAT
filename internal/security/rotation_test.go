@@ -31,7 +31,7 @@ func TestRotationCertificateSignVerifyRoundTrips(t *testing.T) {
 
 	cert := NewRotationCertificate("controller", oldPub, 1, rotationKeyID(oldPub),
 		newPub, 2, rotationKeyID(newPub), now, now+3600)
-	if err := signRotation(&cert, oldPriv); err != nil {
+	if err := SignRotationCertificate(&cert, oldPriv); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := cert.Encode()
@@ -64,7 +64,7 @@ func TestRotationCertificateRejectsWrongSigner(t *testing.T) {
 	// Attacker signs with its own key but claims to bind old -> new.
 	cert := NewRotationCertificate("controller", oldPub, 1, rotationKeyID(oldPub),
 		newPub, 2, rotationKeyID(newPub), now, now+3600)
-	if err := signRotation(&cert, attackerPriv); err != nil {
+	if err := SignRotationCertificate(&cert, attackerPriv); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := cert.Encode()
@@ -88,7 +88,7 @@ func TestRotationCertificateRejectsDowngrade(t *testing.T) {
 	for _, newGen := range []uint64{1, 0} {
 		cert := NewRotationCertificate("controller", oldPub, 1, rotationKeyID(oldPub),
 			newPub, newGen, rotationKeyID(newPub), now, now+3600)
-		if err := signRotation(&cert, oldPriv); err != nil {
+		if err := SignRotationCertificate(&cert, oldPriv); err != nil {
 			t.Fatal(err)
 		}
 		raw, _ := cert.Encode()
@@ -109,7 +109,7 @@ func TestRotationCertificateRejectsTamper(t *testing.T) {
 
 	cert := NewRotationCertificate("controller", oldPub, 1, rotationKeyID(oldPub),
 		newPub, 2, rotationKeyID(newPub), now, now+3600)
-	if err := signRotation(&cert, oldPriv); err != nil {
+	if err := SignRotationCertificate(&cert, oldPriv); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := cert.Encode()

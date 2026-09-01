@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -212,5 +213,52 @@ func TestLowDiskRefusesGrowthButAllowsDelete(t *testing.T) {
 	}
 	if _, err := s.GetForwardDeletionOperation("delop-1"); err != nil {
 		t.Fatalf("deletion operation not persisted under low disk: %v", err)
+	}
+}
+
+// TestOpenBackupRefusesTraversalFileNames (repair-1 L7): a crafted manifest
+// naming "../controller.db" or an absolute path must be refused before any file
+// is joined into the backup dir (fail closed, never read an arbitrary path).
+func TestOpenBackupRefusesTraversalFileNames(t *testing.T) {
+	dir := t.TempDir()
+	backupDir := filepath.Join(dir, "backup")
+	if err := os.MkdirAll(backupDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A real backup DB so the only refusal reason is the file name.
+	live, err := store.Open(filepath.Join(dir, "controller.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := live.BackupToWithKeys(backupDir, []string{"key-A"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = live.Close()
+	_ = manifest
+	for _, bad := range []string{"../evil.db", "/etc/passwd", "sub/dir.db", ".", "..", ""} {
+		raw, err := os.ReadFile(filepath.Join(backupDir, "manifest.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m struct {
+			Schema string `json:"schema"`
+			Files  []struct {
+				Name   string `json:"name"`
+				SHA256 string `json:"sha256"`
+				Mode   uint32 `json:"mode"`
+			} `json:"files"`
+		}
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Fatal(err)
+		}
+		m.Files[0].Name = bad
+		out, _ := json.MarshalIndent(m, "", "  ")
+		if err := os.WriteFile(filepath.Join(backupDir, "manifest.json"), out, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := store.OpenBackup(backupDir); err == nil {
+			t.Fatalf("OpenBackup accepted manifest file name %q", bad)
+		}
 	}
 }

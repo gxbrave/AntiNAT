@@ -70,7 +70,8 @@ the successor pin, then ACKs.
   fast-forwards the journal and then **requires manual re-pin/re-enroll**.
 - Rotation is mutually exclusive with backup/restore (and coordinated with
   decommission/force delete) via the phase journal: the backup barrier refuses
-  while any rotation is non-terminal.
+  a backup while any rotation is non-terminal, and restore refuses while the
+  live controller has a non-terminal rotation.
 - Ciphertext records carry `key_id`; master/hook rotation writes with the new
   key first, rewraps in the background, re-validates every record and only then
   retires the old key.
@@ -85,16 +86,26 @@ time (v0.8 §7.4).
 Restore is a staged, verified, operator-gated switch:
 
 1. The backup is verified (manifest hashes + ACL, SQLite `quick_check` +
-   `foreign_key_check`, keys). A key mismatch, a bit flip, a missing key-id set,
-   or an in-flight key rotation **all fail closed**.
+   `foreign_key_check`, keys, and the manifest high-water against the backup
+   contents). A key mismatch, a bit flip, a missing key-id set, a manifest whose
+   high-water does not match the backup database contents (tampering), a backup
+   whose deletion/tombstone/node-revision high-water is older than the live
+   store (a pre-deletion rollback), or an in-flight key rotation **all fail
+   closed**.
 2. The database is staged to a temp file, integrity-checked, then atomically
    switched over the live database file.
 3. The Controller enters `RESTORE_RECONCILIATION`: web sessions are revoked,
-   unused enrollment tokens are invalidated, probe operations are invalidated
-   and every node is **quarantined** — no automatic desired/delete/rotation is
-   dispatched until an administrator reauthorizes it. This is why restoring an
-   old snapshot can never silently resurrect a Forward or deletion the operator
-   has already made.
+   unused enrollment tokens are invalidated, and every node is **quarantined** —
+   no automatic desired/delete/probe/rotation is dispatched (automatic probe
+   dispatch is suspended until reauthorization) and each node resumes only after
+   the operator finalizes the restore AND reauthorizes the node. This is why
+   restoring an old snapshot can never silently resurrect a Forward or deletion
+   the operator has already made. Dispatch resumes only through the explicit
+   operator gate: `FinalizeRestore` advances the restore operation to
+   `AUTHORIZED`, then `ReauthorizeNode` clears each node's quarantine flag —
+   until BOTH happen, every automatic desired/delete/probe/rotation is refused
+   (and the outbox pump re-checks this gate at delivery time, so rows enqueued
+   before the restore are kept retryable, never silently delivered).
 4. Agents that receive a restore-reconcile enter `RECOVERY_QUARANTINE`: they
    do **not** auto-restore LKG listeners until the Controller issues a recovery
    authorization. The current terminal/uninstall marker on disk is **never**

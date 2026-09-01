@@ -208,8 +208,3 @@ func bytesEqual(a, b []byte) bool {
 	}
 	return v == 0
 }
-
-// signRotation is the cert-specific signer used by the lifecycle orchestrator.
-func signRotation(c *RotationCertificate, oldKey ed25519.PrivateKey) error {
-	return c.sign(oldKey)
-}
