@@ -5,7 +5,7 @@
 Use `/root/Claude/AntiNAT/p12-integration` as the authoritative repository.
 
 ```text
-integration/v1-beta = 0ccf4c1d6bf0b4b6b00acbf7d3de36a12692c884 (P14 integrated; fast-forward, identity preserved)
+integration/v1-beta = a3a98d204f5a2797def68e11a0028bb345611f02 (P14 integrated; fast-forward, identity preserved)
 P14 canonical head  = c70be35d509491825bf93daae8dc6b8eb2248e98 (self-referential record commit excluded)
 P14 implementation   = 428eb75657b8144ddcf49c8e3a32c19101eaf92d
 P14 integrated      = true; see .hermes/handoffs/P14-integrated.json
@@ -41,7 +41,7 @@ Never promote local/loopback/netns/fake-server/cross-build evidence into claims 
 
 ## Next decision
 
-Dispatch P15 from the exact integrated tip `0ccf4c1d6bf0b4b6b00acbf7d3de36a12692c884` on branch `ai/P15-controller-api-metrics` in an isolated worktree. Follow `.hermes/plans/v1-beta/15-controller-api-metrics-sse.md`; P15 owns the full Controller API, durable SSE, metrics/traffic ingest, rate limiting, and aggregate Forward limits. Run fresh specification/ownership and quality/security reviews before integration. Do not modify frozen OpenAPI or protocol contracts without an approved contract-change handoff. Remote push remains deferred to P19.
+Dispatch P15 from the exact integrated tip `a3a98d204f5a2797def68e11a0028bb345611f02` on branch `ai/P15-controller-api-metrics` in an isolated worktree. Follow `.hermes/plans/v1-beta/15-controller-api-metrics-sse.md`; P15 owns the full Controller API, durable SSE, metrics/traffic ingest, rate limiting, and aggregate Forward limits. Run fresh specification/ownership and quality/security reviews before integration. Do not modify frozen OpenAPI or protocol contracts without an approved contract-change handoff. Remote push remains deferred to P19.
 
 ## Stop conditions
 
