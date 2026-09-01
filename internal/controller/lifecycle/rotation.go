@@ -83,10 +83,16 @@ func PrepareRotation(ctx context.Context, s *store.Store, keyringDir string, old
 	// stale shared file must not be allowed to corrupt this operation's journal.
 	if err := newKey.StageForOperation(keyringDir, operationID); err != nil {
 		// The PREPARED row must never claim a successor exists when staging did
-		// not complete. Remove the just-created intent so a retry can safely
-		// regenerate and stage successor material while the old signer remains.
-		if removeErr := s.DeleteKeyRotationOperation(operationID); removeErr != nil {
-			return store.KeyRotationOperation{}, fmt.Errorf("lifecycle: stage successor keyring: %v (rollback prepared journal: %w)", err, removeErr)
+		// not complete. Remove both a possible partially durable stage and the
+		// just-created intent so a retry can safely regenerate material while the
+		// old signer remains authoritative.
+		stageCleanupErr := security.RemoveStagedForOperation(keyringDir, operationID)
+		journalCleanupErr := s.DeleteKeyRotationOperation(operationID)
+		if journalCleanupErr != nil {
+			return store.KeyRotationOperation{}, fmt.Errorf("lifecycle: stage successor keyring: %v (rollback prepared journal: %w; stage cleanup: %v)", err, journalCleanupErr, stageCleanupErr)
+		}
+		if stageCleanupErr != nil && !errors.Is(stageCleanupErr, os.ErrNotExist) {
+			return store.KeyRotationOperation{}, fmt.Errorf("lifecycle: stage successor keyring: %v (stage cleanup: %w)", err, stageCleanupErr)
 		}
 		return store.KeyRotationOperation{}, fmt.Errorf("lifecycle: stage successor keyring: %w", err)
 	}
