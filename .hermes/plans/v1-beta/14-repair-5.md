@@ -59,7 +59,6 @@ Only the paths below may be created or modified in repair cycle 5. Any other pat
 
 ### Controller lifecycle/recovery
 
-- `internal/controller/app.go`
 - `internal/controller/lifecycle/decommission.go`
 - `internal/controller/lifecycle/lifecycle_test.go`
 - `internal/controller/lifecycle/recovery_authorize.go`
