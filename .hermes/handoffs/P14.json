@@ -4,8 +4,9 @@
   "stage": "CANDIDATE",
   "branch": "ai/P14-lifecycle-recovery",
   "base_sha": "973cfa60ff2390fd4cbf9f9fa9f8b3afd28cd6e8",
-  "head_sha": "8da2b8de075c9e5fffba90b0fc4bb09389947acc",
+  "head_sha": "c70be35d509491825bf93daae8dc6b8eb2248e98",
   "commits": [
+    "c70be35d509491825bf93daae8dc6b8eb2248e98",
     "8da2b8de075c9e5fffba90b0fc4bb09389947acc",
     "e763afd776324b32db5dda3ee436564dcc1a0ab8",
     "428eb75657b8144ddcf49c8e3a32c19101eaf92d",
@@ -415,7 +416,8 @@
     "P14 repair-6 explicit migration: migrations/0008_lifecycle.sql",
     "P14 repair-6 explicit test: internal/controller/lifecycle/rotation_test.go",
     "P14 repair-6 explicit test: internal/controller/store/lifecycle_repair6_test.go",
-    "P14 repair-7 explicit plan: .hermes/plans/v1-beta/14-repair-7.md"
+    "P14 repair-7 explicit plan: .hermes/plans/v1-beta/14-repair-7.md",
+    "P14 repair-7 explicit handoff: .hermes/handoffs/P14.json"
   ],
   "capability_result": "SUPPORTED_WITH_LIMITS",
   "known_limits": [
@@ -1415,7 +1417,7 @@
     "trigger": "Fresh specification/ownership review found exactly one issue: repair_cycle_5.repair_head_sha was fd222543f28fb8181f9bcf0c969cb10064abda22, although its 24-path new_or_changed_files list exactly matched git diff --name-only 572423b1695c3089f50f7bde12d8945aa0dcfdc1..28d8fbb3cc10de9a089f93b83f8379d358b8d4dd, including content commits 0670ebd445b7f63bccf5f86e1141b2f9fae11be5 and 28d8fbb3cc10de9a089f93b83f8379d358b8d4dd. Metadata-only repair-7 is bounded by .hermes/plans/v1-beta/14-repair-7.md.",
     "base_sha": "973cfa60ff2390fd4cbf9f9fa9f8b3afd28cd6e8",
     "repair_base_sha": "e763afd776324b32db5dda3ee436564dcc1a0ab8",
-    "repair_head_sha": "8da2b8de075c9e5fffba90b0fc4bb09389947acc",
+    "repair_head_sha": "c70be35d509491825bf93daae8dc6b8eb2248e98",
     "finding_to_fix": {
       "R7-1": "Correct repair_cycle_5.repair_head_sha to 28d8fbb3cc10de9a089f93b83f8379d358b8d4dd because the recorded 24-path delta runs from 572423b1695c3089f50f7bde12d8945aa0dcfdc1 through 28d8fbb and includes 0670ebd and 28d8fbb content changes; preserve repair cycles 1-6 and all production behavior."
     },
@@ -1434,9 +1436,9 @@
         "summary": "PASS; repair-5 head is 28d8fbb and its 24-path list exactly matches the nested R5 implementation/content delta, including 0670ebd and 28d8fbb."
       },
       {
-        "command": "python3 - <<'PY'\nimport json, subprocess\np=json.load(open('.hermes/handoffs/P14.json'))\nhead=p['head_sha']\nbase=p['base_sha']\nassert head == subprocess.check_output(['git','rev-parse','HEAD^'], text=True).strip()\nassert head != subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip()\nassert p['commits'] == subprocess.check_output(['git','log','--format=%H', f'{base}..{head}'], text=True).splitlines()\nassert p['files_changed'] == subprocess.check_output(['git','diff','--name-only', f'{base}..{head}'], text=True).splitlines()\nPY",
+        "command": "python3 - <<'PY'\nimport json, subprocess\np=json.load(open('.hermes/handoffs/P14.json'))\nbase=p['base_sha']\nhead=p['head_sha']\nassert head == 'c70be35d509491825bf93daae8dc6b8eb2248e98'\nassert head == subprocess.check_output(['git','rev-parse','HEAD^'], text=True).strip()\nassert head != subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip()\nassert p['commits'] == subprocess.check_output(['git','log','--format=%H', f'{base}..{head}'], text=True).splitlines()\nassert p['files_changed'] == subprocess.check_output(['git','diff','--name-only', f'{base}..{head}'], text=True).splitlines()\nPY",
         "exit_code": 0,
-        "summary": "PASS; canonical head is the last pre-record commit (HEAD^), final record is excluded, and full-SHA commits/files_changed match exact Git output."
+        "summary": "PASS; canonical head is metadata-correction commit c70be35, the final record commit is excluded, and full-SHA commits/files_changed match exact Git output."
       },
       {
         "command": "jq -e 'all(.tests[]; has(\"command\") and has(\"exit_code\") and has(\"summary\"))' .hermes/handoffs/P14.json",
