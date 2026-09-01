@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,8 +32,14 @@ func TestPrepareRotationDoesNotStageBeforeJournalFailure(t *testing.T) {
 	if _, err := PrepareRotation(context.Background(), s, dir, oldKey, "controller", "", now, now+3600); err == nil {
 		t.Fatal("rotation with empty operation id unexpectedly succeeded")
 	}
-	if _, err := os.Stat(filepath.Join(dir, security.KeyringStagedFile)); !os.IsNotExist(err) {
-		t.Fatalf("staged successor exists after journal rejection: stat err=%v", err)
+	if entries, err := os.ReadDir(dir); err != nil {
+		t.Fatal(err)
+	} else {
+		for _, entry := range entries {
+			if entry.Name() == security.KeyringStagedFile || entry.Name() == security.KeyringStagedPrefix {
+				t.Fatalf("staged successor exists after journal rejection: %s", entry.Name())
+			}
+		}
 	}
 	active, err := security.LoadOrCreateKeyring(dir, 1)
 	if err != nil {
@@ -79,7 +86,8 @@ func TestPrepareRotationStagingFailureDoesNotLeavePreparedGap(t *testing.T) {
 	}
 }
 
-// TestRotationFSMReachesRetired drives a full controller rotation lifecycle.
+// TestReconcilePreparedRotationRejectsMissingSuccessor verifies an unrecoverable
+// PREPARED row is explicitly removed while the old signer remains active.
 func TestReconcilePreparedRotationRejectsMissingSuccessor(t *testing.T) {
 	s := openStore(t)
 	dir := t.TempDir()
@@ -91,7 +99,7 @@ func TestReconcilePreparedRotationRejectsMissingSuccessor(t *testing.T) {
 	if _, err := PrepareRotation(context.Background(), s, dir, oldKey, "controller", "rot-reconcile-r5", now, now+3600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(filepath.Join(dir, security.KeyringStagedFile)); err != nil {
+	if err := security.RemoveStagedForOperation(dir, "rot-reconcile-r5"); err != nil {
 		t.Fatal(err)
 	}
 	if err := ReconcilePreparedRotation(context.Background(), s, dir, "rot-reconcile-r5"); err == nil {
@@ -99,6 +107,124 @@ func TestReconcilePreparedRotationRejectsMissingSuccessor(t *testing.T) {
 	}
 	if _, err := s.GetKeyRotationOperation("rot-reconcile-r5"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unrecoverable PREPARED operation remained after reconciliation: %v", err)
+	}
+	active, err := security.LoadOrCreateKeyring(dir, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.KeyID() != oldKey.KeyID() || active.Generation() != oldKey.Generation() {
+		t.Fatalf("old signer changed during reconciliation: %s/%d", active.KeyID(), active.Generation())
+	}
+}
+
+// RED R6-1: concurrent preparations for one controller signing scope must not
+// create two journals or let one operation remove the other's staged material.
+func TestPrepareRotationConcurrentScopeHasOneWinnerAndIsolatedStage(t *testing.T) {
+	s := openStore(t)
+	dir := t.TempDir()
+	oldKey, err := security.LoadOrCreateKeyring(dir, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Unix()
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var successes int
+	var refused []error
+	for _, id := range []string{"rot-concurrent-a", "rot-concurrent-b"} {
+		id := id
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := PrepareRotation(context.Background(), s, dir, oldKey, "controller", id, now, now+3600)
+			mu.Lock()
+			defer mu.Unlock()
+			if err == nil {
+				successes++
+			} else {
+				refused = append(refused, err)
+			}
+		}()
+	}
+	wg.Wait()
+	if successes != 1 || len(refused) != 1 {
+		t.Fatalf("concurrent PrepareRotation outcomes successes=%d refused=%d errors=%v, want one each", successes, len(refused), refused)
+	}
+	ops, err := s.ListKeyRotationOperations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ops) != 1 || ops[0].Phase != "PREPARED" {
+		t.Fatalf("rotation rows=%+v, want one PREPARED row", ops)
+	}
+	staged, err := security.LoadStagedKeyringForOperation(dir, ops[0].ID)
+	if err != nil {
+		t.Fatalf("winning operation stage unavailable: %v", err)
+	}
+	if staged.KeyID() != ops[0].NewKeyID || staged.Generation() != ops[0].NewGeneration {
+		t.Fatalf("staged successor=%s/%d, journal=%s/%d", staged.KeyID(), staged.Generation(), ops[0].NewKeyID, ops[0].NewGeneration)
+	}
+	active, err := security.LoadOrCreateKeyring(dir, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.Generation() != oldKey.Generation() || active.KeyID() != oldKey.KeyID() {
+		t.Fatalf("old signer changed during concurrent prepare: %s/%d", active.KeyID(), active.Generation())
+	}
+}
+
+// RED R6-1: reconciling a stale operation must not delete a valid successor
+// staged for another operation. The fixture models a durable legacy/corrupt row
+// alongside an operation-specific valid stage and is non-vacuous against the old
+// shared cleanup path, which removed the single shared stage unconditionally.
+func TestReconcilePreparedRotationsDoesNotDeleteAnotherOperationStage(t *testing.T) {
+	s := openStore(t)
+	dir := t.TempDir()
+	oldKey, err := security.LoadOrCreateKeyring(dir, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Unix()
+	valid, err := oldKey.GenerateSuccessor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateKeyRotationOperation(store.KeyRotationOperation{
+		ID: "rot-stale-a", Scope: "controller", OldKeyID: oldKey.KeyID(), OldKeyGeneration: 1,
+		NewKeyID: "missing-a", NewGeneration: 2, Phase: "PREPARED", NotBeforeUnix: now,
+		OverlapDeadlineUnix: now + 3600,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateKeyRotationOperation(store.KeyRotationOperation{
+		ID: "rot-valid-b", Scope: "agent", OldKeyID: oldKey.KeyID(), OldKeyGeneration: 1,
+		NewKeyID: valid.KeyID(), NewGeneration: 2, Phase: "PREPARED", NotBeforeUnix: now,
+		OverlapDeadlineUnix: now + 3600,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := valid.StageForOperation(dir, "rot-valid-b"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ReconcilePreparedRotations(context.Background(), s, dir); err == nil {
+		t.Fatal("reconciliation unexpectedly reported all prepared rows recoverable")
+	}
+	if _, err := s.GetKeyRotationOperation("rot-stale-a"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("stale operation was not explicitly removed: %v", err)
+	}
+	remaining, err := s.GetKeyRotationOperation("rot-valid-b")
+	if err != nil {
+		t.Fatalf("valid operation removed with stale predecessor: %v", err)
+	}
+	if remaining.Phase != "PREPARED" {
+		t.Fatalf("valid operation phase=%q, want PREPARED", remaining.Phase)
+	}
+	staged, err := security.LoadStagedKeyringForOperation(dir, "rot-valid-b")
+	if err != nil {
+		t.Fatalf("valid operation stage removed by stale cleanup: %v", err)
+	}
+	if staged.KeyID() != valid.KeyID() {
+		t.Fatalf("valid stage key=%q, want %q", staged.KeyID(), valid.KeyID())
 	}
 	active, err := security.LoadOrCreateKeyring(dir, 1)
 	if err != nil {
@@ -120,12 +246,11 @@ func TestRotationFSMReachesRetired(t *testing.T) {
 	notBefore := time.Now().Unix() - 3600
 	op, err := PrepareRotation(ctx, s, dir, oldKey, "controller", "rot-1", notBefore, notBefore+1)
 	if err != nil {
-		t.Fatalf("prepare: %v", err)
+		t.Fatal(err)
 	}
 	if op.Phase != "PREPARED" || op.Certificate == "" {
 		t.Fatalf("operation = %+v", op)
 	}
-	// The active signer remains generation 1; successor material is staged.
 	active, err := security.LoadOrCreateKeyring(dir, 2)
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +258,7 @@ func TestRotationFSMReachesRetired(t *testing.T) {
 	if active.Generation() != 1 || active.KeyID() == op.NewKeyID {
 		t.Fatalf("active signer unexpectedly changed generation/id = %d/%s", active.Generation(), active.KeyID())
 	}
-	if _, err := os.Stat(filepath.Join(dir, security.KeyringStagedFile)); err != nil {
+	if _, err := security.LoadStagedKeyringForOperation(dir, "rot-1"); err != nil {
 		t.Fatalf("staged successor missing: %v", err)
 	}
 	for _, step := range []struct {
@@ -188,7 +313,6 @@ func TestNormalRetireBlockedUntilActive(t *testing.T) {
 	if _, err := AdvanceRotationPhase(ctx, s, "rot-2", "RETIRED", false); err == nil {
 		t.Fatal("normal retire from ACKED must be blocked (offline/une-ACKed Agent)")
 	}
-	// Force retire bypasses, and the phase journal records RETIRED.
 	res, err := AdvanceRotationPhase(ctx, s, "rot-2", "RETIRED", true)
 	if err != nil {
 		t.Fatalf("force retire: %v", err)
