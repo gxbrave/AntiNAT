@@ -510,7 +510,18 @@ func (a *App) Start(ctx context.Context) error {
 	// activation evidence or LKG listeners from disk. RECOVERY_QUARANTINE is a
 	// second one-way boundary: after a backup restore the agent does NOT
 	// auto-restore its LKG listeners until the Controller authorizes recovery.
-	if a.marker == localstate.MarkerActive && !a.recoveryQuarantine {
+	// One source of truth (reconcile.RecoveryDeferred) decides both.
+	deferred, _, deferredErr := reconcile.RecoveryDeferred(a.cfg.StateDir, a.marker)
+	if deferredErr != nil {
+		runCancel()
+		a.client.Shutdown()
+		a.client.Wait()
+		_ = a.dp.closeAll(context.Background())
+		a.probeMgr.Close()
+		_ = a.store.Close()
+		return fmt.Errorf("agent: recovery deferred check: %w", deferredErr)
+	}
+	if !deferred {
 		if err := a.prepareActivationRecovery(); err != nil {
 			runCancel()
 			a.client.Shutdown()
