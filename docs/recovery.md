@@ -75,7 +75,10 @@ the successor pin, then ACKs.
   restore refuses while the live controller has a non-terminal rotation. A
   controller restart reconciles PREPARED operations: missing or corrupt staged
   successor material is removed with the PREPARED journal row while the old
-  signer remains active, so the operation can be retried safely.
+  signer remains active, so the operation can be retried safely. The lifecycle
+  startup/retry caller invokes `lifecycle.ReconcilePreparedRotations` before
+  announcing successors; P14 exposes that bounded reconciliation seam rather
+  than adding a second controller composition path.
 - Ciphertext records carry `key_id`; master/hook rotation writes with the new
   key first, rewraps in the background, re-validates every record and only then
   retires the old key.
