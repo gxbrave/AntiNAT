@@ -7,12 +7,79 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
+	"time"
 )
+
+// lifecycleReservation is held by one backup/restore/rotation operation. The
+// reservation uses the controller DB path's sidecar lock, so separately opened
+// Store instances and separate controller processes share the same exclusion.
+type lifecycleReservation struct {
+	file *os.File
+}
+
+// AcquireLifecycleReservation acquires the process-safe lifecycle reservation.
+// The caller must Release it on every path. A context cancellation before the
+// lock is acquired is honored; the OS lock itself is blocking and bounded by
+// the caller's context through the retry loop.
+func AcquireLifecycleReservation(ctx context.Context, s *Store) (*lifecycleReservation, error) {
+	if s == nil || s.path == "" {
+		return nil, errors.New("store: lifecycle reservation requires a store")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	path := s.path + ".lifecycle.lock"
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("store: open lifecycle reservation: %w", err)
+	}
+	reservation := &lifecycleReservation{file: file}
+	if err := reservation.lock(ctx); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return reservation, nil
+}
+
+func (r *lifecycleReservation) lock(ctx context.Context) error {
+	for {
+		if err := tryLockFile(r.file); err == nil {
+			return nil
+		} else if !errors.Is(err, errLifecycleLockBusy) {
+			return fmt.Errorf("store: acquire lifecycle reservation: %w", err)
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+// Release unlocks and closes the lifecycle reservation.
+func (r *lifecycleReservation) Release() error {
+	if r == nil || r.file == nil {
+		return nil
+	}
+	unlockErr := unlockFile(r.file)
+	closeErr := r.file.Close()
+	r.file = nil
+	if unlockErr != nil {
+		return unlockErr
+	}
+	return closeErr
+}
 
 // NodeCleanupTombstone is the terminal force-delete fact. A node carrying one
 // may never receive new desired/secrets; only a cleanup-only control session

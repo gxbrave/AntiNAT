@@ -37,6 +37,15 @@ var ErrRestoreRefused = errors.New("recovery: restore refused")
 // the live controller keys (key mismatch fails closed), and enforces the
 // rotation x backup barrier. It requires the live store only for reads.
 func ValidateRestore(ctx context.Context, live *store.Store, backupDir string, liveKeyIDs []string) (store.BackupManifest, error) {
+	reservation, err := store.AcquireLifecycleReservation(ctx, live)
+	if err != nil {
+		return store.BackupManifest{}, err
+	}
+	defer reservation.Release()
+	return validateRestoreLocked(ctx, live, backupDir, liveKeyIDs)
+}
+
+func validateRestoreLocked(ctx context.Context, live *store.Store, backupDir string, liveKeyIDs []string) (store.BackupManifest, error) {
 	bs, manifest, err := store.OpenBackup(backupDir)
 	if err != nil {
 		return store.BackupManifest{}, err
@@ -104,7 +113,12 @@ func ApplyRestore(ctx context.Context, live *store.Store, liveDBPath, backupDir 
 	if live == nil || len(liveKeyIDs) == 0 {
 		return store.RestoreOperation{}, fmt.Errorf("%w: live store and key context are required", ErrRestoreRefused)
 	}
-	if _, err := ValidateRestore(ctx, live, backupDir, liveKeyIDs); err != nil {
+	reservation, err := store.AcquireLifecycleReservation(ctx, live)
+	if err != nil {
+		return store.RestoreOperation{}, err
+	}
+	defer reservation.Release()
+	if _, err := validateRestoreLocked(ctx, live, backupDir, liveKeyIDs); err != nil {
 		return store.RestoreOperation{}, err
 	}
 	if err := live.Close(); err != nil {

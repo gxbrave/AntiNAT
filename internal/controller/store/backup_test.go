@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,9 +9,57 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
 )
+
+// RED R5-2: lifecycle operations opened from separate Store instances must
+// share one process-safe reservation. Before the reservation implementation,
+// this test fails to compile because the shared lock seam is absent.
+func TestLifecycleReservationSerializesCrossOperation(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "controller.db")
+	firstStore, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer firstStore.Close()
+	secondStore, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer secondStore.Close()
+
+	first, err := store.AcquireLifecycleReservation(context.Background(), firstStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	acquired := make(chan error, 1)
+	go func() {
+		second, err := store.AcquireLifecycleReservation(context.Background(), secondStore)
+		if err == nil {
+			err = second.Release()
+		}
+		acquired <- err
+	}()
+	select {
+	case err := <-acquired:
+		t.Fatalf("second operation acquired reservation while first held it after %v: %v", time.Since(started), err)
+	case <-time.After(150 * time.Millisecond):
+	}
+	if err := first.Release(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-acquired:
+		if err != nil {
+			t.Fatalf("second operation failed after reservation release: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("second operation did not acquire reservation after release")
+	}
+}
 
 // RED 5a: concurrent WAL writers complete without lost rows while a VACUUM
 // INTO backup is taken; the backup opens with a clean integrity check and

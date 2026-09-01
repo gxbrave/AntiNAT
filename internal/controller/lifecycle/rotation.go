@@ -38,6 +38,11 @@ func PrepareRotation(ctx context.Context, s *store.Store, keyringDir string, old
 	if oldKey == nil {
 		return store.KeyRotationOperation{}, errors.New("lifecycle: rotation requires the current keyring")
 	}
+	reservation, err := store.AcquireLifecycleReservation(ctx, s)
+	if err != nil {
+		return store.KeyRotationOperation{}, err
+	}
+	defer reservation.Release()
 	if scope != "controller" {
 		return store.KeyRotationOperation{}, fmt.Errorf("%w: controller rotation scope must be controller", ErrRotationPhaseRefuses)
 	}

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -66,6 +67,11 @@ func (s *Store) BackupTo(destDir string) (BackupManifest, error) {
 // manifest key set is never captured mid-overlap — mirroring the restore-side
 // barrier and making docs/recovery.md's mutual-exclusion claim true.
 func (s *Store) BackupToWithKeys(destDir string, keyIDs []string) (BackupManifest, error) {
+	reservation, err := AcquireLifecycleReservation(context.Background(), s)
+	if err != nil {
+		return BackupManifest{}, err
+	}
+	defer reservation.Release()
 	if err := s.EnforceRotationBackupBarrier(); err != nil {
 		return BackupManifest{}, err
 	}
