@@ -4,8 +4,10 @@
   "stage": "CANDIDATE",
   "branch": "ai/P14-lifecycle-recovery",
   "base_sha": "973cfa60ff2390fd4cbf9f9fa9f8b3afd28cd6e8",
-  "head_sha": "428eb75657b8144ddcf49c8e3a32c19101eaf92d",
+  "head_sha": "8da2b8de075c9e5fffba90b0fc4bb09389947acc",
   "commits": [
+    "8da2b8de075c9e5fffba90b0fc4bb09389947acc",
+    "e763afd776324b32db5dda3ee436564dcc1a0ab8",
     "428eb75657b8144ddcf49c8e3a32c19101eaf92d",
     "157aeff43e47b2a60c917ef2789528a5395e8fbc",
     "4826ee7f644d146dde014070fe74619621a62b19",
@@ -96,6 +98,7 @@
     ".hermes/plans/v1-beta/14-repair-4.md",
     ".hermes/plans/v1-beta/14-repair-5.md",
     ".hermes/plans/v1-beta/14-repair-6.md",
+    ".hermes/plans/v1-beta/14-repair-7.md",
     "docs/recovery.md",
     "internal/agent/app.go",
     "internal/agent/control/lifecycle_commands_transport_test.go",
@@ -411,7 +414,8 @@
     "P14 repair-6 explicit production: internal/security/keyring.go",
     "P14 repair-6 explicit migration: migrations/0008_lifecycle.sql",
     "P14 repair-6 explicit test: internal/controller/lifecycle/rotation_test.go",
-    "P14 repair-6 explicit test: internal/controller/store/lifecycle_repair6_test.go"
+    "P14 repair-6 explicit test: internal/controller/store/lifecycle_repair6_test.go",
+    "P14 repair-7 explicit plan: .hermes/plans/v1-beta/14-repair-7.md"
   ],
   "capability_result": "SUPPORTED_WITH_LIMITS",
   "known_limits": [
@@ -1125,7 +1129,7 @@
     "trigger": "Fresh adversarial quality review confirmed R5-1 through R5-7 implementation defects plus R5-8 through R5-11 repair-4 metadata, ownership, focused-evidence, and generic-verification defects. Bounded repair-5 plan was declared before production edits.",
     "base_sha": "973cfa60ff2390fd4cbf9f9fa9f8b3afd28cd6e8",
     "repair_base_sha": "572423b1695c3089f50f7bde12d8945aa0dcfdc1",
-    "repair_head_sha": "fd222543f28fb8181f9bcf0c969cb10064abda22",
+    "repair_head_sha": "28d8fbb3cc10de9a089f93b83f8379d358b8d4dd",
     "finding_to_fix": {
       "R5-1": "Require restore_result generation to be nonzero and exactly equal to the durable quarantine generation; malformed/omitted generation now fails closed and leaves quarantine set.",
       "R5-2": "Use one process-safe controller DB sidecar reservation across backup VACUUM, restore validation/application, and PrepareRotation; separate Store instances block on the same lock.",
@@ -1406,5 +1410,55 @@
       "R6-5 existing evidence is cited rather than duplicated where exact named tests already cover decommission identity, quarantine concurrency, and stale-session terminal ACK retry."
     ],
     "known_flakes": "No new behavioral flakes observed. Full dedicated test and race suites, focused race stress, vet, contract, netns, lifecycle integration, cross-build, formatting, and diff checks passed. govulncheck unavailable because executable is not installed."
+  },
+  "repair_cycle_7": {
+    "trigger": "Fresh specification/ownership review found exactly one issue: repair_cycle_5.repair_head_sha was fd222543f28fb8181f9bcf0c969cb10064abda22, although its 24-path new_or_changed_files list exactly matched git diff --name-only 572423b1695c3089f50f7bde12d8945aa0dcfdc1..28d8fbb3cc10de9a089f93b83f8379d358b8d4dd, including content commits 0670ebd445b7f63bccf5f86e1141b2f9fae11be5 and 28d8fbb3cc10de9a089f93b83f8379d358b8d4dd. Metadata-only repair-7 is bounded by .hermes/plans/v1-beta/14-repair-7.md.",
+    "base_sha": "973cfa60ff2390fd4cbf9f9fa9f8b3afd28cd6e8",
+    "repair_base_sha": "e763afd776324b32db5dda3ee436564dcc1a0ab8",
+    "repair_head_sha": "8da2b8de075c9e5fffba90b0fc4bb09389947acc",
+    "finding_to_fix": {
+      "R7-1": "Correct repair_cycle_5.repair_head_sha to 28d8fbb3cc10de9a089f93b83f8379d358b8d4dd because the recorded 24-path delta runs from 572423b1695c3089f50f7bde12d8945aa0dcfdc1 through 28d8fbb and includes 0670ebd and 28d8fbb content changes; preserve repair cycles 1-6 and all production behavior."
+    },
+    "reassert_with_code_evidence": [],
+    "new_or_changed_files": [
+      ".hermes/handoffs/P14.json",
+      ".hermes/plans/v1-beta/14-repair-7.md"
+    ],
+    "new_files_this_cycle": [
+      ".hermes/plans/v1-beta/14-repair-7.md"
+    ],
+    "verification": [
+      {
+        "command": "python3 - <<'PY'\nimport json, subprocess\np=json.load(open(\".hermes/handoffs/P14.json\"))\nassert p[\"repair_cycle_5\"][\"repair_head_sha\"] == \"28d8fbb3cc10de9a089f93b83f8379d358b8d4dd\"\nexpected=subprocess.check_output([\"git\",\"diff\",\"--name-only\",\"572423b1695c3089f50f7bde12d8945aa0dcfdc1..28d8fbb3cc10de9a089f93b83f8379d358b8d4dd\"], text=True).splitlines()\nassert p[\"repair_cycle_5\"][\"new_or_changed_files\"] == expected\nPY",
+        "exit_code": 0,
+        "summary": "PASS; repair-5 head is 28d8fbb and its 24-path list exactly matches the nested R5 implementation/content delta, including 0670ebd and 28d8fbb."
+      },
+      {
+        "command": "python3 - <<'PY'\nimport json, subprocess\np=json.load(open('.hermes/handoffs/P14.json'))\nhead=p['head_sha']\nbase=p['base_sha']\nassert head == subprocess.check_output(['git','rev-parse','HEAD^'], text=True).strip()\nassert head != subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip()\nassert p['commits'] == subprocess.check_output(['git','log','--format=%H', f'{base}..{head}'], text=True).splitlines()\nassert p['files_changed'] == subprocess.check_output(['git','diff','--name-only', f'{base}..{head}'], text=True).splitlines()\nPY",
+        "exit_code": 0,
+        "summary": "PASS; canonical head is the last pre-record commit (HEAD^), final record is excluded, and full-SHA commits/files_changed match exact Git output."
+      },
+      {
+        "command": "jq -e 'all(.tests[]; has(\"command\") and has(\"exit_code\") and has(\"summary\"))' .hermes/handoffs/P14.json",
+        "exit_code": 0,
+        "summary": "PASS; every existing top-level test row has command, exit_code, and summary."
+      },
+      {
+        "command": "git diff --check 973cfa60ff2390fd4cbf9f9fa9f8b3afd28cd6e8..HEAD",
+        "exit_code": 0,
+        "summary": "PASS; no whitespace errors in the metadata-only repair range."
+      },
+      {
+        "command": "git status --short",
+        "exit_code": 0,
+        "summary": "PASS at final handoff; clean worktree is required after the record commit."
+      }
+    ],
+    "deviations": [
+      "Metadata-only cycle; no production source or test behavior changed and no production tests were rerun.",
+      "The established self-referential convention excludes only the final record commit from canonical head_sha/commits[]; the repair-7 plan remains in canonical files_changed[] and ownership.",
+      "Repair cycles 1-6 and repair_cycle_5.new_or_changed_files remain intact; only the stale repair_cycle_5.repair_head_sha is corrected."
+    ],
+    "known_flakes": "No new flakes. The prior quality-review APPROVE remains valid; prior documented flakes and unavailable govulncheck remain recorded in earlier cycles."
   }
 }
