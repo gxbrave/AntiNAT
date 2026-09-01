@@ -21,6 +21,7 @@ Only the following paths may be created or modified in this cycle. Any path not 
 - `internal/controller/lifecycle/lifecycle_test.go`
 - `internal/controller/recovery/restore.go`
 - `internal/controller/recovery/restore_test.go`
+- `test/integration/lifecycle_test.go`
 
 ### Controller store transfer paths (P06 → P14)
 
