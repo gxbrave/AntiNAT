@@ -561,7 +561,12 @@ func (c *Client) handleInboundFrameOnSession(ctx context.Context, identity *sess
 	identity.inSeqMu.Unlock()
 
 	switch hdr.MessageType {
-	case "desired", "forward_delete", "node_decommission", "probe_arm", "probe_outcome":
+	case "desired", "forward_delete", "node_decommission", "probe_arm", "probe_outcome",
+		// P14 Story 4/5 lifecycle commands route to the same durable command
+		// path (repair-1 H1). Before the fix they hit the default arm below and
+		// tore the session down, leaving the Agent-side App.handlers unreachable
+		// over the control transport.
+		"key_rotation_prepare", "key_rotation_commit", "restore_reconcile", "restore_result":
 		return c.handleCommandOnSession(ctx, identity, env)
 	case "message_receipt":
 		return c.handleReceiptOnSession(ctx, identity, env)

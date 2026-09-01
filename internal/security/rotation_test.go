@@ -1,5 +1,10 @@
 // P14 Story 4 (security layer): rotation certificate format, signature
 // verification against the pinned key, and the generation anti-downgrade rule.
+//
+// RED: when first written, `RotationCertificate` / `DecodeRotationCertificate`
+// / `SignRotationCertificate` did not exist (the tests could not compile), and
+// signature-against-pinned-key verification plus the strictly-increasing
+// generation rule were unimplemented. See internal/security/tdd-red.
 package security
 
 import (

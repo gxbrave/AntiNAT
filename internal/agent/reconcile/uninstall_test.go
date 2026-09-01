@@ -1,5 +1,10 @@
 // P14 Story 6: agent uninstall notice — online bounded receipt vs offline
 // UNKNOWN, and the terminal marker always prevents LKG recovery afterward.
+//
+// RED: when first written, `NotifyUninstall` did not exist (no outbox notice /
+// durable receipt record -> could not compile), the offline UNKNOWN path was
+// unimplemented, and nothing asserted that a DECOMMISSIONED marker refuses LKG
+// recovery after an uninstall. See internal/security/tdd-red.
 package reconcile
 
 import (

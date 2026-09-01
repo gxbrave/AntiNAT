@@ -1,6 +1,11 @@
 // P14 Story 4 (agent side): accepting a controller key-rotation pin only after
 // verifying the signed certificate against the current pin and persisting the
 // higher generation. Downgrade / wrong signer / foreign instance fail closed.
+//
+// RED: when first written, `AcceptControllerRotationPin` did not exist (no real
+// certificate decode -> the tests could not compile), the generation-vs-pin
+// anti-downgrade comparison was unimplemented, and same-generation / wrong-
+// instance / forged certificates were not refused. See internal/security/tdd-red.
 package reconcile
 
 import (
