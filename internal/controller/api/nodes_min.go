@@ -20,14 +20,14 @@ type nodeView struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
 	ControlState string `json:"control_state"`
-	CreatedAt    int64  `json:"created_at"`
+	CreatedAt    string `json:"created_at"`
 	ETag         string `json:"etag"`
 }
 
 func (s *Server) nodeView(n store.Node) nodeView {
 	return nodeView{
 		ID: n.ID, Name: n.Name, ControlState: n.ControlState,
-		CreatedAt: n.CreatedAt, ETag: etagFor(n.Revision),
+		CreatedAt: operationTime(n.CreatedAt), ETag: etagFor(n.Revision),
 	}
 }
 
@@ -115,6 +115,6 @@ func (s *Server) handleNodeByID(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"token":      plain,
-		"expires_at": time.Now().Add(time.Hour).Unix(),
+		"expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
 	})
 }

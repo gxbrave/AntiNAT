@@ -34,11 +34,11 @@ func (s *Store) CreateNodeBundle(ctx context.Context, n Node, rec IdempotencyRec
 			ID           string `json:"id"`
 			Name         string `json:"name"`
 			ControlState string `json:"control_state"`
-			CreatedAt    int64  `json:"created_at"`
+			CreatedAt    string `json:"created_at"`
 			ETag         string `json:"etag"`
 		}{
 			ID: n.ID, Name: n.Name, ControlState: orDefault(n.ControlState, "OFFLINE"),
-			CreatedAt: ts, ETag: fmt.Sprintf("\"rev-%d\"", n.Revision),
+			CreatedAt: time.Unix(ts, 0).UTC().Format(time.RFC3339), ETag: fmt.Sprintf("\"rev-%d\"", n.Revision),
 		})
 		if err != nil {
 			return IdempotencyRecord{}, false, fmt.Errorf("store: marshal node bundle response: %w", err)

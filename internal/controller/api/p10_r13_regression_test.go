@@ -43,9 +43,9 @@ func TestR13AdminBootstrapUsesProtocolPayloadLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusBadRequest {
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
 		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("oversize bootstrap status = %d (%s), want 400", resp.StatusCode, body)
+		t.Fatalf("oversize bootstrap status = %d (%s), want 413", resp.StatusCode, body)
 	}
 	if count, err := st.CountUsers(); err != nil || count != 0 {
 		t.Fatalf("oversize bootstrap created %d users (err=%v), want zero", count, err)

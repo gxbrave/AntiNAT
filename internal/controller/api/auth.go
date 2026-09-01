@@ -16,7 +16,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,8 +29,12 @@ import (
 
 // RouterConfig wires the minimal API.
 type RouterConfig struct {
-	Store *store.Store
-	Auth  *auth.AuthService
+	Store          *store.Store
+	Auth           *auth.AuthService
+	SSE            http.Handler
+	AllowedOrigins []string
+	TrustedProxies []string
+	MaxBodyBytes   int64
 }
 
 // ErrorBody is the frozen error envelope (docs/error-codes.md §1).
@@ -39,11 +45,16 @@ type ErrorBody struct {
 	Details   map[string]any `json:"details,omitempty"`
 }
 
-// writeError writes the frozen error envelope.
+// writeError writes the frozen error envelope. Middleware supplies a request
+// id; the fallback keeps direct handler tests deterministic.
 func writeError(w http.ResponseWriter, status int, code, message string) {
+	requestID := w.Header().Get("X-Request-ID")
+	if requestID == "" {
+		requestID = "req"
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(ErrorBody{Code: code, Message: message, RequestID: "req"})
+	_ = json.NewEncoder(w).Encode(ErrorBody{Code: code, Message: message, RequestID: requestID})
 }
 
 // writeJSON writes a JSON response.
@@ -55,13 +66,30 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 // decodeJSON decodes a strict JSON object body into v.
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, protocol.MaxPayloadBytes+1))
-	if err != nil || len(raw) > protocol.MaxPayloadBytes {
+	if r == nil || r.Body == nil {
 		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "malformed request body")
 		return false
 	}
+	// Keep an API-local cap even when a handler is mounted without the web
+	// middleware. MaxBytesReader returns *http.MaxBytesError; classify that
+	// sentinel explicitly rather than guessing from the number of bytes read.
+	limited := http.MaxBytesReader(w, r.Body, protocol.MaxPayloadBytes)
+	raw, err := io.ReadAll(limited)
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "request body exceeds the payload limit")
+		} else {
+			writeError(w, http.StatusBadRequest, "BAD_REQUEST", "malformed request body")
+		}
+		return false
+	}
 	if err := protocol.DecodeStrictJSONInto(raw, v); err != nil {
-		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "malformed request body")
+		if errors.Is(err, protocol.ErrPayloadTooLarge) {
+			writeError(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "request body exceeds the payload limit")
+		} else {
+			writeError(w, http.StatusBadRequest, "BAD_REQUEST", "malformed request body")
+		}
 		return false
 	}
 	return true
@@ -78,6 +106,8 @@ type Server struct {
 	store  *store.Store
 	auth   *auth.AuthService
 	health *healthState
+	sse    http.Handler
+	login  *loginLimiter
 	// idempotencyMu closes the create-side effect window within one API
 	// process; the durable store still owns replay/conflict decisions.
 	idempotencyMu sync.Mutex
@@ -91,7 +121,7 @@ func NewServer(cfg RouterConfig) (*Server, error) {
 	if cfg.Auth == nil {
 		return nil, errors.New("api: auth service is required")
 	}
-	s := &Server{store: cfg.Store, auth: cfg.Auth, health: newHealthState()}
+	s := &Server{store: cfg.Store, auth: cfg.Auth, health: newHealthState(), sse: cfg.SSE, login: newLoginLimiter()}
 	s.health.setStoreReady(true)
 	s.health.setAuthReady(true)
 	return s, nil
@@ -108,11 +138,17 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/auth/me", s.requireAuth(s.handleMe))
 
 	mux.HandleFunc("/api/v1/nodes", s.requireAuth(s.handleNodes))
-	mux.HandleFunc("/api/v1/nodes/", s.requireAuth(s.handleNodeByID))
+	mux.HandleFunc("/api/v1/nodes/", s.requireAuth(s.handleNodeRoutes))
+	mux.HandleFunc("/api/v1/node-deletions/", s.requireAuth(s.handleNodeDeletionPath))
 
 	mux.HandleFunc("/api/v1/forwards", s.requireAuth(s.handleForwards))
-	mux.HandleFunc("/api/v1/forwards/", s.requireAuth(s.handleForwardByID))
+	mux.HandleFunc("/api/v1/forwards/", s.requireAuth(s.handleForwardRoutes))
 	mux.HandleFunc("/api/v1/forward-deletions/", s.requireAuth(s.handleDeletionPollPath))
+	mux.HandleFunc("/api/v1/navigation/", s.requireAuth(s.handleNavigation))
+	mux.HandleFunc("/api/v1/events", s.requireAuth(s.handleEvents))
+	mux.HandleFunc("/api/v1/traffic", s.requireAuth(s.handleTraffic))
+	mux.HandleFunc("/api/v1/audit", s.requireAuth(s.handleAudit))
+	mux.HandleFunc("/api/v1/settings", s.requireAuth(s.handleSettings))
 }
 
 // handleInit implements POST /api/v1/auth/init (P10 bootstrap surface, not in
@@ -162,6 +198,11 @@ func (s *Server) handleInit(w http.ResponseWriter, r *http.Request) {
 
 // handleLogin implements POST /api/v1/auth/login.
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	key := loginRateKey(r)
+	if !s.login.allow(key) {
+		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "login rate limit exceeded")
+		return
+	}
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -184,7 +225,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   r.TLS != nil,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		Expires:  time.Unix(session.ExpiresAt, 0),
 	})
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -199,7 +240,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if token != nil {
 		_ = s.auth.Logout(token.Value)
 	}
-	http.SetCookie(w, &http.Cookie{Name: sessionCookieName, Value: "", Path: "/", MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: sessionCookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -214,6 +255,53 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 }
 
 // currentUser resolves the session cookie to a user.
+func loginRateKey(r *http.Request) string {
+	if r == nil {
+		return "unknown"
+	}
+	if host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr)); err == nil && host != "" {
+		return host
+	}
+	return strings.TrimSpace(r.RemoteAddr)
+}
+
+type loginRateEntry struct {
+	windowStart time.Time
+	count       int
+}
+
+type loginLimiter struct {
+	mu      sync.Mutex
+	now     func() time.Time
+	limit   int
+	window  time.Duration
+	entries map[string]loginRateEntry
+}
+
+func newLoginLimiter() *loginLimiter {
+	return &loginLimiter{now: time.Now, limit: 10, window: time.Minute, entries: make(map[string]loginRateEntry)}
+}
+
+func (l *loginLimiter) allow(key string) bool {
+	if l == nil {
+		return true
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	entry := l.entries[key]
+	if entry.windowStart.IsZero() || now.Sub(entry.windowStart) >= l.window {
+		entry = loginRateEntry{windowStart: now}
+	}
+	if entry.count >= l.limit {
+		l.entries[key] = entry
+		return false
+	}
+	entry.count++
+	l.entries[key] = entry
+	return true
+}
+
 func (s *Server) currentUser(r *http.Request) (auth.User, bool) {
 	cookie, err := r.Cookie(sessionCookieName)
 	if err != nil {

@@ -28,5 +28,9 @@ func NewRouter(cfg api.RouterConfig) (http.Handler, error) {
 	}
 	mux := http.NewServeMux()
 	s.RegisterRoutes(mux)
-	return mux, nil
+	return SecurityMiddleware(mux, SecurityConfig{
+		AllowedOrigins: cfg.AllowedOrigins,
+		TrustedProxies: cfg.TrustedProxies,
+		MaxBodyBytes:   cfg.MaxBodyBytes,
+	}), nil
 }

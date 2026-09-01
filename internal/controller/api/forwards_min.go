@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
@@ -21,22 +22,36 @@ import (
 
 // forwardView is the API-facing forward (openapi Forward).
 type forwardView struct {
-	ID              string                    `json:"id"`
-	NodeID          string                    `json:"node_id"`
-	Name            string                    `json:"name"`
-	Protocol        string                    `json:"protocol"`
-	Target          string                    `json:"target"`
-	Strategy        string                    `json:"strategy"`
-	DesiredRevision uint64                    `json:"desired_revision"`
-	ETag            string                    `json:"etag"`
-	States          protocol.ActivationStates `json:"states,omitempty"`
+	ID                     string                    `json:"id"`
+	NodeID                 string                    `json:"node_id"`
+	Name                   string                    `json:"name"`
+	Protocol               string                    `json:"protocol"`
+	Target                 string                    `json:"target"`
+	Strategy               string                    `json:"strategy"`
+	SourceInterface        string                    `json:"source_interface,omitempty"`
+	RequestedLocalPort     uint16                    `json:"requested_local_port,omitempty"`
+	RequestedPublicPort    uint16                    `json:"requested_public_port,omitempty"`
+	ManualExpectedEndpoint string                    `json:"manual_expected_endpoint,omitempty"`
+	RateLimitBPS           uint64                    `json:"rate_limit_bps,omitempty"`
+	DetailedStats          bool                      `json:"detailed_stats,omitempty"`
+	PublishScheme          string                    `json:"publish_scheme,omitempty"`
+	PublishedHost          string                    `json:"published_host,omitempty"`
+	CustomURITemplate      string                    `json:"custom_uri_template,omitempty"`
+	DesiredRevision        uint64                    `json:"desired_revision"`
+	ETag                   string                    `json:"etag"`
+	States                 protocol.ActivationStates `json:"states,omitempty"`
 }
 
 func (s *Server) forwardView(f store.Forward, spec protocol.ForwardSpec, states *store.ForwardRuntimeStatus) forwardView {
 	view := forwardView{
 		ID: f.ID, NodeID: f.NodeID, Name: f.Name, Protocol: f.Protocol,
 		Target: spec.Target, Strategy: string(spec.Strategy),
-		DesiredRevision: spec.DesiredRevision, ETag: etagFor(f.Revision),
+		SourceInterface: spec.SourceInterface, RequestedLocalPort: spec.RequestedLocalPort,
+		RequestedPublicPort: spec.RequestedPublicPort, ManualExpectedEndpoint: spec.ManualExpectedEndpoint,
+		RateLimitBPS: spec.RateLimitBPS, DetailedStats: spec.DetailedStats,
+		PublishScheme: spec.PublishScheme, PublishedHost: spec.PublishedHost,
+		CustomURITemplate: spec.CustomURITemplate,
+		DesiredRevision:   spec.DesiredRevision, ETag: etagFor(f.Revision),
 	}
 	if states != nil {
 		var st protocol.ActivationStates
@@ -80,13 +95,20 @@ func (s *Server) handleForwards(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var body struct {
-			NodeID     string `json:"node_id"`
-			Name       string `json:"name"`
-			Protocol   string `json:"protocol"`
-			Target     string `json:"target"`
-			Strategy   string `json:"strategy"`
-			LocalPort  uint16 `json:"requested_local_port,omitempty"`
-			PublicPort uint16 `json:"requested_public_port,omitempty"`
+			NodeID                 string `json:"node_id"`
+			Name                   string `json:"name"`
+			Protocol               string `json:"protocol"`
+			Target                 string `json:"target"`
+			Strategy               string `json:"strategy"`
+			LocalPort              uint16 `json:"requested_local_port,omitempty"`
+			PublicPort             uint16 `json:"requested_public_port,omitempty"`
+			SourceInterface        string `json:"source_interface"`
+			ManualExpectedEndpoint string `json:"manual_expected_endpoint"`
+			RateLimitBPS           uint64 `json:"rate_limit_bps,omitempty"`
+			DetailedStats          bool   `json:"detailed_stats,omitempty"`
+			PublishScheme          string `json:"publish_scheme"`
+			PublishedHost          string `json:"published_host"`
+			CustomURITemplate      string `json:"custom_uri_template"`
 		}
 		if !decodeJSON(w, r, &body) {
 			return
@@ -120,6 +142,13 @@ func (s *Server) handleForwards(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", err.Error())
 			return
 		}
+		spec.SourceInterface = strings.TrimSpace(body.SourceInterface)
+		spec.ManualExpectedEndpoint = strings.TrimSpace(body.ManualExpectedEndpoint)
+		spec.RateLimitBPS = body.RateLimitBPS
+		spec.DetailedStats = body.DetailedStats
+		spec.PublishScheme = strings.TrimSpace(body.PublishScheme)
+		spec.PublishedHost = strings.TrimSpace(body.PublishedHost)
+		spec.CustomURITemplate = strings.TrimSpace(body.CustomURITemplate)
 		if _, err := s.store.GetNode(body.NodeID); err != nil {
 			writeError(w, http.StatusNotFound, "NOT_FOUND", "node not found")
 			return
@@ -130,6 +159,10 @@ func (s *Server) handleForwards(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		spec.ForwardID = id
+		if err := validateForwardCreateSpec(spec); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", err.Error())
+			return
+		}
 		activation := protocol.ActivationID(id, 1)
 		f := store.Forward{ID: id, NodeID: body.NodeID, Name: body.Name, Protocol: body.Protocol, CurrentActivationID: hex.EncodeToString(activation[:]), Revision: 1}
 		specRow := store.ForwardSpec{ID: "spec-" + id, ForwardID: id, Revision: 1, SpecJSON: specJSON(spec)}
@@ -230,13 +263,17 @@ func (s *Server) handleForwardByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var body struct {
-			Target string `json:"target"`
+			Target             *string `json:"target"`
+			Name               *string `json:"name"`
+			RateLimitBPS       *uint64 `json:"rate_limit_bps"`
+			DetailedStats      *bool   `json:"detailed_stats"`
+			DisconnectExisting bool    `json:"disconnect_existing"`
 		}
 		if !decodeJSON(w, r, &body) {
 			return
 		}
-		if body.Target == "" {
-			writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "target is required")
+		if body.Target == nil && body.Name == nil && body.RateLimitBPS == nil && body.DetailedStats == nil {
+			writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "at least one supported field is required")
 			return
 		}
 		spec, err := s.latestSpec(id)
@@ -244,7 +281,27 @@ func (s *Server) handleForwardByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "spec read failed")
 			return
 		}
-		spec.Target = body.Target
+		if body.Target != nil {
+			spec.Target = strings.TrimSpace(*body.Target)
+		}
+		if body.Name != nil {
+			name := strings.TrimSpace(*body.Name)
+			if name == "" {
+				writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "name must not be empty")
+				return
+			}
+			spec.Name = name
+		}
+		if body.RateLimitBPS != nil {
+			spec.RateLimitBPS = *body.RateLimitBPS
+		}
+		if body.DetailedStats != nil {
+			spec.DetailedStats = *body.DetailedStats
+		}
+		if err := validateForwardCreateSpec(spec); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", err.Error())
+			return
+		}
 		spec.DesiredRevision++
 		newSpec := store.ForwardSpec{
 			ID:        "spec-" + id + "-" + strconv.FormatUint(spec.DesiredRevision, 10),
@@ -322,6 +379,10 @@ func (s *Server) handleForwardByID(w http.ResponseWriter, r *http.Request) {
 // requireIfMatch enforces the frozen ETag precondition: 412 on mismatch.
 // The caller checks presence (428) before resource lookup.
 func requireIfMatch(w http.ResponseWriter, r *http.Request, current string) error {
+	if r == nil || strings.TrimSpace(r.Header.Get("If-Match")) == "" {
+		writeError(w, http.StatusPreconditionRequired, "PRECONDITION_REQUIRED", "If-Match is required")
+		return errors.New("if-match required")
+	}
 	if r.Header.Get("If-Match") != current {
 		writeError(w, http.StatusPreconditionFailed, "PRECONDITION_FAILED", "ETag mismatch")
 		return errors.New("etag mismatch")
@@ -459,10 +520,26 @@ func buildForwardSpec(nodeID, name, proto, target, strategy string, localPort, p
 		return protocol.ForwardSpec{}, err
 	}
 	return protocol.ForwardSpec{
-		ForwardID: "", Name: name, Protocol: p, Target: target, Strategy: st,
+		ForwardID: "", Name: strings.TrimSpace(name), Protocol: p, Target: strings.TrimSpace(target), Strategy: st,
 		RequestedLocalPort: localPort, RequestedPublicPort: publicPort,
 		DesiredRevision: 1, Presence: protocol.PresencePresent,
 	}, nil
+}
+
+func validateForwardCreateSpec(spec protocol.ForwardSpec) error {
+	if strings.TrimSpace(spec.Name) == "" {
+		return errors.New("name is required")
+	}
+	if spec.Strategy == protocol.StrategyManualStaticV4 && strings.TrimSpace(spec.ManualExpectedEndpoint) == "" {
+		return errors.New("manual_expected_endpoint is required for manual-static-v4")
+	}
+	if spec.PublishScheme != "" && spec.PublishScheme != "http" && spec.PublishScheme != "https" {
+		return fmt.Errorf("unknown publish_scheme %q", spec.PublishScheme)
+	}
+	if err := spec.Validate(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func specJSON(spec protocol.ForwardSpec) string {

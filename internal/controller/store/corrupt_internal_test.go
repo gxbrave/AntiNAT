@@ -19,8 +19,8 @@ func TestMigrationFailureRollsBackLeavingOldDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if v0 != 8 {
-		t.Fatalf("precondition: schema version = %d, want 8 (P14 0008_lifecycle)", v0)
+	if v0 != 9 {
+		t.Fatalf("precondition: schema version = %d, want 9 (P15 0009_api_metrics)", v0)
 	}
 
 	// Second CREATE of the same table forces a failure mid-migration. The

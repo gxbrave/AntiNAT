@@ -103,6 +103,11 @@ func (s *Store) validateAppliedSchema() error {
 			return err
 		}
 	}
+	if version >= 9 {
+		if err := validateP15MetricsObjects(s.db); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

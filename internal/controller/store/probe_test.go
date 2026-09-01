@@ -328,8 +328,8 @@ func TestProbeMigrationVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("schema version: %v", err)
 	}
-	if v != 8 {
-		t.Fatalf("SchemaVersion = %d, want 8 (P14 0008_lifecycle)", v)
+	if v != 9 {
+		t.Fatalf("SchemaVersion = %d, want 9 (P15 0009_api_metrics)", v)
 	}
 }
 
