@@ -35,7 +35,7 @@ type UninstallNoticeResult struct {
 // offline -> UNKNOWN. If the durable terminal marker is already
 // DECOMMISSIONED/DECOMMISSIONING the notice is still recorded (the operator
 // asked) but LKG recovery was already impossible.
-func NotifyUninstall(ctx context.Context, store *localstate.Store, stateDir, operationID string, online func() bool) (UninstallNoticeResult, error) {
+func NotifyUninstall(ctx context.Context, store *localstate.Store, stateDir, operationID string, online func() bool, sessionIdentity ...func() (uint64, string, error)) (UninstallNoticeResult, error) {
 	if operationID == "" {
 		return UninstallNoticeResult{}, errUninstallRequiresOperation
 	}
@@ -56,7 +56,7 @@ func NotifyUninstall(ctx context.Context, store *localstate.Store, stateDir, ope
 		if err != nil {
 			return UninstallNoticeResult{}, err
 		}
-		if err := RecordResult(ctx, store, 0, "", operationID, payload); err != nil {
+		if err := queueUninstallResult(ctx, store, operationID, payload, sessionIdentity...); err != nil {
 			return UninstallNoticeResult{}, err
 		}
 	}
@@ -74,6 +74,20 @@ func NotifyUninstall(ctx context.Context, store *localstate.Store, stateDir, ope
 		result.TerminalRefused = true
 	}
 	return result, nil
+}
+
+func queueUninstallResult(ctx context.Context, store *localstate.Store, operationID string, payload []byte, sessionIdentity ...func() (uint64, string, error)) error {
+	if len(sessionIdentity) == 0 || sessionIdentity[0] == nil {
+		return store.QueueResultSessionIndependent(operationID, payload)
+	}
+	epoch, session, err := sessionIdentity[0]()
+	if err != nil {
+		return err
+	}
+	if epoch == 0 || session == "" {
+		return store.QueueResultSessionIndependent(operationID, payload)
+	}
+	return RecordResult(ctx, store, epoch, session, operationID, payload)
 }
 
 // marshalUninstallNotice renders the wire notice payload.

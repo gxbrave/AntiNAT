@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/gxbrave/AntiNAT/internal/agent/localstate"
@@ -72,6 +73,9 @@ type Decommissioner struct {
 	stateDir     string
 	stopAll      func(ctx context.Context) error
 	secretCleans []func() error
+	// sessionIdentity supplies the current control epoch/session for terminal
+	// result delivery. A nil callback uses the durable session-independent queue.
+	sessionIdentity func() (uint64, string, error)
 }
 
 // NewDecommissioner wires a decommission driver. stateDir is the state
@@ -83,6 +87,13 @@ func NewDecommissioner(store *localstate.Store, latch *localstate.Latch, stateDi
 		stopAll = func(context.Context) error { return nil }
 	}
 	return &Decommissioner{store: store, latch: latch, stateDir: stateDir, stopAll: stopAll, secretCleans: secretCleans}
+}
+
+// SetSessionIdentity supplies the current live control session for terminal
+// ACKs. It is optional so terminal results remain durable when no live session
+// exists; callers must never invent an epoch/session pair.
+func (d *Decommissioner) SetSessionIdentity(identity func() (uint64, string, error)) {
+	d.sessionIdentity = identity
 }
 
 // markerState reports the durable marker.
@@ -143,6 +154,9 @@ func (d *Decommissioner) StopAll(ctx context.Context) error {
 // Complete clears every Forward LKG/secret/job row, writes the cleanup
 // tombstone with the allowed key versions, then writes DECOMMISSIONED.
 func (d *Decommissioner) Complete(ctx context.Context, req DecommissionRequest) error {
+	if err := d.requireIntent(req); err != nil {
+		return err
+	}
 	marker, err := d.markerState()
 	if err != nil {
 		return err
@@ -185,6 +199,9 @@ func (d *Decommissioner) Complete(ctx context.Context, req DecommissionRequest) 
 // QueueAck queues the minimal node_decommission_ack for the operation so an
 // ACK loss is retryable across reconnects without retaining any forward secret.
 func (d *Decommissioner) QueueAck(ctx context.Context, req DecommissionRequest) error {
+	if err := d.requireIntent(req); err != nil {
+		return err
+	}
 	if marker, err := d.markerState(); err != nil {
 		return err
 	} else if marker != localstate.MarkerDecommissioned {
@@ -202,14 +219,7 @@ func (d *Decommissioner) QueueAck(ctx context.Context, req DecommissionRequest) 
 	if err != nil {
 		return err
 	}
-	epoch, session, err := d.store.CurrentSession()
-	if err != nil {
-		return err
-	}
-	if epoch == 0 || session == "" {
-		return d.store.QueueResultSessionIndependent(req.OperationID, payload)
-	}
-	return RecordResult(ctx, d.store, epoch, session, req.OperationID, payload)
+	return d.queueResult(ctx, req.OperationID, payload)
 }
 
 // ReconcileDeadline implements the bounded best-effort deadline rule: when the
@@ -219,6 +229,9 @@ func (d *Decommissioner) QueueAck(ctx context.Context, req DecommissionRequest) 
 func (d *Decommissioner) ReconcileDeadline(ctx context.Context, req DecommissionRequest) (DecommissionDeadlineResult, error) {
 	marker, err := d.markerState()
 	if err != nil {
+		return DecommissionDeadlineResult{}, err
+	}
+	if err := d.requireIntent(req); err != nil {
 		return DecommissionDeadlineResult{}, err
 	}
 	if marker == localstate.MarkerDecommissioned {
@@ -256,10 +269,44 @@ func (d *Decommissioner) ReconcileDeadline(ctx context.Context, req Decommission
 		NodeID: req.NodeID, OperationID: req.OperationID,
 		Status: "DROPPED_DUE_TO_DECOMMISSION", Force: req.Force,
 	})
-	if err == nil {
-		_ = RecordResult(ctx, d.store, 0, "", req.OperationID, payload)
+	if err != nil {
+		return DecommissionDeadlineResult{}, err
+	}
+	if err := d.queueResult(ctx, req.OperationID, payload); err != nil {
+		return DecommissionDeadlineResult{}, fmt.Errorf("reconcile: queue decommission deadline ACK: %w", err)
 	}
 	return DecommissionDeadlineResult{DroppedDueToDecommission: true, Status: "DROPPED_DUE_TO_DECOMMISSION"}, nil
+}
+
+func (d *Decommissioner) requireIntent(req DecommissionRequest) error {
+	if d.store == nil {
+		return errors.New("reconcile: decommission requires localstate")
+	}
+	intent, found, err := d.store.LoadDecommissionIntent()
+	if err != nil {
+		return err
+	}
+	if !found || intent.OperationID != req.OperationID || intent.NodeID != req.NodeID ||
+		intent.Force != req.Force || intent.DeadlineUnix != req.DeadlineUnix ||
+		!slices.Equal(intent.AllowedKeyHashes, req.AllowedKeyHashes) ||
+		!slices.Equal(intent.CredentialVersions, req.CredentialVersions) {
+		return fmt.Errorf("%w: persisted decommission intent does not match request", ErrDecommissionedAgent)
+	}
+	return nil
+}
+
+func (d *Decommissioner) queueResult(ctx context.Context, operationID string, payload []byte) error {
+	if d.sessionIdentity == nil {
+		return d.store.QueueResultSessionIndependent(operationID, payload)
+	}
+	epoch, session, err := d.sessionIdentity()
+	if err != nil {
+		return err
+	}
+	if epoch == 0 || session == "" {
+		return d.store.QueueResultSessionIndependent(operationID, payload)
+	}
+	return RecordResult(ctx, d.store, epoch, session, operationID, payload)
 }
 
 // StoreMarkerStateAssertDecommissioned is a small helper named to make the

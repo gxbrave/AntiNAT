@@ -279,6 +279,52 @@ func TestDecommissionRestartResumesFromMarker(t *testing.T) {
 
 var errTestStopAllFailed = errDecommissionDeadline("test stop-all failure")
 
+// TestDecommissionCompleteRejectsMismatchedPersistedIntent proves terminal
+// cleanup cannot be finalized from stale request identity.
+func TestDecommissionCompleteRejectsMismatchedPersistedIntent(t *testing.T) {
+	st, dir := openDecommissionStore(t)
+	dc := NewDecommissioner(st, localstate.NewLatch(), dir, nil)
+	original := DecommissionRequest{NodeID: "node-1", OperationID: "decom-r5", Force: true,
+		DeadlineUnix: 10, AllowedKeyHashes: []string{"old"}, CredentialVersions: []uint32{1}}
+	if err := dc.Begin(context.Background(), original); err != nil {
+		t.Fatal(err)
+	}
+	mismatch := original
+	mismatch.OperationID = "decom-stale"
+	mismatch.AllowedKeyHashes = []string{"new"}
+	if err := dc.Complete(context.Background(), mismatch); err == nil {
+		t.Fatal("Complete accepted a request that did not match the durable intent")
+	}
+	marker, err := localstate.LoadMarker(dir)
+	if err != nil || marker != localstate.MarkerDecommissioning {
+		t.Fatalf("marker=%q err=%v, mismatched Complete finalized terminal state", marker, err)
+	}
+	if _, found, err := st.LoadAgentCleanupTombstone(); err != nil || found {
+		t.Fatalf("cleanup tombstone found=%v err=%v after mismatched Complete", found, err)
+	}
+}
+
+// TestDecommissionDeadlineRejectsMismatchedPersistedIntent proves deadline
+// cleanup cannot finalize from stale force/key/deadline identity.
+func TestDecommissionDeadlineRejectsMismatchedPersistedIntent(t *testing.T) {
+	st, dir := openDecommissionStore(t)
+	dc := NewDecommissioner(st, localstate.NewLatch(), dir, nil)
+	original := DecommissionRequest{NodeID: "node-1", OperationID: "decom-deadline-r5", Force: false,
+		DeadlineUnix: time.Now().Unix() - 1, AllowedKeyHashes: []string{"old"}, CredentialVersions: []uint32{1}}
+	if err := dc.Begin(context.Background(), original); err != nil {
+		t.Fatal(err)
+	}
+	mismatch := original
+	mismatch.Force = true
+	if _, err := dc.ReconcileDeadline(context.Background(), mismatch); err == nil {
+		t.Fatal("ReconcileDeadline accepted a request that did not match the durable intent")
+	}
+	marker, err := localstate.LoadMarker(dir)
+	if err != nil || marker != localstate.MarkerDecommissioning {
+		t.Fatalf("marker=%q err=%v, mismatched deadline finalized terminal state", marker, err)
+	}
+}
+
 // TestDecommissionCleanupLeavesAckDeliverable seeds an applied forward and a
 // pending deletion result in the outbox, then confirms the decommission ACK
 // (node_decommission_ack) is queued against the operation id so the controller

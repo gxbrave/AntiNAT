@@ -1037,7 +1037,9 @@ func (a *App) NotifyUninstall(ctx context.Context, operationID string) (reconcil
 	if connected, ok := a.client.(connectedControlClient); ok {
 		online = connected.Connected
 	}
-	return reconcile.NotifyUninstall(ctx, a.store, a.cfg.StateDir, operationID, online)
+	return reconcile.NotifyUninstall(ctx, a.store, a.cfg.StateDir, operationID, online, func() (uint64, string, error) {
+		return a.store.CurrentSession()
+	})
 }
 
 // handleRestoreReconcile puts the agent into RECOVERY_QUARANTINE: the
@@ -1183,7 +1185,13 @@ func (a *App) decommissioner() *reconcile.Decommissioner {
 		}
 		return a.dp.stopAll(ctx)
 	}
-	return reconcile.NewDecommissioner(a.store, a.latch, a.cfg.StateDir, stopAll, cleans...)
+	dc := reconcile.NewDecommissioner(a.store, a.latch, a.cfg.StateDir, stopAll, cleans...)
+	if a.store != nil {
+		dc.SetSessionIdentity(func() (uint64, string, error) {
+			return a.store.CurrentSession()
+		})
+	}
+	return dc
 }
 
 // handleDecommission drives the node_decommission command through the durable

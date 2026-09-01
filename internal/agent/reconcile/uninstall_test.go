@@ -44,6 +44,32 @@ func TestUninstallNoticeOnlineQueuesBoundedReceipt(t *testing.T) {
 	}
 }
 
+// RED R5-6: an online uninstall notice must accept a live session identity
+// rather than manufacturing epoch zero/session empty.
+func TestUninstallNoticeOnlineUsesCurrentSessionIdentity(t *testing.T) {
+	st, err := localstate.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.AdvanceSession(4, "live-session"); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	_, err = NotifyUninstall(context.Background(), st, dir, "unst-op-r5", func() bool { return true }, func() (uint64, string, error) {
+		return 4, "live-session", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.OutboxContains("unst-op-r5") {
+		t.Fatal("uninstall notice was not queued")
+	}
+	if _, err := st.ResultForOperation(4, "live-session", "unst-op-r5"); err != nil {
+		t.Fatalf("result was not bound to the live session: %v", err)
+	}
+}
+
 // TestUninstallNoticeOfflineIsUnknown: an offline agent records UNKNOWN and
 // never claims a delivery.
 func TestUninstallNoticeOfflineIsUnknown(t *testing.T) {
