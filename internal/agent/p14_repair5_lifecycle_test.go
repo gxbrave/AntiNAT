@@ -11,6 +11,21 @@ import (
 
 // RED R5-1: a matching operation/status without a non-zero generation must not
 // clear the currently-bound quarantine.
+func TestRestoreResultRejectsStaleGeneration(t *testing.T) {
+	dir := t.TempDir()
+	if err := localstate.WriteRecoveryQuarantineForOperation(dir, "restore-r5", 7); err != nil {
+		t.Fatal(err)
+	}
+	a := &App{cfg: Config{StateDir: dir}}
+	_, err := a.handleRestoreResult(context.Background(), control.Operation{
+		OperationID: "restore-r5",
+		Payload:     []byte(`{"restore_operation_id":"restore-r5","generation":6,"status":"authorized"}`),
+	})
+	if !errors.Is(err, localstate.ErrRecoveryOperationMismatch) {
+		t.Fatalf("stale generation error=%v, want binding mismatch", err)
+	}
+}
+
 func TestRestoreResultRequiresExactNonzeroGeneration(t *testing.T) {
 	dir := t.TempDir()
 	if err := localstate.WriteRecoveryQuarantineForOperation(dir, "restore-r5", 7); err != nil {
