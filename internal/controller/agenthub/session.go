@@ -945,11 +945,23 @@ func (h *Hub) outboxPump(ctx context.Context, s *ControlSession) {
 				return
 			}
 			for _, item := range items {
-				// P14 Story 3: a cleanup-only node may never receive pre-existing
-				// orchestrating rows (desired/secrets/rotation) left over from
-				// before its tombstone. Only the cleanup-authorized retry channel
-				// keeps flowing.
-				if s.cleanupOnly && !lifecycle.AllowedInboundCleanupOnly(item.MessageType) {
+				// P14 repair-1 H2c/M3a/L4: delivery is re-gated AT DELIVERY TIME,
+				// per tick, not from a handshake-captured bool. A cleanup-only
+				// tombstone, a RESTORE_RECONCILIATION, or a per-node restore
+				// quarantine must block forbidden orchestrating rows EVEN IF they
+				// were enqueued (and left in flight) BEFORE the tombstone/quarantine
+				// existed. The denied row is requeued (kept owned, never orphaned,
+				// never stranded in CLAIMED) so a later reauthorization can retry it.
+				allowed, delErr := h.store.DeliveryAllowed(item.NodeID, item.MessageType)
+				if delErr != nil {
+					closeOnError("CONTROL_OUTBOX_DELIVERY_GATE_FAILED", delErr)
+					return
+				}
+				if !allowed {
+					if err := h.store.RequeueControlOutboxItemOwned(item.OperationID, item.MessageType, s.owner); err != nil {
+						closeOnError("CONTROL_OUTBOX_REQUEUE_ITEM_FAILED", err)
+						return
+					}
 					continue
 				}
 				msgID := security.MessageID(item.OperationID, item.MessageType)
@@ -997,6 +1009,21 @@ func (h *Hub) unregister(s *ControlSession) {
 		if err := h.store.SetNodeControlStateOwned(s.owner, "OFFLINE"); err != nil {
 			h.audit("CONTROL_STATE_FAILED", fmt.Sprintf(`{"node_id":%q,"err":%q}`, s.nodeID, err.Error()))
 		}
+	}
+}
+
+// ForceCloseNodeSession terminates the active control session for a node if one
+// is established (repair-1 M3a). The force-delete lifecycle calls this after the
+// durable cleanup tombstone is written so a pre-tombstone session cannot keep
+// pumping orchestrating rows. A reconnect after this point completes a fresh
+// handshake that re-reads IsCleanupOnly, and the outbox pump re-gates delivery
+// per tick regardless.
+func (h *Hub) ForceCloseNodeSession(nodeID string) {
+	h.sessionsMu.Lock()
+	s := h.sessions[nodeID]
+	h.sessionsMu.Unlock()
+	if s != nil {
+		s.close()
 	}
 }
 

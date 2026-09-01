@@ -1304,6 +1304,14 @@ func (s *Store) QueueProbeOutcome(probeID string, outcome protocol.ProbeOutcome)
 			return "", fmt.Errorf("store: marshal probe outcome: %w", err)
 		}
 		item := ControlOutboxItem{OperationID: probeID, MessageType: "probe_outcome", NodeID: nodeID, SemanticPayload: string(payload)}
+		// P14 repair-1 M3b: the probe-outcome delivery inserts its control_outbox
+		// row directly (it bypasses EnqueueControlOutbox). Enforce the same
+		// cleanup-only/restore-quarantine enqueue guard inside this transaction so
+		// the outcome is refused (entire probe delivery rolls back) when the node
+		// must not receive orchestrating rows.
+		if err := s.EnforceCleanupOnlyEnqueue(item.NodeID, item.MessageType, nil); err != nil {
+			return "", err
+		}
 		commandID := deterministicMessageID(item.OperationID, item.MessageType)
 		resultID := deterministicMessageID(commandID, "operation_complete")
 		controllerResultID := deterministicMessageID(item.OperationID, "operation_complete")

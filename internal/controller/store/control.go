@@ -648,6 +648,36 @@ func (s *Store) RequeueControlOutboxForOwner(owner ControlOwner) (int, error) {
 	return int(n), nil
 }
 
+// RequeueControlOutboxItemOwned resets a SINGLE in-flight (CLAIMED/SENT) row to
+// PENDING while the caller remains the node's durable owner. The outbox pump
+// uses it when a delivery-time quarantine/tombstone gate refuses a forbidden row
+// (repair-1 L4/H2c): the row is kept owned and retryable instead of stranded in
+// CLAIMED forever, so a later reauthorization can deliver it.
+func (s *Store) RequeueControlOutboxItemOwned(operationID, messageType string, owner ControlOwner) error {
+	if err := s.validateOwner(owner); err != nil {
+		return err
+	}
+	res, err := s.db.Exec(`UPDATE control_outbox
+		SET state = 'PENDING', session_id = ?, updated_at = ?
+		WHERE operation_id = ? AND message_type = ? AND state IN ('CLAIMED', 'SENT')
+		  AND EXISTS (SELECT 1 FROM nodes
+			 WHERE nodes.id = control_outbox.node_id
+			   AND nodes.current_connection_epoch = ?
+			   AND nodes.current_session_id = ?)`,
+		owner.SessionID, now(), operationID, messageType, owner.ConnectionEpoch, owner.SessionID)
+	if err != nil {
+		return fmt.Errorf("store: requeue owned outbox item: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return fmt.Errorf("store: requeue owned outbox item rows: %w", err)
+	} else if n == 0 {
+		// Already PENDING (or the rollback of the same row), or we lost the
+		// durable owner. A stale requeue must not strand the row.
+		return s.RequireCurrentControlOwner(owner)
+	}
+	return nil
+}
+
 // RebindControlOutboxSession re-binds a SEMANTIC_ACKED row to the session
 // that resends its result. The authenticated, deduped result resend proves
 // the new session is continuing the operation, so the follow-up A2C receipt

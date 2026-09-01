@@ -7,6 +7,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
@@ -130,6 +131,89 @@ func TestCleanupOnlyInboundSessionGate(t *testing.T) {
 		if AllowedInboundCleanupOnly(forbidden) {
 			t.Fatalf("%q must be forbidden on a cleanup-only session", forbidden)
 		}
+	}
+}
+
+// TestFinalizeRestoreResumesDispatch (repair-1 H2a): with no caller for
+// store.AdvanceRestorePhase the controller stayed in RESTORE_RECONCILIATION
+// forever and refused automatic dispatch indefinitely. FinalizeRestore advances
+// the durable restore op to AUTHORIZED; per-node ReauthorizeNode clears the node
+// quarantine, after which a forbidden orchestrating enqueue is allowed again.
+func TestFinalizeRestoreResumesDispatch(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	mustNode(t, s, "node-reauth")
+
+	op := store.RestoreOperation{ID: "rest-final-1", ControllerInstance: "ci-1", ManifestSHA256: "abc", SchemaVersion: 1}
+	if err := s.EnterRestoreReconciliation(op); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnqueueControlOutbox(store.ControlOutboxItem{
+		OperationID: "blk-1", MessageType: "desired", NodeID: "node-reauth", SemanticPayload: `{}`,
+	}); err == nil {
+		t.Fatal("desired enqueued during RESTORE_RECONCILIATION")
+	}
+
+	completed, err := FinalizeRestore(ctx, s, "rest-final-1")
+	if err != nil {
+		t.Fatalf("FinalizeRestore: %v", err)
+	}
+	if completed.Phase != "AUTHORIZED" {
+		t.Fatalf("finalized phase = %q, want AUTHORIZED", completed.Phase)
+	}
+	reconciling, err := s.IsRestoreReconciling()
+	if err != nil || reconciling {
+		t.Fatalf("IsRestoreReconciling = %v err=%v after finalize", reconciling, err)
+	}
+	// Global gate open but per-node quarantine still set.
+	if err := s.EnqueueControlOutbox(store.ControlOutboxItem{
+		OperationID: "blk-2", MessageType: "desired", NodeID: "node-reauth", SemanticPayload: `{}`,
+	}); err == nil {
+		t.Fatal("desired enqueued for a still-quarantined node after global finalize")
+	}
+	if err := ReauthorizeNode(ctx, s, "node-reauth"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnqueueControlOutbox(store.ControlOutboxItem{
+		OperationID: "ok-1", MessageType: "desired", NodeID: "node-reauth", SemanticPayload: `{}`,
+	}); err != nil {
+		t.Fatalf("desired enqueue refused after finalize + node reauthorization: %v", err)
+	}
+}
+
+// TestForceDeleteTerminatesOnlineSession (repair-1 M3a): the optional
+// terminateSession callback fires with the node id after the durable tombstone
+// is written, so an established session cannot outlive the tombstone.
+func TestForceDeleteTerminatesOnlineSession(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	mustNode(t, s, "node-day")
+
+	var terminated []string
+	var mu sync.Mutex
+	terminatedCount := 0
+	res, err := ForceDeleteNode(ctx, s, DecommissionRequest{
+		NodeID: "node-day", OperationID: "decom-day", Force: true,
+	}, nil, func(nodeID string) error {
+		mu.Lock()
+		terminated = append(terminated, nodeID)
+		terminatedCount++
+		mu.Unlock()
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("force delete: %v", err)
+	}
+	_ = res
+	if terminatedCount != 1 || len(terminated) == 0 || terminated[0] != "node-day" {
+		t.Fatalf("terminate callbacks = %v count=%d, want [node-day]/1", terminated, terminatedCount)
+	}
+	ts, err := s.NodeCleanupTombstone("node-day")
+	if err != nil {
+		t.Fatalf("tombstone missing after force delete with termination: %v", err)
+	}
+	if !ts.Force {
+		t.Fatalf("tombstone force = %v", ts.Force)
 	}
 }
 

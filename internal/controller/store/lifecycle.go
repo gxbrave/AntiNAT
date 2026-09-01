@@ -264,6 +264,23 @@ type RestoreOperation struct {
 	UpdatedAt          int64
 }
 
+// GetRestoreOperation returns one restore operation row by id.
+func (s *Store) GetRestoreOperation(id string) (RestoreOperation, error) {
+	var op RestoreOperation
+	err := s.db.QueryRow(
+		`SELECT id, controller_instance, manifest_sha256, schema_version, phase, created_at, updated_at
+		   FROM restore_operations WHERE id = ?`, id,
+	).Scan(&op.ID, &op.ControllerInstance, &op.ManifestSHA256, &op.SchemaVersion,
+		&op.Phase, &op.CreatedAt, &op.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return RestoreOperation{}, ErrNotFound
+	}
+	if err != nil {
+		return RestoreOperation{}, fmt.Errorf("store: get restore operation: %w", err)
+	}
+	return op, nil
+}
+
 // CreateRestoreOperation persists a restore row in RESTORE_RECONCILIATION.
 func (s *Store) CreateRestoreOperation(op RestoreOperation) error {
 	if op.ID == "" || op.ManifestSHA256 == "" {
@@ -324,6 +341,50 @@ var cleanupOnlyForbiddenTypes = map[string]bool{
 	"restore_reconcile":    true,
 }
 
+// DeliveryAllowed reports whether a C2A control-outbox row of messageType may be
+// delivered to (or enqueued for) nodeID right now (repair-1 H2b). For the
+// forbidden orchestrating types the gate refuses while the controller is in
+// RESTORE_RECONCILIATION, while the node is restore-quarantined, OR while the
+// node carries a terminal cleanup tombstone. Delivery re-evaluates this per
+// tick, so in-flight rows enqueued before a tombstone/quarantine are never
+// delivered after it. Non-forbidden types (node_decommission, probe_outcome,
+// restore_result, receipts) always pass.
+func (s *Store) DeliveryAllowed(nodeID, messageType string) (bool, error) {
+	if messageType == "" {
+		return true, nil
+	}
+	if !cleanupOnlyForbiddenTypes[messageType] {
+		return true, nil
+	}
+	// Restore quarantine / RESTORE_RECONCILIATION suspends ALL automatic
+	// orchestrating dispatch until an administrator reauthorizes nodes.
+	reconciling, err := s.IsRestoreReconciling()
+	if err != nil {
+		return false, err
+	}
+	if reconciling {
+		return false, nil
+	}
+	if nodeID == "" {
+		return true, nil
+	}
+	quarantined, err := s.IsNodeQuarantined(nodeID)
+	if err != nil {
+		return false, err
+	}
+	if quarantined {
+		return false, nil
+	}
+	cleanupOnly, err := s.IsCleanupOnly(nodeID)
+	if err != nil {
+		return false, err
+	}
+	if cleanupOnly {
+		return false, nil
+	}
+	return true, nil
+}
+
 // EnforceCleanupOnlyEnqueue returns nil when an outbox item may be enqueued
 // for a cleanup-only node (only cleanup-authorized types), and an error
 // otherwise. fetchCleanupOnly is an injectable predicate (normally
@@ -332,32 +393,40 @@ func (s *Store) EnforceCleanupOnlyEnqueue(nodeID, messageType string, fetchClean
 	if messageType == "" {
 		return nil
 	}
-	if cleanupOnlyForbiddenTypes[messageType] {
-		// Restore quarantine / RESTORE_RECONCILIATION suspends ALL automatic
-		// orchestrating dispatch until an administrator reauthorizes nodes.
-		reconciling, err := s.IsRestoreReconciling()
+	if !cleanupOnlyForbiddenTypes[messageType] {
+		return nil
+	}
+	if fetchCleanupOnly == nil {
+		fetchCleanupOnly = s.IsCleanupOnly
+	}
+	reconciling, err := s.IsRestoreReconciling()
+	if err != nil {
+		return err
+	}
+	if reconciling {
+		return fmt.Errorf("store: controller is in RESTORE_RECONCILIATION; refused to enqueue %q for node %q until reauthorized", messageType, nodeID)
+	}
+	if nodeID != "" {
+		quarantined, err := s.IsNodeQuarantined(nodeID)
 		if err != nil {
 			return err
 		}
-		if reconciling {
-			return fmt.Errorf("store: controller is in RESTORE_RECONCILIATION; refused to enqueue %q for node %q until reauthorized", messageType, nodeID)
+		if quarantined {
+			return fmt.Errorf("store: node %q is restore-quarantined; refused to enqueue %q until reauthorized", nodeID, messageType)
 		}
-		if fetchCleanupOnly == nil {
-			fetchCleanupOnly = s.IsCleanupOnly
+	}
+	cleanupOnly, err := fetchCleanupOnly(nodeID)
+	if err != nil {
+		return err
+	}
+	if cleanupOnly {
+		var builder strings.Builder
+		keys := make([]string, 0, len(cleanupOnlyForbiddenTypes))
+		for k := range cleanupOnlyForbiddenTypes {
+			keys = append(keys, k)
 		}
-		cleanupOnly, err := fetchCleanupOnly(nodeID)
-		if err != nil {
-			return err
-		}
-		if cleanupOnly {
-			var builder strings.Builder
-			keys := make([]string, 0, len(cleanupOnlyForbiddenTypes))
-			for k := range cleanupOnlyForbiddenTypes {
-				keys = append(keys, k)
-			}
-			builder.WriteString(joinSorted(keys, ", "))
-			return fmt.Errorf("store: node %q is cleanup-only; refused to enqueue %q (allowed: %s)", nodeID, messageType, builder.String())
-		}
+		builder.WriteString(joinSorted(keys, ", "))
+		return fmt.Errorf("store: node %q is cleanup-only; refused to enqueue %q (allowed: %s)", nodeID, messageType, builder.String())
 	}
 	return nil
 }

@@ -53,6 +53,15 @@ func (s *Store) CreateForwardBundle(ctx context.Context, f Forward, spec Forward
 			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
 		}
 	}()
+	// P14 repair-1 M3b: the cleanup-only/restore-quarantine enqueue guard is
+	// enforced INSIDE the forward-bundle transaction. CreateForwardBundle inserts
+	// a desired outbox row directly (it never goes through EnqueueControlOutbox),
+	// so without this a force-deleted or quarantined node could receive a brand
+	// new desired command and resurrect a forward. The failure rolls the whole
+	// bundle back.
+	if err := s.EnforceCleanupOnlyEnqueue(outbox.NodeID, outbox.MessageType, nil); err != nil {
+		return IdempotencyRecord{}, false, err
+	}
 
 	ts := now()
 	expires := rec.ExpiresAt

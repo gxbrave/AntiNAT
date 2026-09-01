@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
 )
@@ -37,7 +38,14 @@ type DecommissionResult struct {
 // yet confirmed. The node is immediately removed from the regular navigation,
 // but its old key can never re-receive desired/secrets and never-reconnect
 // remains unconfirmed until the bounded decommission ACK arrives.
-func ForceDeleteNode(ctx context.Context, s *store.Store, req DecommissionRequest, enqueue func(store.ControlOutboxItem) error) (DecommissionResult, error) {
+//
+// terminateSession is optional: one or more callbacks invoked with the node id
+// AFTER the durable tombstone is written so an ESTABLISHED (online) control
+// session cannot outlive the tombstone and pump pre-existing orchestrating rows
+// (repair-1 M3a). The delivery-time gate in the outbox pump covers an already-
+// connected session even if no callback is supplied; the callback closes the
+// session proactively.
+func ForceDeleteNode(ctx context.Context, s *store.Store, req DecommissionRequest, enqueue func(store.ControlOutboxItem) error, terminateSession ...func(nodeID string) error) (DecommissionResult, error) {
 	node, err := s.GetNode(req.NodeID)
 	if err != nil {
 		return DecommissionResult{}, err
@@ -56,6 +64,22 @@ func ForceDeleteNode(ctx context.Context, s *store.Store, req DecommissionReques
 	// authority that refuses any later desired/secrets issuance for this node.
 	if err := s.CreateNodeCleanupTombstone(tombstone); err != nil {
 		return DecommissionResult{}, err
+	}
+	// repair-1 M3a: after the durable fact exists, terminate any ESTABLISHED
+	// online session so it cannot keep delivering pre-tombstone in-flight rows.
+	// A termination failure is surfaced but never rolls the tombstone back —
+	// the delivery-time gate in the outbox pump is the authoritative backstop.
+	var terminateErr error
+	for _, t := range terminateSession {
+		if t == nil {
+			continue
+		}
+		if err := t(req.NodeID); err != nil {
+			terminateErr = errors.Join(terminateErr, err)
+		}
+	}
+	if terminateErr != nil {
+		return DecommissionResult{}, fmt.Errorf("lifecycle: force delete session termination: %w", terminateErr)
 	}
 	// Phase 2: a best-effort node_decommission command is enqueued ONLY for the
 	// cleanup-authorized type; the tombstone's enqueue guard refuses any other
