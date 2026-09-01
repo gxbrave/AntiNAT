@@ -72,9 +72,10 @@ func (r *LifecycleReservation) Release() error {
 	if r == nil || r.file == nil {
 		return nil
 	}
-	unlockErr := unlockFile(r.file)
-	closeErr := r.file.Close()
+	file := r.file
 	r.file = nil
+	unlockErr := unlockFile(file)
+	closeErr := file.Close()
 	if unlockErr != nil {
 		return unlockErr
 	}
