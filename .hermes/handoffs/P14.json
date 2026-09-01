@@ -4,8 +4,12 @@
   "stage": "CANDIDATE",
   "branch": "ai/P14-lifecycle-recovery",
   "base_sha": "973cfa60ff2390fd4cbf9f9fa9f8b3afd28cd6e8",
-  "head_sha": "79473eef6ab5286ba612dc902da4b777d4d1d22d",
+  "head_sha": "14606a8e6ddbd64e8ba1787d0153014127d64ac0",
   "commits": [
+    "14606a8e6ddbd64e8ba1787d0153014127d64ac0",
+    "3552334509c4911a87113f974e5d54bcbbd481ed",
+    "089428bc938e559ac5d7869de1611d6635034e7c",
+    "c9eda66e7362f364fd016dbaa81b7ff41dd231a0",
     "79473eef6ab5286ba612dc902da4b777d4d1d22d",
     "3cf4158bd53381eb0c3e974258258159b9a2960a",
     "580be2f9621d4a101eb0b5a3078acfb55163665f",
@@ -794,7 +798,7 @@
     "trigger": "Fresh adversarial validation confirmed R4-1 through R4-10 High/Medium lifecycle/security defects, with supplemental validators A/B/C/D/E/F confirming per-node singleton identity, stale restore-result binding, duplicate rotation-journal ordering, deadline+ACK retirement, disk monotonicity/atomicity, and terminal ACK/session retry.",
     "base_sha": "973cfa60ff2390fd4cbf9f9fa9f8b3afd28cd6e8",
     "repair_base_sha": "ecdd115284c728d8b89960d8619a6d0cf69e047c",
-    "repair_head_sha": "79473eef6ab5286ba612dc902da4b777d4d1d22d",
+    "repair_head_sha": "14606a8e6ddbd64e8ba1787d0153014127d64ac0",
     "finding_to_fix": {
       "R4-1": "Store rotation phase CAS with expected phase and durable FSM graph; concurrent test proves one winner.",
       "R4-2": "Rotation certificate requires controller scope, pinned old-key identity, nonzero ordered structural window; tests cover blank/wrong scope, forged OldKeyID, zero/reversed windows.",
@@ -908,7 +912,7 @@
       {
         "command": "GOWORK=off go test ./internal/controller/store -run 'TestRotationPhaseCASAllowsOneConcurrentAdvance|TestRotationStoreRejectsInvalidNextPhase|TestReauthorizeNodeRequiresCurrentAuthorizedRestoreOperation|TestRotationRetireRequiresDeadlineAndAgentACK|TestForceRetireKeyRotationOperationAtomic' -race -count=20 -timeout=5m",
         "exit_code": 0,
-        "summary": "PASS; repair-4 store CAS, FSM, restore binding, retirement ACK and force-path tests stressed x20."
+        "summary": "PASS; repair-4 store CAS, FSM, restore-binding, retirement-ACK and force-path tests stressed x20."
       },
       {
         "command": "GOWORK=off go vet ./...",
@@ -965,10 +969,10 @@
       "The existing ApplyRestore call sites were test-only and were migrated to a package-local validated test helper; the exported production API now requires (*store.Store, liveDBPath, backupDir, liveKeyIDs).",
       "The canonical active signer remains untouched during PrepareRotation; successor material is staged separately. Explicit activation wiring beyond PREPARED remains outside this bounded repair because the P15/operator surface owns lifecycle orchestration.",
       "The existing compatibility ReauthorizeNode(nodeID) is fail-closed; callers must use ReauthorizeNodeForOperation with the exact restore operation.",
-      "The focused -race x20 aggregate exceeded the default 10-minute command timeout while running the controller/store package. Individual focused packages passed; the timeout is recorded honestly and must not be represented as a green matrix row.",
-      "The Windows lifecycle lock uses LockFileEx; Windows/arm64/darwin evidence remains compile-only."
+      "The Windows lifecycle lock uses LockFileEx; Windows/arm64/darwin evidence remains compile-only.",
+      "The broad all-store focused race x20 invocation exceeded its default 10-minute command timeout in an unrelated fairness test; it was split into focused package stress and repair-4 store regression stress, both passing x20."
     ],
-    "known_flakes": "No new flakes. The full required suites passed with the dedicated identity. The broad all-store focused race x20 command exceeded the default 10-minute test timeout in an unrelated fairness test; that fairness test passes individually, and the repair-4 store regression subset plus the other focused packages pass x20. No real CPE/WAN evidence; govulncheck unavailable."
+    "known_flakes": "No new flakes. Full required suites passed with the dedicated identity. The broad all-store focused race x20 command was stopped after exceeding the default 10-minute command timeout in an unrelated fairness test; the fairness test passes individually. Split focused lifecycle/security and repair-4 store regression stress runs passed x20. No real CPE/WAN evidence; govulncheck unavailable."
   },
   "verification": [
     {
@@ -989,7 +993,7 @@
     {
       "command": "GOWORK=off go test ./internal/controller/store -run 'TestRotationPhaseCASAllowsOneConcurrentAdvance|TestRotationStoreRejectsInvalidNextPhase|TestReauthorizeNodeRequiresCurrentAuthorizedRestoreOperation|TestRotationRetireRequiresDeadlineAndAgentACK|TestForceRetireKeyRotationOperationAtomic' -race -count=20 -timeout=5m",
       "exit_code": 0,
-      "summary": "PASS; repair-4 store CAS, FSM, restore binding, retirement ACK and force-path tests stressed x20."
+      "summary": "PASS; repair-4 store CAS, FSM, restore-binding, retirement-ACK and force-path tests stressed x20."
     },
     {
       "command": "GOWORK=off go vet ./...",
