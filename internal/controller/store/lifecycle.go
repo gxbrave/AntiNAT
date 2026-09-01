@@ -279,7 +279,10 @@ type KeyRotationOperation struct {
 	UpdatedAt           int64
 }
 
-// CreateKeyRotationOperation persists a PREPARED rotation row.
+// CreateKeyRotationOperation persists a rotation row while transactionally
+// enforcing one nonterminal operation per signing scope. BEGIN IMMEDIATE is
+// required here: a deferred read-then-insert allows two callers to observe no
+// active operation before both insert PREPARED rows.
 func (s *Store) CreateKeyRotationOperation(op KeyRotationOperation) error {
 	if op.ID == "" || op.Scope == "" || op.OldKeyID == "" || op.NewKeyID == "" {
 		return errors.New("store: key rotation operation requires scope + old/new key ids")
@@ -287,8 +290,34 @@ func (s *Store) CreateKeyRotationOperation(op KeyRotationOperation) error {
 	if op.Phase == "" {
 		op.Phase = "PREPARED"
 	}
+	conn, err := s.db.Conn(context.Background())
+	if err != nil {
+		return fmt.Errorf("store: rotation operation connection: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		return fmt.Errorf("store: begin key rotation operation: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+	var existingID, existingPhase string
+	err = conn.QueryRowContext(context.Background(),
+		`SELECT id, phase FROM key_rotation_operations
+		   WHERE scope = ? AND phase <> 'RETIRED'
+		   ORDER BY updated_at DESC, id DESC LIMIT 1`, op.Scope,
+	).Scan(&existingID, &existingPhase)
+	switch {
+	case err == nil:
+		return fmt.Errorf("%w: signing scope %q already has nonterminal operation %q in phase %q", ErrCASConflict, op.Scope, existingID, existingPhase)
+	case !errors.Is(err, sql.ErrNoRows):
+		return fmt.Errorf("store: check active key rotation operation: %w", err)
+	}
 	now := s.currentUnix()
-	_, err := s.db.Exec(
+	if _, err := conn.ExecContext(context.Background(),
 		`INSERT INTO key_rotation_operations
 		    (id, scope, old_key_id, old_key_generation, new_key_id, new_public_key,
 		     new_generation, phase, not_before_unix, overlap_deadline_unix, certificate,
@@ -297,10 +326,13 @@ func (s *Store) CreateKeyRotationOperation(op KeyRotationOperation) error {
 		op.ID, op.Scope, op.OldKeyID, op.OldKeyGeneration, op.NewKeyID, op.NewPublicKey,
 		op.NewGeneration, op.Phase, op.NotBeforeUnix, op.OverlapDeadlineUnix, op.Certificate,
 		now, now,
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("store: create key rotation operation: %w", err)
 	}
+	if _, err := conn.ExecContext(context.Background(), "COMMIT"); err != nil {
+		return fmt.Errorf("store: commit key rotation operation: %w", err)
+	}
+	committed = true
 	return nil
 }
 

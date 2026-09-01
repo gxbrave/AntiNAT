@@ -78,18 +78,10 @@ func PrepareRotation(ctx context.Context, s *store.Store, keyringDir string, old
 	if err := s.CreateKeyRotationOperation(op); err != nil {
 		return store.KeyRotationOperation{}, err
 	}
-	if staged, loadErr := security.LoadStagedKeyring(keyringDir); loadErr == nil {
-		if staged.KeyID() != op.NewKeyID || staged.Generation() != op.NewGeneration {
-			if removeErr := security.RemoveStaged(keyringDir); removeErr != nil {
-				_ = s.DeleteKeyRotationOperation(operationID)
-				return store.KeyRotationOperation{}, fmt.Errorf("lifecycle: replace stale staged successor: %w", removeErr)
-			}
-		}
-	} else if !errors.Is(loadErr, os.ErrNotExist) {
-		_ = s.DeleteKeyRotationOperation(operationID)
-		return store.KeyRotationOperation{}, fmt.Errorf("lifecycle: inspect existing staged successor: %w", loadErr)
-	}
-	if err := newKey.Stage(keyringDir); err != nil {
+	// Stage into a path tied to this operation. Never inspect or remove the
+	// historical shared stage here: another durable operation may own it, and a
+	// stale shared file must not be allowed to corrupt this operation's journal.
+	if err := newKey.StageForOperation(keyringDir, operationID); err != nil {
 		// The PREPARED row must never claim a successor exists when staging did
 		// not complete. Remove the just-created intent so a retry can safely
 		// regenerate and stage successor material while the old signer remains.
@@ -101,16 +93,10 @@ func PrepareRotation(ctx context.Context, s *store.Store, keyringDir string, old
 	return op, nil
 }
 
-// ReconcilePreparedRotation verifies that a durable PREPARED operation still
-// has the exact successor material it declared. If staging is missing/corrupt,
-// the operation is removed while the old signer remains active, allowing a
-// caller to retry preparation. This is safe to invoke on startup and retry.
-func ReconcilePreparedRotation(ctx context.Context, s *store.Store, keyringDir, operationID string) error {
-	reservation, err := store.AcquireLifecycleReservation(ctx, s)
-	if err != nil {
-		return err
-	}
-	defer reservation.Release()
+// reconcilePreparedRotationLocked verifies one durable PREPARED operation
+// while the caller holds the shared lifecycle reservation. Cleanup is scoped to
+// the operation-specific stage and therefore cannot remove another successor.
+func reconcilePreparedRotationLocked(s *store.Store, keyringDir, operationID string) error {
 	op, err := s.GetKeyRotationOperation(operationID)
 	if err != nil {
 		return err
@@ -118,37 +104,54 @@ func ReconcilePreparedRotation(ctx context.Context, s *store.Store, keyringDir, 
 	if op.Phase != "PREPARED" {
 		return nil
 	}
-	staged, err := security.LoadStagedKeyring(keyringDir)
+	staged, err := security.LoadStagedKeyringForOperation(keyringDir, operationID)
 	if err == nil && staged.KeyID() == op.NewKeyID && staged.Generation() == op.NewGeneration {
 		return nil
 	}
 	if removeErr := s.DeleteKeyRotationOperation(operationID); removeErr != nil {
 		return fmt.Errorf("lifecycle: reconcile prepared rotation staging (%v): %w", err, removeErr)
 	}
-	if removeErr := security.RemoveStaged(keyringDir); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+	if removeErr := security.RemoveStagedForOperation(keyringDir, operationID); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 		return fmt.Errorf("lifecycle: remove unrecoverable staged successor: %w", removeErr)
 	}
 	return fmt.Errorf("lifecycle: prepared rotation successor is not recoverable: %w", err)
 }
 
-// ReconcilePreparedRotations scans durable rotation intents and reconciles every
-// PREPARED operation. Controller startup/retry callers should invoke this before
-// announcing any successor; an unrecoverable intent is removed fail-closed while
-// the old signer remains active.
+// ReconcilePreparedRotation verifies a durable PREPARED operation still has
+// the exact successor material it declared. It is safe to invoke on startup or
+// retry and preserves the old signer when staging is missing/corrupt.
+func ReconcilePreparedRotation(ctx context.Context, s *store.Store, keyringDir, operationID string) error {
+	reservation, err := store.AcquireLifecycleReservation(ctx, s)
+	if err != nil {
+		return err
+	}
+	defer reservation.Release()
+	return reconcilePreparedRotationLocked(s, keyringDir, operationID)
+}
+
+// ReconcilePreparedRotations scans durable rotation intents and reconciles all
+// PREPARED operations under one reservation. A stale row can only clean its own
+// stage, and no concurrent PrepareRotation can interleave between rows.
 func ReconcilePreparedRotations(ctx context.Context, s *store.Store, keyringDir string) error {
+	reservation, err := store.AcquireLifecycleReservation(ctx, s)
+	if err != nil {
+		return err
+	}
+	defer reservation.Release()
 	ops, err := s.ListKeyRotationOperations()
 	if err != nil {
 		return err
 	}
+	var firstErr error
 	for _, op := range ops {
 		if op.Phase != "PREPARED" {
 			continue
 		}
-		if err := ReconcilePreparedRotation(ctx, s, keyringDir, op.ID); err != nil {
-			return err
+		if err := reconcilePreparedRotationLocked(s, keyringDir, op.ID); err != nil && firstErr == nil {
+			firstErr = err
 		}
 	}
-	return nil
+	return firstErr
 }
 
 // AdvanceRotationPhase is the single-step FSM transition guard. A normal

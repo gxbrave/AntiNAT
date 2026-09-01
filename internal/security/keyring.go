@@ -25,9 +25,15 @@ import (
 // KeyringFile is the Controller signing key filename.
 const KeyringFile = "controller-signing.key"
 
-// KeyringStagedFile is the non-active successor key filename. Staged material
-// is never used for signing until an explicit lifecycle activation.
+// KeyringStagedFile is the legacy non-active successor key filename. New
+// lifecycle operations use operation-specific staged paths so one operation's
+// recovery cannot remove another operation's successor.
 const KeyringStagedFile = "controller-signing.key.stage"
+
+// KeyringStagedPrefix prefixes operation-specific successor key filenames.
+// The operation identity is represented by a SHA-256 digest in the suffix, so
+// arbitrary operation IDs cannot escape the keyring directory.
+const KeyringStagedPrefix = "controller-signing.key.stage."
 
 // maxSupportedGeneration is the highest keyring generation this build
 // understands. A file carrying a higher generation was written by a newer
@@ -164,6 +170,8 @@ func (k *Keyring) GenerateSuccessor() (*Keyring, error) {
 }
 
 // Stage persists successor key material separately from the active signer.
+// It is retained as a compatibility API for callers that use the historical
+// single staging slot; lifecycle rotation uses StageForOperation instead.
 func (k *Keyring) Stage(dir string) error {
 	if k == nil || k.generation == 0 {
 		return errors.New("security: staged key is empty")
@@ -177,9 +185,40 @@ func (k *Keyring) Stage(dir string) error {
 	return nil
 }
 
-// LoadStagedKeyring loads and validates the durable successor staging file
-// without activating it. Lifecycle recovery uses this to distinguish a
-// recoverable PREPARED operation from an orphaned or corrupt staged file.
+// stagedOperationPath derives a directory-confined path from the operation
+// identity. Hashing rather than sanitizing prevents separators and other path
+// syntax in an operation ID from escaping the keyring directory.
+func stagedOperationPath(dir, operationID string) (string, error) {
+	if dir == "" {
+		return "", errors.New("security: staged key directory is required")
+	}
+	if operationID == "" {
+		return "", errors.New("security: staged key operation id is required")
+	}
+	sum := sha256.Sum256([]byte(operationID))
+	return filepath.Join(dir, KeyringStagedPrefix+hex.EncodeToString(sum[:])), nil
+}
+
+// StageForOperation persists successor key material in a path bound to one
+// durable rotation operation. It never overwrites another operation's stage.
+func (k *Keyring) StageForOperation(dir, operationID string) error {
+	if k == nil || k.generation == 0 {
+		return errors.New("security: staged key is empty")
+	}
+	path, err := stagedOperationPath(dir, operationID)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("security: stage key dir: %w", err)
+	}
+	if err := k.saveAtomic(path); err != nil {
+		return fmt.Errorf("security: stage successor keyring: %w", err)
+	}
+	return nil
+}
+
+// LoadStagedKeyring loads and validates the historical staging file.
 func LoadStagedKeyring(dir string) (*Keyring, error) {
 	raw, err := loadKeyFile(filepath.Join(dir, KeyringStagedFile))
 	if err != nil {
@@ -188,10 +227,37 @@ func LoadStagedKeyring(dir string) (*Keyring, error) {
 	return parseKeyring(raw)
 }
 
-// RemoveStaged removes successor material that is not referenced by a durable
-// PREPARED operation. It is idempotent and fsyncs the containing directory.
+// LoadStagedKeyringForOperation loads only the stage belonging to operationID.
+func LoadStagedKeyringForOperation(dir, operationID string) (*Keyring, error) {
+	path, err := stagedOperationPath(dir, operationID)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := loadKeyFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return parseKeyring(raw)
+}
+
+// RemoveStaged removes the historical staging file. It is idempotent and
+// fsyncs the containing directory.
 func RemoveStaged(dir string) error {
-	if err := os.Remove(filepath.Join(dir, KeyringStagedFile)); err != nil {
+	return removeStagedPath(filepath.Join(dir, KeyringStagedFile), dir)
+}
+
+// RemoveStagedForOperation removes only operationID's successor material. It
+// cannot delete a stage belonging to any other operation.
+func RemoveStagedForOperation(dir, operationID string) error {
+	path, err := stagedOperationPath(dir, operationID)
+	if err != nil {
+		return err
+	}
+	return removeStagedPath(path, dir)
+}
+
+func removeStagedPath(path, dir string) error {
+	if err := os.Remove(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
@@ -210,10 +276,22 @@ func syncStagedDirectory(dir string) error {
 	return syncDirForStaging(dir)
 }
 
-// ActivateStaged atomically promotes previously staged successor material to
-// the active signer only after the caller has durably journaled PREPARED.
+// ActivateStaged atomically promotes the historical staged successor material
+// to the active signer only after the caller has durably journaled PREPARED.
 func ActivateStaged(dir string) (*Keyring, error) {
-	path := filepath.Join(dir, KeyringStagedFile)
+	return activateStagedPath(dir, filepath.Join(dir, KeyringStagedFile))
+}
+
+// ActivateStagedForOperation promotes only operationID's staged successor.
+func ActivateStagedForOperation(dir, operationID string) (*Keyring, error) {
+	path, err := stagedOperationPath(dir, operationID)
+	if err != nil {
+		return nil, err
+	}
+	return activateStagedPath(dir, path)
+}
+
+func activateStagedPath(dir, path string) (*Keyring, error) {
 	raw, err := loadKeyFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("security: load staged keyring: %w", err)

@@ -57,6 +57,13 @@ CREATE TABLE IF NOT EXISTS key_rotation_operations (
 ) STRICT;
 CREATE INDEX IF NOT EXISTS idx_key_rotation_ops_phase
     ON key_rotation_operations(phase, updated_at, id);
+-- A signing scope has at most one in-progress rotation. RETIRED is terminal;
+-- every other durable phase remains reserved until its operation completes.
+-- This partial unique index is the database-level defense for callers that do
+-- not use the lifecycle wrapper's shared reservation.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_key_rotation_ops_scope_nonterminal
+    ON key_rotation_operations(scope)
+    WHERE phase <> 'RETIRED';
 
 -- Per-agent rotation acknowledgements are required before normal retirement.
 CREATE TABLE IF NOT EXISTS key_rotation_agent_acks (
