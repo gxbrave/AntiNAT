@@ -204,6 +204,11 @@ func TestReconcilePreparedRotationsDoesNotDeleteAnotherOperationStage(t *testing
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// Keep a legacy shared stage too: this is the exact R6-1 failure mode
+	// where stale A cleanup used to remove valid B's material.
+	if err := valid.Stage(dir); err != nil {
+		t.Fatal(err)
+	}
 	if err := valid.StageForOperation(dir, "rot-valid-b"); err != nil {
 		t.Fatal(err)
 	}
