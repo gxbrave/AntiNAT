@@ -19,6 +19,7 @@ Only the following paths may be created or modified in this cycle. Any path not 
 - `internal/controller/lifecycle/rotation_test.go`
 - `internal/controller/lifecycle/recovery_authorize.go`
 - `internal/controller/lifecycle/lifecycle_test.go`
+- `internal/controller/agenthub/session.go`
 - `internal/controller/recovery/restore.go`
 - `internal/controller/recovery/restore_test.go`
 - `test/integration/lifecycle_test.go`
