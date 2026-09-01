@@ -36,6 +36,18 @@ func AcceptControllerRotationPin(store *localstate.Store, instanceID string, cer
 	if cert.Scope != "controller" && cert.Scope != "" {
 		return localstate.ControllerPin{}, security.RotationCertificate{}, fmt.Errorf("%w: scope %q", ErrRotationPinRefused, cert.Scope)
 	}
+	// repair-1 M1: the anti-downgrade comparison is the CERTIFICATE vs the
+	// PERSISTED pin generation, which DecodeRotationCertificate cannot see. A
+	// legit gen-4 pin must only accept a successor whose certificate chains
+	// exactly from the persisted generation to a strictly higher one. A forged
+	// gen-1->3 downgrade OR a cross-chain (gen-1->5) certificate signed by the
+	// current key is refused fail-closed before any persistence.
+	if cert.OldGeneration != pin.Generation {
+		return localstate.ControllerPin{}, security.RotationCertificate{}, fmt.Errorf("%w: certificate old generation %d does not match persisted pin generation %d", ErrRotationPinRefused, cert.OldGeneration, pin.Generation)
+	}
+	if cert.NewGeneration <= pin.Generation {
+		return localstate.ControllerPin{}, security.RotationCertificate{}, fmt.Errorf("%w: certificate new generation %d does not increase the persisted pin generation %d", ErrRotationPinRefused, cert.NewGeneration, pin.Generation)
+	}
 	newPub, _, err := cert.PublicKeys()
 	if err != nil {
 		return localstate.ControllerPin{}, security.RotationCertificate{}, err
