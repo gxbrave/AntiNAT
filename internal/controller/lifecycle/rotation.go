@@ -69,11 +69,11 @@ func PrepareRotation(ctx context.Context, s *store.Store, keyringDir string, old
 		Phase: "PREPARED", NotBeforeUnix: notBeforeUnix,
 		OverlapDeadlineUnix: overlapDeadlineUnix, Certificate: encoded,
 	}
-	if err := s.CreateKeyRotationOperation(op); err != nil {
-		return store.KeyRotationOperation{}, err
-	}
 	if err := newKey.Stage(keyringDir); err != nil {
 		return store.KeyRotationOperation{}, fmt.Errorf("lifecycle: stage successor keyring: %w", err)
+	}
+	if err := s.CreateKeyRotationOperation(op); err != nil {
+		return store.KeyRotationOperation{}, err
 	}
 	return op, nil
 }
