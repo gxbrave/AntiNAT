@@ -406,11 +406,17 @@ func (s *Store) IsRestoreReconciling() (bool, error) {
 }
 
 // cleanupOnlyForbiddenTypes are the orchestrating C2A message types a
-// cleanup-only node must never receive.
+// cleanup-only node must never receive. probe_outcome and restore_result were
+// added in repair-2 L-B: before that a cleanup-only node could have those rows
+// enqueued (QueueProbeOutcome inserts its outbox row directly), the delivery
+// gate refused them, and the pump requeued them to PENDING every tick — a
+// permanent claim/requeue spin.
 var cleanupOnlyForbiddenTypes = map[string]bool{
 	"desired":              true,
 	"forward_delete":       true,
 	"probe_arm":            true,
+	"probe_outcome":        true,
+	"restore_result":       true,
 	"key_rotation_prepare": true,
 	"key_rotation_commit":  true,
 	"restore_reconcile":    true,

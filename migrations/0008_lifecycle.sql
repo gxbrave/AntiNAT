@@ -28,6 +28,12 @@ CREATE UNIQUE INDEX idx_cleanup_tombstones_node_unique
 -- dispatch per node until an administrator reauthorizes it.
 ALTER TABLE nodes ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0;
 
+-- Delivery-denied outbox backoff (repair-2 L-B): a control_outbox row whose
+-- delivery is refused (cleanup-only node, RESTORE_RECONCILIATION, per-node
+-- quarantine) is requeued with retry_after_unix = now + backoff so the outbox
+-- pump does not re-claim the same row on every tick. 0 means claimable now.
+ALTER TABLE control_outbox ADD COLUMN retry_after_unix INTEGER NOT NULL DEFAULT 0;
+
 -- One key-rotation operation per durable FSM instance. The certificate is
 -- signed by the OLD key; the phase follows PREPARED -> ANNOUNCED -> ACKED ->
 -- ACTIVE -> RETIRED. An offline Agent that never ACKed blocks normal retire;

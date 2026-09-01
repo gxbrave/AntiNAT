@@ -58,6 +58,12 @@ type ControlInboxItem struct {
 	UpdatedAt       int64
 }
 
+// deniedOutboxRowBackoffSeconds is the bounded backoff a delivery-refused
+// outbox row waits before the pump may re-claim it (repair-2 L-B). Without it a
+// persistently-refused row (cleanup-only node, RESTORE_RECONCILIATION,
+// per-node quarantine) would be PENDING->CLAIMED->PENDING on EVERY pump tick.
+const deniedOutboxRowBackoffSeconds = int64(30)
+
 // ClaimControlOutbox atomically advances up to limit PENDING rows for a node
 // to CLAIMED bound to the session and returns the claimed items in id order.
 // This compatibility form retains the historical session-only fixture API;
@@ -102,10 +108,13 @@ func (s *Store) claimControlOutbox(nodeID string, owner ControlOwner, limit int,
 		}
 	}()
 
-	query := `SELECT id, operation_id, message_type, node_id, semantic_payload, state
+	// retry_after_unix gates a delivery-refused row out of the claim set until
+	// its bounded backoff expires (repair-2 L-B): the pump must not re-claim
+	// the same refused row on every tick.
+	query := `SELECT id, operation_id, message_type, node_id, semantic_payload, state, retry_after_unix
 		   FROM control_outbox
-		  WHERE node_id = ? AND state = 'PENDING'`
-	args := []any{nodeID}
+		  WHERE node_id = ? AND state = 'PENDING' AND retry_after_unix <= ?`
+	args := []any{nodeID, s.currentUnix()}
 	if fenced {
 		query += ` AND EXISTS (SELECT 1 FROM nodes
 			 WHERE nodes.id = control_outbox.node_id
@@ -125,7 +134,7 @@ func (s *Store) claimControlOutbox(nodeID string, owner ControlOwner, limit int,
 		var item ControlOutboxItem
 		var id int64
 		if err := rows.Scan(&id, &item.OperationID, &item.MessageType, &item.NodeID,
-			&item.SemanticPayload, &item.State); err != nil {
+			&item.SemanticPayload, &item.State, &item.RetryAfterUnix); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("store: scan pending outbox: %w", err)
 		}
@@ -649,22 +658,26 @@ func (s *Store) RequeueControlOutboxForOwner(owner ControlOwner) (int, error) {
 }
 
 // RequeueControlOutboxItemOwned resets a SINGLE in-flight (CLAIMED/SENT) row to
-// PENDING while the caller remains the node's durable owner. The outbox pump
-// uses it when a delivery-time quarantine/tombstone gate refuses a forbidden row
-// (repair-1 L4/H2c): the row is kept owned and retryable instead of stranded in
-// CLAIMED forever, so a later reauthorization can deliver it.
+// PENDING while the caller remains the node's durable owner, and schedules a
+// bounded backoff so the pump does not re-claim it on every tick (repair-2
+// L-B). The outbox pump uses it when a delivery-time quarantine/tombstone gate
+// refuses a forbidden row (repair-1 L4/H2c): the row is kept owned and retryable
+// (retry_after_unix now + deniedOutboxRowBackoffSeconds) instead of stranded in
+// CLAIMED forever, so a later reauthorization can deliver it without a hot
+// PENDING→CLAIMED cycle in the meantime.
 func (s *Store) RequeueControlOutboxItemOwned(operationID, messageType string, owner ControlOwner) error {
 	if err := s.validateOwner(owner); err != nil {
 		return err
 	}
 	res, err := s.db.Exec(`UPDATE control_outbox
-		SET state = 'PENDING', session_id = ?, updated_at = ?
+		SET state = 'PENDING', session_id = ?, updated_at = ?, retry_after_unix = ?
 		WHERE operation_id = ? AND message_type = ? AND state IN ('CLAIMED', 'SENT')
 		  AND EXISTS (SELECT 1 FROM nodes
 			 WHERE nodes.id = control_outbox.node_id
 			   AND nodes.current_connection_epoch = ?
 			   AND nodes.current_session_id = ?)`,
-		owner.SessionID, now(), operationID, messageType, owner.ConnectionEpoch, owner.SessionID)
+		owner.SessionID, now(), now()+deniedOutboxRowBackoffSeconds, operationID, messageType,
+		owner.ConnectionEpoch, owner.SessionID)
 	if err != nil {
 		return fmt.Errorf("store: requeue owned outbox item: %w", err)
 	}

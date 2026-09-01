@@ -18,6 +18,10 @@ type ControlOutboxItem struct {
 	NodeID          string
 	SemanticPayload string
 	State           string
+	// RetryAfterUnix is the earliest unix second the row may be claimed again
+	// after a delivery-time gate refused it (repair-2 L-B bounded backoff). 0
+	// means immediately claimable.
+	RetryAfterUnix int64
 }
 
 // EnqueueControlOutbox inserts a PENDING outbox item. The caller-supplied
@@ -96,10 +100,10 @@ func (s *Store) ControlOutboxItemByCorrelation(nodeID, messageID, correlation st
 	}
 	var item ControlOutboxItem
 	err := s.db.QueryRow(
-		`SELECT operation_id, message_type, node_id, semantic_payload, state
+		`SELECT operation_id, message_type, node_id, semantic_payload, state, retry_after_unix
 		   FROM control_outbox WHERE node_id = ? AND `+column+` = ?
 		     AND state IN (`+placeholders+`) LIMIT 1`, args...,
-	).Scan(&item.OperationID, &item.MessageType, &item.NodeID, &item.SemanticPayload, &item.State)
+	).Scan(&item.OperationID, &item.MessageType, &item.NodeID, &item.SemanticPayload, &item.State, &item.RetryAfterUnix)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ControlOutboxItem{}, ErrNotFound
 	}
@@ -114,10 +118,10 @@ func (s *Store) ControlOutboxItemByCorrelation(nodeID, messageID, correlation st
 func (s *Store) ControlOutboxItemByOperation(operationID, messageType string) (ControlOutboxItem, error) {
 	var item ControlOutboxItem
 	err := s.db.QueryRow(
-		`SELECT operation_id, message_type, node_id, semantic_payload, state
+		`SELECT operation_id, message_type, node_id, semantic_payload, state, retry_after_unix
 		   FROM control_outbox WHERE operation_id = ? AND message_type = ?`,
 		operationID, messageType,
-	).Scan(&item.OperationID, &item.MessageType, &item.NodeID, &item.SemanticPayload, &item.State)
+	).Scan(&item.OperationID, &item.MessageType, &item.NodeID, &item.SemanticPayload, &item.State, &item.RetryAfterUnix)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ControlOutboxItem{}, ErrNotFound
 	}
