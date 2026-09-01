@@ -420,13 +420,27 @@ var cleanupOnlyForbiddenTypes = map[string]bool{
 // delivered to (or enqueued for) nodeID right now (repair-1 H2b). For the
 // forbidden orchestrating types the gate refuses while the controller is in
 // RESTORE_RECONCILIATION, while the node is restore-quarantined, OR while the
-// node carries a terminal cleanup tombstone. Delivery re-evaluates this per
-// tick, so in-flight rows enqueued before a tombstone/quarantine are never
-// delivered after it. Non-forbidden types (node_decommission, probe_outcome,
-// restore_result, receipts) always pass.
+// node carries a terminal cleanup tombstone. A cleanup-only node additionally
+// receives ONLY the node_decommission retry (the restricted-session semantics
+// preserve the pre-existing pump behavior: a force-deleted node never receives
+// probe_outcome / restore_result either). Delivery re-evaluates this per tick,
+// so in-flight rows enqueued before a tombstone/quarantine are never delivered
+// after it.
 func (s *Store) DeliveryAllowed(nodeID, messageType string) (bool, error) {
 	if messageType == "" {
 		return true, nil
+	}
+	if nodeID == "" {
+		return true, nil
+	}
+	cleanupOnly, err := s.IsCleanupOnly(nodeID)
+	if err != nil {
+		return false, err
+	}
+	if cleanupOnly {
+		// A force-deleted node's only legitimate C2A content is the decommission
+		// retry channel.
+		return messageType == "node_decommission", nil
 	}
 	if !cleanupOnlyForbiddenTypes[messageType] {
 		return true, nil
@@ -440,21 +454,11 @@ func (s *Store) DeliveryAllowed(nodeID, messageType string) (bool, error) {
 	if reconciling {
 		return false, nil
 	}
-	if nodeID == "" {
-		return true, nil
-	}
 	quarantined, err := s.IsNodeQuarantined(nodeID)
 	if err != nil {
 		return false, err
 	}
 	if quarantined {
-		return false, nil
-	}
-	cleanupOnly, err := s.IsCleanupOnly(nodeID)
-	if err != nil {
-		return false, err
-	}
-	if cleanupOnly {
 		return false, nil
 	}
 	return true, nil
