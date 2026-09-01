@@ -97,15 +97,24 @@ Restore is a staged, verified, operator-gated switch:
 3. The Controller enters `RESTORE_RECONCILIATION`: web sessions are revoked,
    unused enrollment tokens are invalidated, and every node is **quarantined** —
    no automatic desired/delete/probe/rotation is dispatched (automatic probe
-   dispatch is suspended until reauthorization) and each node resumes only after
-   the operator finalizes the restore AND reauthorizes the node. This is why
-   restoring an old snapshot can never silently resurrect a Forward or deletion
-   the operator has already made. Dispatch resumes only through the explicit
-   operator gate: `FinalizeRestore` advances the restore operation to
-   `AUTHORIZED`, then `ReauthorizeNode` clears each node's quarantine flag —
-   until BOTH happen, every automatic desired/delete/probe/rotation is refused
-   (and the outbox pump re-checks this gate at delivery time, so rows enqueued
-   before the restore are kept retryable, never silently delivered).
+   dispatch is suspended until reauthorization). This is why restoring an old
+   snapshot can never silently resurrect a Forward or deletion the operator has
+   already made.
+
+   The restore/reconcile machinery is code-complete and crash-safe, but the
+   **operator flow** that advances a restore operation from
+   `RESTORE_RECONCILIATION` to `AUTHORIZED` and that reauthorizes each
+   quarantined node is wired by the **P15 operator API**. The lifecycle surfaces
+   `lifecycle.FinalizeRestore` and `lifecycle.ReauthorizeNode` exist as the
+   library entry points that P15's API is expected to call; no shipped P14
+   artifact exposes an in-artifact operator flow for them. Until the P15 API
+   ships, advancing `RESTORE_RECONCILIATION -> AUTHORIZED` and clearing a node's
+   quarantine flag requires direct controller-database/store access (or a
+   P15-provided surface). Until BOTH an `AUTHORIZED` restore operation AND a
+   cleared per-node quarantine flag exist, every automatic
+   desired/delete/probe/rotation is refused — and the outbox pump re-checks this
+   gate at delivery time, requeueing rows enqueued before the restore with a
+   bounded backoff so they are never silently delivered.
 4. Agents that receive a restore-reconcile enter `RECOVERY_QUARANTINE`: they
    do **not** auto-restore LKG listeners until the Controller issues a recovery
    authorization. The current terminal/uninstall marker on disk is **never**
