@@ -98,6 +98,48 @@ func TestRotationCertificateRejectsDowngrade(t *testing.T) {
 	}
 }
 
+// TestRotationCertificateRejectsScopeIdentityAndWindow is the R4-2 RED oracle:
+// the pre-repair decoder accepted a legitimate old-key signature with blank or
+// foreign scope, a forged OldKeyID, and structurally invalid time bounds.
+func TestRotationCertificateRejectsScopeIdentityAndWindow(t *testing.T) {
+	_, oldPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, newPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldPub := oldPriv.Public().(ed25519.PublicKey)
+	newPub := newPriv.Public().(ed25519.PublicKey)
+	now := time.Now().Unix()
+	cases := []struct {
+		name string
+		cert RotationCertificate
+	}{
+		{name: "blank scope", cert: NewRotationCertificate("", oldPub, 1, KeyIDOf(oldPub), newPub, 2, KeyIDOf(newPub), now, now+1)},
+		{name: "wrong scope", cert: NewRotationCertificate("agent", oldPub, 1, KeyIDOf(oldPub), newPub, 2, KeyIDOf(newPub), now, now+1)},
+		{name: "forged old key id", cert: NewRotationCertificate("controller", oldPub, 1, "forged-old", newPub, 2, KeyIDOf(newPub), now, now+1)},
+		{name: "zero not-before", cert: NewRotationCertificate("controller", oldPub, 1, KeyIDOf(oldPub), newPub, 2, KeyIDOf(newPub), 0, now+1)},
+		{name: "zero deadline", cert: NewRotationCertificate("controller", oldPub, 1, KeyIDOf(oldPub), newPub, 2, KeyIDOf(newPub), now, 0)},
+		{name: "reversed window", cert: NewRotationCertificate("controller", oldPub, 1, KeyIDOf(oldPub), newPub, 2, KeyIDOf(newPub), now+1, now)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := SignRotationCertificate(&tc.cert, oldPriv); err != nil {
+				t.Fatal(err)
+			}
+			raw, err := tc.cert.Encode()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := DecodeRotationCertificate([]byte(raw), oldPub); err == nil {
+				t.Fatalf("%s certificate accepted", tc.name)
+			}
+		})
+	}
+}
+
 // TestRotationCertificateRejectsTamper: a bit flip in the new public key breaks
 // verification.
 func TestRotationCertificateRejectsTamper(t *testing.T) {
