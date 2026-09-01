@@ -78,6 +78,17 @@ func PrepareRotation(ctx context.Context, s *store.Store, keyringDir string, old
 	if err := s.CreateKeyRotationOperation(op); err != nil {
 		return store.KeyRotationOperation{}, err
 	}
+	if staged, loadErr := security.LoadStagedKeyring(keyringDir); loadErr == nil {
+		if staged.KeyID() != op.NewKeyID || staged.Generation() != op.NewGeneration {
+			if removeErr := security.RemoveStaged(keyringDir); removeErr != nil {
+				_ = s.DeleteKeyRotationOperation(operationID)
+				return store.KeyRotationOperation{}, fmt.Errorf("lifecycle: replace stale staged successor: %w", removeErr)
+			}
+		}
+	} else if !errors.Is(loadErr, os.ErrNotExist) {
+		_ = s.DeleteKeyRotationOperation(operationID)
+		return store.KeyRotationOperation{}, fmt.Errorf("lifecycle: inspect existing staged successor: %w", loadErr)
+	}
 	if err := newKey.Stage(keyringDir); err != nil {
 		// The PREPARED row must never claim a successor exists when staging did
 		// not complete. Remove the just-created intent so a retry can safely
