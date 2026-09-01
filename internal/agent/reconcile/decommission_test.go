@@ -241,8 +241,16 @@ func TestDecommissionDeadlineRetriesAckAfterSessionFailure(t *testing.T) {
 	if result.Status != "DECOMMISSIONED" || result.DroppedDueToDecommission {
 		t.Fatalf("retry result=%+v, want idempotent terminal ACK retry", result)
 	}
-	if _, err := st.ResultForOperation(8, "live-session", req.OperationID); err != nil {
+	raw, err := st.ResultForOperation(8, "live-session", req.OperationID)
+	if err != nil {
 		t.Fatalf("deadline ACK was not retained for retry: %v", err)
+	}
+	var ack DecommissionAck
+	if err := json.Unmarshal(raw, &ack); err != nil {
+		t.Fatal(err)
+	}
+	if ack.Status != "DROPPED_DUE_TO_DECOMMISSION" {
+		t.Fatalf("retry ACK status=%q, want DROPPED_DUE_TO_DECOMMISSION", ack.Status)
 	}
 }
 

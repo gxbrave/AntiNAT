@@ -199,6 +199,10 @@ func (d *Decommissioner) Complete(ctx context.Context, req DecommissionRequest) 
 // QueueAck queues the minimal node_decommission_ack for the operation so an
 // ACK loss is retryable across reconnects without retaining any forward secret.
 func (d *Decommissioner) QueueAck(ctx context.Context, req DecommissionRequest) error {
+	return d.queueAckWithStatus(ctx, req, "DECOMMISSIONED")
+}
+
+func (d *Decommissioner) queueAckWithStatus(ctx context.Context, req DecommissionRequest, status string) error {
 	if err := d.requireIntent(req); err != nil {
 		return err
 	}
@@ -214,7 +218,7 @@ func (d *Decommissioner) QueueAck(ctx context.Context, req DecommissionRequest) 
 	}
 	payload, err := json.Marshal(DecommissionAck{
 		NodeID: req.NodeID, OperationID: req.OperationID,
-		Status: "DECOMMISSIONED", Force: req.Force,
+		Status: status, Force: req.Force,
 	})
 	if err != nil {
 		return err
@@ -238,7 +242,7 @@ func (d *Decommissioner) ReconcileDeadline(ctx context.Context, req Decommission
 		// A prior terminal attempt may have failed only while queuing its ACK.
 		// Re-drive the idempotent terminal ACK on every retry using the current
 		// session identity or the session-independent queue.
-		if err := d.QueueAck(ctx, req); err != nil {
+		if err := d.queueAckWithStatus(ctx, req, "DROPPED_DUE_TO_DECOMMISSION"); err != nil {
 			return DecommissionDeadlineResult{}, err
 		}
 		return DecommissionDeadlineResult{Status: "DECOMMISSIONED"}, nil
