@@ -328,6 +328,47 @@ func TestNormalRetireBlockedUntilActive(t *testing.T) {
 	}
 }
 
+// RED R6-5: normal retirement must first honor the overlap deadline and then
+// require every known Agent's durable ACK. This reasserts both retirement gates
+// at the lifecycle policy boundary, not only the lower-level ACK counter.
+func TestNormalRetireRequiresDeadlineAndAllAgentACK(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	if err := s.CreateNode(store.Node{ID: "node-retire-r6", Name: "node-retire-r6"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateKeyRotationOperation(store.KeyRotationOperation{
+		ID: "rot-deadline-r6", Scope: "controller", OldKeyID: "old", NewKeyID: "new-deadline",
+		OldKeyGeneration: 1, NewGeneration: 2, Phase: "ACTIVE", NotBeforeUnix: 1,
+		OverlapDeadlineUnix: time.Now().Unix() + 3600,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AdvanceRotationPhase(ctx, s, "rot-deadline-r6", "RETIRED", false); err == nil || !strings.Contains(err.Error(), "overlap deadline") {
+		t.Fatalf("normal retire before deadline error=%v, want overlap-deadline refusal", err)
+	}
+	if _, err := AdvanceRotationPhase(ctx, s, "rot-deadline-r6", "RETIRED", true); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.CreateKeyRotationOperation(store.KeyRotationOperation{
+		ID: "rot-ack-r6", Scope: "controller", OldKeyID: "old", NewKeyID: "new-ack",
+		OldKeyGeneration: 1, NewGeneration: 2, Phase: "ACTIVE", NotBeforeUnix: 1,
+		OverlapDeadlineUnix: time.Now().Unix() - 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AdvanceRotationPhase(ctx, s, "rot-ack-r6", "RETIRED", false); err == nil || !strings.Contains(err.Error(), "all Agents ACK") {
+		t.Fatalf("normal retire after deadline error=%v, want unacknowledged-agent refusal", err)
+	}
+	if err := s.RecordKeyRotationAgentACK("rot-ack-r6", "node-retire-r6"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AdvanceRotationPhase(ctx, s, "rot-ack-r6", "RETIRED", false); err != nil {
+		t.Fatalf("normal retire after deadline + durable ACK: %v", err)
+	}
+}
+
 // TestRotationBarrierBlocksBackup: an in-flight rotation blocks backup/restore.
 func TestRotationBarrierBlocksBackup(t *testing.T) {
 	s := openStore(t)
