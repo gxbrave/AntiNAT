@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -36,7 +37,7 @@ func TestPrepareRotationDoesNotStageBeforeJournalFailure(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		for _, entry := range entries {
-			if entry.Name() == security.KeyringStagedFile || entry.Name() == security.KeyringStagedPrefix {
+			if entry.Name() == security.KeyringStagedFile || strings.HasPrefix(entry.Name(), security.KeyringStagedPrefix) {
 				t.Fatalf("staged successor exists after journal rejection: %s", entry.Name())
 			}
 		}
