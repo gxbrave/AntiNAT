@@ -32,6 +32,7 @@ Only the following paths may be created or modified in this cycle. Any path not 
 
 ### Security transfer paths (P08 → P14)
 
+- `internal/security/keyring.go`
 - `internal/security/rotation.go`
 - `internal/security/rotation_test.go`
 
