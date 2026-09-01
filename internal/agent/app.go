@@ -107,7 +107,12 @@ type App struct {
 	// forward (Story 3). The map is guarded by dp.mu.
 	activations map[string]*reconcile.Activation
 	// marker/latch are loaded once from the durable terminal boundary. The latch
-	// is shared with the reconciler and all actor admission paths.
+	// is shared with the reconciler and all actor admission paths. markerMu
+	// guards marker: monitorLiveness / reconnectControl / runDetectionOnce read
+	// it concurrently with handleDecommission's DECOMMISSIONING/DECOMMISSIONED
+	// writes (repair-2 M-A). No lock-free access to a.marker is allowed; use
+	// setMarker/currentMarker/markerIsActive.
+	markerMu           sync.RWMutex
 	marker             localstate.MarkerState
 	latch              *localstate.Latch
 	recoveryQuarantine bool
@@ -274,7 +279,7 @@ func New(cfg Config) (*App, error) {
 	// The terminal latch is created BEFORE the data plane so the data plane can
 	// be wired with its predicate (repair-1 M5): recover/finishReopen refuse to
 	// reopen rows once the latch engages at decommission Begin.
-	a.marker = marker
+	a.setMarker(marker)
 	a.latch = localstate.NewLatch()
 	if marker != localstate.MarkerActive {
 		a.latch.TryEngage()
@@ -515,7 +520,7 @@ func (a *App) Start(ctx context.Context) error {
 	// second one-way boundary: after a backup restore the agent does NOT
 	// auto-restore its LKG listeners until the Controller authorizes recovery.
 	// One source of truth (reconcile.RecoveryDeferred) decides both.
-	deferred, _, deferredErr := reconcile.RecoveryDeferred(a.cfg.StateDir, a.marker)
+	deferred, _, deferredErr := reconcile.RecoveryDeferred(a.cfg.StateDir, a.currentMarker())
 	if deferredErr != nil {
 		runCancel()
 		a.client.Shutdown()
@@ -567,7 +572,7 @@ func (a *App) Start(ctx context.Context) error {
 		_ = a.store.Close()
 		return fmt.Errorf("agent: retry pending probe receipts: %w", err)
 	}
-	if a.marker == localstate.MarkerActive {
+	if a.currentMarker() == localstate.MarkerActive {
 		a.replayActivationStatuses(runCtx)
 		a.lifecycleWG.Add(1)
 		go func() {
@@ -723,11 +728,11 @@ func (a *App) sendActivationStatus(ctx context.Context, payload []byte) {
 // successful reconnect; a failed retry remains in localstate for the next
 // pass and keeps readiness conservative.
 func (a *App) reconnectControl(ctx context.Context) {
-	if a.marker != localstate.MarkerActive || a.client == nil {
+	if a.currentMarker() != localstate.MarkerActive || a.client == nil {
 		return
 	}
 	for {
-		if a.marker != localstate.MarkerActive {
+		if a.currentMarker() != localstate.MarkerActive {
 			return
 		}
 		a.client.Wait()
@@ -777,6 +782,28 @@ func (a *App) reconnectControl(ctx context.Context) {
 // Ready reports whether the control session is established.
 func (a *App) Ready() bool { return a.ready.Load() }
 
+// setMarker writes the in-memory terminal marker under markerMu (repair-2
+// M-A). The background actor goroutines read it concurrently; the durable
+// marker file remains the crash authority.
+func (a *App) setMarker(state localstate.MarkerState) {
+	a.markerMu.Lock()
+	a.marker = state
+	a.markerMu.Unlock()
+}
+
+// currentMarker returns the in-memory terminal marker under markerMu.
+func (a *App) currentMarker() localstate.MarkerState {
+	a.markerMu.RLock()
+	defer a.markerMu.RUnlock()
+	return a.marker
+}
+
+// markerIsActive reports whether the agent is NOT in any terminal lifecycle
+// (the read-side predicate `marker != MarkerActive` all actors use).
+func (a *App) markerIsActive() bool {
+	return a.currentMarker() == localstate.MarkerActive
+}
+
 // monitorLiveness polls the route/interface capability seam. A loss first
 // tears down listeners and unpublishes activation evidence; recovery then
 // reopens the durable desired forwards from the current bind state.
@@ -788,7 +815,7 @@ func (a *App) monitorLiveness(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if a.marker != localstate.MarkerActive {
+			if !a.markerIsActive() {
 				continue
 			}
 			// Strategy-aware liveness (Story 6): availability is "route table
@@ -850,7 +877,7 @@ func (a *App) detectionLoop(ctx context.Context) {
 }
 
 func (a *App) runDetectionOnce(ctx context.Context) {
-	if a.dp == nil || a.marker != localstate.MarkerActive {
+	if a.dp == nil || !a.markerIsActive() {
 		return
 	}
 	detectCtx, cancel := context.WithTimeout(ctx, detectionAttemptBudget)
@@ -969,10 +996,10 @@ func (a *App) markEvidenceLost(ctx context.Context) {
 // from the controller. It returns the semantic result payload or an error
 // that NACKs the operation.
 func (a *App) handleCommand(ctx context.Context, op control.Operation) ([]byte, error) {
-	if a.marker != localstate.MarkerActive && op.MessageType == "probe_arm" {
+	if a.currentMarker() != localstate.MarkerActive && op.MessageType == "probe_arm" {
 		return nil, reconcile.ErrProbeArmRejected
 	}
-	if a.marker == localstate.MarkerDecommissioned && op.MessageType != "node_decommission" {
+	if a.currentMarker() == localstate.MarkerDecommissioned && op.MessageType != "node_decommission" {
 		// CLEANUP_ONLY boundary: a DECOMMISSIONED agent accepts no new desired
 		// work or secrets; only the decommission ACK path may be re-driven.
 		return nil, fmt.Errorf("%w: agent is decommissioned", reconcile.ErrDecommissionedAgent)
@@ -1150,7 +1177,7 @@ func (a *App) handleDecommission(ctx context.Context, op control.Operation) ([]b
 	// in-memory mirror immediately (not at Complete) so runDetectionOnce /
 	// monitorLiveness / any concurrency that checks a.marker stops right now,
 	// and recover is additionally pooled by the engaged terminal latch.
-	a.marker = localstate.MarkerDecommissioning
+	a.setMarker(localstate.MarkerDecommissioning)
 	stopErr := dc.StopAll(ctx)
 	deadlineResult, deadlineErr := dc.ReconcileDeadline(ctx, dcReq)
 	if deadlineErr != nil {
@@ -1167,7 +1194,7 @@ func (a *App) handleDecommission(ctx context.Context, op control.Operation) ([]b
 	if err := dc.QueueAck(ctx, dcReq); err != nil {
 		return nil, err
 	}
-	a.marker = localstate.MarkerDecommissioned
+	a.setMarker(localstate.MarkerDecommissioned)
 	return []byte(`{"status":"decommissioned"}`), nil
 }
 
@@ -1293,7 +1320,7 @@ func (a *App) applyDesired(ctx context.Context, op control.Operation) ([]byte, e
 func (a *App) armProbe(ctx context.Context, op control.Operation) ([]byte, error) {
 	a.probeAdmissionMu.Lock()
 	defer a.probeAdmissionMu.Unlock()
-	if a.marker != localstate.MarkerActive {
+	if a.currentMarker() != localstate.MarkerActive {
 		return nil, reconcile.ErrProbeArmRejected
 	}
 	if a.store == nil || a.probeMgr == nil || a.dp == nil {
