@@ -24,6 +24,7 @@ import (
 	"github.com/gxbrave/AntiNAT/internal/controller/agenthub"
 	"github.com/gxbrave/AntiNAT/internal/controller/api"
 	"github.com/gxbrave/AntiNAT/internal/controller/auth"
+	"github.com/gxbrave/AntiNAT/internal/controller/lifecycle"
 	"github.com/gxbrave/AntiNAT/internal/controller/probe"
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
 	"github.com/gxbrave/AntiNAT/internal/controller/web"
@@ -127,6 +128,12 @@ func New(cfg Config) (*App, error) {
 		return rollback(fmt.Errorf("controller: keyring: %w", err))
 	}
 	a.keyring = keyring
+	// Startup reconciliation validates any durable PREPARED rotation intent
+	// before the controller can announce a successor. An unrecoverable staged
+	// successor fails closed while preserving the old signer.
+	if err := lifecycle.ReconcilePreparedRotations(context.Background(), st, cfg.KeyDir); err != nil {
+		return rollback(fmt.Errorf("controller: reconcile prepared rotations: %w", err))
+	}
 
 	challenges := security.NewChallengeManager(10*time.Minute, 4096)
 
