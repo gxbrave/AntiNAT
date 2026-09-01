@@ -127,9 +127,7 @@ func New(cfg Config) (*App, error) {
 		return rollback(fmt.Errorf("controller: keyring: %w", err))
 	}
 	a.keyring = keyring
-	// Startup reconciliation validates any durable PREPARED rotation intent
-	// before the controller can announce a successor. An unrecoverable staged
-	// successor fails closed while preserving the old signer.
+
 	challenges := security.NewChallengeManager(10*time.Minute, 4096)
 
 	// Circular wiring: the hub delivers probe-plane A2C messages to the
