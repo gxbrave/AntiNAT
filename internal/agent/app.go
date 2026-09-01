@@ -271,22 +271,31 @@ func New(cfg Config) (*App, error) {
 	a.stunRegistry = comp.stunRegistry
 	a.profiles = newProfileStore(cfg.StateDir)
 
+	// The terminal latch is created BEFORE the data plane so the data plane can
+	// be wired with its predicate (repair-1 M5): recover/finishReopen refuse to
+	// reopen rows once the latch engages at decommission Begin.
+	a.marker = marker
+	a.latch = localstate.NewLatch()
+	if marker != localstate.MarkerActive {
+		a.latch.TryEngage()
+	}
 	a.dp = newDataPlane(dataPlaneConfig{
-		Store:          st,
-		ProbeMgr:       a.probeMgr,
-		RouteTable:     cfg.RouteTable,
-		Clock:          cfg.Clock,
-		Registry:       comp.registry,
-		PlainManager:   comp.plainManager,
-		GatewayManager: comp.gatewayManager,
-		Detector:       comp.detector,
-		Mappers:        comp.mappers,
-		Journal:        journal,
-		StunServers:    cfg.StunServers,
-		AutoOrder:      cfg.AutoOrder,
-		ProfileStore:   a.profiles,
-		StunObserver:   comp.observer,
-		StunSource:     stun.LeaseSource{Registry: comp.stunRegistry},
+		Store:           st,
+		ProbeMgr:        a.probeMgr,
+		RouteTable:      cfg.RouteTable,
+		Clock:           cfg.Clock,
+		Registry:        comp.registry,
+		PlainManager:    comp.plainManager,
+		GatewayManager:  comp.gatewayManager,
+		Detector:        comp.detector,
+		Mappers:         comp.mappers,
+		Journal:         journal,
+		StunServers:     cfg.StunServers,
+		AutoOrder:       cfg.AutoOrder,
+		ProfileStore:    a.profiles,
+		StunObserver:    comp.observer,
+		StunSource:      stun.LeaseSource{Registry: comp.stunRegistry},
+		TerminalEngaged: a.latch.Engaged,
 		OnApplied: func(spec protocol.ForwardSpec, applied protocol.AppliedForwardState) {
 			a.onForwardApplied(spec, applied)
 		},
@@ -308,11 +317,6 @@ func New(cfg Config) (*App, error) {
 	})
 	a.activations = make(map[string]*reconcile.Activation)
 
-	a.marker = marker
-	a.latch = localstate.NewLatch()
-	if marker != localstate.MarkerActive {
-		a.latch.TryEngage()
-	}
 	a.reconciler = reconcile.NewWithRollback(st, a.latch, marker,
 		a.dp.apply, a.dp.stop, a.dp.rollback, a.dp.capabilityCheck)
 
@@ -1142,6 +1146,11 @@ func (a *App) handleDecommission(ctx context.Context, op control.Operation) ([]b
 	if err := dc.Begin(ctx, dcReq); err != nil {
 		return nil, err
 	}
+	// repair-1 M5: the durable DECOMMISSIONING marker is now written. Flip the
+	// in-memory mirror immediately (not at Complete) so runDetectionOnce /
+	// monitorLiveness / any concurrency that checks a.marker stops right now,
+	// and recover is additionally pooled by the engaged terminal latch.
+	a.marker = localstate.MarkerDecommissioning
 	stopErr := dc.StopAll(ctx)
 	deadlineResult, deadlineErr := dc.ReconcileDeadline(ctx, dcReq)
 	if deadlineErr != nil {
@@ -1716,6 +1725,12 @@ type dataPlaneConfig struct {
 	Mappers map[traversal.MappingLayerKind]traversal.GatewayMapper
 	// Journal is the durable mapping journal (the store's mapping_journal).
 	Journal traversal.JournalStore
+	// TerminalEngaged is the shared terminal/reconcile latch predicate (wired
+	// from App.latch.Engaged). When it returns true the data plane refuses to
+	// REOPEN any forward (repair-1 M5): a decommission Begin engages the latch
+	// BEFORE any stop, so a concurrent recover/liveness-retry in the
+	// Begin->Complete window can never reopen applied LKG rows.
+	TerminalEngaged func() bool
 	// StunServers are the configured stun+tcp:// endpoints; the first is the
 	// primary same-tuple STUN observation target for gateway forwards.
 	StunServers []string
@@ -3141,6 +3156,14 @@ func (d *dataPlane) recover(ctx context.Context) (recoverReport, error) {
 	// d.cfg.Mappers/StunObserver/StunSource under the SAME lock; an unlocked
 	// d.cfg read here raced those writes (P12W repair-3 discipline).
 	cfg, _, _, _ := d.configSnapshot()
+	// repair-1 M5: once the terminal latch engages (decommission Begin, or a
+	// terminal marker on startup) NO applied LKG row is reopened. A concurrent
+	// recover in the Begin->Complete window (liveness rebuild, cleanup retry)
+	// must not bring a forward back that stop-all is tearing down; a
+	// decommissioning agent starts and idles cleanly (empty pass, no error).
+	if cfg.TerminalEngaged != nil && cfg.TerminalEngaged() {
+		return report, nil
+	}
 	if cfg.Store == nil {
 		return report, nil
 	}
@@ -3410,6 +3433,15 @@ func (d *dataPlane) finishReopen(ctx context.Context, spec protocol.ForwardSpec,
 		// mapping with no retry ownership (repair-2 finding 7 / closing path).
 		d.abandonAcquiredActor(spec.ForwardID, actor)
 		return errDataPlaneClosing
+	}
+	// repair-1 M5: the terminal latch may engage (decommission Begin) while the
+	// listener/actor were being built. Never publish onto a stop-all that is
+	// tearing every forward down.
+	if d.cfg.TerminalEngaged != nil && d.cfg.TerminalEngaged() {
+		d.mu.Unlock()
+		cancel()
+		d.abandonAcquiredActor(spec.ForwardID, actor)
+		return fmt.Errorf("agent: forward %q reopen refused: %w", spec.ForwardID, localstate.ErrTerminalEngaged)
 	}
 	// Generation fence (repair-2 finding 4): a rebuild or capability transition
 	// during reopen must not install an actor built against an obsolete
