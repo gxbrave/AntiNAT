@@ -17,10 +17,10 @@ import (
 	"time"
 )
 
-// lifecycleReservation is held by one backup/restore/rotation operation. The
+// LifecycleReservation is held by one backup/restore/rotation operation. The
 // reservation uses the controller DB path's sidecar lock, so separately opened
 // Store instances and separate controller processes share the same exclusion.
-type lifecycleReservation struct {
+type LifecycleReservation struct {
 	file *os.File
 }
 
@@ -28,7 +28,7 @@ type lifecycleReservation struct {
 // The caller must Release it on every path. A context cancellation before the
 // lock is acquired is honored; the OS lock itself is blocking and bounded by
 // the caller's context through the retry loop.
-func AcquireLifecycleReservation(ctx context.Context, s *Store) (*lifecycleReservation, error) {
+func AcquireLifecycleReservation(ctx context.Context, s *Store) (*LifecycleReservation, error) {
 	if s == nil || s.path == "" {
 		return nil, errors.New("store: lifecycle reservation requires a store")
 	}
@@ -40,7 +40,7 @@ func AcquireLifecycleReservation(ctx context.Context, s *Store) (*lifecycleReser
 	if err != nil {
 		return nil, fmt.Errorf("store: open lifecycle reservation: %w", err)
 	}
-	reservation := &lifecycleReservation{file: file}
+	reservation := &LifecycleReservation{file: file}
 	if err := reservation.lock(ctx); err != nil {
 		_ = file.Close()
 		return nil, err
@@ -48,7 +48,7 @@ func AcquireLifecycleReservation(ctx context.Context, s *Store) (*lifecycleReser
 	return reservation, nil
 }
 
-func (r *lifecycleReservation) lock(ctx context.Context) error {
+func (r *LifecycleReservation) lock(ctx context.Context) error {
 	for {
 		if err := tryLockFile(r.file); err == nil {
 			return nil
@@ -68,7 +68,7 @@ func (r *lifecycleReservation) lock(ctx context.Context) error {
 }
 
 // Release unlocks and closes the lifecycle reservation.
-func (r *lifecycleReservation) Release() error {
+func (r *LifecycleReservation) Release() error {
 	if r == nil || r.file == nil {
 		return nil
 	}
