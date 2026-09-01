@@ -2,7 +2,7 @@
 
 **Snapshot date:** 2026-09-01
 **Authoritative repository:** `/root/Claude/AntiNAT/p12-integration`  
-**Authoritative baseline:** `52e6922f50e3cb98ee8c2a611ee757753a73aa69` on `integration/v1-beta` (P14 integrated; P12W and prior P13 are in ancestry)
+**Authoritative baseline:** `807c9ff26b457fbcad8115fd65098a0c2ddbb909` on `integration/v1-beta` (P14 integrated; P12W and prior P13 are in ancestry)
 
 This document is the current consolidation view. August handoff and project-plan documents under `/root/Claude/AntiNAT/AntiNAT` remain preserved historical snapshots; do not rewrite them or treat their earlier “bootstrap-only,” “P10 blocked,” or “P12–P19 not started” statements as current status.
 
@@ -14,7 +14,7 @@ This document is the current consolidation view. August handoff and project-plan
 - **P14 is integrated** (2026-09-01) at integrated tip `52e6922f50e3cb98ee8c2a611ee757753a73aa69`, fast-forwarded from `ecdd115284c728d8b89960d8619a6d0cf69e047c` with the approved repair-7 candidate. It delivers Forward deletion, normal/force decommission and cleanup-only gating, key rotation, backup/restore anti-rollback, recovery quarantine, and uninstall notice lifecycle. Independent final spec/ownership and quality/security reviews both APPROVE. See `.hermes/handoffs/P14-integrated.json` and `.hermes/handoffs/P14.json`.
 - P15–P19 remain unstarted. P15 (Controller API, metrics, SSE, rate limiting) is now unblocked and is the next module.
 - Preservation of the dirty P10 base is complete. After explicit user confirmation, only the four exact ignored generated binaries in `HANDOFF/CLEANUP_LEDGER.md` were removed (33,278,267 bytes); all other cleanup remains deferred.
-- No release or remote push is authorized by this documentation update. P13/P12W integration was authorized by the user's master-controller instruction (develop in order, complete project, sync to GitHub).
+- No release or remote push has been performed. P14 integration was authorized by the user's master-controller instruction; remote push remains deferred to P19.
 
 ## Plan ledger
 
