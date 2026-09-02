@@ -314,7 +314,12 @@ func (s *Server) handleHookDeliveryRoute(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "operation id generation failed")
 		return
 	}
-	retried, err := s.hooks.RetryDelivery(delivery.ID)
+	// P3-13: the requeue and its durable 202 Operation record are created IN
+	// THE SAME TRANSACTION (hook store, same SQLite file). A crash between the
+	// requeue commit and the operation record can therefore never strand a
+	// requeued delivery with no operation (the client would otherwise get a
+	// confusing 409 on its next retry).
+	_, err = s.hooks.Store.RetryDeliveryAndRecord(delivery.ID, opID, delivery.NodeID, "delivery "+delivery.ID+" requeued")
 	if err != nil {
 		if errors.Is(err, hook.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "NOT_FOUND", "hook delivery not found")
@@ -327,12 +332,9 @@ func (s *Server) handleHookDeliveryRoute(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "retry hook delivery failed")
 		return
 	}
-	stored, err := s.store.CreateAPIOperation(store.APIOperation{
-		ID: opID, Kind: "hook_delivery_retry", NodeID: retried.NodeID,
-		State: "ACCEPTED", Detail: "delivery " + retried.ID + " requeued",
-	})
+	stored, err := s.store.GetAPIOperation(opID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "operation record failed")
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "operation record lookup failed")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, apiOperationView(stored))
