@@ -106,7 +106,18 @@ type Contribution struct {
 // Run executes one script against a request description. The script SHA256 is
 // pinned so a caller (parent/dispatcher) can bind the byte-identity; if the
 // hash mismatches the script, the run is refused.
-func (r *Runner) Run(ctx context.Context, in Input) (Result, error) {
+//
+// The in-process interpreter is wrapped in a recover() (P2-6): an adversarial
+// assertion/overflow/panic inside `Runner.Run` (e.g. a self-referential object
+// that would overflow valueToGo, or any future interpreter panic) is converted
+// into a bounded runner error instead of aborting the controller process.
+func (r *Runner) Run(ctx context.Context, in Input) (result Result, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			result = fail(ResultError{Kind: "panic", Message: fmt.Sprintf("%v: %v", ErrRunnerPanic, p)})
+			err = nil
+		}
+	}()
 	if r == nil || r.limits.Timeout <= 0 {
 		return Result{}, errors.New("hook: runner is not configured")
 	}
@@ -127,10 +138,9 @@ func (r *Runner) Run(ctx context.Context, in Input) (Result, error) {
 	runCtx, cancel := context.WithTimeout(ctx, r.limits.Timeout)
 	defer cancel()
 	vm := &vm{
-		limits:   r.limits,
-		deadline: time.Now().Add(r.limits.Timeout),
-		ctx:      runCtx,
-		logs:     nil,
+		limits: r.limits,
+		ctx:    runCtx,
+		logs:   nil,
 	}
 	st := vm.executeScript(in.Script, request)
 	if !st.ok {

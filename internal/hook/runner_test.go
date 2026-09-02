@@ -188,3 +188,125 @@ func TestRunnerRequestHasNoSecretMaterial(t *testing.T) {
 		t.Fatal("request-description must never carry secret material")
 	}
 }
+
+// RED repair P1-1: a `return` nested inside if/for/block statements must
+// SHORT-CIRCUIT the function to its early-return value. Previously only a
+// direct top-level return was honored; a nested return was evaluated and
+// discarded, so the function continued and returned the wrong value — and the
+// broker then signed/delivered the wrong request.
+func TestRunnerNestedReturnShortCircuits(t *testing.T) {
+	r := hook.NewRunner(hook.Limits{})
+	const script = `
+function m(req) {
+  if (req.params.a == "stop") {
+    return {canonical_query: "a=1", string_to_sign: "GET&%2F&a%3D1", params: {a: "1"}};
+  }
+  for (var k of [1, 2]) {
+    if (k == 2) { return {canonical_query: "b=2", string_to_sign: "GET&%2F&b%3D2", params: {b: "2"}}; }
+  }
+  return {canonical_query: "c=3", string_to_sign: "GET&%2F&c%3D3", params: {c: "3"}};
+}
+function main(req) { return m(req); }
+`
+	req := []byte(`{"params":{"a":"stop"}}`)
+	result, err := r.Run(context.Background(), hook.Input{Script: script, Request: req})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK {
+		t.Fatalf("runner failed: %+v", result.Err)
+	}
+	var contribution map[string]any
+	raw, _ := json.Marshal(result.Contribution)
+	_ = json.Unmarshal(raw, &contribution)
+	if contribution["canonical_query"] != "a=1" {
+		t.Fatalf("nested if-return discarded; got canonical_query=%q, want a=1", contribution["canonical_query"])
+	}
+
+	// The for-loop return must also short-circuit (it should win over a later
+	// statement).
+	req2 := []byte(`{"params":{"a":"continue"}}`)
+	badJSON := make(map[string]any)
+	if err := json.Unmarshal(req2, &badJSON); err != nil {
+		t.Fatal(err)
+	}
+	result2, err := r.Run(context.Background(), hook.Input{Script: script, Request: req2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result2.OK {
+		t.Fatalf("runner failed (loop path): %+v", result2.Err)
+	}
+	raw2, _ := json.Marshal(result2.Contribution)
+	var c2 map[string]any
+	_ = json.Unmarshal(raw2, &c2)
+	if c2["canonical_query"] != "b=2" {
+		t.Fatalf("nested for-return discarded; got canonical_query=%q, want b=2", c2["canonical_query"])
+	}
+}
+
+// RED repair P2-6 (a): MaxCallDepth is enforced in the evaluator call path — a
+// deep-recursion script is refused with a budget error and does NOT overflow
+// the Go stack.
+func TestRunnerMaxCallDepthRefusesDeepRecursion(t *testing.T) {
+	r := hook.NewRunner(hook.Limits{MaxCallDepth: 64})
+	script := `
+function f(n) { if (n > 0) { return f(n - 1) + 1; } return 0; }
+function main(req) { return f(100000); }
+`
+	res, err := r.Run(context.Background(), hook.Input{Script: script, Request: canonicalRequest()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.OK || res.Err == nil || res.Err.Kind != "budget" {
+		t.Fatalf("deep recursion not refused by MaxCallDepth: %+v", res)
+	}
+}
+
+// RED repair P2-6 (b): the in-process Runner.Run wraps the interpreter in a
+// recover() so an adversarial script that panics the interpreter returns a
+// bounded runner error (proved by ErrRunnerPanic) instead of aborting the
+// test/controller process. The script uses `10 % 0.5`, whose int-coerced
+// divisor is 0 and deterministically raises a recoverable "integer divide by
+// zero" Go panic inside evalBinary.
+func TestRunnerRecoversFromInterpreterPanic(t *testing.T) {
+	r := hook.NewRunner(hook.Limits{})
+	script := `
+function main(req) {
+  var x = 10 % 0.5;
+  return {canonical_query: 'a=1', string_to_sign: 'GET&%2F&a%3D1'};
+}
+`
+	res, err := r.Run(context.Background(), hook.Input{Script: script, Request: canonicalRequest()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.OK || res.Err == nil || res.Err.Kind != "panic" {
+		t.Fatalf("interpreter panic was not recovered into a bounded runner error: %+v", res)
+	}
+	if !strings.Contains(res.Err.Message, hook.ErrRunnerPanic.Error()) {
+		t.Fatalf("recovered error does not reference ErrRunnerPanic: %q", res.Err.Message)
+	}
+}
+
+// RED repair P2-6 (c): a script-built CYCLIC structure must fail closed as
+// unconvertible instead of overflowing the Go stack (a fatal runtime error that
+// a recover() cannot catch). The valueToGo structural recursion is depth-
+// bounded so the controller never crashes.
+func TestRunnerCyclicObjectFailsClosed(t *testing.T) {
+	r := hook.NewRunner(hook.Limits{})
+	script := `
+function main(req) {
+  var o = {n: 1};
+  o.self = o;
+  return o;
+}
+`
+	res, err := r.Run(context.Background(), hook.Input{Script: script, Request: canonicalRequest()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.OK || res.Err == nil || res.Err.Kind != "type" {
+		t.Fatalf("cyclic result was not refused as unconvertible: %+v", res)
+	}
+}

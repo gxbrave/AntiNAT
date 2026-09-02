@@ -876,12 +876,24 @@ func (e *runnerErr) Error() string { return e.kind + ": " + e.msg }
 
 func runErr(kind, msg string) *runnerErr { return &runnerErr{kind: kind, msg: msg} }
 
+// retSignal is a control-flow error carrying an explicit `return` value. A
+// `return` nested inside if/for/block statements propagates up through
+// execStmt/execBranch/execForOf until callValue aborts on it (P1-1), so a
+// nested return SHORT-CIRCUITS the function instead of being evaluated and
+// discarded (which previously let the function continue and return the wrong
+// value, and the broker then signed/delivered the wrong request).
+type retSignal struct {
+	value value
+}
+
+func (r *retSignal) Error() string { return "hook: return" }
+
 type vm struct {
 	limits    Limits
-	deadline  time.Time
 	ctx       context.Context
 	logs      []string
 	steps     int
+	callDepth int
 	outputLen int
 }
 
@@ -974,11 +986,18 @@ func (v *vm) execStmt(e *env, st expr) error {
 		_, err := v.eval(e, s.x)
 		return err
 	case *retStmt:
+		// A nested return must short-circuit the enclosing function. Evaluate
+		// the value and propagate it as a retSignal control-flow marker that
+		// callValue interprets as "abort with this return value" (P1-1). The
+		// value is no longer evaluated-and-discarded.
 		if s.value != nil {
-			_, err := v.eval(e, s.value)
-			return err
+			val, err := v.eval(e, s.value)
+			if err != nil {
+				return err
+			}
+			return &retSignal{value: val}
 		}
-		return nil
+		return &retSignal{value: nullV{}}
 	case blockStmt:
 		child := &env{parent: e, vars: map[string]value{}}
 		for _, sub := range s {
@@ -1359,18 +1378,27 @@ func (v *vm) callValue(e *env, callee value, args []value) (value, error) {
 		if len(args) < len(fn.params) {
 			return nil, runErr("type", "function "+fn.name+" expects "+strconv.Itoa(len(fn.params))+" arguments, got "+strconv.Itoa(len(args)))
 		}
+		// Enforce MaxCallDepth in the evaluator's call path (P2-6): a
+		// deep-recursion script is refused before it can overflow the Go stack.
+		v.callDepth++
+		if v.callDepth > v.limits.MaxCallDepth {
+			v.callDepth--
+			return nil, runErr("budget", "call depth limit exceeded")
+		}
+		defer func() { v.callDepth-- }()
 		callEnv := &env{parent: fn.env, vars: map[string]value{}}
 		for i, p := range fn.params {
 			callEnv.define(p, args[i])
 		}
 		for _, st := range fn.body {
-			if r, isRet := st.(*retStmt); isRet {
-				if r.value != nil {
-					return v.eval(callEnv, r.value)
-				}
-				return nullV{}, nil
-			}
 			if err := v.execStmt(callEnv, st); err != nil {
+				// A nested return propagates as a retSignal control-flow marker:
+				// abort the function and return its value (does not wrap, so the
+				// signal survives and the function SHORT-CIRCUITS correctly).
+				var ret *retSignal
+				if errors.As(err, &ret) {
+					return ret.value, nil
+				}
 				return nil, err
 			}
 		}
@@ -1602,6 +1630,19 @@ func goToValue(v any) value {
 }
 
 func valueToGo(v value) (any, bool) {
+	return valueToGoDepth(v, 0)
+}
+
+// maxGoConvertDepth bounds valueToGo's structural recursion so a script-built
+// CYCLIC object/array cannot trigger an unbounded Go stack overflow (which is a
+// fatal runtime error, not a recoverable panic). A cyclic structure fails
+// closed as "unconvertible" instead of crashing the controller (P2-6).
+const maxGoConvertDepth = 512
+
+func valueToGoDepth(v value, depth int) (any, bool) {
+	if depth > maxGoConvertDepth {
+		return nil, false
+	}
 	switch t := v.(type) {
 	case str:
 		return string(t), true
@@ -1614,7 +1655,7 @@ func valueToGo(v value) (any, bool) {
 	case objV:
 		out := map[string]any{}
 		for k, item := range t {
-			converted, ok := valueToGo(item)
+			converted, ok := valueToGoDepth(item, depth+1)
 			if !ok {
 				return nil, false
 			}
@@ -1624,7 +1665,7 @@ func valueToGo(v value) (any, bool) {
 	case arrV:
 		out := []any{}
 		for _, item := range t.items {
-			converted, ok := valueToGo(item)
+			converted, ok := valueToGoDepth(item, depth+1)
 			if !ok {
 				return nil, false
 			}
