@@ -71,14 +71,39 @@ func (s *Server) handleForwardAction(w http.ResponseWriter, r *http.Request, id,
 			writeError(w, 500, "INTERNAL_ERROR", "forward runtime state is invalid")
 			return
 		}
+		// repair-1 H7: PUBLISHED_UNVERIFIED must never claim independent
+		// verification (docs/state-model.md §1). Clear the OPEN_FROM_VANTAGE and
+		// VERIFIED axes so the published snapshot stays truth-consistent instead
+		// of silently contradicting the unverified publication.
 		snapshot.PublicationState = "PUBLISHED_UNVERIFIED"
-		if err := s.store.SetForwardRuntimeStatus(id, states.ActivationID, f.Revision, func() string { raw, _ := json.Marshal(snapshot); return string(raw) }()); err != nil {
+		if snapshot.WanReachabilityState == "OPEN_FROM_VANTAGE" {
+			snapshot.WanReachabilityState = "NOT_TESTED"
+		}
+		if snapshot.ReturnPathState == "VERIFIED" {
+			snapshot.ReturnPathState = "NOT_TESTED"
+		}
+		if err := snapshot.Validate(); err != nil {
+			writeError(w, 500, "INTERNAL_ERROR", "force publish would violate activation-state invariants")
+			return
+		}
+		raw, _ := json.Marshal(snapshot)
+		if err := s.store.SetForwardRuntimeStatus(id, states.ActivationID, f.Revision, string(raw)); err != nil {
+			if errors.Is(err, store.ErrCASConflict) {
+				writeError(w, 412, "PRECONDITION_FAILED", "forward changed during force publish")
+				return
+			}
 			writeError(w, 500, "INTERNAL_ERROR", "force publish failed")
 			return
 		}
-		_ = spec
 		_ = s.store.AppendAudit("admin", "UnverifiedEndpointPublished", id, `{"publication_state":"PUBLISHED_UNVERIFIED"}`)
-		writeJSON(w, 200, s.forwardView(f, spec, &states))
+		// Re-read the freshly persisted snapshot so the response never returns
+		// the stale pre-write state.
+		fresh, freshErr := s.store.GetForwardRuntimeStatus(id)
+		if freshErr != nil {
+			writeError(w, 500, "INTERNAL_ERROR", "forward runtime state is unavailable")
+			return
+		}
+		writeJSON(w, 200, s.forwardView(f, spec, &fresh))
 		return
 	}
 	if action == "retry" {
