@@ -6,16 +6,21 @@
   "branch": "ai/P16-hooks-sandbox",
   "base_sha": "0f310193b16509d8578d011914f79af3f004c8b5",
   "base_tree_sha": "5b3683d089d9e78430f48dfdda6aa863f4e63bc2",
-  "head_sha": "87e3722cc7d4a4ccb0279d4bbb582a8cbf1761d3",
-  "head_tree_sha": "a2bd71db7e70f3cada32a1cf5f222c5845f731ff",
-  "candidate_record_tip_sha": "87e3722cc7d4a4ccb0279d4bbb582a8cbf1761d3",
-  "candidate_record_tip_tree_sha": "a2bd71db7e70f3cada32a1cf5f222c5845f731ff",
-  "canonical_head_sha": "87e3722cc7d4a4ccb0279d4bbb582a8cbf1761d3",
-  "canonical_head_tree_sha": "a2bd71db7e70f3cada32a1cf5f222c5845f731ff",
-  "implementation_head_sha": "87e3722cc7d4a4ccb0279d4bbb582a8cbf1761d3",
-  "implementation_head_tree_sha": "a2bd71db7e70f3cada32a1cf5f222c5845f731ff",
+  "head_sha": "c18a3345c74be191e3d057bc1dd65517ab280e10",
+  "head_tree_sha": "9e137a6598df441f9a9ab619bf883b5bbded5629",
+  "candidate_record_tip_sha": "c18a3345c74be191e3d057bc1dd65517ab280e10",
+  "candidate_record_tip_tree_sha": "9e137a6598df441f9a9ab619bf883b5bbded5629",
+  "canonical_head_sha": "c18a3345c74be191e3d057bc1dd65517ab280e10",
+  "canonical_head_tree_sha": "9e137a6598df441f9a9ab619bf883b5bbded5629",
+  "implementation_head_sha": "c18a3345c74be191e3d057bc1dd65517ab280e10",
+  "implementation_head_tree_sha": "9e137a6598df441f9a9ab619bf883b5bbded5629",
   "commits": [
-    "87e3722cc7d4a4ccb0279d4bbb582a8cbf1761d3",
+    "c18a3345c74be191e3d057bc1dd65517ab280e10",
+    "61531090f111ab45394d57e3fe8c4dcea594a581",
+    "0089651c30d71f6ff0c3956a8c2cc7adf6cb2d12",
+    "927610c849c65bb0f4bffda343710ff60b0c6555",
+    "b194cac9e1fe0585226a778a4c4daa3abdfc5486",
+    "87e37222d0d8622320809fa7d2926d25fadbbbf7",
     "e6bd677171df0943338ae91e8deb5455f27afe63",
     "bb528316af6dd95c159b2c656dc9875906f23d02",
     "1e09f564654b899c5c4ee506f671dc0a139275bd",
@@ -44,9 +49,11 @@
     "internal/hook/aliddns_test.go",
     "internal/hook/binding.go",
     "internal/hook/broker.go",
+    "internal/hook/broker_internal_test.go",
     "internal/hook/broker_test.go",
     "internal/hook/client.go",
     "internal/hook/client_test.go",
+    "internal/hook/concurrency_test.go",
     "internal/hook/crud.go",
     "internal/hook/dispatcher.go",
     "internal/hook/dispatcher_test.go",
@@ -74,27 +81,27 @@
     {
       "command": "GOWORK=off go build ./...",
       "exit_code": 0,
-      "summary": "PASS; full build after repair (a3da474..e6bd677)."
+      "summary": "PASS; full build after repair cycle 2 (b194cac..c18a334)."
     },
     {
       "command": "GOWORK=off go vet ./internal/hook ./internal/controller/api ./internal/controller/web ./internal/controller/store",
       "exit_code": 0,
-      "summary": "PASS; named-package vet clean."
+      "summary": "PASS; named-package vet clean after cycle 2."
     },
     {
       "command": "GOWORK=off go test ./internal/hook ./internal/controller/api ./internal/controller/store ./internal/controller/web -count=1",
       "exit_code": 0,
-      "summary": "PASS; all four packages green after the follow-up (hook 1.06s, api 4.94s, store 9.81s, web 0.01s). Includes the new TestHookSecretPublicCreateSignsDelivery E2E."
+      "summary": "PASS; all four packages green after cycle 2 (hook 5.32s, api 5.26s, store 10.12s, web 0.01s). Includes the new concurrency/sandbox/broker/dispatcher tests plus TestHookSecretPublicCreateSignsDelivery E2E."
     },
     {
       "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./internal/hook -run 'SSRF|Sandbox|Secret|Delivery|AliDNS' -count=10 -timeout 600s",
       "exit_code": 0,
-      "summary": "PASS; 21.7s for 10 runs of the SSRF/Sandbox/Secret/Delivery/AliDNS focused set (re-run after the follow-up), on the provisioned antinat-sandbox identity (uid/gid 12001). Includes the REAL Linux OS-isolation gate (TestSandboxRealIsolationGate) and TestSandboxRunnerExecutesIsolatedScript against the production cmd/antinat-hook-runner child, built ONCE before the gates (package-level sync.Once; P3-16). Without the identity the gate fails closed (webhook-only) and the fail-closed path is asserted."
+      "summary": "PASS; 22.2s for 10 runs of the SSRF/Sandbox/Secret/Delivery/AliDNS focused set after cycle 2, on the provisioned antinat-sandbox identity (uid/gid 12001). Includes the REAL Linux OS-isolation gate (TestSandboxRealIsolationGate) and TestSandboxRunnerExecutesIsolatedScript against the production cmd/antinat-hook-runner child, built ONCE before the gates (package-level sync.Once; P3-16). Without the identity the gate fails closed (webhook-only) and the fail-closed path is asserted."
     },
     {
       "command": "GOWORK=off go test -race ./internal/hook ./internal/controller/api -count=10",
       "exit_code": 0,
-      "summary": "PASS; hook 127.6s + api 211.0s, no DATA RACE reported (re-run after the follow-up). (The P15-documented pre-existing store-package M4 time-budget issue is out of P16 scope; the brief's race gate is scoped to these two packages.)"
+      "summary": "PASS; hook 237.2s + api 220.6s, no DATA RACE reported after cycle 2. The new P3-2 concurrency tests (TestConcurrentReserveSecretSignatureNearExhaustion, TestConcurrentDispatcherPumpAndRetry, TestConcurrentBindReadWrite) and the P3-3 probe-race test (TestConcurrentCapabilityProbeAndToggle) all run under -race in this gate. (The P15-documented pre-existing store-package M4 time-budget issue is out of P16 scope; the brief's race gate is scoped to these two packages.)"
     },
     {
       "command": "python3 test/contracts/validate_openapi.py .",
@@ -114,13 +121,13 @@
     {
       "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./...",
       "exit_code": 0,
-      "summary": "PASS; broad suite green (re-run after the follow-up). One transient failure of internal/agent TestDataPlaneUDPBindsSelectedGlobalSourceNotWildcard was observed in the first re-run (exit 1) and passes in isolation (-count=3) and in the authoritative second re-run (exit 0); it is a UDP-bind contention flake in a package this repair does not touch."
+      "summary": "PASS; broad suite green after cycle 2 (exit 0, no transient failures this run)."
     }
   ],
   "evidence": [
-    "Commit tip 87e3722cc7d4a4ccb0279d4bbb582a8cbf1761d3 = P16 repair cycle 1 head INCLUDING the coordination follow-up (defaultSecretSignatureBudget on the public secret-create path, commit 87e3722 on top of e6bd677). 11 implementation commits on ai/P16-hooks-sandbox from base 0f310193b16509d8578d011914f79af3f004c8b5; reproduce with `git rev-list 0f310193..87e3722`.",
+    "Commit tip c18a3345c74be191e3d057bc1dd65517ab280e10 = P16 repair cycle 2 head, i.e. the FULL implementation chain: Story 1-6 + repair cycle 1 (incl the coordination follow-up defaultSecretSignatureBudget, real SHA 87e37222d0d8622320809fa7d2926d25fadbbbf7) + repair cycle 2. 16 implementation commits on ai/P16-hooks-sandbox from base 0f310193b16509d8578d011914f79af3f004c8b5. REPRODUCTION NOTE: `git rev-list 0f310193..c18a3345c74be191e3d057bc1dd65517ab280e10` prints 19 commits because the range INCLUDES the 3 in-range record commits (candidate handoff de026805d736df719019ac57f000605e4b6287b7, cycle-1 handoff 9fc8ba52523bc9a8b0eaed7901277c7ed4d1f217, cycle-1 follow-up handoff eddce752e8c9bdb13488bc36c8219e034b154762); the 16-implementation-commit count above EXCLUDES those 3.",
     "P1-2 budget follow-up: Store.CreateSecret (the single insertion point behind POST /api/v1/hooks/secrets) now injects the documented bounded defaultSecretSignatureBudget (1024). TestHookSecretPublicCreateSignsDelivery creates a secret through the frozen public API (no internal budget call), binds it (internal wiring), delivers via service/dispatcher + stub sender, asserts X-Hook-Signature is generated (header placement) and no secret plaintext leaks, and proves the durable cap: after budget=1 the second signature is refused (delivery FAILED with a budget error, never DELIVERED).",
-    "Frozen contracts byte-identical base..tip and candidate-record..tip: git diff --stat 0f310193 e6bd677 -- api openapi.yaml docs/ migrations/0001..0009 = empty, and the same against de026805d736df719019ac57f000605e4b6287b7. Only additive migration 0010_hooks.sql (P16-owned) and additive migrations.go registry edits.",
+    "Frozen contracts byte-identical base..tip: git diff --stat 0f310193 c18a334 -- api/openapi.yaml docs/ migrations/0001..0009 = empty (verified by hashing each listed contracts_consumed path at base and at the cycle-2 head). Only additive migration 0010_hooks.sql (P16-owned) and additive migrations.go registry edits were ever introduced.",
     "repair_cycle_1 fixed every listed finding (see repair_cycle_1): P1-1 nested-return propagation, P1-2 capability binding/endpoint derivation/durable budget/params allowlist, P2-3 integration-handoff seam (no P14/P15 lifecycle file edited), P2-4 payload method/path overrides removed, P2-5 3xx is retryable, P2-6 MaxCallDepth + recover, P3-7 atomic 0600 key write + perms, P3-8/P3-9 coalesce identity+budget preservation, P3-10/P3-17 audits folded into the mutation transactions, P3-11 randomHookID fail-closed, P3-12 https-only hook definitions, P3-13 retry+Operation in one transaction, P3-14 vm.deadline removed, P3-15 exact env allowlist gate, P3-16 shared once-built child + repeated -count=10 stability.",
     "P1-2 oracle closure is asserted by TestBrokerRefusesUnboundDisallowedAndExhausted and re-asserted end-to-end in TestAliDnsFullPathFixture: an unbound (hook,secret) pair -> ErrSecretNotBoundToHook, no budget -> ErrNoSignatureBudget, query placement without allowlist -> ErrNoParamsAllowlist, a disallowed script-selected param -> ErrParamNotAllowlisted, a deviating endpoint -> ErrEndpointDeviation, and a budget=1 secret refuses its second signature -> ErrSignatureBudgetExhausted (durable SignatureUsage 1/1).",
     "P1-2 endpoint derivation is proven by the AliDNS fixture: the event payload claims method DELETE and path /wrong but the signed request is POST https://dns.aliyuncs.com/ (path from the hook URL), and the final Signature recomputes to base64(HMAC-SHA1('AliDNS-AccessKeySecret&', 'POST&%2F&' + PercentEncode(canonical-without-Signature))).",
@@ -130,7 +137,14 @@
     "TestServiceWiredPreparerSignsWebhook PASS — production Service composes the real DeliveryPreparer; a secret bound (BindSecretToHook) + budgeted (SetSecretSignatureBudget) webhook is delivered header-placement signed.",
     "SSRF transport: ignore proxy env, resolve-then-validate-ALL A/AAAA (reject any blocked address), IP-pin while preserving SNI/Host, redirect revalidation per hop, redirected credentials stripped cross-origin, forbidden headers/userinfo/IP-literal ambiguity/CRLF rejected, gzip-decompression bytes bounded, raw+header bytes bounded.",
     "OS isolation child: CLONE_NEWNET|CLONE_NEWNS, chroot, dedicated non-nobody UID/GID, EXACT allowlisted env (P3-15), no inherited FDs, NoNewPrivileges, amd64 seccomp denying socket/socketpair/connect/execve(execveat)/ptrace/mount/fork/vfork, RLIMIT_NPROC/CPU/AS, 64KiB capped output, process-group tree-kill. ProbeSolidGate fails closed to webhook-only on any missing gate.",
-    "Race/cluster: no DATA RACE reported anywhere in the brief's race gate (hook + api, -count=10)."
+    "Race/cluster: no DATA RACE reported anywhere in the brief's race gate (hook + api, -count=10).",
+    "P2-1: query/fragment-bearing hook URLs are REFUSED at create (API POST/PATCH returns 422) and re-asserted fail-closed at dispatch time: the DeliveryPreparer and the Broker both refuse a store-level definition whose URL carries a query/fragment, so a query-bearing hook definition can never silently deliver to the query-stripped endpoint. This is a service-level validation policy stricter than the frozen openapi `format: uri`; NO api/openapi.yaml or contract was changed. New tests: TestHookDefinitionRejectsQueryAndFragmentURL (API), TestDispatcherRefusesQueryBearingHookURL (dispatch defense).",
+    "P3-4: the per-request maxCalls bound (<= maxCapabilityCalls) is validated in validateIntent BEFORE ReserveSecretSignature, so a refused over-bound intent consumes ZERO durable budget units. TestOverBoundIntentDoesNotConsumeSignatureBudget proves issued stays 0 after an over-bound sign attempt.",
+    "P3-5: StatusCode==0 (and any non-2xx, and a nil sender response) is a retryable FAILURE, never DELIVERED. TestDispatcherZeroStatusResponseIsFailureNotDelivered proves a stub sender returning a zero-status response is FAILED.",
+    "P3-6: signBytes packs the HMAC key onto a fresh len(secret)+1 buffer (zeroized after hmac.New derives its pads) so the provider '&' separator can never land in the decrypted secret's spare capacity where zeroize(secret) (len(secret) bytes only) never reaches. Internal TestSignBytesDoesNotWriteIntoSecretSpareCapacity + TestSignBytesMatchesReferenceHMAC pin the behavior and digest equality.",
+    "P3-1: TestRunnerMaxCallDepthRefusesDeepRecursion now uses a high MaxSteps + shallow-but-over-limit recursion so ONLY the depth check can trip (asserts the 'call depth' message, falsifying a removed callDepth check); TestRunnerBenignRecursionCompletesUnderDepthLimit proves depth-20 recursion completes under the limit.",
+    "P3-2: internal/hook gained its first concurrency tests (deterministic — channels/WaitGroups/bounded counters, no sleeps for correctness): TestConcurrentReserveSecretSignatureNearExhaustion (32 Sign goroutines vs a durable budget of 4; exactly 4 succeed, issued never exceeds the budget), TestConcurrentDispatcherPumpAndRetry (4 pump goroutines + a retrier under -race), TestConcurrentBindReadWrite (idempotent bind serialized vs reads).",
+    "P3-3: RuntimeRunner.Capability()/SetUnsupported() now guard probed/probedDone/forceUnsup with a mutex (previously a latent data race, safe only because the dispatcher is single-goroutine). TestConcurrentCapabilityProbeAndToggle hammers Capability + SetUnsupported under -race."
   ],
   "contracts_consumed": [
     { "path": "api/openapi.yaml", "sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32" },
@@ -222,8 +236,43 @@
     "trigger": "coordinator re-review of P1-2 budget semantics: Store.CreateSecret left signature_budget at the migration default 0, so a secret created through the frozen POST /api/v1/hooks/secrets path could never sign (ReserveSecretSignature -> ErrNoSignatureBudget).",
     "fix": "CreateSecret now injects the documented bounded defaultSecretSignatureBudget (1024) as the durable total-signature hard cap on the PUBLIC create path. The migration default 0 is retained (fail-closed for any non-explicit insert), and an explicit SetSecretSignatureBudget(0) disables signing (ErrNoSignatureBudget); exhaustion still returns ErrSignatureBudgetExhausted.",
     "tests": "New TestHookSecretPublicCreateSignsDelivery (internal/controller/api/hooks_test.go): create-secret via HTTP (no internal budget), bind (internal), deliver header-placement signed through the service/dispatcher with a stub sender, assert X-Hook-Signature present + no plaintext leak; then budget=1 refuses the second signature (FAILED with a budget error). Update TestBrokerRefusesUnboundDisallowedAndExhausted step 2 to reach ErrNoSignatureBudget via explicit SetSecretSignatureBudget(0) (the create default is now >0).",
-    "commits": ["87e3722cc7d4a4ccb0279d4bbb582a8cbf1761d3"],
+    "commits": ["87e37222d0d8622320809fa7d2926d25fadbbbf7"],
     "gates": "All gates re-run PASS: build, vet, 4pkg tests (incl the new E2E), focused SSRF|Sandbox|Secret|Delivery|AliDNS -count=10 (identity 12001/12001), race hook+api -count=10 (no DATA RACE), openapi, gofmt+diff-check, windows cross-build, and the broad full-suite re-run (exit 0). One transient internal/agent UDP-bind flake observed in the first broad re-run, passes in isolation and in the authoritative re-run (unrelated package). govulncheck remains unavailable."
+  },
+  "repair_cycle_2": {
+    "cycle": 2,
+    "review_result": "REQUEST_CHANGES (spec/ownership [H] phantom hash + [L] evidence wording) and APPROVE (quality/security P2-1 + P3-1..P3-7)",
+    "fixed_findings": {
+      "P2-1": "validateHookURL now rejects ANY URL carrying a query string (RawQuery/ForceQuery) or a fragment (fail closed; https-only stays) because buildURL renders signed URLs from scheme/host/port/path only, silently dropping a static query while unsigned deliveries preserved it. The DeliveryPreparer and the Broker re-assert rejectURLQueryFragment at dispatch time, so even a store-level query-bearing definition can never reach delivery. Tests: API create/PATCH refusal (422) and dispatch-time refusal (never DELIVERED). No api/openapi.yaml or frozen contract changed.",
+      "P3-1": "TestRunnerMaxCallDepthRefusesDeepRecursion is now falsifiable: high MaxSteps + shallow-but-over-limit recursion so ONLY the depth check can trip, asserting the 'call depth' error message (not generic step exhaustion). Added TestRunnerBenignRecursionCompletesUnderDepthLimit (depth-20 recursion completes under MaxCallDepth 64).",
+      "P3-2": "Added deterministic concurrency tests (no sleeps for correctness): TestConcurrentReserveSecretSignatureNearExhaustion (32 Sign goroutines against a durable budget of 4; exactly 4 succeed, signature_issued never exceeds the budget), TestConcurrentDispatcherPumpAndRetry (4 pump goroutines + a FAILED->PENDING retrier under -race, channel-terminated), TestConcurrentBindReadWrite (idempotent binds vs reads). All run under the -race gate.",
+      "P3-3": "RuntimeRunner.Capability()/SetUnsupported() now guard probed/probedDone/forceUnsup with a sync.Mutex (the lazy probe state was a latent data race, safe only because the dispatcher is single-goroutine). TestConcurrentCapabilityProbeAndToggle hammers Capability + SetUnsupported under -race.",
+      "P3-4": "The maxCalls bound (<= maxCapabilityCalls) is now validated in validateIntent — the FIRST gate in Sign — BEFORE ReserveSecretSignature, so an over-bound intent consumes ZERO durable budget units. TestOverBoundIntentDoesNotConsumeSignatureBudget proves issued stays 0.",
+      "P3-5": "dispatcher.classify now FAILS StatusCode==0 and any non-2xx (and a nil responder) instead of DELIVERING them; only a real [200,300) is DELIVERED. TestDispatcherZeroStatusResponseIsFailureNotDelivered (stub sender returns zero status -> FAILED, retryable).",
+      "P3-6": "signBytes packs the HMAC key on a fresh len(secret)+1 buffer (deferred zeroize after hmac.New derives its pads) instead of append(secret, '&'), so a trailing '&' can never land in the decrypted secret's spare capacity that zeroize(secret) (len(secret) bytes only) never reaches. Internal TestSignBytesDoesNotWriteIntoSecretSpareCapacity pins the clean capacity; TestSignBytesMatchesReferenceHMAC pins digest equality.",
+      "P3-7": "No change required (budget default 1024 accepted). Added an operational comment on ReserveSecretSignature noting signature_issued/signature_budget are monotonic durable counters an operator must raise when exhausted."
+    },
+    "commits": [
+      "b194cac9e1fe0585226a778a4c4daa3abdfc5486",
+      "927610c849c65bb0f4bffda343710ff60b0c6555",
+      "0089651c30d71f6ff0c3956a8c2cc7adf6cb2d12",
+      "61531090f111ab45394d57e3fe8c4dcea594a581",
+      "c18a3345c74be191e3d057bc1dd65517ab280e10"
+    ],
+    "gates": {
+      "build": "PASS (exit 0)",
+      "vet": "PASS (exit 0)",
+      "4_package_tests": "PASS (exit 0)",
+      "focused_upto10": "PASS (exit 0) 22.2s with the provisioned identity 12001/12001",
+      "race_upto10": "PASS (exit 0) hook 237.2s + api 220.6s, no DATA RACE (includes the new P3-2/P3-3 concurrency tests)",
+      "openapi": "PASS (exit 0)",
+      "gofmt_diffcheck": "PASS (exit 0)",
+      "windows_cross_build": "PASS (exit 0)",
+      "broad_suite": "PASS (exit 0)",
+      "govulncheck": "unavailable (no PASS recorded)"
+    },
+    "frozen_contracts": "byte-identical base..cycle-2 head (empty diff / equal hashes for api/openapi.yaml, docs/*, migrations/0001..0009); contracts_consumed hashes unchanged; contracts_changed stays [].",
+    "metadata_fix": "The previously-recorded cycle-1 head SHA (a 40-hex phantom absent from the object DB; now verified absent via `git cat-file -e`) was replaced with the REAL implementation head 87e37222d0d8622320809fa7d2926d25fadbbbf7 in the repair_cycle_1_followup commits field, and the head/canonical/implementation/candidate-record SHAs and commits[0] were advanced to the cycle-2 implementation head c18a3345c74be191e3d057bc1dd65517ab280e10 (tree 9e137a6598df441f9a9ab619bf883b5bbded5629). No phantom hash value remains anywhere in this handoff or the object DB. The reproduction claim now states that `git rev-list 0f310193..<head>` includes the 3 in-range record commits and the 16-implementation-commit count excludes them."
   },
   "self_approval": false,
   "review_ready": true,
