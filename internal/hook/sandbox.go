@@ -3,6 +3,7 @@ package hook
 import (
 	"context"
 	"errors"
+	"sync"
 )
 
 // GateResult is one OS-isolation gate's outcome. Detail is honest and
@@ -66,6 +67,12 @@ type RuntimeRunner struct {
 	Exe    string
 	Limits Limits
 
+	// probeMu guards probed/probedDone/forceUnsup so Capability (and therefore
+	// Run, via Capability) is safe under concurrent use (P3-3). Without it the
+	// lazy probe state was a latent data race, safe only because the dispatcher
+	// is single-goroutine today; a concurrent acquired/acquired probe could read
+	// a partially-written SandboxResult.
+	probeMu    sync.Mutex
 	probed     SandboxResult
 	probedDone bool
 	forceUnsup bool
@@ -79,17 +86,31 @@ func NewRuntimeRunner(exe string, limits Limits) *RuntimeRunner {
 	return &RuntimeRunner{Exe: exe, Limits: limits}
 }
 
-// SetUnsupported forces the runner into webhook-only (tests).
+// SetUnsupported forces the runner into webhook-only (tests). It takes the
+// probe lock so it is race-free against concurrent Capability() calls.
 func (r *RuntimeRunner) SetUnsupported() {
+	if r == nil {
+		return
+	}
+	r.probeMu.Lock()
+	defer r.probeMu.Unlock()
 	r.forceUnsup = true
 	r.probedDone = true
 	r.probed = unsupportedSandbox("force unsupported (test fixture)")
 }
 
 // Capability reports "isolated-js" when the platform gate passes, else
-// "unsupported". It never blocks; the first Run drives the probe.
+// "unsupported". It never blocks; the first Run drives the probe. The probe
+// state is guarded so concurrent Capability()/Run() calls cannot race (P3-3);
+// only one goroutine runs the (expensive) probe and the others wait on the
+// mutex, then all observe the same settled result.
 func (r *RuntimeRunner) Capability() string {
-	if r == nil || r.forceUnsup {
+	if r == nil {
+		return "unsupported"
+	}
+	r.probeMu.Lock()
+	defer r.probeMu.Unlock()
+	if r.forceUnsup {
 		return "unsupported"
 	}
 	if r.probedDone {
