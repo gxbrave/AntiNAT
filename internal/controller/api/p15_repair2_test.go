@@ -8,9 +8,13 @@ package api_test
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestP15Repair2TraversalDefaultsPUTAfterRenameSucceeds(t *testing.T) {
@@ -181,4 +185,65 @@ func TestP15Repair2NavigationCategoryOrderRaceNever500(t *testing.T) {
 	if statuses[0] == statuses[1] {
 		t.Fatalf("both category PATCHes = %d/%d: exactly one wins and one conflicts", statuses[0], statuses[1])
 	}
+}
+
+// RED P2-D (api fallback events route): a credential under the literal "value"
+// key is redacted (hook/hook-secret shape) while surrounding data survives.
+func TestP15Repair2EventsRedactCredentialValue(t *testing.T) {
+	srv, st := newTestServer(t)
+	user, pass := initAdmin(t, srv, st)
+	cookie := login(t, srv, user, pass)
+	if _, err := st.AppendAdminEvent("hook-secret", `{"id":"h1","name":"hook-a","value":"dG9wLXNlY3JldA==","safe":"keep"}`); err != nil {
+		t.Fatal(err)
+	}
+	text := readAPIStream(t, srv, cookie)
+	if strings.Contains(text, "dG9wLXNlY3JldA") {
+		t.Fatalf("credential value leaked through api fallback redaction: %q", text)
+	}
+	if !strings.Contains(text, `"safe":"keep"`) {
+		t.Fatalf("event data must survive api fallback redaction: %q", text)
+	}
+}
+
+// RED P2-D (api fallback events route): legitimate "value" data is preserved.
+func TestP15Repair2EventsPreserveLegitimateValue(t *testing.T) {
+	srv, st := newTestServer(t)
+	user, pass := initAdmin(t, srv, st)
+	cookie := login(t, srv, user, pass)
+	if _, err := st.AppendAdminEvent("measurement", `{"kind":"signal","value":"stun-only"}`); err != nil {
+		t.Fatal(err)
+	}
+	text := readAPIStream(t, srv, cookie)
+	if !strings.Contains(text, `"value":"stun-only"`) {
+		t.Fatalf("legitimate value lost to api fallback redaction: %q", text)
+	}
+}
+
+func readAPIStream(t *testing.T, srv *httptest.Server, cookie *http.Cookie) string {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/v1/events", nil)
+	req.AddCookie(cookie)
+	req.Header.Set("Last-Event-ID", "0")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "text/event-stream" {
+		payload, _ := io.ReadAll(resp.Body)
+		t.Fatalf("events status=%d content-type=%q body=%s", resp.StatusCode, resp.Header.Get("Content-Type"), payload)
+	}
+	buf := make([]byte, 4096)
+	done := make(chan struct{})
+	var n int
+	go func() {
+		n, _ = resp.Body.Read(buf)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout reading event stream")
+	}
+	return string(buf[:n])
 }

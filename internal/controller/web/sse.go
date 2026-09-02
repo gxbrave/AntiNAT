@@ -198,9 +198,19 @@ func redactJSON(value any) {
 	case map[string]any:
 		for key, child := range v {
 			lower := strings.ToLower(key)
-			if strings.Contains(lower, "token") || strings.Contains(lower, "secret") || strings.Contains(lower, "password") || strings.Contains(lower, "private_key") || lower == "value" {
+			if secretFieldName(lower) {
 				delete(v, key)
 				continue
+			}
+			if lower == "value" {
+				// A literal "value" key is legitimate event data, not a secret
+				// family by name. Only a credential-SHAPED string value is
+				// redacted (repair-2 P2-D); short labels, timestamps, numbers,
+				// prose and structured identifiers under "value" are preserved.
+				if s, ok := child.(string); ok && credentialLikeValue(s) {
+					delete(v, key)
+					continue
+				}
 			}
 			redactJSON(child)
 		}
@@ -209,6 +219,128 @@ func redactJSON(value any) {
 			redactJSON(child)
 		}
 	}
+}
+
+// secretFieldName reports whether a lowercased object key belongs to a secret
+// family by name: token/secret/password/private_key substrings plus the exact
+// authorization/api_key keys. This is the name-based security line and is kept
+// conservative (it may over-redact, never under-redact).
+func secretFieldName(lower string) bool {
+	if strings.Contains(lower, "token") || strings.Contains(lower, "secret") ||
+		strings.Contains(lower, "password") || strings.Contains(lower, "private_key") {
+		return true
+	}
+	return lower == "authorization" || lower == "api_key"
+}
+
+// credentialLikeValue reports whether a string under a generic key (for example
+// the literal "value" key) is credential-shaped: a long opaque token, a hex or
+// base64 secret, or a high-entropy mixed-class string. It deliberately excludes
+// common legitimate event data — short labels, timestamps/dates/IPs/URLs, prose
+// with spaces and structural identifiers — so redaction does not over-sweep a
+// payload's real "value" (repair-2 P2-D).
+func credentialLikeValue(v string) bool {
+	if len(v) < 12 {
+		return false
+	}
+	if structuredNonSecret(v) {
+		return false
+	}
+	if len(v) >= 24 && !strings.ContainsAny(v, " \t") {
+		return true
+	}
+	if hexTokenShape(v) || base64TokenShape(v) {
+		return true
+	}
+	return highEntropyMixed(v)
+}
+
+func structuredNonSecret(v string) bool {
+	if strings.Contains(v, "://") {
+		return true // URL, never a credential
+	}
+	// Digit-dominated timestamp / datetime / IP / port / serial shapes.
+	digits, letters := 0, 0
+	for _, r := range v {
+		switch {
+		case r >= '0' && r <= '9':
+			digits++
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+			letters++
+		}
+	}
+	if letters <= 2 && digits*2 >= len(v) {
+		return true
+	}
+	// UUID / MAC / hex-with-separators are public identifiers, not secrets.
+	hexCount, sepCount := 0, 0
+	for _, r := range v {
+		switch {
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'f', r >= 'A' && r <= 'F':
+			hexCount++
+		case r == '-' || r == ':':
+			sepCount++
+		default:
+			return false
+		}
+	}
+	return hexCount >= 12 && sepCount >= 2
+}
+
+func hexTokenShape(v string) bool {
+	if len(v) < 16 {
+		return false
+	}
+	for _, r := range v {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+func base64TokenShape(v string) bool {
+	if len(v) < 12 {
+		return false
+	}
+	aligned := len(v)%4 == 0
+	hasPad := false
+	for _, r := range v {
+		switch {
+		case r >= '0' && r <= '9', r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r == '+', r == '/':
+		case r == '=':
+			hasPad = true
+		default:
+			return false
+		}
+	}
+	return (hasPad && len(v) >= 12) || (aligned && len(v) >= 20)
+}
+
+func highEntropyMixed(v string) bool {
+	if len(v) < 12 {
+		return false
+	}
+	var upper, lower, digit, other bool
+	for _, r := range v {
+		switch {
+		case r >= 'a' && r <= 'z':
+			lower = true
+		case r >= 'A' && r <= 'Z':
+			upper = true
+		case r >= '0' && r <= '9':
+			digit = true
+		default:
+			other = true
+		}
+	}
+	classes := 0
+	for _, present := range []bool{upper, lower, digit, other} {
+		if present {
+			classes++
+		}
+	}
+	return classes >= 3
 }
 
 func writeSSEError(w http.ResponseWriter, status int, code, message string) {
