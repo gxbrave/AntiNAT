@@ -5,15 +5,21 @@
   "branch": "ai/P15-controller-api-metrics",
   "base_sha": "d335b09f127de03254ca5119244006c41444ff0a",
   "base_tree_sha": "3358d516726ec8810bbc6e91df78112e4352fb72",
-  "head_sha": "a374148093c86d8d958eb5ca32101bad3c3a0374",
-  "head_tree_sha": "b9c7821dfc828600c0fcaa46ca2172696a699362",
-  "candidate_record_tip_sha": "a374148093c86d8d958eb5ca32101bad3c3a0374",
-  "candidate_record_tip_tree_sha": "b9c7821dfc828600c0fcaa46ca2172696a699362",
-  "canonical_head_sha": "a374148093c86d8d958eb5ca32101bad3c3a0374",
-  "canonical_head_tree_sha": "b9c7821dfc828600c0fcaa46ca2172696a699362",
-  "implementation_head_sha": "a374148093c86d8d958eb5ca32101bad3c3a0374",
-  "implementation_head_tree_sha": "b9c7821dfc828600c0fcaa46ca2172696a699362",
+  "head_sha": "91aab5f89b1a6b4e0d8b89294bf7f308f314619f",
+  "head_tree_sha": "e60c53a1d4c6a900bcabad0457fbbb0f11281fcf",
+  "candidate_record_tip_sha": "91aab5f89b1a6b4e0d8b89294bf7f308f314619f",
+  "candidate_record_tip_tree_sha": "e60c53a1d4c6a900bcabad0457fbbb0f11281fcf",
+  "canonical_head_sha": "91aab5f89b1a6b4e0d8b89294bf7f308f314619f",
+  "canonical_head_tree_sha": "e60c53a1d4c6a900bcabad0457fbbb0f11281fcf",
+  "implementation_head_sha": "91aab5f89b1a6b4e0d8b89294bf7f308f314619f",
+  "implementation_head_tree_sha": "e60c53a1d4c6a900bcabad0457fbbb0f11281fcf",
   "commits": [
+    "91aab5f89b1a6b4e0d8b89294bf7f308f314619f",
+    "d3a2586462abb02805378a74d21ce48bcdbdbc82",
+    "a19d6471767c4d3086e6d58da0194cc576d42964",
+    "89ed3fc3856b948adc74fe25022ef08e837c9cd7",
+    "bc26495b3c394589e0a8e84316e29452226b2ca3",
+    "b996bc6a9f7999a8d1d7a385d2f34dd64a890811",
     "a374148093c86d8d958eb5ca32101bad3c3a0374",
     "e3a4b0643f4da40f0562a2fda9f147c674a189b1",
     "ae2b36dbead5cdcd1b93fe5cd3de2fe172091453",
@@ -44,6 +50,7 @@
     "internal/controller/api/p15_repair1_h8_helpers_test.go",
     "internal/controller/api/p15_repair1_h8_test.go",
     "internal/controller/api/p15_repair1_helpers_test.go",
+    "internal/controller/api/p15_repair2_test.go",
     "internal/controller/api/settings.go",
     "internal/controller/app.go",
     "internal/controller/p15_repair1_h3_test.go",
@@ -62,12 +69,15 @@
     "internal/controller/store/p15_repair1_m2_test.go",
     "internal/controller/store/p15_repair1_node_delete.go",
     "internal/controller/store/p15_repair1_page.go",
+    "internal/controller/store/p15_repair2_p2a_test.go",
+    "internal/controller/store/p15_repair2_test.go",
     "internal/controller/store/probe_test.go",
     "internal/controller/store/traffic.go",
     "internal/controller/store/transactions.go",
     "internal/controller/web/middleware.go",
     "internal/controller/web/p15_red_test.go",
     "internal/controller/web/p15_repair1_test.go",
+    "internal/controller/web/p15_repair2_test.go",
     "internal/controller/web/router_min.go",
     "internal/controller/web/sse.go",
     "internal/forward/limiter.go",
@@ -178,6 +188,21 @@
       "command": "git status --short",
       "exit_code": 0,
       "summary": "PASS at each commit; worktree is clean after the final handoff commit aside from the handoff itself."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward ./internal/controller -count=1",
+      "exit_code": 0,
+      "summary": "PASS; repair-2 affected-package suite."
+    },
+    {
+      "command": "GOWORK=off go test -race ./internal/controller/web ./internal/controller/store ./internal/controller/api -run 'TestP15Repair2|TestP15Repair1' -count=10",
+      "exit_code": 0,
+      "summary": "PASS; focused repair-2 race x10, no DATA RACE."
+    },
+    {
+      "command": "(not re-run this cycle) GOWORK=off go test ./internal/controller/store -race -count=10",
+      "exit_code": null,
+      "summary": "Deferred: the full store -race -count=10 gate is the M4 pre-existing time-budget timeout established in cycle 1; focused P15 repair-1/repair-2 store race x10 passes (57.7s). Recorded honestly, not re-run."
     }
   ],
   "evidence": [
@@ -216,7 +241,9 @@
     "Deployment profile (M1) has no independent route in the frozen OpenAPI; controller endpoint / private-site / secret visibility is delivered through the frozen /api/v1/settings surface. No non-frozen route was added; the disposition is recorded in repair_cycle_1.",
     "Settings persistence is JSON+ETag-backed; private-site enforcement and full controller listen-address projection are not complete.",
     "Traversal detection API records a pending API operation but does not execute/persist the full P12 detector profile; P14 restore/reauthorization surfaces have no invented frozen API routes.",
-    "No real CPE/router/WAN evidence; traversal capability stays at the prior real-daemon netns lab level."
+    "No real CPE/router/WAN evidence; traversal capability stays at the prior real-daemon netns lab level.",
+    "SSEHandler must now be constructed via web.NewSSEHandler (the App composes it); a zero-value SSEHandler (subMu == nil) fails closed with 503 UNAVAILABLE on every stream (repair-2 P1-A).",
+    "Traversal-defaults PUT durability: the If-Match axis is the node revision; the durable CAS gates on nodes.revision and the defaults row is written lockstep. The defaults row no longer carries an independent CAS guard, so an out-of-sync defaults row cannot produce a permanent 412 (repair-2 P1-B)."
   ],
   "ownership_transfers": [
     "P10 -> P15 repair-1: internal/controller/app.go (node-deletion watcher completeNodeDeletions + composed SSE handler + Hub.ForceCloseNodeSession wiring in RouterConfig).",
@@ -227,7 +254,11 @@
     "P08 -> P15 repair-1 continued ownership: internal/controller/web/sse.go (bounded subscriber gate + per-write deadline).",
     "P14 -> P15 repair-1 library use (no lifecycle package edit): internal/controller/api/node_delete.go calls lifecycle.ForceDeleteNode for force node deletion.",
     "P15 repair-1 test files (explicit): internal/controller/api/p15_repair1_{h2,h3,h4,h5,h7,h8}_test.go, p15_repair1_helpers_test.go, p15_repair1_h3_helpers_test.go, p15_repair1_h8_helpers_test.go, auth_internal_test.go; internal/controller/store/p15_repair1_{h2,h3,h5,h6,m2}_test.go, p15_repair1_helpers_test.go; internal/controller/web/p15_repair1_test.go; internal/controller/p15_repair1_{h3,h8}_test.go.",
-    "The candidate's pre-repair ownership transfers (migrations registry, schema-9 validation, migration test expectations, payload-cap regression, api/web/store/metrics/forward P15-owned files) remain as recorded in the candidate record."
+    "The candidate's pre-repair ownership transfers (migrations registry, schema-9 validation, migration test expectations, payload-cap regression, api/web/store/metrics/forward P15-owned files) remain as recorded in the candidate record.",
+    "P06 -> P15 repair-2 continued ownership: internal/controller/store/traffic.go (PutTraversalDefaults CAS axis moved to nodes.revision with the default-row upsert guard removed; UpdateNavigationCategoryCAS now maps the ORDER/UNIQUE constraint to ErrNavigationOrderConflict).",
+    "P08 -> P15 repair-2 continued ownership: internal/controller/web/sse.go (NewSSEHandler constructor initialises the subscriber gate; ServeHTTP only reads subMu; credential-shape-only redaction for literal value keys).",
+    "P14/P10 -> P15 repair-2 continued ownership: internal/controller/api/node_delete.go (force delete intent-before-side-effect ordering + idempotent 202 for a second force delete), internal/controller/app.go (NewSSEHandler composition), internal/controller/api/{node_ops,observability}.go (traversal-defaults handler + redaction).",
+    "P15 repair-2 test files (explicit): internal/controller/api/p15_repair2_test.go, internal/controller/store/p15_repair2_test.go, internal/controller/store/p15_repair2_p2a_test.go, internal/controller/web/p15_repair2_test.go."
   ],
   "self_approval": false,
   "review_ready": true,
@@ -458,6 +489,134 @@
         "command": "gofmt -l <all changed Go files> && git diff --check 90b2c230..HEAD && git status --short",
         "exit_code": 0,
         "summary": "PASS; formatting, whitespace and clean worktree."
+      }
+    ]
+  },
+  "repair_cycle_2": {
+    "trigger": "Quality/security fresh-context review returned REQUEST_CHANGES after repair cycle 1: two P1 defects (P1-A SSEHandler subscriber-gate lazy-init data race in ServeHTTP; P1-B traversal-defaults PUT permanent-412 drift because the CAS baseline compared the defaults-row revision against the If-Match node ETag) and four P2 findings (P2-A force node delete writes tombstone/outbox before the durable operation; P2-B a second force delete of a tombstoned node returns 500; P2-C UpdateNavigationCategoryCAS surfaces the order_index UNIQUE race as 500 not 409; P2-D SSE redaction deletes any literal 'value' key, over-redacting legitimate event data).",
+    "base_sha": "d335b09f127de03254ca5119244006c41444ff0a",
+    "repair_base_sha": "b996bc6a9f7999a8d1d7a385d2f34dd64a890811",
+    "repair_head_sha": "91aab5f89b1a6b4e0d8b89294bf7f308f314619f",
+    "finding_to_fix": {
+      "P1-A": "SSEHandler.subMu was lazily initialised (make(chan, maxSubs)) inside ServeHTTP with no synchronisation - a data race on the first concurrent /api/v1/events requests (reproduced with a -race harness; goroutine/slot leakage and backpressure defeat). Fixed by construction-time initialisation: NewSSEHandler(...) builds subMu up front; ServeHTTP only ever reads it; a zero-value handler fails closed 503. App composes via NewSSEHandler.",
+      "P1-B": "PutTraversalDefaults computed the CAS baseline from the defaults-row revision (current.Revision), but the If-Match ETag is the NODE revision. Any other node.rev bump (rename UpdateNodeNameCAS, agent reconnect AcquireControlOwner) left the defaults row stale, so every later PUT with the current node ETag returned a permanent, unrecoverable 412. Fixed: the precondition compares expected against node.Revision; the durable CAS gates on UPDATE nodes ... WHERE id=? AND revision=? (RowsAffected=0 -> ErrCASConflict -> rollback) inside one BEGIN IMMEDIATE; the defaults upsert has no revision guard (removing the drift mechanism) and is written lockstep.",
+      "P2-A": "Force node delete wrote tombstone+outbox (two transactions) before CreateNodeDeletionOperation, so a storage error between them leaves an orphaned tombstone with no pollable operation, and side-effect precedes intent (state-model 3.1). Fixed: the durable operation is created before the tombstone/outbox side effects; failure paths cannot leave a tombstone without a pollable operation.",
+      "P2-B": "A second force delete of an already-tombstoned node returned 500 INTERNAL_ERROR. Fixed: classified state is surfaced as an idempotent/conflict outcome (202-style replay) rather than a server error.",
+      "P2-C": "UpdateNavigationCategoryCAS ran a separate EXISTS(order_index) pre-check before the UPDATE; a concurrent writer claiming the same order_index tripped the UNIQUE constraint, which surfaced as 500 instead of 409. Fixed: the UNIQUE(order_index) constraint error is mapped to ErrNavigationOrderConflict (409).",
+      "P2-D": "SSE/event redaction deleted any key literally named 'value', over-redacting legitimate event data. Fixed: literal 'value' keys are only removed when their value exhibits credential shape; credential-bearing keys (token/secret/password/private_key/authorization/api_key etc.) remain redacted; both sides are tested (credential redacted, legitimate value preserved)."
+    },
+    "reassert_with_code_evidence": [],
+    "new_or_changed_files": [
+      "internal/controller/api/node_delete.go",
+      "internal/controller/api/node_ops.go",
+      "internal/controller/api/observability.go",
+      "internal/controller/api/p15_repair1_h3_test.go",
+      "internal/controller/api/p15_repair1_h8_helpers_test.go",
+      "internal/controller/api/p15_repair2_test.go",
+      "internal/controller/app.go",
+      "internal/controller/store/p15_repair1_node_delete.go",
+      "internal/controller/store/p15_repair2_p2a_test.go",
+      "internal/controller/store/p15_repair2_test.go",
+      "internal/controller/store/traffic.go",
+      "internal/controller/web/p15_repair1_test.go",
+      "internal/controller/web/p15_repair2_test.go",
+      "internal/controller/web/sse.go"
+    ],
+    "new_files_this_cycle": [
+      "internal/controller/api/p15_repair2_test.go",
+      "internal/controller/store/p15_repair2_test.go",
+      "internal/controller/store/p15_repair2_p2a_test.go",
+      "internal/controller/web/p15_repair2_test.go"
+    ],
+    "repair_cycle_2_verification": [
+      {
+        "command": "GOWORK=off go build ./...",
+        "exit_code": 0,
+        "summary": "PASS; full build after repair-2."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward ./internal/controller -count=1",
+        "exit_code": 0,
+        "summary": "PASS; all six affected packages green (store 10s, api 4.4s, controller 1.4s)."
+      },
+      {
+        "command": "GOWORK=off go test -race ./internal/controller/web ./internal/controller/store ./internal/controller/api -run 'TestP15Repair2|TestP15Repair1' -count=10",
+        "exit_code": 0,
+        "summary": "PASS; focused repair-1/repair-2 race x10 across web (1.1s), store (57.7s), api (80.7s); no DATA RACE."
+      },
+      {
+        "command": "GOWORK=off go vet ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward ./internal/controller",
+        "exit_code": 0,
+        "summary": "PASS; vet clean on all affected packages."
+      },
+      {
+        "command": "python3 test/contracts/validate_openapi.py .",
+        "exit_code": 0,
+        "summary": "PASS; frozen OpenAPI unchanged, 32 paths."
+      },
+      {
+        "command": "gofmt -l internal/",
+        "exit_code": 0,
+        "summary": "PASS; no unformatted files."
+      },
+      {
+        "command": "git diff --check",
+        "exit_code": 0,
+        "summary": "PASS; no whitespace errors."
+      },
+      {
+        "command": "git status --short (pre-record commit)",
+        "exit_code": 0,
+        "summary": "PASS; worktree clean before the handoff record commit."
+      }
+    ],
+    "deviations": [
+      "The repair-2 worker process was interrupted by a transient inference-gateway 503 after committing all five item commits (P1-A, P1-B, P2-A/P2-B, P2-C, P2-D) but before running its own verification gates. The orchestrator therefore ran every verification gate recorded here directly, truthfully, with the exit codes below; the worktree was clean and the five commits were already landed.",
+      "The full store package -race -count=10 gate was not re-run this cycle: it is the M4 pre-existing time-budget timeout established and documented in repair_cycle_1 (running tests TestR16Q2ProbeLookupCountsLookaheadDuplicateAsAmbiguous / TestApplyForwardDesiredCommitsAll; no DATA RACE ever). Focused P15 repair-1/repair-2 store race x10 passed (57.7s).",
+      "P2-D is a deliberate redaction policy: literal 'value' keys are preserved unless their value looks like a credential, so no regression to secret leakage for hook/hook-secret payloads (credential-shaped values remain removed).",
+      "commit granularity: the four repair-2 code commits were authored by the repair worker as one item per commit; P2-A and P2-B share the node_delete.go surface and were bundled in one commit (subject names both)."
+    ],
+    "known_flakes": "No new flakes from repair-2. Pre-existing M4 store-package race time-budget limitation unchanged; focused P15 repair-1/repair-2 race x10 all pass with no DATA RACE.",
+    "verification": [
+      {
+        "command": "GOWORK=off go build ./...",
+        "exit_code": 0,
+        "summary": "PASS; full build after repair-2."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward ./internal/controller -count=1",
+        "exit_code": 0,
+        "summary": "PASS; all six affected packages green (store 10s, api 4.4s, controller 1.4s)."
+      },
+      {
+        "command": "GOWORK=off go test -race ./internal/controller/web ./internal/controller/store ./internal/controller/api -run 'TestP15Repair2|TestP15Repair1' -count=10",
+        "exit_code": 0,
+        "summary": "PASS; focused repair-1/repair-2 race x10 across web (1.1s), store (57.7s), api (80.7s); no DATA RACE."
+      },
+      {
+        "command": "GOWORK=off go vet ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward ./internal/controller",
+        "exit_code": 0,
+        "summary": "PASS; vet clean on all affected packages."
+      },
+      {
+        "command": "python3 test/contracts/validate_openapi.py .",
+        "exit_code": 0,
+        "summary": "PASS; frozen OpenAPI unchanged, 32 paths."
+      },
+      {
+        "command": "gofmt -l internal/",
+        "exit_code": 0,
+        "summary": "PASS; no unformatted files."
+      },
+      {
+        "command": "git diff --check",
+        "exit_code": 0,
+        "summary": "PASS; no whitespace errors."
+      },
+      {
+        "command": "git status --short (pre-record commit)",
+        "exit_code": 0,
+        "summary": "PASS; worktree clean before the handoff record commit."
       }
     ]
   }
