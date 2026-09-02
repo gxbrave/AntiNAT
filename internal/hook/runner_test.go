@@ -245,14 +245,20 @@ function main(req) { return m(req); }
 	}
 }
 
-// RED repair P2-6 (a): MaxCallDepth is enforced in the evaluator call path — a
-// deep-recursion script is refused with a budget error and does NOT overflow
-// the Go stack.
+// RED repair P2-6 (a) + P3-1: MaxCallDepth is enforced in the evaluator call
+// path — a deep-recursion script is refused with a depth-budget error and does
+// NOT overflow the Go stack. The regression this test must FALSIFY is a
+// removed callDepth check: with a *high* MaxSteps and a recursion that is only
+// shallow-but-over-limit, step exhaustion can NEVER be the error source, so a
+// "budget" error here can only come from the depth check (asserted by the
+// "call depth" message). The original test used f(100000) against the default
+// 200k step budget, where step exhaustion ALSO returns a budget error — which
+// would pass even with the depth check deleted.
 func TestRunnerMaxCallDepthRefusesDeepRecursion(t *testing.T) {
-	r := hook.NewRunner(hook.Limits{MaxCallDepth: 64})
+	r := hook.NewRunner(hook.Limits{MaxCallDepth: 64, MaxSteps: 10_000_000})
 	script := `
 function f(n) { if (n > 0) { return f(n - 1) + 1; } return 0; }
-function main(req) { return f(100000); }
+function main(req) { return f(1000); }
 `
 	res, err := r.Run(context.Background(), hook.Input{Script: script, Request: canonicalRequest()})
 	if err != nil {
@@ -260,6 +266,34 @@ function main(req) { return f(100000); }
 	}
 	if res.OK || res.Err == nil || res.Err.Kind != "budget" {
 		t.Fatalf("deep recursion not refused by MaxCallDepth: %+v", res)
+	}
+	if !strings.Contains(res.Err.Message, "call depth") {
+		t.Fatalf("refusal was not the DEPTH check (would pass if callDepth were removed): %q", res.Err.Message)
+	}
+}
+
+// RED repair P3-1 (positive): a benign fixed-depth recursive helper COMPLETES
+// under the same MaxCallDepth — proving the depth limit refuses only
+// over-limit recursion, never recursion itself. The recursion of depth 20 is
+// well under MaxCallDepth 64 and the high step budget stays untouched.
+func TestRunnerBenignRecursionCompletesUnderDepthLimit(t *testing.T) {
+	r := hook.NewRunner(hook.Limits{MaxCallDepth: 64, MaxSteps: 10_000_000})
+	script := `
+function count(n) { if (n > 0) { return count(n - 1); } return 0; }
+function main(req) {
+  count(20);
+  return {canonical_query: 'ok=1', string_to_sign: 'GET&%2F&ok%3D1'};
+}
+`
+	res, err := r.Run(context.Background(), hook.Input{Script: script, Request: canonicalRequest()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK {
+		t.Fatalf("benign recursion failed: %+v", res.Err)
+	}
+	if res.Steps <= 0 || res.Steps >= 1000 {
+		t.Fatalf("unexpected step accounting for depth-20 recursion: %d", res.Steps)
 	}
 }
 
