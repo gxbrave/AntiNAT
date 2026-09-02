@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 )
 
@@ -42,6 +43,14 @@ func LoadOrCreateSecretKey(path string) (*SecretKeystore, error) {
 	}
 	raw, err := os.ReadFile(path)
 	if err == nil {
+		// Enforce the strict key file permissions on load (fail closed): a key
+		// file that is group/other-readable could have been tampered with or
+		// mis-created, and a corrupt partial write must never silently disable
+		// later starts. Best-effort on platforms where chmod is meaningless
+		// (e.g. Windows file permission semantics differ).
+		if err := checkSecretKeyFilePerms(path); err != nil {
+			return nil, err
+		}
 		keyID, key, err := parseSecretKeyFile(raw)
 		if err != nil {
 			return nil, err
@@ -51,8 +60,10 @@ func LoadOrCreateSecretKey(path string) (*SecretKeystore, error) {
 	if !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("hook: read secret key: %w", err)
 	}
-	// Create the key file with strict permissions (0600) and a random 32-byte
-	// AES key plus a random key id.
+	// Create the key file atomically (temp file in the same dir + fsync +
+	// rename) with strict 0600 perms and a random 32-byte AES key plus a random
+	// key id. A crash mid-write can never leave a truncated file at the final
+	// path that would permanently fail later starts.
 	keyID, err := randomKeyID()
 	if err != nil {
 		return nil, fmt.Errorf("hook: key id: %w", err)
@@ -67,10 +78,73 @@ func LoadOrCreateSecretKey(path string) (*SecretKeystore, error) {
 	file = append(file, byte(len(keyID)))
 	file = append(file, keyID...)
 	file = append(file, key...)
-	if err := os.WriteFile(path, file, 0o600); err != nil {
+	if err := writeSecretKeyFileAtomic(path, file, 0o600); err != nil {
 		return nil, fmt.Errorf("hook: write secret key: %w", err)
 	}
 	return newSecretKeystore(path, keyID, key)
+}
+
+// writeSecretKeyFileAtomic writes raw to path atomically: a temp file in the
+// same directory is created with strict permissions, written, fsynced, and then
+// renamed over the target so a reader/restart never sees a partially-written
+// key file. The containing directory is fsynced best-effort so the rename is
+// durable across a crash.
+func writeSecretKeyFileAtomic(path string, raw []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".antinat-key-*")
+	if err != nil {
+		return fmt.Errorf("hook: create temp key: %w", err)
+	}
+	tmpName := tmp.Name()
+	removed := false
+	defer func() {
+		tmp.Close()
+		if !removed {
+			os.Remove(tmpName)
+		}
+	}()
+	if err := tmp.Chmod(perm); err != nil {
+		return err
+	}
+	if _, err := tmp.Write(raw); err != nil {
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	removed = true
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
+	return nil
+}
+
+// checkSecretKeyFilePerms verifies the secret key file is a regular 0600 file
+// (group/other bits clear). Fails closed on any deviation so a mis-permissioned
+// or corrupt file is never silently accepted. Best-effort on Windows where
+// POSIX permission semantics are not meaningful.
+func checkSecretKeyFilePerms(path string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("hook: stat secret key: %w", err)
+	}
+	if !fi.Mode().IsRegular() {
+		return fmt.Errorf("hook: secret key path %s is not a regular file", path)
+	}
+	if perm := fi.Mode().Perm(); perm&0o077 != 0 {
+		return fmt.Errorf("hook: secret key file %s has permissions %04o, want 0600 (fail closed)", path, perm)
+	}
+	return nil
 }
 
 func newSecretKeystore(path, keyID string, key []byte) (*SecretKeystore, error) {

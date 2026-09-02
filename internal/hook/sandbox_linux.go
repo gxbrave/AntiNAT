@@ -43,6 +43,30 @@ const (
 
 const sandboxMaxOutput = 64 * 1024
 
+// sandboxEnvAllowlist is the EXACT set of variable names the OS-isolated child
+// may have in its environment. Because the parent sets cmd.Env explicitly, the
+// child inherits nothing else; the env gate verifies the child actually
+// received exactly this set and nothing more (P3-15) — the real protection is
+// this closed allowlist, not a single magic marker variable.
+var sandboxEnvAllowlist = map[string]bool{
+	"PATH":                   true,
+	"GOMAXPROCS":             true,
+	"ANTINAT_SANDBOX_HELPER": true,
+	"ANTINAT_SANDBOX_ROOT":   true,
+	"ANTINAT_PARENT_NETNS":   true,
+	"ANTINAT_PARENT_MNTNS":   true,
+	"ANTINAT_DEDICATED_UID":  true,
+	"ANTINAT_DEDICATED_GID":  true,
+}
+
+// sandboxEnvKeys are the allowlisted keys, in canonical order, that the env
+// gate requires to be present (the fd gate may additionally add
+// ANTINAT_SENTINEL_FD, hence the two-variable handling in verifySandboxEnv).
+var sandboxEnvKeys = []string{
+	"PATH", "GOMAXPROCS", "ANTINAT_SANDBOX_HELPER", "ANTINAT_SANDBOX_ROOT",
+	"ANTINAT_PARENT_NETNS", "ANTINAT_PARENT_MNTNS", "ANTINAT_DEDICATED_UID", "ANTINAT_DEDICATED_GID",
+}
+
 func probeSandboxPlatform(executable string) SandboxResult {
 	res := SandboxResult{Supported: true, Gates: map[string]GateResult{}}
 	if runtime.GOARCH != "amd64" {
@@ -280,6 +304,27 @@ func sandboxEnv(root, parentNetNS, parentMountNS string) []string {
 	}
 }
 
+// verifySandboxEnv asserts the child environment is exactly the allowlisted set:
+// every variable present is allowlisted (no inherited/secrecy extras), and every
+// allowlisted variable is present. The fd gate adds ANTINAT_SENTINEL_FD on top,
+// so that one extra name is tolerated here while still rejecting anything else.
+func verifySandboxEnv(environ []string) error {
+	seen := map[string]bool{}
+	for _, kv := range environ {
+		key, _, _ := strings.Cut(kv, "=")
+		if !sandboxEnvAllowlist[key] && key != "ANTINAT_SENTINEL_FD" {
+			return fmt.Errorf("sandbox inherited an un-allowlisted env var %q", key)
+		}
+		seen[key] = true
+	}
+	for _, key := range sandboxEnvKeys {
+		if !seen[key] {
+			return fmt.Errorf("sandbox env is missing allowlisted variable %q", key)
+		}
+	}
+	return nil
+}
+
 type cappedWriter struct {
 	buf    []byte
 	max    int
@@ -472,10 +517,10 @@ func ChildSelfCheck(action string, uid, gid int) error {
 	case "inspect":
 		return nil
 	case "env":
-		if value := os.Getenv("ANTINAT_SANDBOX_SECRET"); value != "" {
-			return errors.New("secret environment variable leaked")
-		}
-		return nil
+		// Verify the child received EXACTLY the allowlisted environment (no
+		// extras, no inherited secrets, no missing allowlisted vars). The real
+		// protection is the closed allowlist, not a single magic marker.
+		return verifySandboxEnv(os.Environ())
 	case "fd":
 		fd, err := strconv.Atoi(os.Getenv("ANTINAT_SENTINEL_FD"))
 		if err != nil {

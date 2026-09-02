@@ -26,7 +26,11 @@ func (f *fakeSender) Send(ctx context.Context, req *hook.SignedRequest) (*hook.S
 		return nil, f.err
 	}
 	f.calls = append(f.calls, req)
-	return &hook.SendResult{StatusCode: 200}, nil
+	code := f.code
+	if code == 0 {
+		code = 200
+	}
+	return &hook.SendResult{StatusCode: code}, nil
 }
 
 func (f *fakeSender) count() int {
@@ -134,5 +138,42 @@ func TestDispatcherFailsClosedWithoutSender(t *testing.T) {
 	dispatcher := hook.NewDispatcher(hs, nil, passthroughPreparer{}, hook.DispatcherConfig{})
 	if n := dispatcher.PumpOnce(); n != 0 {
 		t.Fatalf("pump with nil sender = %d, want 0 (fail closed)", n)
+	}
+}
+
+// RED repair P2-5: any non-2xx response must NOT be DELIVERED. With redirects
+// off by default, a 3xx (301/302/303...) terminal response means the final
+// endpoint was never reached, so it is a retryable failure.
+func TestDispatcher3xxIsRetryableFailureNotDelivered(t *testing.T) {
+	hs := newTestHookStore(t)
+	d := mustDefinition(t, hs, "web", "https://example.invalid/hook")
+	mustEnqueue(t, hs, hook.Event{
+		HookID: d.ID, EventID: "evt-3xx",
+		Policy: hook.QueuePolicy{Version: 1, OnFull: hook.OnFullDLQ, MaxAttempts: 3},
+	})
+	sender := &fakeSender{code: 302}
+	dispatcher := hook.NewDispatcher(hs, sender, passthroughPreparer{}, hook.DispatcherConfig{Batch: 16})
+	if n := dispatcher.PumpOnce(); n != 1 {
+		t.Fatalf("pump handled %d, want 1", n)
+	}
+	all, _ := hs.ListDeliveries(10)
+	if len(all) != 1 {
+		t.Fatalf("deliveries = %d", len(all))
+	}
+	if all[0].State == hook.DeliveryDelivered {
+		t.Fatalf("3xx response recorded as DELIVERED: %+v", all[0])
+	}
+	if all[0].State != hook.DeliveryFailed {
+		t.Fatalf("3xx state = %q, want FAILED (retryable)", all[0].State)
+	}
+	if !strings.Contains(all[0].LastError, "302") {
+		t.Fatalf("last_error = %q, want a 302 status mention", all[0].LastError)
+	}
+	// The delivery is retryable: with the clock advanced past the backoff it is
+	// claimed again (not sitting in a terminal state).
+	hs.SetClock(func() time.Time { return time.Now().Add(time.Hour) })
+	claimed, err := hs.ClaimDue(10)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("3xx delivery not retryable: %v %d", err, len(claimed))
 	}
 }

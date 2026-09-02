@@ -3,29 +3,58 @@ package hook_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/gxbrave/AntiNAT/internal/hook"
 )
 
-// buildRunnerChild compiles cmd/antinat-hook-runner once into a temp dir and
-// returns its path; the sandbox tests exec the REAL production child.
+// The OS-isolation child binary is compiled ONCE before the sandbox gates run
+// (P3-16). In the cold-start failure this fixes, two sandbox tests each invoked
+// `go build` for their own child inside the test body, so a cold build cache
+// (~1.2s) ran concurrently with the namespace/uid gates and produced a
+// non-reproducible gate failure. Building once up front removes the cold-cache
+// contention from the gate itself. NOTE: no gate result is ever retried away
+// here — this is a deterministic build-once layout, not a retry-on-failure.
+var (
+	// runnerChildOnce guards the single child compile; runnerChildExe is reused
+	// by every sandbox test in this package.
+	runnerChildOnce sync.Once
+	runnerChildExe  string
+	runnerChildErr  error
+)
+
+// buildRunnerChild compiles cmd/antinat-hook-runner ONCE into a package-level
+// temp dir and returns its path; the sandbox tests exec the REAL production
+// child. Each test reuses the same compiled binary, so a cold `go build` cannot
+// race the OS-isolation gates.
 func buildRunnerChild(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
-	out := filepath.Join(dir, "antinat-hook-runner")
-	cmd := exec.Command("go", "build", "-o", out, "github.com/gxbrave/AntiNAT/cmd/antinat-hook-runner")
-	cmd.Env = append(os.Environ(), "GOWORK=off", "CGO_ENABLED=0")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("build runner child: %v\n%s", err, output)
+	runnerChildOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "antinat-runner-child-pool")
+		if err != nil {
+			runnerChildErr = err
+			return
+		}
+		runnerChildExe = filepath.Join(dir, "antinat-hook-runner")
+		cmd := exec.Command("go", "build", "-o", runnerChildExe, "github.com/gxbrave/AntiNAT/cmd/antinat-hook-runner")
+		cmd.Env = append(os.Environ(), "GOWORK=off", "CGO_ENABLED=0")
+		output, combErr := cmd.CombinedOutput()
+		if combErr != nil {
+			runnerChildErr = fmt.Errorf("build runner child: %v\n%s", combErr, output)
+			return
+		}
+	})
+	if runnerChildErr != nil {
+		t.Fatal(runnerChildErr)
 	}
-	return out
+	return runnerChildExe
 }
 
 // sandboxEnabled reports whether the host has the minimum gate the real probe

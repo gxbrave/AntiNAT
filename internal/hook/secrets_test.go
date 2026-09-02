@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/gxbrave/AntiNAT/internal/hook"
@@ -88,5 +89,44 @@ func TestSecretKeystoreRejectsBadFile(t *testing.T) {
 	}
 	if _, err := hook.LoadOrCreateSecretKey(path); err == nil {
 		t.Fatal("garbage key file accepted")
+	}
+}
+
+// RED repair P3-7: a secret key file with loose (group/other-readable)
+// permissions must FAIL CLOSED on load — the file could have been mis-created
+// or tampered with. Best-effort on platforms where POSIX chmod semantics do
+// not apply (Windows).
+func TestSecretKeystoreRejectsLoosePerms(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file permission semantics differ on Windows (webhook-only capability); perms gate is best-effort there")
+	}
+	path := filepath.Join(t.TempDir(), "hook-secret.key")
+	if _, err := hook.LoadOrCreateSecretKey(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hook.LoadOrCreateSecretKey(path); err == nil {
+		t.Fatal("key file with 0644 permissions accepted (must fail closed)")
+	}
+}
+
+// RED repair P3-7: the created key file is exactly 0600 (a too-tight write is
+// verified here on the create path).
+func TestSecretKeystoreCreatedFileIs0600(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file permission semantics differ on Windows")
+	}
+	path := filepath.Join(t.TempDir(), "hook-secret.key")
+	if _, err := hook.LoadOrCreateSecretKey(path); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := fi.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("created key file permissions = %04o, want 0600", perm)
 	}
 }
