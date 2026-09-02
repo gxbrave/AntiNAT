@@ -120,3 +120,10 @@ func (r *RuntimeRunner) Run(ctx context.Context, script []byte, request []byte, 
 	}
 	return runSandboxedScript(ctx, r.Exe, script, request, limits)
 }
+
+// RunEnvelope satisfies the ScriptRunner interface used by the delivery
+// preparer (identical gate: fail closed unless the OS-isolation min gate is
+// present).
+func (r *RuntimeRunner) RunEnvelope(ctx context.Context, script []byte, request []byte, limits Limits) ([]byte, error) {
+	return r.Run(ctx, script, request, limits)
+}

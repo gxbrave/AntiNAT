@@ -15,7 +15,6 @@ import (
 	"net/url"
 	"sort"
 	"strings"
-	"sync/atomic"
 
 	"github.com/gxbrave/AntiNAT/internal/protocol"
 )
@@ -77,9 +76,12 @@ type Capability struct {
 	Port      int
 	Path      string
 	QueryHash string
-	// MaxCalls is the signing-call bound set by the broker per Sign.
+	// MaxCalls is the signing-call bound set by the broker per Sign. A capabi-
+	// lity is minted per Sign and consumed synchronously by the broker, so the
+	// counter is a plain int (not atomic); it must not be shared across
+	// goroutines.
 	MaxCalls int32
-	calls    atomic.Int32
+	calls    int32
 }
 
 // ErrCapabilityExhausted refuses a signature past the capability call bound.
@@ -162,8 +164,9 @@ func (b *Broker) Sign(ctx context.Context, intent SignIntent) (*SignedRequest, C
 // broker's own normalization of the SAME final allowlisted request.
 func VerifyContribution(intent SignIntent, contribution []byte) error {
 	var got struct {
-		CanonicalQuery string `json:"canonical_query"`
-		StringToSign   string `json:"string_to_sign"`
+		CanonicalQuery string            `json:"canonical_query"`
+		StringToSign   string            `json:"string_to_sign"`
+		Params         map[string]string `json:"params,omitempty"`
 	}
 	if err := protocol.DecodeStrictJSONInto(contribution, &got); err != nil {
 		return fmt.Errorf("hook: contribution schema: %w", err)
@@ -179,7 +182,8 @@ func VerifyContribution(intent SignIntent, contribution []byte) error {
 }
 
 // CanSign consumes one signing call and reports whether the capability has
-// remaining calls (fail closed past MaxCalls). It is atomic (concurrent-safe).
+// remaining calls (fail closed past MaxCalls). It is single-goroutine safe; a
+// capability must not be shared across goroutines.
 func (c *Capability) CanSign() bool {
 	if c == nil {
 		return false
@@ -188,7 +192,8 @@ func (c *Capability) CanSign() bool {
 	if max <= 0 {
 		max = 1
 	}
-	return c.calls.Add(1) <= max
+	c.calls++
+	return c.calls <= max
 }
 
 func setSignedHeader(req *SignedRequest, key, value string) {

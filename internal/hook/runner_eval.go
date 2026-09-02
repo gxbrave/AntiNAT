@@ -2,6 +2,8 @@ package hook
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
@@ -1651,6 +1653,13 @@ func runtimeObject(v *vm) objV {
 		}},
 		"now": nfnV{name: "now", fn: func(v *vm, args []value) (value, error) {
 			return num(float64(time.Now().UnixMilli())), nil
+		}},
+		"nonce": nfnV{name: "nonce", fn: func(v *vm, args []value) (value, error) {
+			var b [16]byte
+			if _, err := rand.Read(b[:]); err != nil {
+				return nil, runErr("type", "nonce: random unavailable")
+			}
+			return str(hex.EncodeToString(b[:])), nil
 		}},
 		"percentEncode": nfnV{name: "percentEncode", fn: percentEncodeNative},
 		"canonicalQuery": nfnV{name: "canonicalQuery", fn: func(v *vm, args []value) (value, error) {

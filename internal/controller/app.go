@@ -179,6 +179,10 @@ func New(cfg Config) (*App, error) {
 		DBPath:  cfg.StorePath,
 		KeyPath: filepath.Join(cfg.KeyDir, "hook-secret.key"),
 		Sender:  hook.NewClient(hook.ClientConfig{}),
+		// The production runner is the OS-isolated child; when the platform
+		// minimum gate is absent the capability degrades to webhook-only (script
+		// deliveries fail closed, never a silent PASS).
+		Runner: hook.NewRuntimeRunner("", hook.DefaultLimits()),
 	})
 	if err != nil {
 		return rollback(fmt.Errorf("controller: hook service: %w", err))

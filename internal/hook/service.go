@@ -25,13 +25,17 @@ type ServiceConfig struct {
 	DBPath   string
 	KeyPath  string
 	Sender   Sender
+	Runner   ScriptRunner
 	Interval time.Duration
 	Batch    int
 }
 
-// NewService opens the hook store and key store and builds the dispatcher. A
-// nil Sender is allowed (the pump fails closed until real wiring); production
-// passes the SSRF-safe client.
+// NewService opens the hook store and key store and builds the dispatcher with
+// the production delivery preparer (broker + optional script runner). A nil
+// Sender is allowed (the pump fails closed until real wiring); production
+// passes the SSRF-safe client. A nil Runner keeps plain and secret-signable
+// webhook deliveries working while scripted deliveries fail closed (webhook-
+// only); production passes the OS-isolated runner.
 func NewService(cfg ServiceConfig) (*Service, error) {
 	st, err := OpenStore(cfg.DBPath)
 	if err != nil {
@@ -43,7 +47,8 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 		return nil, err
 	}
 	broker := NewBroker(st, keys)
-	dispatcher := NewDispatcher(st, cfg.Sender, nil, DispatcherConfig{
+	preparer := NewDeliveryPreparer(st, broker, cfg.Runner)
+	dispatcher := NewDispatcher(st, cfg.Sender, preparer, DispatcherConfig{
 		Interval: cfg.Interval,
 		Batch:    cfg.Batch,
 	})
