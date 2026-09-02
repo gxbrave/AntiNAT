@@ -34,7 +34,7 @@ func (s *eventStoreStub) AdminEventsAfter(cursor int64, limit int) ([]store.Admi
 // gate now refuses a stream beyond MaxSubscribers with 503 UNAVAILABLE.
 func TestP15Repair1H8SSEBoundedSubscribers(t *testing.T) {
 	stub := &eventStoreStub{}
-	handler := &web.SSEHandler{Store: stub, PollInterval: 10 * time.Millisecond, Batch: 10, MaxSubscribers: 1}
+	handler := web.NewSSEHandler(stub, 10*time.Millisecond, 10, 1, 0)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -79,7 +79,7 @@ func TestP15Repair1H8SSEReplayAndRedaction(t *testing.T) {
 	stub := &eventStoreStub{events: []store.AdminEvent{
 		{ID: 1, EventType: "test", Payload: `{"safe":"yes","token":"top-secret"}`},
 	}}
-	handler := &web.SSEHandler{Store: stub, PollInterval: 10 * time.Millisecond, Batch: 10}
+	handler := web.NewSSEHandler(stub, 10*time.Millisecond, 10, 0, 0)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 

@@ -200,12 +200,9 @@ func (a *App) Start() error {
 	// repair-1 H8: compose the canonical durable, bounded SSE stream on the
 	// frozen /api/v1/events route (Last-Event-ID replay + secret redaction +
 	// bounded subscriber/backpressure) instead of the un-composed local poller.
-	events := &web.SSEHandler{
-		Store:          a.store,
-		PollInterval:   100 * time.Millisecond,
-		Batch:          100,
-		MaxSubscribers: 64,
-	}
+	// repair-2 P1-A: build through NewSSEHandler so the subscriber gate is
+	// initialized during construction (never lazily inside ServeHTTP).
+	events := web.NewSSEHandler(a.store, 100*time.Millisecond, 100, 64, 0)
 	// repair-1 H3: compose the agent-hub session closer so a force node delete
 	// cannot leave an ESTABLISHED session delivering stale commands.
 	admin, err := web.NewRouter(api.RouterConfig{Store: a.store, Auth: a.auth, SSE: events, CloseNodeSession: a.hub.ForceCloseNodeSession})

@@ -23,6 +23,13 @@ type EventStore interface {
 // (Story 4: durable Last-Event-ID, secret redaction). repair-1 H8 adds bounded
 // subscriber capacity and a per-write deadline so a slow or stalled client
 // cannot consume unbounded memory or hold the stream open forever.
+//
+// repair-2 P1-A: the subscriber gate MUST be constructed via NewSSEHandler so
+// subMu (the bounded semaphore) is initialized before any concurrent stream can
+// touch it. Claiming a slot by writing subMu inside ServeHTTP was a data race
+// on first concurrent hit (the old lazy-init wrote the channel while another
+// request read it). ServeHTTP now only ever reads subMu. A zero-value handler
+// (subMu == nil) fails closed: every stream is refused 503 UNAVAILABLE.
 type SSEHandler struct {
 	Store EventStore
 	// PollInterval is the store poll cadence (default 100ms).
@@ -33,17 +40,38 @@ type SSEHandler struct {
 	// beyond the cap is refused with 503 UNAVAILABLE.
 	MaxSubscribers int
 	// WriteTimeout bounds each SSE write+flush so a slow reader fails closed
-	// instead of buffering without limit (default 5s, 0 disables).
+	// instead of buffering without limit (default 5s).
 	WriteTimeout time.Duration
 
 	subMu chan struct{}
 }
 
-func (h *SSEHandler) subscriberSlot() chan struct{} {
-	if h.subMu == nil || cap(h.subMu) == 0 {
-		return nil
+// NewSSEHandler builds an SSEHandler with the bounded subscriber gate
+// initialized. The configured values are normalized the same way ServeHTTP
+// normalized them (poll interval >= 100ms, batch 1..200, at least one
+// subscriber slot, write timeout >= 5s unless 0 means default), so the
+// constructor result and the serve path agree on the gate capacity.
+func NewSSEHandler(store EventStore, pollInterval time.Duration, batch, maxSubscribers int, writeTimeout time.Duration) *SSEHandler {
+	if batch <= 0 || batch > 200 {
+		batch = 100
 	}
-	return h.subMu
+	if pollInterval <= 0 {
+		pollInterval = 100 * time.Millisecond
+	}
+	if maxSubscribers <= 0 {
+		maxSubscribers = 64
+	}
+	if writeTimeout <= 0 {
+		writeTimeout = 5 * time.Second
+	}
+	return &SSEHandler{
+		Store:          store,
+		PollInterval:   pollInterval,
+		Batch:          batch,
+		MaxSubscribers: maxSubscribers,
+		WriteTimeout:   writeTimeout,
+		subMu:          make(chan struct{}, maxSubscribers),
+	}
 }
 
 func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -64,18 +92,14 @@ func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if interval <= 0 {
 		interval = 100 * time.Millisecond
 	}
-	maxSubs := h.MaxSubscribers
-	if maxSubs <= 0 {
-		maxSubs = 64
-	}
 	writeTimeout := h.WriteTimeout
 	if writeTimeout <= 0 {
 		writeTimeout = 5 * time.Second
 	}
-	// Bounded subscriber gate (backpressure at the connection level).
-	if h.subMu == nil {
-		h.subMu = make(chan struct{}, maxSubs)
-	}
+	// Bounded subscriber gate (backpressure at the connection level). subMu is
+	// only ever read here (P1-A); construction guarantees it is non-nil. A nil
+	// subMu (zero-value handler) makes the send never ready, so the default
+	// case fails closed with 503 rather than racing on a first-touch write.
 	select {
 	case h.subMu <- struct{}{}:
 		defer func() { <-h.subMu }()
