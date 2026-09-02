@@ -175,6 +175,36 @@ func TestHookDefinitionCRUD(t *testing.T) {
 	}
 }
 
+// RED repair P2-1 (service-level validation, stricter than the frozen
+// `format: uri`): a hook definition whose URL carries a query string or a
+// fragment is REFUSED at create. A signed delivery derives its final URL from
+// scheme/host/port/path only, so a query-bearing hook URL would be silently
+// delivered without its query — while unsigned deliveries preserved it: an
+// inconsistent, fail-open surface. The https-only rule stays unchanged.
+func TestHookDefinitionRejectsQueryAndFragmentURL(t *testing.T) {
+	srv, st, _ := newHooksTestServer(t)
+	user, pass := initAdmin(t, srv, st)
+	cookie := login(t, srv, user, pass)
+	for _, bad := range []string{
+		"https://example.org/hook?tenant=acme",
+		"https://example.org/hook?tenant=acme&x=1",
+		"https://example.org/hook#frag",
+	} {
+		resp, body := doReqKey2(t, srv, http.MethodPost, "/api/v1/hooks/definitions", cookie,
+			map[string]any{"name": "web", "kind": "webhook", "url": bad}, "hook-bad-"+bad)
+		if resp.StatusCode != http.StatusUnprocessableEntity {
+			t.Fatalf("create with url %q = %d (%s), want 422", bad, resp.StatusCode, body)
+		}
+	}
+	// The same rule applies to PATCH updates.
+	hookID, etag := createHookDef(t, srv, cookie, "web", "https://example.org/hook")
+	resp, _ := doReqIfMatch(t, srv, http.MethodPatch, "/api/v1/hooks/definitions/"+hookID, cookie,
+		map[string]any{"url": "https://example.org/hook?tenant=acme"}, etag)
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("patch with query-bearing url = %d, want 422", resp.StatusCode)
+	}
+}
+
 // RED P16 Story 3 (k): creates are Idempotency-Key durable: replaying the same
 // key returns the same 201 body; reusing the key with a different request is a
 // 409 IDEMPOTENCY_CONFLICT.

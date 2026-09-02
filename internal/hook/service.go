@@ -250,5 +250,29 @@ func validateHookURL(raw string) error {
 	if strings.HasSuffix(host, ".") {
 		return fmt.Errorf("%w: url trailing-dot host is ambiguous", ErrInvalid)
 	}
+	// P2-1: a hook URL must not carry a query string or fragment. buildURL for a
+	// SIGNED delivery renders scheme/host/port/path ONLY (pathOf takes u.Path),
+	// so a query-bearing hook URL would be silently stripped for signed
+	// deliveries while unsigned deliveries preserved it — an inconsistent,
+	// fail-open surface. We reject such URLs outright here (stricter than the
+	// frozen openapi `format: uri`, which stays unchanged), and the dispatcher
+	// + broker re-assert the same rule defense-in-depth at dispatch time.
+	if err := rejectURLQueryFragment(u); err != nil {
+		return err
+	}
+	return nil
+}
+
+// rejectURLQueryFragment refuses a parsed hook URL that carries a query string
+// or fragment (shared by definition validation, the delivery preparer and the
+// broker's endpoint re-derivation so a query-bearing hook definition can never
+// reach dispatch even if it bypassed service validation at the store level).
+func rejectURLQueryFragment(u *url.URL) error {
+	if u.RawQuery != "" || u.ForceQuery {
+		return fmt.Errorf("%w: url must not carry a query string", ErrInvalid)
+	}
+	if u.Fragment != "" || u.RawFragment != "" {
+		return fmt.Errorf("%w: url must not carry a fragment", ErrInvalid)
+	}
 	return nil
 }

@@ -132,12 +132,82 @@ func TestScrubErrorRemovesControlCharacters(t *testing.T) {
 	}
 }
 
+// zeroStatusSender is a stub transport that returns a nil-error response with a
+// zero status code — exactly the case P3-5 closes: the production SSRF client
+// never produces it, but a 0 status is NOT proof a 2xx was received, so the
+// dispatcher must fail closed rather than record DELIVERED.
+type zeroStatusSender struct{}
+
+func (zeroStatusSender) Send(context.Context, *hook.SignedRequest) (*hook.SendResult, error) {
+	return &hook.SendResult{StatusCode: 0}, nil
+}
+
+func TestDispatcherZeroStatusResponseIsFailureNotDelivered(t *testing.T) {
+	hs := newTestHookStore(t)
+	d := mustDefinition(t, hs, "web", "https://example.invalid/hook")
+	mustEnqueue(t, hs, hook.Event{
+		HookID: d.ID, EventID: "evt-zero",
+		Policy: hook.QueuePolicy{Version: 1, OnFull: hook.OnFullDLQ, MaxAttempts: 3},
+	})
+	dispatcher := hook.NewDispatcher(hs, zeroStatusSender{}, passthroughPreparer{}, hook.DispatcherConfig{Batch: 16})
+	if n := dispatcher.PumpOnce(); n != 1 {
+		t.Fatalf("pump handled %d, want 1", n)
+	}
+	all, _ := hs.ListDeliveries(10)
+	if len(all) != 1 {
+		t.Fatalf("deliveries = %d", len(all))
+	}
+	if all[0].State == hook.DeliveryDelivered {
+		t.Fatalf("zero-status (nil-error) response recorded as DELIVERED: %+v", all[0])
+	}
+	if all[0].State != hook.DeliveryFailed {
+		t.Fatalf("zero-status state = %q, want FAILED (retryable)", all[0].State)
+	}
+}
+
 // RED P16 Story 1 (l): pumpOnce with a nil sender/preparer fails closed (0).
 func TestDispatcherFailsClosedWithoutSender(t *testing.T) {
 	hs := newTestHookStore(t)
 	dispatcher := hook.NewDispatcher(hs, nil, passthroughPreparer{}, hook.DispatcherConfig{})
 	if n := dispatcher.PumpOnce(); n != 0 {
 		t.Fatalf("pump with nil sender = %d, want 0 (fail closed)", n)
+	}
+}
+
+// RED repair P2-1 (dispatch defense-in-depth): a hook definition whose URL
+// carries a query string is refused at create-time through the service, but a
+// store-level row that bypasses service validation must ALSO be refused at
+// dispatch — never silently delivered to the query-stripped final URL (the
+// signed path builds its URL from scheme/host/port/path only). The real
+// DeliveryPreparer rejects the definition before anything is sent.
+func TestDispatcherRefusesQueryBearingHookURL(t *testing.T) {
+	hs, _, broker := newBroker(t)
+	d, err := hs.CreateDefinition("web", hook.KindWebhook, "https://example.org/hook?tenant=acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &fakeSender{}
+	preparer := hook.NewDeliveryPreparer(hs, broker, nil)
+	dispatcher := hook.NewDispatcher(hs, sender, preparer, hook.DispatcherConfig{Batch: 16})
+	mustEnqueue(t, hs, hook.Event{
+		HookID: d.ID, EventID: "evt-query",
+		Policy: hook.QueuePolicy{Version: 1, OnFull: hook.OnFullDLQ, MaxAttempts: 2},
+	})
+	if n := dispatcher.PumpOnce(); n != 1 {
+		t.Fatalf("pump handled %d, want 1", n)
+	}
+	all, _ := hs.ListDeliveries(10)
+	if len(all) != 1 {
+		t.Fatalf("deliveries = %d", len(all))
+	}
+	if all[0].State == hook.DeliveryDelivered {
+		t.Fatalf("query-bearing hook URL was delivered: %+v", all[0])
+	}
+	if all[0].State != hook.DeliveryFailed {
+		t.Fatalf("state = %q, want FAILED (never reached dispatch)", all[0].State)
+	}
+	if sender.count() != 0 {
+		t.Fatalf("sender called %d times for a refused definition", sender.count())
 	}
 }
 

@@ -125,10 +125,18 @@ func (d *Dispatcher) deliver(delivery Delivery) {
 		_ = d.store.MarkFailed(delivery.ID, scrubError(err))
 		return
 	}
-	// Only 2xx (< 300) is DELIVERED. Any 3xx is a RETRYABLE failure: with
+	// ONLY a received 2xx is DELIVERED. Any 3xx is a RETRYABLE failure: with
 	// redirects off by default, a 301/302/303 terminal response means the final
 	// endpoint was never reached and the delivery must be retried (P2-5).
-	if res != nil && res.StatusCode >= 300 {
+	// P3-5: a nil response and a StatusCode outside [200,300) — including 0,
+	// which a nil-error response previously slipped through as DELIVERED — are
+	// FAILED, never DELIVERED. The production SSRF client never returns 0, but
+	// we fail closed: a 0 status is not proof a 2xx was received.
+	if res == nil {
+		_ = d.store.MarkFailed(delivery.ID, "webhook sender returned no response")
+		return
+	}
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		_ = d.store.MarkFailed(delivery.ID, "webhook responded status="+itoa(res.StatusCode))
 		return
 	}

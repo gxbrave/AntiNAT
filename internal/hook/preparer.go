@@ -65,6 +65,15 @@ func (p *DeliveryPreparerImpl) Prepare(ctx context.Context, d Delivery) (*Signed
 	if err != nil {
 		return nil, fmt.Errorf("hook: parse definition url: %w", err)
 	}
+	// P2-1 fail-closed at dispatch: a hook definition whose URL carries a query
+	// string or fragment can never be delivered. buildURL (signed path) derives
+	// the final URL from scheme/host/port/path only, so accepting such a URL here
+	// would deliver to the query-stripped endpoint — a silent redirect that the
+	// validation at create-time is meant to forbid. Store-level rows that bypass
+	// service validation are refused here (never silently delivered).
+	if err := rejectURLQueryFragment(u); err != nil {
+		return nil, fmt.Errorf("hook: %w", err)
+	}
 	ep := endpointFromURL(u)
 
 	base := &SignedRequest{
