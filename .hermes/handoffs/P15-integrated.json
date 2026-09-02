@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "plan": "P15",
+  "stage": "INTEGRATED",
+  "branch": "integration/v1-beta",
+  "integration_base_sha": "d335b09f127de03254ca5119244006c41444ff0a",
+  "integration_base_tree_sha": "3358d516726ec8810bbc6e91df78112e4352fb72",
+  "integration_method": "FAST-FORWARD (integration base was d335b09f, the P14 integrated tip; the approved candidate branch ai/P15-controller-api-metrics was fast-forwarded to its record tip 0f31019 with byte-identical commit identity; no cherry-pick rewrite, no conflict, no semantic resolution).",
+  "candidate_branch": "ai/P15-controller-api-metrics",
+  "candidate_record_tip_sha": "0f310193b16509d8578d011914f79af3f004c8b5",
+  "candidate_record_tip_tree_sha": "5b3683d089d9e78430f48dfdda6aa863f4e63bc2",
+  "candidate_canonical_head_sha": "91aab5f89b1a6b4e0d8b89294bf7f308f314619f",
+  "candidate_canonical_head_tree_sha": "e60c53a1d4c6a900bcabad0457fbbb0f11281fcf",
+  "candidate_implementation_head_sha": "91aab5f89b1a6b4e0d8b89294bf7f308f314619f",
+  "integrated_sha": "0f310193b16509d8578d011914f79af3f004c8b5",
+  "integrated_tree_sha": "5b3683d089d9e78430f48dfdda6aa863f4e63bc2",
+  "tree_equivalence": "The integration is a fast-forward to the exact candidate record tip. By the established convention the final record commit 0f31019 (which writes .hermes/handoffs/P15.json) is excluded from the candidate handoff's canonical commits[] identity list while the record itself remains present in files_changed[]; candidate canonical/implementation head is 91aab5f.",
+  "reviews": {
+    "status": "REVIEW_COMPLETE_REPAIR_CYCLE_2_APPROVE",
+    "specification_ownership": "APPROVE at the repair-cycle-2 candidate (implementation head 91aab5f); frozen contracts byte-identical, handoff machine-verified, no undeclared edits, no undeclared routes.",
+    "quality_security": "APPROVE at the repair-cycle-2 candidate (implementation head 91aab5f); P1-A (SSE subscriber-gate data race) and P1-B (traversal-defaults permanent-412 drift) verified FIXED with focused race evidence; P2-A/B/C/D FIXED. Two non-blocking P2 notes recorded as residuals.",
+    "reviewed_candidate_canonical_head_sha": "91aab5f89b1a6b4e0d8b89294bf7f308f314619f",
+    "reviewed_candidate_implementation_head_sha": "91aab5f89b1a6b4e0d8b89294bf7f308f314619f",
+    "contract_gate": "PASS; api/openapi.yaml, docs/error-codes.md, docs/protocol.md, docs/state-model.md are byte-identical to the frozen hashes (aa60d05f/be4f4c22/cfc595f8/0d31a822) at the integrated tip; migrations/0001-0008 unchanged; only P15-owned 0009_api_metrics.sql and migrations.go are additive."
+  },
+  "repair_history": {
+    "cycle_1": "REQUEST_CHANGES -> fixed H1-H8 (HIGH) and M1-M4 (MEDIUM) at implementation head a374148 in five commits; spec review APPROVE; quality/security review re-opened with P1-A/P1-B + P2.",
+    "cycle_2": "REQUEST_CHANGES (P1-A SSE gate data race; P1-B traversal-defaults 412 drift; P2-A force-delete atomicity; P2-B 2nd force-delete 500; P2-C nav-order 500; P2-D over-redaction) -> fixed in five commits at implementation head 91aab5f; fresh spec/ownership APPROVE and fresh quality/security APPROVE.",
+    "post_cycle_2_note": "After both cycle-2 reviews APPROVE, one P3 metadata-only correction was applied to .hermes/handoffs/P15.json (commits[] unified to include intermediate record commit b996bc6; only the current record commit is excluded). No product code changed; the record commit was amended to 0f31019. This is the same handoff-convention direction the spec reviewer requested; it does not alter the reviewed implementation."
+  },
+  "verification_at_candidate": [
+    {
+      "command": "GOWORK=off go build ./...",
+      "exit_code": 0,
+      "summary": "PASS at implementation head 91aab5f."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward ./internal/controller -count=1",
+      "exit_code": 0,
+      "summary": "PASS; all six affected packages (api 4.4s, web 0.0s, store 10.1s, metrics 0.0s, forward 0.0s, controller 1.4s)."
+    },
+    {
+      "command": "GOWORK=off go test -race ./internal/controller/web ./internal/controller/store ./internal/controller/api -run 'TestP15Repair2|TestP15Repair1' -count=10",
+      "exit_code": 0,
+      "summary": "PASS; focused repair-1/repair-2 race x10 (web 1.1s, store 53.8-57.7s, api 78.8-80.7s), no DATA RACE."
+    },
+    {
+      "command": "GOWORK=off go vet ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward ./internal/controller",
+      "exit_code": 0,
+      "summary": "PASS; vet clean on all affected packages."
+    },
+    {
+      "command": "python3 test/contracts/validate_openapi.py .",
+      "exit_code": 0,
+      "summary": "PASS; frozen OpenAPI valid, 32 paths, 13 referenced/registered error statuses; no contract change."
+    },
+    {
+      "command": "gofmt -l internal/ && git diff --check",
+      "exit_code": 0,
+      "summary": "PASS; no unformatted files, no whitespace errors."
+    },
+    {
+      "command": "combined canonical -race -count=10 gate",
+      "exit_code": 1,
+      "summary": "LIMITATION (M4, unchanged): the full store package -race -count=10 exceeds the 10-minute budget in pre-existing store tests (TestR16Q2ProbeLookupCountsLookaheadDuplicateAsAmbiguous / TestApplyForwardDesiredCommitsAll). No DATA RACE was ever reported. Focused P15 per-component race x10 all pass."
+    }
+  ],
+  "verification_at_integrated_tip": [
+    {
+      "command": "git merge --ff-only ai/P15-controller-api-metrics",
+      "exit_code": 0,
+      "summary": "PASS; integration/v1-beta advanced from d335b09f to the exact candidate record tip 0f31019 without rewrite or conflict."
+    },
+    {
+      "command": "git merge-base d335b09f127de03254ca5119244006c41444ff0a 0f310193b16509d8578d011914f79af3f004c8b5",
+      "exit_code": 0,
+      "summary": "PASS; merge-base equals d335b09f, proving fast-forward ancestry (13 candidate commits)."
+    },
+    {
+      "command": "sha256sum api/openapi.yaml docs/error-codes.md docs/protocol.md docs/state-model.md at integrated tip",
+      "exit_code": 0,
+      "summary": "PASS; exactly aa60d05f/be4f4c22/cfc595f8/0d31a822 bytes, identical to the frozen contract hashes."
+    },
+    {
+      "command": "git diff --name-only d335b09f..0f31019 | protected-path check",
+      "exit_code": 0,
+      "summary": "PASS; 59 P15 paths integrated; no frozen contract, migrations 0001-0008, or protected library path changed (0009 is P15-owned)."
+    },
+    {
+      "command": "git status --short --branch",
+      "exit_code": 0,
+      "summary": "PASS; integration/v1-beta worktree clean at integrated tip."
+    }
+  ],
+  "capability_result": "SUPPORTED_WITH_LIMITS",
+  "milestone": "Controller API, durable bounded SSE, metrics/traffic ingest, rate limiting, navigation/settings/deployment-profile projection integrated on integration/v1-beta. Capsule: P01-P15 and P12W integrated; P16-P19 remain for subsequent modules. No release/remote push performed.",
+  "known_limits": [
+    "No real CPE/router/public-WAN evidence; traversal evidence remains the declared Linux miniupnpd + coturn netns lab level.",
+    "Windows/arm64/darwin evidence remains compile-only where recorded; no native runtime claim.",
+    "govulncheck is unavailable in this environment and is not recorded as PASS.",
+    "The combined -race -count=10 gate exceeds the 10-minute budget in pre-existing store tests (M4); focused P15 per-component race x10 passes with no DATA RACE.",
+    "SSEHandler must be constructed via web.NewSSEHandler; a zero-value handler fails closed with 503 UNAVAILABLE on every stream.",
+    "Traversal-defaults PUT durability: the If-Match axis is the node revision; the durable CAS gates on nodes.revision with the defaults row written lockstep (no independent defaults-row guard).",
+    "Residual P2 (quality review): a narrow TOCTOU window where two concurrent force deletes of the same node lets the loser surface 500 instead of 409 (no orphans; retry converges to the idempotent 202).",
+    "Residual P2 (quality review): the SSE credential-shape heuristic for literal 'value' keys does not redact short (12-23 char), low-entropy credential-shaped strings under that exact key; current admin events carry no such payloads and key-name-based redaction (token/secret/password/private_key/authorization/api_key) is unaffected.",
+    "Navigation category/item creates now persist durable idempotency records; hooks definitions/secrets routes (frozen OpenAPI path surface) remain wired by P16 per the plan ('P16 adds hook-specific handler files serially').",
+    "Login rate limiting is bounded in-process (max 4096 peers, expired-window eviction); it is not a distributed or persisted limiter.",
+    "Traffic ingest/rollups are durable store APIs; no Agent traffic wire message exists in the frozen protocol, so live Agent ingest remains unwired."
+  ],
+  "authorization": "The user's master-controller instruction to develop AntiNAT modules in order via sub-agents (dev -> independent fresh-context reviews -> integrate), complete the project, and defer remote push/release until the appropriate milestone. Both independent cycle-2 reviews APPROVE before integration.",
+  "release_performed": false,
+  "remote_push": "NONE",
+  "self_approval": false
+}
