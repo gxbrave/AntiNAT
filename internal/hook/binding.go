@@ -86,6 +86,12 @@ func (s *Store) SetSecretSignatureBudget(secretID string, budget int64) error {
 // budget. It fails closed (ErrNoSignatureBudget / ErrSignatureBudgetExhausted)
 // and is atomic under SQLite's writer serialization: two concurrent Sign calls
 // against a nearly-exhausted budget cannot both reserve.
+//
+// signature_issued and signature_budget are MONOTONIC durable counters: a
+// secret never re-issues past its budget, and ReserveSecretSignature never
+// decrements them. When a secret's budget is exhausted the operator must RAISE
+// it explicitly (SetSecretSignatureBudget) — the counter is never reset by
+// creating a new delivery or retrying one.
 func (s *Store) ReserveSecretSignature(secretID string) error {
 	var issued, budget int64
 	err := s.db.QueryRow(
