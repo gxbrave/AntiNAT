@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,6 +28,7 @@ import (
 	"github.com/gxbrave/AntiNAT/internal/controller/probe"
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
 	"github.com/gxbrave/AntiNAT/internal/controller/web"
+	"github.com/gxbrave/AntiNAT/internal/hook"
 	"github.com/gxbrave/AntiNAT/internal/protocol"
 	"github.com/gxbrave/AntiNAT/internal/security"
 )
@@ -70,6 +72,7 @@ type App struct {
 	keyring *security.Keyring
 	hub     *agenthub.Hub
 	probe   *probe.Manager
+	hooks   *hook.Service
 
 	ln   net.Listener
 	srv  *http.Server
@@ -86,6 +89,7 @@ type App struct {
 
 	watchCancel context.CancelFunc
 	watchWG     sync.WaitGroup
+	hookCancel  context.CancelFunc
 }
 
 // New opens every controller resource. Any failure closes what was already
@@ -108,7 +112,7 @@ func New(cfg Config) (*App, error) {
 	}
 
 	a := &App{cfg: cfg}
-	// store -> auth -> keyring -> challenges -> hub -> probe -> web router.
+	// store -> auth -> keyring -> challenges -> hub -> probe -> hooks -> router.
 	// Every failure path closes in reverse order (rollback).
 	st, err := store.Open(cfg.StorePath)
 	if err != nil {
@@ -167,6 +171,20 @@ func New(cfg Config) (*App, error) {
 	a.hub = h
 	hub = h
 
+	// P16: the hook service owns webhooks/secrets/deliveries. Its store opens
+	// its own pool on the same (already migrated) database file; the dispatcher
+	// uses the SSRF-safe client as its sender so no outbound webhook can reach
+	// a private/loopback address.
+	hookSvc, err := hook.NewService(hook.ServiceConfig{
+		DBPath:  cfg.StorePath,
+		KeyPath: filepath.Join(cfg.KeyDir, "hook-secret.key"),
+		Sender:  hook.NewClient(hook.ClientConfig{}),
+	})
+	if err != nil {
+		return rollback(fmt.Errorf("controller: hook service: %w", err))
+	}
+	a.hooks = hookSvc
+
 	return a, nil
 }
 
@@ -204,8 +222,9 @@ func (a *App) Start() error {
 	// initialized during construction (never lazily inside ServeHTTP).
 	events := web.NewSSEHandler(a.store, 100*time.Millisecond, 100, 64, 0)
 	// repair-1 H3: compose the agent-hub session closer so a force node delete
-	// cannot leave an ESTABLISHED session delivering stale commands.
-	admin, err := web.NewRouter(api.RouterConfig{Store: a.store, Auth: a.auth, SSE: events, CloseNodeSession: a.hub.ForceCloseNodeSession})
+	// cannot leave an ESTABLISHED session delivering stale commands. P16: hooks
+	// composes the hook service (definitions/secrets/deliveries + dispatcher).
+	admin, err := web.NewRouter(api.RouterConfig{Store: a.store, Auth: a.auth, SSE: events, CloseNodeSession: a.hub.ForceCloseNodeSession, Hooks: a.hooks})
 	if err != nil {
 		return fail(fmt.Errorf("controller: admin router: %w", err))
 	}
@@ -238,6 +257,14 @@ func (a *App) Start() error {
 		defer a.watchWG.Done()
 		a.watchNodeDeletions(watchCtx)
 	}()
+
+	// P16: run the hook delivery dispatcher (at-least-once pump). It is
+	// stopped by cancelling its context during shutdown.
+	hookCtx, hookCancel := context.WithCancel(context.Background())
+	a.hookCancel = hookCancel
+	if a.hooks != nil {
+		go a.hooks.Run(hookCtx)
+	}
 	a.state = appStateRunning
 	a.ready.Store(true)
 	return nil
@@ -330,6 +357,9 @@ func (a *App) ProbeManager() *probe.Manager { return a.probe }
 // Hub exposes the agent hub (the walking skeleton pins the controller key).
 func (a *App) Hub() *agenthub.Hub { return a.hub }
 
+// Hooks exposes the hook service (P16 webhook definitions/secrets/deliveries).
+func (a *App) Hooks() *hook.Service { return a.hooks }
+
 // ArmProbe creates a probe operation for one forward at its current spec
 // revision and enqueues the probe_arm command (Story 1 controller
 // operation). The endpoint must equal the agent's actual bind tuple.
@@ -365,6 +395,9 @@ func (a *App) Shutdown(ctx context.Context) error {
 	a.ready.Store(false)
 	if a.watchCancel != nil {
 		a.watchCancel()
+	}
+	if a.hookCancel != nil {
+		a.hookCancel()
 	}
 	if err := waitControllerGroup(ctx, &a.watchWG); err != nil {
 		// Keep CLOSING and retain the cancellation handle so a later call can
@@ -430,6 +463,12 @@ func (a *App) closeResourcesContext(ctx context.Context) error {
 	if a.probe != nil {
 		a.closeOrder = append(a.closeOrder, "probe")
 		if err := a.probe.CloseContext(ctx); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	if a.hooks != nil {
+		a.closeOrder = append(a.closeOrder, "hooks")
+		if err := a.hooks.Close(); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}

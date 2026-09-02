@@ -86,8 +86,8 @@ func TestShutdownClosesResourcesInOrder(t *testing.T) {
 	}
 	// Order: HTTP server closed before store.
 	order := app.CloseOrder()
-	if len(order) != 4 || order[0] != "http" || order[1] != "hub" || order[2] != "probe" || order[3] != "store" {
-		t.Fatalf("close order = %v, want [http hub probe store]", order)
+	if len(order) != 5 || order[0] != "http" || order[1] != "hub" || order[2] != "probe" || order[3] != "hooks" || order[4] != "store" {
+		t.Fatalf("close order = %v, want [http hub probe hooks store]", order)
 	}
 	// Idempotent second Shutdown.
 	if err := app.Shutdown(context.Background()); err != nil {

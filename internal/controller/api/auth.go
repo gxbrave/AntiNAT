@@ -24,6 +24,7 @@ import (
 
 	"github.com/gxbrave/AntiNAT/internal/controller/auth"
 	"github.com/gxbrave/AntiNAT/internal/controller/store"
+	"github.com/gxbrave/AntiNAT/internal/hook"
 	"github.com/gxbrave/AntiNAT/internal/protocol"
 )
 
@@ -40,6 +41,10 @@ type RouterConfig struct {
 	// node delete cannot leave an online session delivering stale commands
 	// (repair-1 H3).
 	CloseNodeSession func(nodeID string)
+	// Hooks is the P16 hook service (hook definitions, encrypted secrets,
+	// delivery retry). When nil, the /api/v1/hooks/* and hook-deliveries routes
+	// are not registered (minimal setups without the hook pool).
+	Hooks *hook.Service
 }
 
 // ErrorBody is the frozen error envelope (docs/error-codes.md §1).
@@ -114,6 +119,7 @@ type Server struct {
 	sse          http.Handler
 	login        *loginLimiter
 	closeSession func(nodeID string)
+	hooks        *hook.Service
 	// idempotencyMu closes the create-side effect window within one API
 	// process; the durable store still owns replay/conflict decisions.
 	idempotencyMu sync.Mutex
@@ -127,7 +133,7 @@ func NewServer(cfg RouterConfig) (*Server, error) {
 	if cfg.Auth == nil {
 		return nil, errors.New("api: auth service is required")
 	}
-	s := &Server{store: cfg.Store, auth: cfg.Auth, health: newHealthState(), sse: cfg.SSE, login: newLoginLimiter(), closeSession: cfg.CloseNodeSession}
+	s := &Server{store: cfg.Store, auth: cfg.Auth, health: newHealthState(), sse: cfg.SSE, login: newLoginLimiter(), closeSession: cfg.CloseNodeSession, hooks: cfg.Hooks}
 	s.health.setStoreReady(true)
 	s.health.setAuthReady(true)
 	return s, nil
@@ -161,6 +167,16 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/traffic", s.requireAuth(s.handleTraffic))
 	mux.HandleFunc("/api/v1/audit", s.requireAuth(s.handleAudit))
 	mux.HandleFunc("/api/v1/settings", s.requireAuth(s.handleSettings))
+	if s.hooks != nil {
+		// Frozen hook surface (P16): definitions, encrypted secret metadata
+		// (values never returned), and delivery retry. Registered only when a
+		// hook service is composed.
+		mux.HandleFunc("/api/v1/hooks/definitions", s.requireAuth(s.handleHookDefinitions))
+		mux.HandleFunc("/api/v1/hooks/definitions/", s.requireAuth(s.handleHookDefinitionByID))
+		mux.HandleFunc("/api/v1/hooks/secrets", s.requireAuth(s.handleHookSecrets))
+		mux.HandleFunc("/api/v1/hooks/secrets/", s.requireAuth(s.handleHookSecretByID))
+		mux.HandleFunc("/api/v1/hook-deliveries/", s.requireAuth(s.handleHookDeliveryRoute))
+	}
 }
 
 // handleInit implements POST /api/v1/auth/init (P10 bootstrap surface, not in
