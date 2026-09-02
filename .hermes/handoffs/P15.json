@@ -5,39 +5,69 @@
   "branch": "ai/P15-controller-api-metrics",
   "base_sha": "d335b09f127de03254ca5119244006c41444ff0a",
   "base_tree_sha": "3358d516726ec8810bbc6e91df78112e4352fb72",
-  "head_sha": "29306b9f0ec53efc32f74c8b982bee03b26dd108",
-  "head_tree_sha": "782280c2e9785e01ed4743890d7c822c0c021947",
-  "candidate_record_tip_sha": "29306b9f0ec53efc32f74c8b982bee03b26dd108",
-  "candidate_record_tip_tree_sha": "782280c2e9785e01ed4743890d7c822c0c021947",
-  "canonical_head_sha": "67f0c16531cebf0880fa5601e5467ad4c8106350",
-  "canonical_head_tree_sha": "5e4b86cb94db91ee8f32a153440ebb7d22895a00",
-  "implementation_head_sha": "67f0c16531cebf0880fa5601e5467ad4c8106350",
-  "implementation_head_tree_sha": "5e4b86cb94db91ee8f32a153440ebb7d22895a00",
+  "head_sha": "a374148093c86d8d958eb5ca32101bad3c3a0374",
+  "head_tree_sha": "b9c7821dfc828600c0fcaa46ca2172696a699362",
+  "candidate_record_tip_sha": "a374148093c86d8d958eb5ca32101bad3c3a0374",
+  "candidate_record_tip_tree_sha": "b9c7821dfc828600c0fcaa46ca2172696a699362",
+  "canonical_head_sha": "a374148093c86d8d958eb5ca32101bad3c3a0374",
+  "canonical_head_tree_sha": "b9c7821dfc828600c0fcaa46ca2172696a699362",
+  "implementation_head_sha": "a374148093c86d8d958eb5ca32101bad3c3a0374",
+  "implementation_head_tree_sha": "b9c7821dfc828600c0fcaa46ca2172696a699362",
   "commits": [
+    "a374148093c86d8d958eb5ca32101bad3c3a0374",
+    "e3a4b0643f4da40f0562a2fda9f147c674a189b1",
+    "ae2b36dbead5cdcd1b93fe5cd3de2fe172091453",
+    "736ecf58b7dd97b8516fcc7a4fa57b4ab638ffae",
+    "90b2c230566f44ed356008cf813828b396c85d1c",
     "67f0c16531cebf0880fa5601e5467ad4c8106350"
   ],
   "files_changed": [
+    ".hermes/handoffs/P15.json",
     "internal/controller/api/auth.go",
+    "internal/controller/api/auth_internal_test.go",
     "internal/controller/api/forward_ops.go",
     "internal/controller/api/forwards_min.go",
     "internal/controller/api/navigation.go",
+    "internal/controller/api/node_delete.go",
     "internal/controller/api/node_ops.go",
     "internal/controller/api/nodes_min.go",
     "internal/controller/api/observability.go",
     "internal/controller/api/operations.go",
     "internal/controller/api/p10_r13_regression_test.go",
     "internal/controller/api/p15_red_test.go",
+    "internal/controller/api/p15_repair1_h2_test.go",
+    "internal/controller/api/p15_repair1_h3_helpers_test.go",
+    "internal/controller/api/p15_repair1_h3_test.go",
+    "internal/controller/api/p15_repair1_h4_test.go",
+    "internal/controller/api/p15_repair1_h5_test.go",
+    "internal/controller/api/p15_repair1_h7_test.go",
+    "internal/controller/api/p15_repair1_h8_helpers_test.go",
+    "internal/controller/api/p15_repair1_h8_test.go",
+    "internal/controller/api/p15_repair1_helpers_test.go",
     "internal/controller/api/settings.go",
+    "internal/controller/app.go",
+    "internal/controller/p15_repair1_h3_test.go",
+    "internal/controller/p15_repair1_h8_test.go",
     "internal/controller/store/backup_test.go",
     "internal/controller/store/corrupt_internal_test.go",
     "internal/controller/store/migrate.go",
     "internal/controller/store/migrate_test.go",
     "internal/controller/store/node_bundle.go",
     "internal/controller/store/p10_r14_migration_test.go",
+    "internal/controller/store/p15_repair1_h2_test.go",
+    "internal/controller/store/p15_repair1_h3_test.go",
+    "internal/controller/store/p15_repair1_h5_test.go",
+    "internal/controller/store/p15_repair1_h6_test.go",
+    "internal/controller/store/p15_repair1_helpers_test.go",
+    "internal/controller/store/p15_repair1_m2_test.go",
+    "internal/controller/store/p15_repair1_node_delete.go",
+    "internal/controller/store/p15_repair1_page.go",
     "internal/controller/store/probe_test.go",
     "internal/controller/store/traffic.go",
+    "internal/controller/store/transactions.go",
     "internal/controller/web/middleware.go",
     "internal/controller/web/p15_red_test.go",
+    "internal/controller/web/p15_repair1_test.go",
     "internal/controller/web/router_min.go",
     "internal/controller/web/sse.go",
     "internal/forward/limiter.go",
@@ -50,54 +80,104 @@
   ],
   "tests": [
     {
+      "command": "GOWORK=off go build ./...",
+      "exit_code": 0,
+      "summary": "PASS; full build."
+    },
+    {
       "command": "GOWORK=off go test ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward -count=1",
       "exit_code": 0,
-      "summary": "PASS; all five affected packages passed."
+      "summary": "PASS; brief's affected-package command, all five packages green."
     },
     {
-      "command": "GOWORK=off go test ./internal/controller/api -run TestP15 -race -count=5",
+      "command": "GOWORK=off go test ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward ./internal/controller -count=1",
       "exit_code": 0,
-      "summary": "PASS; focused P15 API race tests passed five repetitions."
+      "summary": "PASS; affected packages plus the App composition package (repair touches app.go)."
     },
     {
-      "command": "GOWORK=off go test ./internal/controller/web -run TestP15 -race -count=10",
+      "command": "GOWORK=off go test ./internal/controller/store -run 'TestP15Repair1' -count=1",
       "exit_code": 0,
-      "summary": "PASS; origin/trusted-proxy middleware tests passed ten repetitions."
+      "summary": "PASS; focused repair-1 store tests (H2/H3/H5/H6/M2)."
     },
     {
-      "command": "GOWORK=off go test ./internal/metrics ./internal/forward -race -count=10",
+      "command": "GOWORK=off go test ./internal/controller/api -run 'TestP15Repair1' -count=1",
       "exit_code": 0,
-      "summary": "PASS; limiter and traffic accumulator race tests passed ten repetitions."
+      "summary": "PASS; focused repair-1 API tests (H2/H3/H4/H5/H7/H8)."
     },
     {
-      "command": "GOWORK=off go test ./internal/controller/store -count=1",
+      "command": "GOWORK=off go test ./internal/controller/web -run 'TestP15Repair1' -count=1",
       "exit_code": 0,
-      "summary": "PASS; full affected store package passed."
+      "summary": "PASS; focused repair-1 SSE bounded/redaction tests."
     },
     {
-      "command": "GOWORK=off go vet ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward",
+      "command": "GOWORK=off go test ./internal/controller -run 'TestP15Repair1' -count=1",
       "exit_code": 0,
-      "summary": "PASS; affected packages vet clean."
+      "summary": "PASS; App node-deletion watcher + composed events route."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/controller/api -race -run 'TestP15Repair1|TestP15' -count=10",
+      "exit_code": 0,
+      "summary": "PASS; focused API race x10."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/controller/web -race -run 'TestP15Repair1|TestP15' -count=10",
+      "exit_code": 0,
+      "summary": "PASS; focused web race x10."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/controller/store -race -run 'TestP15Repair1' -count=10",
+      "exit_code": 0,
+      "summary": "PASS; focused store race x10 (the repair-1 store tests, 29s)."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/metrics ./internal/forward ./internal/controller -race -run 'TestP15Repair1|TestAccumulator|TestLimiter' -count=10",
+      "exit_code": 0,
+      "summary": "PASS; focused metrics/forward/controller race x10."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/controller/api -race -count=10 -timeout=8m",
+      "exit_code": 0,
+      "summary": "PASS; full api package race x10 (136s)."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/controller/web -race -count=10 -timeout=5m",
+      "exit_code": 0,
+      "summary": "PASS; full web package race x10."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/metrics ./internal/forward -race -count=10 -timeout=5m",
+      "exit_code": 0,
+      "summary": "PASS; full metrics/forward race x10."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward -race -count=10 -timeout=8m",
+      "exit_code": 1,
+      "summary": "LIMITATION (M4): api/web/metrics/forward all PASSED; the store package exceeded the 8m budget (and per the candidate record, also the canonical 10m budget) under full -race -count=10. The running test at the 8m timeout was pre-existing TestApplyForwardDesiredCommitsAll; the candidate recorded TestR16Q2ProbeLookupCountsLookaheadDuplicateAsAmbiguous on the canonical command. No DATA RACE report was emitted in any run. -timeout=8m was used to capture Go's clean timeout diagnostic within the 10-minute runner cap; focused P15 store race x10 passed in 29s."
+    },
+    {
+      "command": "GOWORK=off go vet ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward ./internal/controller",
+      "exit_code": 0,
+      "summary": "PASS; vet clean on all affected packages."
     },
     {
       "command": "python3 test/contracts/validate_openapi.py .",
       "exit_code": 0,
-      "summary": "PASS; frozen OpenAPI valid, 32 paths, 13 referenced/registered error statuses."
+      "summary": "PASS; frozen OpenAPI valid, 32 paths, 13 referenced/registered error statuses; no contract change."
     },
     {
-      "command": "GOWORK=off go test ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward -race -count=10",
-      "exit_code": 1,
-      "summary": "LIMITATION; API and web passed, then pre-existing internal/controller/store TestR16Q2ProbeLookupCountsLookaheadDuplicateAsAmbiguous timed out after 10 minutes. No data-race report was emitted."
-    },
-    {
-      "command": "git diff --check && protected-path diff check",
+      "command": "gofmt -l <all changed Go files>",
       "exit_code": 0,
-      "summary": "PASS; no whitespace errors and no changes to api/openapi.yaml, docs contracts, migrations 0001-0008, protocol/traversal/UDP libraries, or agenthub."
+      "summary": "PASS; empty after gofmt -w."
+    },
+    {
+      "command": "git diff --check 90b2c230..HEAD",
+      "exit_code": 0,
+      "summary": "PASS; no whitespace errors in the repair range."
     },
     {
       "command": "git status --short",
       "exit_code": 0,
-      "summary": "PASS at commit; worktree clean before handoff artifact creation."
+      "summary": "PASS at each commit; worktree is clean after the final handoff commit aside from the handoff itself."
     }
   ],
   "evidence": [
@@ -127,57 +207,258 @@
   "contracts_changed": [],
   "capability_result": "SUPPORTED_WITH_LIMITS",
   "known_limits": [
-    "Login rate limiting is an in-process fixed ten-attempt-per-minute-per-peer guard; it is not a distributed or persisted limiter.",
+    "The combined focused -race -count=10 gate exceeds the 10-minute runner/package budget in the pre-existing store package (TestR16Q2ProbeLookupCountsLookaheadDuplicateAsAmbiguous and, on the 8m capture, TestApplyForwardDesiredCommitsAll). Focused P15 per-component -race -count=10 runs all passed; no DATA RACE was ever reported.",
+    "Login rate limiting is an in-process fixed ten-attempt-per-minute-per-peer guard, now bounded to at most 4096 distinct peers with expired-window eviction; it is not a distributed or persisted limiter.",
     "Trusted proxy forwarded host/scheme handling is peer allowlisted and only used for Origin same-origin evaluation; deployment still owns proxy/network configuration.",
-    "SSE uses durable polling and replay/redaction but does not yet provide a bounded subscriber queue/backpressure implementation or a single canonical handler wiring in App composition.",
-    "Traversal detection route records a pending API operation but does not execute/persist the full P12 detector profile; P14 restore/reauthorization surfaces have no invented frozen API routes.",
-    "Normal and force node deletion API paths enqueue decommission intents but do not fully expose operation progression or invoke the P14 Hub.ForceCloseNodeSession/lifecycle service from App composition.",
-    "Forward creation/PATCH now preserve and validate frozen optional fields, but rate/stat changes are persisted desired-state fields and are not wired to live Agent session counters/limiter lifecycle; disconnect_existing is accepted but not connected to live sessions.",
-    "Navigation create routes validate Idempotency-Key but do not yet persist/replay idempotency records.",
-    "Settings persistence is JSON-backed and ETag-checked, but private-site enforcement, full controller listen-address projection, and all deployment profile API routes are not complete.",
-    "Traffic ingest/rollups are durable store APIs; no Agent traffic wire message exists in the frozen protocol implementation, so live Agent ingest remains unwired.",
-    "The required combined focused race command exited 1 after a ten-minute timeout in pre-existing store TestR16Q2ProbeLookupCountsLookaheadDuplicateAsAmbiguous; targeted P15 race suites passed."
+    "Traffic ingest/rollups are durable store APIs; no Agent traffic wire message exists in the frozen protocol implementation, so live Agent ingest remains unwired. Store ApplyTrafficDelta keeps the established metrics semantics: hourly rollups are durable regardless of detailed retention, per-delta history is opt-in.",
+    "Normal and force node deletion advance to COMPLETED through the controller watcher when the correlated node_decommission_ack durable inbox row arrives; the ACK wire is in the frozen agent protocol but no live agent wire is shipped in these artifacts.",
+    "Forward creation/PATCH preserve and validate frozen optional fields, but rate/stat changes are persisted desired-state fields not wired to live Agent session counters; disconnect_existing is accepted but not connected to live sessions.",
+    "Deployment profile (M1) has no independent route in the frozen OpenAPI; controller endpoint / private-site / secret visibility is delivered through the frozen /api/v1/settings surface. No non-frozen route was added; the disposition is recorded in repair_cycle_1.",
+    "Settings persistence is JSON+ETag-backed; private-site enforcement and full controller listen-address projection are not complete.",
+    "Traversal detection API records a pending API operation but does not execute/persist the full P12 detector profile; P14 restore/reauthorization surfaces have no invented frozen API routes.",
+    "No real CPE/router/WAN evidence; traversal capability stays at the prior real-daemon netns lab level."
   ],
   "ownership_transfers": [
-    {
-      "path": "migrations/migrations.go",
-      "reason": "Required migration registry/embed integration for P15 migration 0009."
-    },
-    {
-      "path": "internal/controller/store/migrate.go",
-      "reason": "Required schema-9 object validation for migration 0009."
-    },
-    {
-      "path": "internal/controller/store/migrate_test.go",
-      "reason": "Update affected schema-version expectations from P14 version 8 to P15 version 9."
-    },
-    {
-      "path": "internal/controller/store/backup_test.go",
-      "reason": "Update backup manifest schema-version expectations to migration 0009/version 9."
-    },
-    {
-      "path": "internal/controller/store/corrupt_internal_test.go",
-      "reason": "Update migration rollback precondition to current P15 schema version 9."
-    },
-    {
-      "path": "internal/controller/store/p10_r14_migration_test.go",
-      "reason": "Update P14 migration regression expectations for the additive P15 schema tip."
-    },
-    {
-      "path": "internal/controller/store/probe_test.go",
-      "reason": "Update affected migration-version expectation to additive P15 schema 9."
-    },
-    {
-      "path": "internal/controller/store/node_bundle.go",
-      "reason": "Keep durable idempotent node-create response date-time shape conformant with frozen OpenAPI Node.created_at."
-    },
-    {
-      "path": "internal/controller/api/p10_r13_regression_test.go",
-      "reason": "Update existing REST payload-cap regression to the frozen 413/PAYLOAD_TOO_LARGE distinction."
-    }
+    "P10 -> P15 repair-1: internal/controller/app.go (node-deletion watcher completeNodeDeletions + composed SSE handler + Hub.ForceCloseNodeSession wiring in RouterConfig).",
+    "P06/P10 -> P15 repair-1: internal/controller/store/transactions.go (ApplyForwardDesired hardened to BEGIN IMMEDIATE so a snapshot-upgrade race returns 412 not 500).",
+    "P06 -> P15 repair-1: internal/controller/store/p15_repair1_page.go (NEW ListNodePage/ListForwardPage list-query surface over the frozen nodes/forwards tables).",
+    "P06 -> P15 repair-1: internal/controller/store/p15_repair1_node_delete.go (NEW CreateNodeDeletionOperation/ListNodeDeletionResults/CompleteNodeDeletionResult over node_deletion_operations and control_inbox).",
+    "P06 -> P15 repair-1 continued ownership: internal/controller/store/traffic.go repair edits (PutTraversalDefaults fresh-node baseline + atomic node-revision bump, PutNavigationOrder/PutSettingsRecord durable conditional writes, navigation create idempotent bundles).",
+    "P08 -> P15 repair-1 continued ownership: internal/controller/web/sse.go (bounded subscriber gate + per-write deadline).",
+    "P14 -> P15 repair-1 library use (no lifecycle package edit): internal/controller/api/node_delete.go calls lifecycle.ForceDeleteNode for force node deletion.",
+    "P15 repair-1 test files (explicit): internal/controller/api/p15_repair1_{h2,h3,h4,h5,h7,h8}_test.go, p15_repair1_helpers_test.go, p15_repair1_h3_helpers_test.go, p15_repair1_h8_helpers_test.go, auth_internal_test.go; internal/controller/store/p15_repair1_{h2,h3,h5,h6,m2}_test.go, p15_repair1_helpers_test.go; internal/controller/web/p15_repair1_test.go; internal/controller/p15_repair1_{h3,h8}_test.go.",
+    "The candidate's pre-repair ownership transfers (migrations registry, schema-9 validation, migration test expectations, payload-cap regression, api/web/store/metrics/forward P15-owned files) remain as recorded in the candidate record."
   ],
   "self_approval": false,
   "review_ready": true,
   "merge_push_release": "not performed",
-  "cleanup_done": true
+  "cleanup_done": true,
+  "repair_cycle_1": {
+    "trigger": "Two independent fresh-context reviews (spec/ownership + quality/security) returned REQUEST_CHANGES on H1-H8 (HIGH) and M1-M4 (MEDIUM) for the P15 candidate at 90b2c23. Bound repair per .hermes/plans/v1-beta/15-controller-api-metrics-sse.md and the P15 repair brief.",
+    "base_sha": "d335b09f127de03254ca5119244006c41444ff0a",
+    "repair_base_sha": "90b2c230566f44ed356008cf813828b396c85d1c",
+    "repair_head_sha": "a374148093c86d8d958eb5ca32101bad3c3a0374",
+    "finding_to_fix": {
+      "H1": "Handoff self-consistency: P15.json recorded an obsolete head/tree (29306b9f/782280c2). The record now points at the repaired head a374148 / tree b9c7821d with base_sha=d335b09f, full canonical commits[]/files_changed[], and this repair_cycle_1 block.",
+      "H2": "Traversal-defaults PUT on a fresh node compared the missing defaults revision 0 against the node revision and returned a permanent 412; a successful PUT returned the wrong {tcp,udp} schema. PutTraversalDefaults now treats a missing record like the node revision, commits the defaults upsert + parent node revision bump atomically (BEGIN IMMEDIATE + conditional WHERE), and the handler returns the full Node with a fresh ETag; stale expected maps to 412.",
+      "H3": "Node deletion bypassed the P14 lifecycle (bare node_decommission outbox; force never created the terminal cleanup tombstone and never closed an ESTABLISHED session; App had no node watcher). (a) force delete now routes through lifecycle.ForceDeleteNode (tombstone + App-composed Hub.ForceCloseNodeSession + cleanup-guarded enqueue) and records the durable operation row; normal delete keeps the operation + outbox transaction and never quarantines. (b) App gains a node-deletion watcher that drains correlated node_decommission_ack rows and completes the operation/confirms the tombstone.",
+      "H4": "Navigation category/item POST only validated the Idempotency-Key format. New CreateNavigationCategoryIdempotent/CreateNavigationItemIdempotent persist the durable idempotency record inside the same BEGIN IMMEDIATE transaction (replay/conflict authority); the handlers return replayed responses unchanged and 409 IDEMPOTENCY_CONFLICT for different-body reuse.",
+      "H5": "listNodes/listForwards ignored page/page_size/sort/filter and always returned page=1 with total=len(items). New ListNodePage/ListForwardPage implement the frozen quota (sort by [+|-]field, filter field=value, total over the same predicate); unknown sort/filter fields return 400.",
+      "H6": "ETag read-write races mapped stale writes to 500 instead of 412. PutNavigationOrder and PutSettingsRecord now do durable conditional (WHERE revision=...) writes; ApplyForwardDesired runs on BEGIN IMMEDIATE (matching ApplyForwardDelete) so a snapshot-upgrade race returns ErrCASConflict/412; traversal-defaults PUT got the same atomic treatment under H2; Forward PATCH parent-revision CAS was already in-transaction and is now on BEGIN IMMEDIATE.",
+      "H7": "Force-publish changed only publication_state, left OPEN_FROM_VANTAGE/VERIFIED claiming a verified publication, and returned the stale pre-write snapshot. The handler now clears the verified axes (PUBLISHED_UNVERIFIED must never claim OPEN_FROM_VANTAGE per docs/state-model), validates the snapshot, persists, and re-reads fresh state for the 200.",
+      "H8": "The durable bounded SSE handler was not composed. SSEHandler now has a MaxSubscribers gate (503 UNAVAILABLE beyond the cap) and a per-write deadline for slow clients; App composes it via api.RouterConfig.SSE and RegisterRoutes mounts the canonical handler on the frozen /api/v1/events route (fallback local poller only when no SSE is composed).",
+      "M1": "No deployment-profile route exists in the frozen OpenAPI path list. Disposition: no non-frozen route was added; controller endpoint/private-site/secret visibility is delivered by the frozen /api/v1/settings GET (controller_endpoint is projected). store.GetDeploymentProfile/PutDeploymentProfile remain library-only. Recorded as a design-intent limitation.",
+      "M2": "Review finding 'detailed disabled must not persist rollups' contradicts the P15-established metrics semantics (TestAccumulatorDisabledDetailedHistoryStillRollsUp: deltas opt-in, hourly rollups durable regardless). Reviewed & not applicable; the store behavior is unchanged and pinned by TestP15Repair1M2TrafficDetailedDisabledStillRollsUp.",
+      "M3": "Login limiter peer map was unbounded. loginLimiter now caps at 4096 distinct peers with expired-window eviction; a brand-new peer beyond a saturated in-window map is refused fail-closed. (The review path attribution pointed at internal/forward/limiter.go, but the actual unbounded per-peer login map lives in internal/controller/api/auth.go; fixed there and documented.)",
+      "M4": "The combined -race -count=10 gate exceeds the 10-minute budget in pre-existing store tests. Recorded honestly: api/web/metrics/forward passed full race x10; the store package timed out (running test at 8m: TestApplyForwardDesiredCommitsAll; candidate recorded TestR16Q2...). No DATA RACE. Focused P15 store race x10 passes in 29s. The timeout is the pre-existing suite-wide store runtime under full race x10, not a P15 defect."
+    },
+    "reassert_with_code_evidence": [],
+    "new_or_changed_files": [
+      "internal/controller/api/auth.go",
+      "internal/controller/api/auth_internal_test.go",
+      "internal/controller/api/forward_ops.go",
+      "internal/controller/api/forwards_min.go",
+      "internal/controller/api/navigation.go",
+      "internal/controller/api/node_delete.go",
+      "internal/controller/api/node_ops.go",
+      "internal/controller/api/nodes_min.go",
+      "internal/controller/api/observability.go",
+      "internal/controller/api/p15_repair1_h2_test.go",
+      "internal/controller/api/p15_repair1_h3_helpers_test.go",
+      "internal/controller/api/p15_repair1_h3_test.go",
+      "internal/controller/api/p15_repair1_h4_test.go",
+      "internal/controller/api/p15_repair1_h5_test.go",
+      "internal/controller/api/p15_repair1_h7_test.go",
+      "internal/controller/api/p15_repair1_h8_helpers_test.go",
+      "internal/controller/api/p15_repair1_h8_test.go",
+      "internal/controller/api/p15_repair1_helpers_test.go",
+      "internal/controller/app.go",
+      "internal/controller/p15_repair1_h3_test.go",
+      "internal/controller/p15_repair1_h8_test.go",
+      "internal/controller/store/p15_repair1_h2_test.go",
+      "internal/controller/store/p15_repair1_h3_test.go",
+      "internal/controller/store/p15_repair1_h5_test.go",
+      "internal/controller/store/p15_repair1_h6_test.go",
+      "internal/controller/store/p15_repair1_helpers_test.go",
+      "internal/controller/store/p15_repair1_m2_test.go",
+      "internal/controller/store/p15_repair1_node_delete.go",
+      "internal/controller/store/p15_repair1_page.go",
+      "internal/controller/store/traffic.go",
+      "internal/controller/store/transactions.go",
+      "internal/controller/web/p15_repair1_test.go",
+      "internal/controller/web/sse.go"
+    ],
+    "new_files_this_cycle": [
+      "internal/controller/api/auth_internal_test.go",
+      "internal/controller/api/node_delete.go",
+      "internal/controller/api/p15_repair1_h2_test.go",
+      "internal/controller/api/p15_repair1_h3_helpers_test.go",
+      "internal/controller/api/p15_repair1_h3_test.go",
+      "internal/controller/api/p15_repair1_h4_test.go",
+      "internal/controller/api/p15_repair1_h5_test.go",
+      "internal/controller/api/p15_repair1_h7_test.go",
+      "internal/controller/api/p15_repair1_h8_helpers_test.go",
+      "internal/controller/api/p15_repair1_h8_test.go",
+      "internal/controller/api/p15_repair1_helpers_test.go",
+      "internal/controller/p15_repair1_h3_test.go",
+      "internal/controller/p15_repair1_h8_test.go",
+      "internal/controller/store/p15_repair1_h2_test.go",
+      "internal/controller/store/p15_repair1_h3_test.go",
+      "internal/controller/store/p15_repair1_h5_test.go",
+      "internal/controller/store/p15_repair1_h6_test.go",
+      "internal/controller/store/p15_repair1_helpers_test.go",
+      "internal/controller/store/p15_repair1_m2_test.go",
+      "internal/controller/store/p15_repair1_node_delete.go",
+      "internal/controller/store/p15_repair1_page.go",
+      "internal/controller/web/p15_repair1_test.go"
+    ],
+    "repair_cycle_1_verification": [
+      {
+        "command": "GOWORK=off go build ./...",
+        "exit_code": 0,
+        "summary": "PASS; full build."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward ./internal/controller -count=1",
+        "exit_code": 0,
+        "summary": "PASS; all affected packages (plus controller for app.go)."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/controller/store -run 'TestP15Repair1' -count=1",
+        "exit_code": 0,
+        "summary": "PASS; focused store repair-1 tests."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/controller/api -run 'TestP15Repair1' -count=1",
+        "exit_code": 0,
+        "summary": "PASS; focused API repair-1 tests."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/controller/web -run 'TestP15Repair1' -count=1",
+        "exit_code": 0,
+        "summary": "PASS; web SSE tests."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/controller -run 'TestP15Repair1' -count=1",
+        "exit_code": 0,
+        "summary": "PASS; App watcher + events route."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/controller/api -race -run 'TestP15Repair1|TestP15' -count=10",
+        "exit_code": 0,
+        "summary": "PASS; api race x10 (70s)."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/controller/web -race -run 'TestP15Repair1|TestP15' -count=10",
+        "exit_code": 0,
+        "summary": "PASS; web race x10."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/controller/store -race -run 'TestP15Repair1' -count=10",
+        "exit_code": 0,
+        "summary": "PASS; store repair-1 race x10 (29s)."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/metrics ./internal/forward ./internal/controller -race -run 'TestP15Repair1|TestAccumulator|TestLimiter' -count=10",
+        "exit_code": 0,
+        "summary": "PASS; metrics/forward/controller race x10."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/controller/api -race -count=10 -timeout=8m",
+        "exit_code": 0,
+        "summary": "PASS; full api package race x10 (136s)."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/controller/web -race -count=10 -timeout=5m",
+        "exit_code": 0,
+        "summary": "PASS; full web package race x10."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/metrics ./internal/forward -race -count=10 -timeout=5m",
+        "exit_code": 0,
+        "summary": "PASS; full metrics/forward race x10."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward -race -count=10 -timeout=8m",
+        "exit_code": 1,
+        "summary": "LIMITATION (M4): store package exceeded the 8m budget under full -race -count=10; api/web/metrics/forward passed. Running test at timeout: TestApplyForwardDesiredCommitsAll (candidate recorded TestR16Q2ProbeLookupCountsLookaheadDuplicateAsAmbiguous on the canonical command). No DATA RACE."
+      },
+      {
+        "command": "GOWORK=off go vet ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward ./internal/controller",
+        "exit_code": 0,
+        "summary": "PASS; vet clean."
+      },
+      {
+        "command": "python3 test/contracts/validate_openapi.py .",
+        "exit_code": 0,
+        "summary": "PASS; contract unchanged."
+      },
+      {
+        "command": "gofmt -l <all changed Go files> && git diff --check 90b2c230..HEAD",
+        "exit_code": 0,
+        "summary": "PASS; formatting clean and no whitespace errors."
+      }
+    ],
+    "deviations": [
+      "M1 documented disposition: the frozen OpenAPI has no deployment-profile route, so no non-frozen route was added; controller endpoint/secret visibility stays on the frozen /api/v1/settings surface.",
+      "M2 reviewed & not applicable: the reviewer's 'no rollups when detailed off' contradicts the P15-established metrics accumulator semantics (TestAccumulatorDisabledDetailedHistoryStillRollsUp) and the store's documented behavior. The store is unchanged and a pin test was added.",
+      "M4 recorded honestly: the combined gate timed out in the pre-existing store package; focused per-component race x10 passes. The gate was captured with -timeout=8m so Go's clean timeout report (and the running test name) is part of the evidence within the 10-minute runner cap.",
+      "Commit granularity: store/traffic.go touches H2/H4/H6 and auth.go/app.go touch H3/H8/M3, so two repair commits bundle the items that share those files; each commit subject names all bundled items.",
+      "RED evidence: focused tests were authored with the pre-fix behavior documented in each test header and are genuine race oracles where concurrency is the point (per-peer limiter bound, navigation-order one-winner CAS). I did not capture a formal pre-fix failing exit code for every item; fixes were implemented in the same working session and every focused test is recorded GREEN post-fix.",
+      "H6 Forward PATCH: the parent-forward-revision CAS was already inside the ApplyForwardDesired transaction; the repair hardens it to BEGIN IMMEDIATE (matching ApplyForwardDelete) and verifies concurrent writers map to 412 rather than 500."
+    ],
+    "known_flakes": "No new flakes from the repair-1 changes. The two documented pre-existing flake classes (internal/agent periodic receipt retry, test/e2e TestLinuxDirectV4WalkingSkeleton under parallel -race) were not triggered. The store package under full -race -count=10 exceeds the time budget (M4); focused P15 repair-1 store tests pass race x10 in 29s.",
+    "verification": [
+      {
+        "command": "GOWORK=off go build ./...",
+        "exit_code": 0,
+        "summary": "PASS."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward ./internal/controller -count=1",
+        "exit_code": 0,
+        "summary": "PASS."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/controller/api -race -run 'TestP15Repair1|TestP15' -count=10",
+        "exit_code": 0,
+        "summary": "PASS."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/controller/web -race -run 'TestP15Repair1|TestP15' -count=10",
+        "exit_code": 0,
+        "summary": "PASS."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/controller/store -race -run 'TestP15Repair1' -count=10",
+        "exit_code": 0,
+        "summary": "PASS."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/metrics ./internal/forward ./internal/controller -race -run 'TestP15Repair1|TestAccumulator|TestLimiter' -count=10",
+        "exit_code": 0,
+        "summary": "PASS."
+      },
+      {
+        "command": "GOWORK=off go test ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward -race -count=10 -timeout=8m",
+        "exit_code": 1,
+        "summary": "LIMITATION (M4); store package time budget exceeded; no DATA RACE."
+      },
+      {
+        "command": "GOWORK=off go vet ./internal/controller/api ./internal/controller/web ./internal/controller/store ./internal/metrics ./internal/forward ./internal/controller",
+        "exit_code": 0,
+        "summary": "PASS."
+      },
+      {
+        "command": "python3 test/contracts/validate_openapi.py .",
+        "exit_code": 0,
+        "summary": "PASS; contract unchanged."
+      },
+      {
+        "command": "gofmt -l <all changed Go files> && git diff --check 90b2c230..HEAD && git status --short",
+        "exit_code": 0,
+        "summary": "PASS; formatting, whitespace and clean worktree."
+      }
+    ]
+  }
 }
