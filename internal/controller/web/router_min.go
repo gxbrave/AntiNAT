@@ -28,6 +28,11 @@ func NewRouter(cfg api.RouterConfig) (http.Handler, error) {
 	}
 	mux := http.NewServeMux()
 	s.RegisterRoutes(mux)
+	// P17: the public home (/), admin shell (/admin) and embedded /static
+	// subtree are registered serially after the frozen API surface.
+	if err := registerUI(mux, cfg); err != nil {
+		return nil, err
+	}
 	return SecurityMiddleware(mux, SecurityConfig{
 		AllowedOrigins: cfg.AllowedOrigins,
 		TrustedProxies: cfg.TrustedProxies,

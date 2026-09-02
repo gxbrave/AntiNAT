@@ -29,3 +29,9 @@ var/
 .idea/
 .vscode/
 .DS_Store
+
+# P17 browser test artifacts
+test/browser/node_modules/
+test/browser/.bin/
+test/browser/test-results/
+test/browser/playwright-report/
