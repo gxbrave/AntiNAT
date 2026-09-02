@@ -6,15 +6,16 @@
   "branch": "ai/P16-hooks-sandbox",
   "base_sha": "0f310193b16509d8578d011914f79af3f004c8b5",
   "base_tree_sha": "5b3683d089d9e78430f48dfdda6aa863f4e63bc2",
-  "head_sha": "e6bd677171df0943338ae91e8deb5455f27afe63",
-  "head_tree_sha": "ff4b70cbc99f60478aa178a2d4f6c8a6b72f4163",
-  "candidate_record_tip_sha": "e6bd677171df0943338ae91e8deb5455f27afe63",
-  "candidate_record_tip_tree_sha": "ff4b70cbc99f60478aa178a2d4f6c8a6b72f4163",
-  "canonical_head_sha": "e6bd677171df0943338ae91e8deb5455f27afe63",
-  "canonical_head_tree_sha": "ff4b70cbc99f60478aa178a2d4f6c8a6b72f4163",
-  "implementation_head_sha": "e6bd677171df0943338ae91e8deb5455f27afe63",
-  "implementation_head_tree_sha": "ff4b70cbc99f60478aa178a2d4f6c8a6b72f4163",
+  "head_sha": "87e3722cc7d4a4ccb0279d4bbb582a8cbf1761d3",
+  "head_tree_sha": "a2bd71db7e70f3cada32a1cf5f222c5845f731ff",
+  "candidate_record_tip_sha": "87e3722cc7d4a4ccb0279d4bbb582a8cbf1761d3",
+  "candidate_record_tip_tree_sha": "a2bd71db7e70f3cada32a1cf5f222c5845f731ff",
+  "canonical_head_sha": "87e3722cc7d4a4ccb0279d4bbb582a8cbf1761d3",
+  "canonical_head_tree_sha": "a2bd71db7e70f3cada32a1cf5f222c5845f731ff",
+  "implementation_head_sha": "87e3722cc7d4a4ccb0279d4bbb582a8cbf1761d3",
+  "implementation_head_tree_sha": "a2bd71db7e70f3cada32a1cf5f222c5845f731ff",
   "commits": [
+    "87e3722cc7d4a4ccb0279d4bbb582a8cbf1761d3",
     "e6bd677171df0943338ae91e8deb5455f27afe63",
     "bb528316af6dd95c159b2c656dc9875906f23d02",
     "1e09f564654b899c5c4ee506f671dc0a139275bd",
@@ -83,17 +84,17 @@
     {
       "command": "GOWORK=off go test ./internal/hook ./internal/controller/api ./internal/controller/store ./internal/controller/web -count=1",
       "exit_code": 0,
-      "summary": "PASS; all four packages green (hook 1.07s, api 4.82s, store 10.06s, web 0.01s)."
+      "summary": "PASS; all four packages green after the follow-up (hook 1.06s, api 4.94s, store 9.81s, web 0.01s). Includes the new TestHookSecretPublicCreateSignsDelivery E2E."
     },
     {
       "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./internal/hook -run 'SSRF|Sandbox|Secret|Delivery|AliDNS' -count=10 -timeout 600s",
       "exit_code": 0,
-      "summary": "PASS; 21.4s for 10 runs of the SSRF/Sandbox/Secret/Delivery/AliDNS focused set, run twice back-to-back (both PASS) on the provisioned antinat-sandbox identity (uid/gid 12001). Includes the REAL Linux OS-isolation gate (TestSandboxRealIsolationGate) and TestSandboxRunnerExecutesIsolatedScript against the production cmd/antinat-hook-runner child, which is now built ONCE before the gates (package-level sync.Once; P3-16). Without the identity the gate fails closed (webhook-only) and the fail-closed path is asserted."
+      "summary": "PASS; 21.7s for 10 runs of the SSRF/Sandbox/Secret/Delivery/AliDNS focused set (re-run after the follow-up), on the provisioned antinat-sandbox identity (uid/gid 12001). Includes the REAL Linux OS-isolation gate (TestSandboxRealIsolationGate) and TestSandboxRunnerExecutesIsolatedScript against the production cmd/antinat-hook-runner child, built ONCE before the gates (package-level sync.Once; P3-16). Without the identity the gate fails closed (webhook-only) and the fail-closed path is asserted."
     },
     {
       "command": "GOWORK=off go test -race ./internal/hook ./internal/controller/api -count=10",
       "exit_code": 0,
-      "summary": "PASS; hook 128.0s + api 203.7s, no DATA RACE reported. (The P15-documented pre-existing store-package M4 time-budget issue is out of P16 scope; the brief's race gate is scoped to these two packages.)"
+      "summary": "PASS; hook 127.6s + api 211.0s, no DATA RACE reported (re-run after the follow-up). (The P15-documented pre-existing store-package M4 time-budget issue is out of P16 scope; the brief's race gate is scoped to these two packages.)"
     },
     {
       "command": "python3 test/contracts/validate_openapi.py .",
@@ -113,11 +114,12 @@
     {
       "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./...",
       "exit_code": 0,
-      "summary": "PASS; broad suite green including the P03 spike sandbox (which also needs the dedicated identity), internal/hook/**, and the controller packages."
+      "summary": "PASS; broad suite green (re-run after the follow-up). One transient failure of internal/agent TestDataPlaneUDPBindsSelectedGlobalSourceNotWildcard was observed in the first re-run (exit 1) and passes in isolation (-count=3) and in the authoritative second re-run (exit 0); it is a UDP-bind contention flake in a package this repair does not touch."
     }
   ],
   "evidence": [
-    "Commit tip e6bd677171df0943338ae91e8deb5455f27afe63 = P16 repair cycle 1 head (on top of the story head d3feb3b5fadce4fab0a27ae1bc0eff2659cbc7d3). 10 implementation commits on ai/P16-hooks-sandbox from base 0f310193b16509d8578d011914f79af3f004c8b5; reproduce with `git rev-list 0f310193..e6bd677`.",
+    "Commit tip 87e3722cc7d4a4ccb0279d4bbb582a8cbf1761d3 = P16 repair cycle 1 head INCLUDING the coordination follow-up (defaultSecretSignatureBudget on the public secret-create path, commit 87e3722 on top of e6bd677). 11 implementation commits on ai/P16-hooks-sandbox from base 0f310193b16509d8578d011914f79af3f004c8b5; reproduce with `git rev-list 0f310193..87e3722`.",
+    "P1-2 budget follow-up: Store.CreateSecret (the single insertion point behind POST /api/v1/hooks/secrets) now injects the documented bounded defaultSecretSignatureBudget (1024). TestHookSecretPublicCreateSignsDelivery creates a secret through the frozen public API (no internal budget call), binds it (internal wiring), delivers via service/dispatcher + stub sender, asserts X-Hook-Signature is generated (header placement) and no secret plaintext leaks, and proves the durable cap: after budget=1 the second signature is refused (delivery FAILED with a budget error, never DELIVERED).",
     "Frozen contracts byte-identical base..tip and candidate-record..tip: git diff --stat 0f310193 e6bd677 -- api openapi.yaml docs/ migrations/0001..0009 = empty, and the same against de026805d736df719019ac57f000605e4b6287b7. Only additive migration 0010_hooks.sql (P16-owned) and additive migrations.go registry edits.",
     "repair_cycle_1 fixed every listed finding (see repair_cycle_1): P1-1 nested-return propagation, P1-2 capability binding/endpoint derivation/durable budget/params allowlist, P2-3 integration-handoff seam (no P14/P15 lifecycle file edited), P2-4 payload method/path overrides removed, P2-5 3xx is retryable, P2-6 MaxCallDepth + recover, P3-7 atomic 0600 key write + perms, P3-8/P3-9 coalesce identity+budget preservation, P3-10/P3-17 audits folded into the mutation transactions, P3-11 randomHookID fail-closed, P3-12 https-only hook definitions, P3-13 retry+Operation in one transaction, P3-14 vm.deadline removed, P3-15 exact env allowlist gate, P3-16 shared once-built child + repeated -count=10 stability.",
     "P1-2 oracle closure is asserted by TestBrokerRefusesUnboundDisallowedAndExhausted and re-asserted end-to-end in TestAliDnsFullPathFixture: an unbound (hook,secret) pair -> ErrSecretNotBoundToHook, no budget -> ErrNoSignatureBudget, query placement without allowlist -> ErrNoParamsAllowlist, a disallowed script-selected param -> ErrParamNotAllowlisted, a deviating endpoint -> ErrEndpointDeviation, and a budget=1 secret refuses its second signature -> ErrSignatureBudgetExhausted (durable SignatureUsage 1/1).",
@@ -214,6 +216,14 @@
       "govulncheck": "unavailable (no PASS recorded)"
     },
     "frozen_contracts": "byte-identical base..repair-tip (empty diff for api/openapi.yaml, docs/*, migrations/0001..0009); contracts_consumed hashes unchanged; contracts_changed stays []."
+  },
+  "repair_cycle_1_followup": {
+    "cycle": 1,
+    "trigger": "coordinator re-review of P1-2 budget semantics: Store.CreateSecret left signature_budget at the migration default 0, so a secret created through the frozen POST /api/v1/hooks/secrets path could never sign (ReserveSecretSignature -> ErrNoSignatureBudget).",
+    "fix": "CreateSecret now injects the documented bounded defaultSecretSignatureBudget (1024) as the durable total-signature hard cap on the PUBLIC create path. The migration default 0 is retained (fail-closed for any non-explicit insert), and an explicit SetSecretSignatureBudget(0) disables signing (ErrNoSignatureBudget); exhaustion still returns ErrSignatureBudgetExhausted.",
+    "tests": "New TestHookSecretPublicCreateSignsDelivery (internal/controller/api/hooks_test.go): create-secret via HTTP (no internal budget), bind (internal), deliver header-placement signed through the service/dispatcher with a stub sender, assert X-Hook-Signature present + no plaintext leak; then budget=1 refuses the second signature (FAILED with a budget error). Update TestBrokerRefusesUnboundDisallowedAndExhausted step 2 to reach ErrNoSignatureBudget via explicit SetSecretSignatureBudget(0) (the create default is now >0).",
+    "commits": ["87e3722cc7d4a4ccb0279d4bbb582a8cbf1761d3"],
+    "gates": "All gates re-run PASS: build, vet, 4pkg tests (incl the new E2E), focused SSRF|Sandbox|Secret|Delivery|AliDNS -count=10 (identity 12001/12001), race hook+api -count=10 (no DATA RACE), openapi, gofmt+diff-check, windows cross-build, and the broad full-suite re-run (exit 0). One transient internal/agent UDP-bind flake observed in the first broad re-run, passes in isolation and in the authoritative re-run (unrelated package). govulncheck remains unavailable."
   },
   "self_approval": false,
   "review_ready": true,
