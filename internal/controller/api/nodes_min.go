@@ -35,7 +35,15 @@ func (s *Server) nodeView(n store.Node) nodeView {
 func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		nodes, err := s.store.ListNodes()
+		q, ok := parseListQuery(w, r)
+		if !ok {
+			return
+		}
+		nodes, total, err := s.store.ListNodePage(q)
+		if errors.Is(err, store.ErrInvalidListQuery) {
+			writeError(w, http.StatusBadRequest, "INVALID_PAGINATION", err.Error())
+			return
+		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "list nodes failed")
 			return
@@ -45,7 +53,7 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 			items = append(items, s.nodeView(n))
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"items": items, "page": 1, "page_size": len(items), "total": len(items),
+			"items": items, "page": q.Page, "page_size": q.PageSize, "total": total,
 		})
 	case http.MethodPost:
 		// Idempotency-Key gate.

@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gxbrave/AntiNAT/internal/controller/store"
 )
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
@@ -184,4 +186,23 @@ func parsePage(w http.ResponseWriter, r *http.Request) (int, int, bool) {
 		size = n
 	}
 	return page, size, true
+}
+
+// parseListQuery validates the frozen listNodes/listForwards query parameters
+// (page 1..N, page_size 1..200, sort [+|-]field, filter field=value) and
+// returns a typed store.ListQuery. The store owns the sort/filter grammar;
+// this layer only enforces the integer bounds up front so a malformed page
+// never reaches SQL.
+func parseListQuery(w http.ResponseWriter, r *http.Request) (store.ListQuery, bool) {
+	page, size, ok := parsePage(w, r)
+	if !ok {
+		return store.ListQuery{}, false
+	}
+	q := r.URL.Query()
+	return store.ListQuery{
+		Page:     page,
+		PageSize: size,
+		Sort:     strings.TrimSpace(q.Get("sort")),
+		Filter:   strings.TrimSpace(q.Get("filter")),
+	}, true
 }

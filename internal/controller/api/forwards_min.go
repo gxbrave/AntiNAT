@@ -66,7 +66,15 @@ func (s *Server) forwardView(f store.Forward, spec protocol.ForwardSpec, states 
 func (s *Server) handleForwards(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		forwards, err := s.store.ListForwards()
+		q, ok := parseListQuery(w, r)
+		if !ok {
+			return
+		}
+		forwards, total, err := s.store.ListForwardPage(q)
+		if errors.Is(err, store.ErrInvalidListQuery) {
+			writeError(w, http.StatusBadRequest, "INVALID_PAGINATION", err.Error())
+			return
+		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "list forwards failed")
 			return
@@ -86,7 +94,7 @@ func (s *Server) handleForwards(w http.ResponseWriter, r *http.Request) {
 			items = append(items, s.forwardView(f, spec, statesPtr))
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"items": items, "page": 1, "page_size": len(items), "total": len(items),
+			"items": items, "page": q.Page, "page_size": q.PageSize, "total": total,
 		})
 	case http.MethodPost:
 		key := r.Header.Get("Idempotency-Key")
