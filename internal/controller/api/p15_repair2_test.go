@@ -80,3 +80,55 @@ func TestP15Repair2TraversalDefaultsPUTAfterRenameSucceeds(t *testing.T) {
 		t.Fatalf("defaults PUT after rename ETag must be fresh: %s", body)
 	}
 }
+
+// P2-A end-state through the handler: a force delete writes the durable
+// operation BEFORE the tombstone, so the returned operation is pollable AND the
+// tombstone is correlated to that same operation id (intent-before-side-effect
+// leaves no tombstone/outbox without a pollable operation).
+func TestP15Repair2ForceDeleteOperationAndTombstoneCorrelated(t *testing.T) {
+	srv, st := newTestServer(t)
+	user, pass := initAdmin(t, srv, st)
+	cookie := login(t, srv, user, pass)
+	nodeID, _ := createNodeAPI(t, srv, cookie)
+
+	resp, body := doReq(t, srv, http.MethodPost, "/api/v1/nodes/"+nodeID+"/delete", cookie, map[string]any{"mode": "force"})
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("force delete = %d (%s)", resp.StatusCode, body)
+	}
+	var op map[string]any
+	_ = json.Unmarshal(body, &op)
+	opID, _ := op["operation_id"].(string)
+	if opID == "" {
+		t.Fatalf("operation_id missing: %s", body)
+	}
+
+	// The durable operation row is pollable through the frozen route.
+	resp, body = doReq(t, srv, http.MethodGet, "/api/v1/node-deletions/"+opID, cookie, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("poll force deletion = %d (%s)", resp.StatusCode, body)
+	}
+	// The terminal fact is correlated to that same operation (not an orphan).
+	ts, err := st.NodeCleanupTombstone(nodeID)
+	if err != nil {
+		t.Fatalf("tombstone lookup = %v", err)
+	}
+	if ts.OperationID != opID {
+		t.Fatalf("tombstone operation = %q, want %q (correlated intent)", ts.OperationID, opID)
+	}
+	// Normal delete keeps the operation + outbox transaction and never creates a
+	// tombstone (P2-A: normal path never quarantines).
+	resp, body = doReqKey(t, srv, http.MethodPost, "/api/v1/nodes", cookie, map[string]any{"name": "node-normal-2"}, "node-repair-create-2")
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create second node = %d (%s)", resp.StatusCode, body)
+	}
+	var n2 map[string]any
+	_ = json.Unmarshal(body, &n2)
+	node2, _ := n2["id"].(string)
+	resp, body = doReq(t, srv, http.MethodPost, "/api/v1/nodes/"+node2+"/delete", cookie, map[string]any{"mode": "normal"})
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("normal delete = %d (%s)", resp.StatusCode, body)
+	}
+	if cleanup, err := st.IsCleanupOnly(node2); err != nil || cleanup {
+		t.Fatalf("normal delete quarantine = %v err %v, want false (never quarantines)", cleanup, err)
+	}
+}

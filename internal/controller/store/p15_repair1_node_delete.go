@@ -35,6 +35,28 @@ func (s *Store) CreateNodeDeletionOperation(op NodeDeletionOperation) error {
 	return nil
 }
 
+// DeleteNodeDeletionOperation removes a node-deletion operation row that was
+// never observed by any consumer (repair-2 P2-A). It is used ONLY to roll back
+// a stale force-delete intent whose terminal cleanup fact a concurrent delete
+// won (ErrCleanupTombstoneConflict): the winner's operation stays the
+// authority, so the loser's orphaned PENDING row must not linger pollable
+// forever. It is intentionally not reachable from any frozen route.
+func (s *Store) DeleteNodeDeletionOperation(id string) error {
+	if id == "" {
+		return ErrNotFound
+	}
+	res, err := s.db.Exec(`DELETE FROM node_deletion_operations WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("store: delete node deletion operation: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // ListNodeDeletionResults returns RECEIVED node_decommission_ack inbox rows that
 // correlate to a live node_deletion_operations row, in durable inbox order.
 // Rows belonging to other operations are never returned, so an unbounded
