@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -66,7 +67,12 @@ func (s *Server) handleCategories(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, out)
 	case http.MethodPost:
-		if !validIdempotencyKey(r) {
+		principal := "admin"
+		if user, ok := s.currentUser(r); ok && user.ID != "" {
+			principal = user.ID
+		}
+		key := r.Header.Get("Idempotency-Key")
+		if len(key) < 8 || len(key) > 128 {
 			writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Idempotency-Key is required (8..128 chars)")
 			return
 		}
@@ -86,7 +92,19 @@ func (s *Server) handleCategories(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "id generation failed")
 			return
 		}
-		row, err := s.store.CreateNavigationCategory(store.NavigationCategory{ID: id, Name: body.Name, OrderIndex: body.OrderIndex})
+		// repair-1 H4: durable idempotency (replay/conflict) is decided inside
+		// the same BEGIN IMMEDIATE transaction as the insert, so the API does
+		// more than validate the key format.
+		projected := navigationCategoryProjection(store.NavigationCategory{ID: id, Name: body.Name, OrderIndex: body.OrderIndex, Revision: 1})
+		raw, _ := json.Marshal(projected)
+		rec, replayed, err := s.store.CreateNavigationCategoryIdempotent(r.Context(), store.NavigationCategory{ID: id, Name: body.Name, OrderIndex: body.OrderIndex}, store.IdempotencyRecord{
+			Key: key, Route: "/api/v1/navigation/categories", Principal: principal,
+			RequestHash: requestHashOf(body), ResponseStatus: http.StatusCreated, ResponseBody: string(raw),
+		})
+		if errors.Is(err, store.ErrIdempotencyConflict) {
+			writeError(w, http.StatusConflict, "IDEMPOTENCY_CONFLICT", "Idempotency-Key reused with a different request")
+			return
+		}
 		if errors.Is(err, store.ErrNavigationOrderConflict) {
 			writeError(w, http.StatusConflict, "CONFLICT", "category order conflicts")
 			return
@@ -95,7 +113,15 @@ func (s *Server) handleCategories(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "category create failed")
 			return
 		}
-		writeJSON(w, http.StatusCreated, navigationCategoryProjection(row))
+		if replayed {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(rec.ResponseStatus)
+			_, _ = w.Write([]byte(rec.ResponseBody))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write(raw)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "BAD_REQUEST", "method not allowed")
 	}
@@ -174,7 +200,12 @@ func (s *Server) handleItems(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, out)
 	case http.MethodPost:
-		if !validIdempotencyKey(r) {
+		principal := "admin"
+		if user, ok := s.currentUser(r); ok && user.ID != "" {
+			principal = user.ID
+		}
+		key := r.Header.Get("Idempotency-Key")
+		if len(key) < 8 || len(key) > 128 {
 			writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Idempotency-Key is required (8..128 chars)")
 			return
 		}
@@ -206,16 +237,39 @@ func (s *Server) handleItems(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "id generation failed")
 			return
 		}
-		row, err := s.store.CreateNavigationItem(store.NavigationItem{ID: id, Name: body.Name, Description: body.Description, Protocol: fwd.Protocol, CategoryID: body.CategoryID, ForwardID: body.ForwardID, OrderIndex: body.OrderIndex})
+		// repair-1 H4: durable idempotency (replay/conflict) is decided
+		// atomically with the insert.
+		projected := navigationItemProjection(store.NavigationItem{ID: id, Name: body.Name, Description: body.Description, Protocol: fwd.Protocol, CategoryID: body.CategoryID, ForwardID: body.ForwardID, OrderIndex: body.OrderIndex, Revision: 1})
+		raw, _ := json.Marshal(projected)
+		rec, replayed, err := s.store.CreateNavigationItemIdempotent(r.Context(), store.NavigationItem{ID: id, Name: body.Name, Description: body.Description, Protocol: fwd.Protocol, CategoryID: body.CategoryID, ForwardID: body.ForwardID, OrderIndex: body.OrderIndex}, store.IdempotencyRecord{
+			Key: key, Route: "/api/v1/navigation/items", Principal: principal,
+			RequestHash: requestHashOf(body), ResponseStatus: http.StatusCreated, ResponseBody: string(raw),
+		})
+		if errors.Is(err, store.ErrIdempotencyConflict) {
+			writeError(w, http.StatusConflict, "IDEMPOTENCY_CONFLICT", "Idempotency-Key reused with a different request")
+			return
+		}
 		if errors.Is(err, store.ErrNavigationOrderConflict) {
 			writeError(w, http.StatusConflict, "CONFLICT", "navigation item relation or order conflicts")
+			return
+		}
+		if errors.Is(err, store.ErrForwardNotFound) {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "forward not found")
 			return
 		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "item create failed")
 			return
 		}
-		writeJSON(w, http.StatusCreated, navigationItemProjection(row))
+		if replayed {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(rec.ResponseStatus)
+			_, _ = w.Write([]byte(rec.ResponseBody))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write(raw)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "BAD_REQUEST", "method not allowed")
 	}

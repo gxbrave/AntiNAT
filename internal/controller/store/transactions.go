@@ -16,15 +16,33 @@ import (
 
 // ApplyForwardDesired atomically records a new desired-spec revision, bumps
 // the forward parent revision (CAS), and enqueues the outbox command. A fault
-// in any step rolls back all of them.
+// in any step rolls back all of them. BEGIN IMMEDIATE is intentional (repair-1
+// H6): a deferred read-implied transaction can hit SQLITE_BUSY_SNAPSHOT when a
+// concurrent control-plane writer commits between the parent read and the CAS
+// update, which the API would surface as a 500 instead of a 412. Serializing
+// the writer decision lets the loser observe the new revision and return the
+// typed CAS conflict.
 func (s *Store) ApplyForwardDesired(spec ForwardSpec, outbox ControlOutboxItem) error {
-	tx, err := s.db.Begin()
+	if spec.ForwardID == "" || outbox.OperationID == "" {
+		return fmt.Errorf("%w: desired identity", ErrIdempotencyConflict)
+	}
+	ctx := context.Background()
+	conn, err := s.db.Conn(ctx)
 	if err != nil {
+		return fmt.Errorf("store: desired conn: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return fmt.Errorf("store: begin desired tx: %w", err)
 	}
-	defer tx.Rollback() // no-op after Commit
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
 
-	if _, err := tx.Exec(
+	if _, err := conn.ExecContext(ctx,
 		`INSERT INTO forward_specs (id, forward_id, revision, spec_json, created_at)
 		 VALUES (?, ?, ?, ?, ?)`,
 		spec.ID, spec.ForwardID, spec.Revision, spec.SpecJSON, now(),
@@ -33,7 +51,7 @@ func (s *Store) ApplyForwardDesired(spec ForwardSpec, outbox ControlOutboxItem) 
 	}
 
 	activation := protocol.ActivationID(spec.ForwardID, spec.Revision)
-	res, err := tx.Exec(
+	res, err := conn.ExecContext(ctx,
 		`UPDATE forwards SET current_activation_id = ?, revision = revision + 1, updated_at = ?
 		  WHERE id = ? AND revision = ?`,
 		hex.EncodeToString(activation[:]), now(), spec.ForwardID, spec.Revision-1,
@@ -47,12 +65,13 @@ func (s *Store) ApplyForwardDesired(spec ForwardSpec, outbox ControlOutboxItem) 
 		return fmt.Errorf("%w: forward %s revision %d", ErrCASConflict, spec.ForwardID, spec.Revision)
 	}
 
-	if err := insertOutboxTx(tx, outbox); err != nil {
+	if err := insertOutboxExec(ctx, conn, outbox); err != nil {
 		return err
 	}
-	if err := tx.Commit(); err != nil {
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return fmt.Errorf("store: commit desired tx: %w", err)
 	}
+	committed = true
 	return nil
 }
 

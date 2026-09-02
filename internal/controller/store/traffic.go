@@ -60,6 +60,9 @@ func trafficCompleteness(delta TrafficDelta) (metrics.Completeness, error) {
 
 // ApplyTrafficDelta atomically accepts a strictly newer sequence and updates
 // its hourly rollup. Duplicate/out-of-order reports are ignored idempotently.
+// Per-delta history is optional (SetTrafficDetailed), the hourly rollup remains
+// durable regardless (matching the metrics accumulator
+// TestAccumulatorDisabledDetailedHistoryStillRollsUp).
 func (s *Store) ApplyTrafficDelta(delta TrafficDelta) (bool, error) {
 	complete, err := trafficCompleteness(delta)
 	if delta.ForwardID == "" || delta.Sequence == 0 || err != nil {
@@ -357,33 +360,79 @@ func (s *Store) GetTraversalDefaults(nodeID string) (TraversalDefaults, error) {
 }
 
 func (s *Store) PutTraversalDefaults(nodeID, tcp, udp string, expected uint64) (TraversalDefaults, error) {
-	if _, err := s.GetNode(nodeID); err != nil {
+	node, err := s.GetNode(nodeID)
+	if err != nil {
 		return TraversalDefaults{}, err
 	}
 	if tcp != "" {
 		if _, err := parseStrategy(tcp); err != nil {
-			return TraversalDefaults{}, err
+			return TraversalDefaults{}, fmt.Errorf("%w: tcp_strategy: %v", ErrTrafficInvalid, err)
 		}
 	}
 	if udp != "" {
 		if _, err := parseStrategy(udp); err != nil {
-			return TraversalDefaults{}, err
+			return TraversalDefaults{}, fmt.Errorf("%w: udp_strategy: %v", ErrTrafficInvalid, err)
 		}
 	}
 	current, err := s.GetTraversalDefaults(nodeID)
 	if err != nil {
 		return TraversalDefaults{}, err
 	}
-	if current.Revision != expected {
+	// A node with no traversal-defaults record yet uses its current node
+	// revision as the baseline (repair-1 H2), so a fresh node's first PUT
+	// (If-Match = node ETag) is not a spurious 412.
+	baseline := current.Revision
+	if current.Revision == 0 {
+		baseline = node.Revision
+	}
+	if baseline != expected {
 		return TraversalDefaults{}, ErrCASConflict
 	}
 	next := expected + 1
 	now := s.currentUnix()
-	_, err = s.db.Exec(`INSERT INTO node_traversal_defaults(node_id,tcp_strategy,udp_strategy,revision,updated_at) VALUES(?,?,?,?,?)
-		ON CONFLICT(node_id) DO UPDATE SET tcp_strategy=excluded.tcp_strategy,udp_strategy=excluded.udp_strategy,revision=excluded.revision,updated_at=excluded.updated_at`, nodeID, tcp, udp, next, now)
+	// The defaults upsert AND the parent node revision bump commit in one
+	// BEGIN IMMEDIATE transaction. The ON CONFLICT...DO UPDATE WHERE guard is
+	// the durable CAS: a concurrent writer that already advanced the row fails
+	// RowsAffected=0 and maps to ErrCASConflict. Bumping nodes.revision gives
+	// the frozen setTraversalDefaults 200 (a full Node) a fresh ETag.
+	conn, err := s.db.Conn(context.Background())
+	if err != nil {
+		return TraversalDefaults{}, fmt.Errorf("store: traversal defaults conn: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		return TraversalDefaults{}, fmt.Errorf("store: begin traversal defaults: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+	res, err := conn.ExecContext(context.Background(),
+		`INSERT INTO node_traversal_defaults(node_id,tcp_strategy,udp_strategy,revision,updated_at) VALUES(?,?,?,?,?)
+		 ON CONFLICT(node_id) DO UPDATE SET tcp_strategy=excluded.tcp_strategy,udp_strategy=excluded.udp_strategy,revision=excluded.revision,updated_at=excluded.updated_at
+		 WHERE node_traversal_defaults.revision = ?`,
+		nodeID, tcp, udp, next, now, baseline)
 	if err != nil {
 		return TraversalDefaults{}, fmt.Errorf("store: put traversal defaults: %w", err)
 	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return TraversalDefaults{}, ErrCASConflict
+	}
+	upd, err := conn.ExecContext(context.Background(),
+		`UPDATE nodes SET revision = ?, updated_at = ? WHERE id = ? AND revision = ?`,
+		next, now, nodeID, expected)
+	if err != nil {
+		return TraversalDefaults{}, fmt.Errorf("store: bump traversal defaults node revision: %w", err)
+	}
+	if n, _ := upd.RowsAffected(); n != 1 {
+		return TraversalDefaults{}, ErrCASConflict
+	}
+	if _, err := conn.ExecContext(context.Background(), "COMMIT"); err != nil {
+		return TraversalDefaults{}, fmt.Errorf("store: commit traversal defaults: %w", err)
+	}
+	committed = true
 	return TraversalDefaults{NodeID: nodeID, TCPStrategy: tcp, UDPStrategy: udp, Revision: next, UpdatedAt: now}, nil
 }
 
@@ -442,6 +491,215 @@ func (s *Store) GetNavigationCategory(id string) (NavigationCategory, error) {
 	}
 	return c, nil
 }
+
+// CreateNavigationCategoryIdempotent atomically persists a navigation category
+// and its idempotency response under BEGIN IMMEDIATE (repair-1 H4), so the
+// API's Idempotency-Key is a durable replayed/conflict authority rather than a
+// format-only check. A replay returns the stored response unchanged; a
+// same-key different-request reuse is ErrIdempotencyConflict.
+func (s *Store) CreateNavigationCategoryIdempotent(ctx context.Context, c NavigationCategory, rec IdempotencyRecord) (IdempotencyRecord, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if rec.Key == "" {
+		return IdempotencyRecord{}, false, errors.New("store: empty idempotency key")
+	}
+	if c.ID == "" || strings.TrimSpace(c.Name) == "" {
+		return IdempotencyRecord{}, false, ErrTrafficInvalid
+	}
+	if err := s.checkWriteCapacity(); err != nil {
+		return IdempotencyRecord{}, false, err
+	}
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return IdempotencyRecord{}, false, fmt.Errorf("store: nav category conn: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return IdempotencyRecord{}, false, fmt.Errorf("store: begin nav category: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+	existing, replayed, conflict, err := replayOrInsertIdempotency(ctx, conn, rec)
+	if err != nil {
+		return IdempotencyRecord{}, false, err
+	}
+	if conflict {
+		return IdempotencyRecord{}, false, ErrIdempotencyConflict
+	}
+	if replayed {
+		if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+			return IdempotencyRecord{}, false, fmt.Errorf("store: commit nav category replay: %w", err)
+		}
+		committed = true
+		return existing, true, nil
+	}
+	if c.Revision == 0 {
+		c.Revision = 1
+	}
+	if c.OrderIndex < 0 {
+		return IdempotencyRecord{}, false, ErrNavigationOrderConflict
+	}
+	var existsOrder int
+	if err := conn.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM navigation_categories WHERE order_index=?)`, c.OrderIndex).Scan(&existsOrder); err != nil {
+		return IdempotencyRecord{}, false, err
+	}
+	if existsOrder != 0 {
+		return IdempotencyRecord{}, false, ErrNavigationOrderConflict
+	}
+	ts := now()
+	if _, err := conn.ExecContext(ctx, `INSERT INTO navigation_categories(id,name,order_index,revision,created_at,updated_at) VALUES(?,?,?,?,?,?)`,
+		c.ID, c.Name, c.OrderIndex, c.Revision, ts, ts); err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			return IdempotencyRecord{}, false, ErrNavigationOrderConflict
+		}
+		return IdempotencyRecord{}, false, err
+	}
+	if rec.ExpiresAt == 0 {
+		rec.ExpiresAt = ts + int64(IdempotencyKeyTTL/time.Second)
+	}
+	rec.CreatedAt = ts
+	if _, err := conn.ExecContext(ctx,
+		`INSERT INTO api_idempotency_keys (key, route, principal, request_hash, response_status, response_body, created_at, expires_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		rec.Key, rec.Route, rec.Principal, rec.RequestHash, rec.ResponseStatus, rec.ResponseBody, rec.CreatedAt, rec.ExpiresAt); err != nil {
+		return IdempotencyRecord{}, false, fmt.Errorf("store: nav category idempotency insert: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return IdempotencyRecord{}, false, fmt.Errorf("store: commit nav category: %w", err)
+	}
+	committed = true
+	return rec, false, nil
+}
+
+// CreateNavigationItemIdempotent is the navigation-items counterpart of
+// CreateNavigationCategoryIdempotent (repair-1 H4).
+func (s *Store) CreateNavigationItemIdempotent(ctx context.Context, i NavigationItem, rec IdempotencyRecord) (IdempotencyRecord, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if rec.Key == "" {
+		return IdempotencyRecord{}, false, errors.New("store: empty idempotency key")
+	}
+	if i.ID == "" || i.Name == "" || i.CategoryID == "" || i.ForwardID == "" {
+		return IdempotencyRecord{}, false, ErrTrafficInvalid
+	}
+	if err := s.checkWriteCapacity(); err != nil {
+		return IdempotencyRecord{}, false, err
+	}
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return IdempotencyRecord{}, false, fmt.Errorf("store: nav item conn: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return IdempotencyRecord{}, false, fmt.Errorf("store: begin nav item: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+	existing, replayed, conflict, err := replayOrInsertIdempotency(ctx, conn, rec)
+	if err != nil {
+		return IdempotencyRecord{}, false, err
+	}
+	if conflict {
+		return IdempotencyRecord{}, false, ErrIdempotencyConflict
+	}
+	if replayed {
+		if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+			return IdempotencyRecord{}, false, fmt.Errorf("store: commit nav item replay: %w", err)
+		}
+		committed = true
+		return existing, true, nil
+	}
+	if i.Revision == 0 {
+		i.Revision = 1
+	}
+	if i.OrderIndex < 0 {
+		return IdempotencyRecord{}, false, ErrNavigationOrderConflict
+	}
+	var existsOrder int
+	if err := conn.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM navigation_items WHERE category_id=? AND order_index=?)`, i.CategoryID, i.OrderIndex).Scan(&existsOrder); err != nil {
+		return IdempotencyRecord{}, false, err
+	}
+	if existsOrder != 0 {
+		return IdempotencyRecord{}, false, ErrNavigationOrderConflict
+	}
+	var fwdExists int
+	if err := conn.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM forwards WHERE id=?)`, i.ForwardID).Scan(&fwdExists); err != nil {
+		return IdempotencyRecord{}, false, err
+	}
+	if fwdExists == 0 {
+		return IdempotencyRecord{}, false, ErrForwardNotFound
+	}
+	ts := now()
+	if _, err := conn.ExecContext(ctx, `INSERT INTO navigation_items(id,name,description,protocol,category_id,forward_id,order_index,revision,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		i.ID, i.Name, i.Description, i.Protocol, i.CategoryID, i.ForwardID, i.OrderIndex, i.Revision, ts, ts); err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") || strings.Contains(err.Error(), "FOREIGN KEY") {
+			return IdempotencyRecord{}, false, ErrNavigationOrderConflict
+		}
+		return IdempotencyRecord{}, false, err
+	}
+	if rec.ExpiresAt == 0 {
+		rec.ExpiresAt = ts + int64(IdempotencyKeyTTL/time.Second)
+	}
+	rec.CreatedAt = ts
+	if _, err := conn.ExecContext(ctx,
+		`INSERT INTO api_idempotency_keys (key, route, principal, request_hash, response_status, response_body, created_at, expires_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		rec.Key, rec.Route, rec.Principal, rec.RequestHash, rec.ResponseStatus, rec.ResponseBody, rec.CreatedAt, rec.ExpiresAt); err != nil {
+		return IdempotencyRecord{}, false, fmt.Errorf("store: nav item idempotency insert: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return IdempotencyRecord{}, false, fmt.Errorf("store: commit nav item: %w", err)
+	}
+	committed = true
+	return rec, false, nil
+}
+
+// replayOrInsertIdempotency runs the shared idempotency read/replay/expire
+// logic inside an already-open BEGIN IMMEDIATE transaction. It returns the
+// stored replay record, whether to replay, whether this is a hard conflict,
+// or a storage error. conflict=true is separate because Go cannot distinguish
+// "store response then return error" from a plain return.
+func replayOrInsertIdempotency(ctx context.Context, conn *sql.Conn, rec IdempotencyRecord) (IdempotencyRecord, bool, bool, error) {
+	ts := now()
+	var existing IdempotencyRecord
+	err := conn.QueryRowContext(ctx,
+		`SELECT key, route, principal, request_hash, response_status, response_body, created_at, expires_at
+		   FROM api_idempotency_keys WHERE key = ?`, rec.Key,
+	).Scan(&existing.Key, &existing.Route, &existing.Principal, &existing.RequestHash,
+		&existing.ResponseStatus, &existing.ResponseBody, &existing.CreatedAt, &existing.ExpiresAt)
+	switch {
+	case err == nil && existing.ExpiresAt > ts && existing.Route == rec.Route &&
+		existing.Principal == rec.Principal && existing.RequestHash == rec.RequestHash:
+		return existing, true, false, nil
+	case err == nil && existing.ExpiresAt > ts:
+		return IdempotencyRecord{}, false, true, nil
+	case err == nil:
+		if _, err := conn.ExecContext(ctx, `DELETE FROM api_idempotency_keys WHERE key = ?`, rec.Key); err != nil {
+			return IdempotencyRecord{}, false, false, fmt.Errorf("store: expire idempotency delete: %w", err)
+		}
+		if _, err := conn.ExecContext(ctx,
+			`INSERT INTO admin_events (event_type, payload, created_at) VALUES (?, ?, ?)`,
+			"IDEMPOTENCY_KEY_EXPIRED", fmt.Sprintf(`{"key":%q,"route":%q}`, rec.Key, rec.Route), ts); err != nil {
+			return IdempotencyRecord{}, false, false, fmt.Errorf("store: nav idempotency expiry audit: %w", err)
+		}
+		return IdempotencyRecord{}, false, false, nil
+	case !errors.Is(err, sql.ErrNoRows):
+		return IdempotencyRecord{}, false, false, fmt.Errorf("store: read idempotency: %w", err)
+	default:
+		return IdempotencyRecord{}, false, false, nil
+	}
+}
+
 func (s *Store) CreateNavigationCategory(c NavigationCategory) (NavigationCategory, error) {
 	if c.ID == "" || strings.TrimSpace(c.Name) == "" {
 		return NavigationCategory{}, ErrTrafficInvalid
@@ -635,9 +893,17 @@ func (s *Store) PutNavigationOrder(expected uint64, order NavigationOrder) (Navi
 	cats, _ := json.Marshal(order.CategoryIDs)
 	items, _ := json.Marshal(order.ItemIDs)
 	now := s.currentUnix()
-	_, err = s.db.Exec(`INSERT INTO navigation_order(id,category_ids,item_ids,revision,updated_at) VALUES(1,?,?,?,?) ON CONFLICT(id) DO UPDATE SET category_ids=excluded.category_ids,item_ids=excluded.item_ids,revision=excluded.revision,updated_at=excluded.updated_at`, string(cats), string(items), expected+1, now)
+	// repair-1 H6: the upsert is conditional on the persisted revision so two
+	// concurrent writers cannot both pass the read and lose one update; the
+	// loser fails RowsAffected=0 and maps to ErrCASConflict (412 in the API).
+	res, err := s.db.Exec(`INSERT INTO navigation_order(id,category_ids,item_ids,revision,updated_at) VALUES(1,?,?,?,?)
+		ON CONFLICT(id) DO UPDATE SET category_ids=excluded.category_ids,item_ids=excluded.item_ids,revision=excluded.revision,updated_at=excluded.updated_at
+		WHERE navigation_order.revision = ?`, string(cats), string(items), expected+1, now, expected)
 	if err != nil {
 		return NavigationOrder{}, err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return NavigationOrder{}, ErrCASConflict
 	}
 	order.Revision = expected + 1
 	order.UpdatedAt = now
@@ -691,9 +957,16 @@ func (s *Store) PutSettingsRecord(expected uint64, raw string) (SettingsRecord, 
 		return SettingsRecord{}, ErrCASConflict
 	}
 	now := s.currentUnix()
-	_, err = s.db.Exec(`INSERT INTO api_settings(id,settings_json,revision,updated_at) VALUES(1,?,?,?) ON CONFLICT(id) DO UPDATE SET settings_json=excluded.settings_json,revision=excluded.revision,updated_at=excluded.updated_at`, raw, expected+1, now)
+	// repair-1 H6: conditional compare-and-set on the persisted revision so a
+	// concurrent writer cannot lose an update after the read.
+	res, err := s.db.Exec(`INSERT INTO api_settings(id,settings_json,revision,updated_at) VALUES(1,?,?,?)
+		ON CONFLICT(id) DO UPDATE SET settings_json=excluded.settings_json,revision=excluded.revision,updated_at=excluded.updated_at
+		WHERE api_settings.revision = ?`, raw, expected+1, now, expected)
 	if err != nil {
 		return SettingsRecord{}, err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return SettingsRecord{}, ErrCASConflict
 	}
 	return SettingsRecord{JSON: raw, Revision: expected + 1, UpdatedAt: now}, nil
 }

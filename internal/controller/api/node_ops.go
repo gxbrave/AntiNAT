@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -111,36 +110,6 @@ func (s *Server) handleNodeDeletion(w http.ResponseWriter, r *http.Request, oper
 	writeJSON(w, 200, nodeDeletionView(op))
 }
 
-func (s *Server) createNodeDeletion(w http.ResponseWriter, r *http.Request, nodeID string) {
-	var body struct {
-		Mode string `json:"mode"`
-	}
-	if !decodeJSON(w, r, &body) {
-		return
-	}
-	if body.Mode != "normal" && body.Mode != "force" {
-		writeError(w, 422, "UNPROCESSABLE_ENTITY", "mode must be normal or force")
-		return
-	}
-	if _, err := s.store.GetNode(nodeID); err != nil {
-		writeError(w, 404, "NOT_FOUND", "node not found")
-		return
-	}
-	opID, err := randomHexID()
-	if err != nil {
-		writeError(w, 500, "INTERNAL_ERROR", "operation id generation failed")
-		return
-	}
-	now := time.Now().Unix()
-	op := store.NodeDeletionOperation{ID: opID, NodeID: nodeID, Status: "PENDING", Mode: body.Mode, CreatedAt: now}
-	payload, _ := json.Marshal(map[string]any{"node_id": nodeID, "deletion_operation_id": opID, "force": body.Mode == "force"})
-	if err := s.store.ApplyNodeDelete(op, store.ControlOutboxItem{OperationID: opID, MessageType: "node_decommission", NodeID: nodeID, SemanticPayload: string(payload), State: "PENDING"}); err != nil {
-		writeError(w, 500, "INTERNAL_ERROR", "node deletion failed")
-		return
-	}
-	writeJSON(w, 202, operationView{OperationID: opID, State: "PENDING", RemoteCleanupConfirmed: false, CreatedAt: operationTime(now), UpdatedAt: operationTime(now)})
-}
-
 func (s *Server) handleTraversalDefaults(w http.ResponseWriter, r *http.Request, nodeID string) {
 	if r.Method != http.MethodPut {
 		writeError(w, 405, "BAD_REQUEST", "method not allowed")
@@ -165,25 +134,29 @@ func (s *Server) handleTraversalDefaults(w http.ResponseWriter, r *http.Request,
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	current, err := s.store.GetTraversalDefaults(nodeID)
-	if err != nil {
-		writeError(w, 500, "INTERNAL_ERROR", "defaults lookup failed")
-		return
-	}
-	if current.Revision != node.Revision {
-		writeError(w, 412, "PRECONDITION_FAILED", "node revision changed")
-		return
-	}
-	d, err := s.store.PutTraversalDefaults(nodeID, body.TCPStrategy, body.UDPStrategy, current.Revision)
+	// repair-1 H2: the store treats a missing defaults record like the node's
+	// current revision (the If-Match ETag source), so a fresh node's first PUT
+	// succeeds instead of racing a permanent 412. The write bumps the parent
+	// node revision atomically, giving the 200 Node a fresh ETag.
+	_, err = s.store.PutTraversalDefaults(nodeID, body.TCPStrategy, body.UDPStrategy, node.Revision)
 	if errors.Is(err, store.ErrCASConflict) {
 		writeError(w, 412, "PRECONDITION_FAILED", "defaults revision changed")
 		return
 	}
-	if err != nil {
+	if errors.Is(err, store.ErrTrafficInvalid) {
 		writeError(w, 422, "UNPROCESSABLE_ENTITY", "invalid traversal defaults")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"tcp_strategy": d.TCPStrategy, "udp_strategy": d.UDPStrategy})
+	if err != nil {
+		writeError(w, 500, "INTERNAL_ERROR", "defaults update failed")
+		return
+	}
+	updated, err := s.store.GetNode(nodeID)
+	if err != nil {
+		writeError(w, 500, "INTERNAL_ERROR", "node reload failed")
+		return
+	}
+	writeJSON(w, 200, s.nodeView(updated))
 }
 
 func (s *Server) handleTraversalDetection(w http.ResponseWriter, r *http.Request, nodeID string) {
