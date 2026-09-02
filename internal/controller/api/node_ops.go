@@ -134,10 +134,12 @@ func (s *Server) handleTraversalDefaults(w http.ResponseWriter, r *http.Request,
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	// repair-1 H2: the store treats a missing defaults record like the node's
-	// current revision (the If-Match ETag source), so a fresh node's first PUT
-	// succeeds instead of racing a permanent 412. The write bumps the parent
-	// node revision atomically, giving the 200 Node a fresh ETag.
+	// repair-1 H2 / repair-2 P1-B: expected is the node's current revision (the
+	// If-Match ETag source). The store treats the node revision as the ONLY CAS
+	// axis, so a fresh node's first PUT succeeds, a stale ETag maps to 412, and
+	// a defaults row that lagged after a rename/reconnect is no longer a
+	// permanent-412 source. The write bumps the parent node revision atomically,
+	// giving the 200 Node a fresh ETag.
 	_, err = s.store.PutTraversalDefaults(nodeID, body.TCPStrategy, body.UDPStrategy, node.Revision)
 	if errors.Is(err, store.ErrCASConflict) {
 		writeError(w, 412, "PRECONDITION_FAILED", "defaults revision changed")

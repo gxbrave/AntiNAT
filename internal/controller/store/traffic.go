@@ -374,27 +374,27 @@ func (s *Store) PutTraversalDefaults(nodeID, tcp, udp string, expected uint64) (
 			return TraversalDefaults{}, fmt.Errorf("%w: udp_strategy: %v", ErrTrafficInvalid, err)
 		}
 	}
-	current, err := s.GetTraversalDefaults(nodeID)
-	if err != nil {
-		return TraversalDefaults{}, err
-	}
-	// A node with no traversal-defaults record yet uses its current node
-	// revision as the baseline (repair-1 H2), so a fresh node's first PUT
-	// (If-Match = node ETag) is not a spurious 412.
-	baseline := current.Revision
-	if current.Revision == 0 {
-		baseline = node.Revision
-	}
-	if baseline != expected {
+	// The If-Match axis is the NODE revision (the handler derives expected from
+	// etagFor(node.Revision)). The defaults row may legitimately lag the node
+	// revision after any other node.rev bump (rename UpdateNodeNameCAS, agent
+	// reconnect AcquireControlOwner both bump nodes.revision), so the node
+	// revision is the only valid baseline. Comparing expected against the
+	// defaults-row revision here would reproduce the permanent-412 drift: the
+	// first PUT succeeds, then any rename/reconnect bump makes every later PUT
+	// carrying the current node ETag fail forever (repair-2 P1-B).
+	if expected != node.Revision {
 		return TraversalDefaults{}, ErrCASConflict
 	}
 	next := expected + 1
 	now := s.currentUnix()
-	// The defaults upsert AND the parent node revision bump commit in one
-	// BEGIN IMMEDIATE transaction. The ON CONFLICT...DO UPDATE WHERE guard is
-	// the durable CAS: a concurrent writer that already advanced the row fails
-	// RowsAffected=0 and maps to ErrCASConflict. Bumping nodes.revision gives
-	// the frozen setTraversalDefaults 200 (a full Node) a fresh ETag.
+	// One BEGIN IMMEDIATE transaction contains the defaults upsert AND the
+	// parent node revision bump. The durable CAS gate is the conditional UPDATE
+	// on nodes.revision (RowsAffected=0 -> ErrCASConflict -> rollback): it is
+	// the only statement whose WHERE compares the If-Match axis. The defaults
+	// upsert deliberately has NO revision guard — an ON CONFLICT WHERE comparing
+	// node_traversal_defaults.revision (the pre-fix form) turns an out-of-sync
+	// defaults row into the permanent-412 defect replayed. The defaults row is
+	// written lockstep (revision = next), keeping it aligned with the node.
 	conn, err := s.db.Conn(context.Background())
 	if err != nil {
 		return TraversalDefaults{}, fmt.Errorf("store: traversal defaults conn: %w", err)
@@ -409,16 +409,11 @@ func (s *Store) PutTraversalDefaults(nodeID, tcp, udp string, expected uint64) (
 			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
 		}
 	}()
-	res, err := conn.ExecContext(context.Background(),
+	if _, err := conn.ExecContext(context.Background(),
 		`INSERT INTO node_traversal_defaults(node_id,tcp_strategy,udp_strategy,revision,updated_at) VALUES(?,?,?,?,?)
-		 ON CONFLICT(node_id) DO UPDATE SET tcp_strategy=excluded.tcp_strategy,udp_strategy=excluded.udp_strategy,revision=excluded.revision,updated_at=excluded.updated_at
-		 WHERE node_traversal_defaults.revision = ?`,
-		nodeID, tcp, udp, next, now, baseline)
-	if err != nil {
+		 ON CONFLICT(node_id) DO UPDATE SET tcp_strategy=excluded.tcp_strategy,udp_strategy=excluded.udp_strategy,revision=excluded.revision,updated_at=excluded.updated_at`,
+		nodeID, tcp, udp, next, now); err != nil {
 		return TraversalDefaults{}, fmt.Errorf("store: put traversal defaults: %w", err)
-	}
-	if n, _ := res.RowsAffected(); n != 1 {
-		return TraversalDefaults{}, ErrCASConflict
 	}
 	upd, err := conn.ExecContext(context.Background(),
 		`UPDATE nodes SET revision = ?, updated_at = ? WHERE id = ? AND revision = ?`,
@@ -426,7 +421,9 @@ func (s *Store) PutTraversalDefaults(nodeID, tcp, udp string, expected uint64) (
 	if err != nil {
 		return TraversalDefaults{}, fmt.Errorf("store: bump traversal defaults node revision: %w", err)
 	}
-	if n, _ := upd.RowsAffected(); n != 1 {
+	if n, err := upd.RowsAffected(); err != nil {
+		return TraversalDefaults{}, fmt.Errorf("store: traversal defaults node revision rows: %w", err)
+	} else if n != 1 {
 		return TraversalDefaults{}, ErrCASConflict
 	}
 	if _, err := conn.ExecContext(context.Background(), "COMMIT"); err != nil {
