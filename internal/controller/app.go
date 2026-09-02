@@ -197,7 +197,18 @@ func (a *App) Start() error {
 	a.ln = ln
 	a.addr = ln.Addr().String()
 
-	admin, err := web.NewRouter(api.RouterConfig{Store: a.store, Auth: a.auth})
+	// repair-1 H8: compose the canonical durable, bounded SSE stream on the
+	// frozen /api/v1/events route (Last-Event-ID replay + secret redaction +
+	// bounded subscriber/backpressure) instead of the un-composed local poller.
+	events := &web.SSEHandler{
+		Store:          a.store,
+		PollInterval:   100 * time.Millisecond,
+		Batch:          100,
+		MaxSubscribers: 64,
+	}
+	// repair-1 H3: compose the agent-hub session closer so a force node delete
+	// cannot leave an ESTABLISHED session delivering stale commands.
+	admin, err := web.NewRouter(api.RouterConfig{Store: a.store, Auth: a.auth, SSE: events, CloseNodeSession: a.hub.ForceCloseNodeSession})
 	if err != nil {
 		return fail(fmt.Errorf("controller: admin router: %w", err))
 	}
@@ -221,10 +232,14 @@ func (a *App) Start() error {
 	// this Add operation.
 	watchCtx, watchCancel := context.WithCancel(context.Background())
 	a.watchCancel = watchCancel
-	a.watchWG.Add(1)
+	a.watchWG.Add(2)
 	go func() {
 		defer a.watchWG.Done()
 		a.watchDeletions(watchCtx)
+	}()
+	go func() {
+		defer a.watchWG.Done()
+		a.watchNodeDeletions(watchCtx)
 	}()
 	a.state = appStateRunning
 	a.ready.Store(true)
@@ -261,6 +276,39 @@ func (a *App) completeFinishedDeletions() {
 			// identity is permanently impossible may be terminalized. An ordinary
 			// generic result returns ErrNotFound and remains available elsewhere.
 			_ = a.store.RejectControlInbox(row.MessageID)
+		}
+	}
+}
+
+// watchNodeDeletions polls for durable node_decommission_ack results and
+// advances the matching node deletion operations (repair-1 H3b).
+func (a *App) watchNodeDeletions(ctx context.Context) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.completeNodeDeletions()
+		}
+	}
+}
+
+// completeNodeDeletions advances every RECEIVED node_decommission_ack that is
+// durably correlated to a live node deletion operation. A permanently
+// impossible identity is terminalized (NACKed) so it cannot spin; storage
+// errors are left RECEIVED for the next poll.
+func (a *App) completeNodeDeletions() {
+	rows, err := a.store.ListNodeDeletionResults(100)
+	if err != nil {
+		return
+	}
+	for _, row := range rows {
+		if _, _, err := a.store.CompleteNodeDeletionResult(row.MessageID); err != nil {
+			if errors.Is(err, store.ErrPermanentDeletionResult) {
+				_ = a.store.RejectControlInbox(row.MessageID)
+			}
 		}
 	}
 }

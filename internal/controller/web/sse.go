@@ -17,16 +17,36 @@ type EventStore interface {
 	AdminEventsAfter(cursor int64, limit int) ([]store.AdminEvent, error)
 }
 
-// SSEHandler replays durable admin events from Last-Event-ID. It polls the
-// durable cursor rather than relying on an in-memory broadcast, so restart and
-// reconnect behavior are identical.
+// SSEHandler replays durable admin events from Last-Event-ID on the frozen
+// /api/v1/events route. It polls the durable cursor rather than relying on an
+// in-memory broadcast, so restart and reconnect behavior are identical
+// (Story 4: durable Last-Event-ID, secret redaction). repair-1 H8 adds bounded
+// subscriber capacity and a per-write deadline so a slow or stalled client
+// cannot consume unbounded memory or hold the stream open forever.
 type SSEHandler struct {
-	Store        EventStore
+	Store EventStore
+	// PollInterval is the store poll cadence (default 100ms).
 	PollInterval time.Duration
-	Batch        int
+	// Batch bounds each durable replay read (default 100, max 200).
+	Batch int
+	// MaxSubscribers bounds concurrent streams (default 64). A new stream
+	// beyond the cap is refused with 503 UNAVAILABLE.
+	MaxSubscribers int
+	// WriteTimeout bounds each SSE write+flush so a slow reader fails closed
+	// instead of buffering without limit (default 5s, 0 disables).
+	WriteTimeout time.Duration
+
+	subMu chan struct{}
 }
 
-func (h SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *SSEHandler) subscriberSlot() chan struct{} {
+	if h.subMu == nil || cap(h.subMu) == 0 {
+		return nil
+	}
+	return h.subMu
+}
+
+func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.Store == nil {
 		writeSSEError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "event stream is unavailable")
 		return
@@ -44,6 +64,26 @@ func (h SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if interval <= 0 {
 		interval = 100 * time.Millisecond
 	}
+	maxSubs := h.MaxSubscribers
+	if maxSubs <= 0 {
+		maxSubs = 64
+	}
+	writeTimeout := h.WriteTimeout
+	if writeTimeout <= 0 {
+		writeTimeout = 5 * time.Second
+	}
+	// Bounded subscriber gate (backpressure at the connection level).
+	if h.subMu == nil {
+		h.subMu = make(chan struct{}, maxSubs)
+	}
+	select {
+	case h.subMu <- struct{}{}:
+		defer func() { <-h.subMu }()
+	default:
+		writeSSEError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "too many event stream subscribers")
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -51,6 +91,12 @@ func (h SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		writeSSEError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "event stream does not support flushing")
 		return
+	}
+	controller := http.NewResponseController(w)
+	setWriteDeadline := func() {
+		if writeTimeout > 0 {
+			_ = controller.SetWriteDeadline(time.Now().Add(writeTimeout))
+		}
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -64,11 +110,13 @@ func (h SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			payload := redactEventPayload(event.Payload)
+			setWriteDeadline()
 			if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", event.ID, sanitizeEventType(event.EventType), payload); err != nil {
 				return
 			}
 			cursor = event.ID
 		}
+		setWriteDeadline()
 		flusher.Flush()
 		if len(events) > 0 {
 			continue

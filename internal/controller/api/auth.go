@@ -35,6 +35,11 @@ type RouterConfig struct {
 	AllowedOrigins []string
 	TrustedProxies []string
 	MaxBodyBytes   int64
+	// CloseNodeSession terminates an ESTABLISHED control session for a node.
+	// The App composes it with the agent hub's ForceCloseNodeSession so a force
+	// node delete cannot leave an online session delivering stale commands
+	// (repair-1 H3).
+	CloseNodeSession func(nodeID string)
 }
 
 // ErrorBody is the frozen error envelope (docs/error-codes.md §1).
@@ -103,11 +108,12 @@ const sessionCookieName = "antinat_session"
 // registers its routes onto a caller-provided mux (the minimal router in
 // internal/controller/web builds that mux).
 type Server struct {
-	store  *store.Store
-	auth   *auth.AuthService
-	health *healthState
-	sse    http.Handler
-	login  *loginLimiter
+	store        *store.Store
+	auth         *auth.AuthService
+	health       *healthState
+	sse          http.Handler
+	login        *loginLimiter
+	closeSession func(nodeID string)
 	// idempotencyMu closes the create-side effect window within one API
 	// process; the durable store still owns replay/conflict decisions.
 	idempotencyMu sync.Mutex
@@ -121,7 +127,7 @@ func NewServer(cfg RouterConfig) (*Server, error) {
 	if cfg.Auth == nil {
 		return nil, errors.New("api: auth service is required")
 	}
-	s := &Server{store: cfg.Store, auth: cfg.Auth, health: newHealthState(), sse: cfg.SSE, login: newLoginLimiter()}
+	s := &Server{store: cfg.Store, auth: cfg.Auth, health: newHealthState(), sse: cfg.SSE, login: newLoginLimiter(), closeSession: cfg.CloseNodeSession}
 	s.health.setStoreReady(true)
 	s.health.setAuthReady(true)
 	return s, nil
@@ -145,7 +151,13 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/forwards/", s.requireAuth(s.handleForwardRoutes))
 	mux.HandleFunc("/api/v1/forward-deletions/", s.requireAuth(s.handleDeletionPollPath))
 	mux.HandleFunc("/api/v1/navigation/", s.requireAuth(s.handleNavigation))
-	mux.HandleFunc("/api/v1/events", s.requireAuth(s.handleEvents))
+	if s.sse != nil {
+		// canonical durable bounded SSE handler composed by the App (repair-1 H8).
+		mux.HandleFunc("/api/v1/events", s.requireAuth(s.sse.ServeHTTP))
+	} else {
+		// Fallback local poller keeps the route reachable in minimal setups.
+		mux.HandleFunc("/api/v1/events", s.requireAuth(s.handleEvents))
+	}
 	mux.HandleFunc("/api/v1/traffic", s.requireAuth(s.handleTraffic))
 	mux.HandleFunc("/api/v1/audit", s.requireAuth(s.handleAudit))
 	mux.HandleFunc("/api/v1/settings", s.requireAuth(s.handleSettings))
@@ -270,16 +282,23 @@ type loginRateEntry struct {
 	count       int
 }
 
+// maxLoginLimiterPeers bounds the per-peer login attempt map so a synthetic
+// flood of distinct source IPs cannot grow controller memory without bound
+// (repair-1 M3). When the map is saturated, expired windows are evicted first;
+// a brand-new peer is then refused fail-closed until capacity frees.
+const maxLoginLimiterPeers = 4096
+
 type loginLimiter struct {
-	mu      sync.Mutex
-	now     func() time.Time
-	limit   int
-	window  time.Duration
-	entries map[string]loginRateEntry
+	mu         sync.Mutex
+	now        func() time.Time
+	limit      int
+	window     time.Duration
+	maxEntries int
+	entries    map[string]loginRateEntry
 }
 
 func newLoginLimiter() *loginLimiter {
-	return &loginLimiter{now: time.Now, limit: 10, window: time.Minute, entries: make(map[string]loginRateEntry)}
+	return &loginLimiter{now: time.Now, limit: 10, window: time.Minute, maxEntries: maxLoginLimiterPeers, entries: make(map[string]loginRateEntry)}
 }
 
 func (l *loginLimiter) allow(key string) bool {
@@ -289,6 +308,14 @@ func (l *loginLimiter) allow(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
+	if _, exists := l.entries[key]; !exists && len(l.entries) >= l.maxEntries {
+		l.evictExpiredLocked(now)
+		if len(l.entries) >= l.maxEntries {
+			// Saturated with in-window peers: refuse the new peer rather than
+			// growing the map.
+			return false
+		}
+	}
 	entry := l.entries[key]
 	if entry.windowStart.IsZero() || now.Sub(entry.windowStart) >= l.window {
 		entry = loginRateEntry{windowStart: now}
@@ -300,6 +327,20 @@ func (l *loginLimiter) allow(key string) bool {
 	entry.count++
 	l.entries[key] = entry
 	return true
+}
+
+func (l *loginLimiter) evictExpiredLocked(now time.Time) {
+	for k, e := range l.entries {
+		if !e.windowStart.IsZero() && now.Sub(e.windowStart) >= l.window {
+			delete(l.entries, k)
+		}
+	}
+}
+
+func (l *loginLimiter) peerCount() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.entries)
 }
 
 func (s *Server) currentUser(r *http.Request) (auth.User, bool) {
