@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "plan": "P16",
+  "name": "hooks sandbox: durable delivery queue, SSRF-safe webhook transport, encrypted hook secrets + capability-bounded broker, isolated JS runner, OS-isolated production runner, AliDNS-style full-path fixture",
+  "stage": "CANDIDATE",
+  "branch": "ai/P16-hooks-sandbox",
+  "base_sha": "0f310193b16509d8578d011914f79af3f004c8b5",
+  "base_tree_sha": "5b3683d089d9e78430f48dfdda6aa863f4e63bc2",
+  "head_sha": "d3feb3b5fadce4fab0a27ae1bc0eff2659cbc7d3",
+  "head_tree_sha": "b74378b441337b682d895dd396b95f2faa4070e3",
+  "candidate_record_tip_sha": "d3feb3b5fadce4fab0a27ae1bc0eff2659cbc7d3",
+  "candidate_record_tip_tree_sha": "b74378b441337b682d895dd396b95f2faa4070e3",
+  "canonical_head_sha": "d3feb3b5fadce4fab0a27ae1bc0eff2659cbc7d3",
+  "canonical_head_tree_sha": "b74378b441337b682d895dd396b95f2faa4070e3",
+  "implementation_head_sha": "d3feb3b5fadce4fab0a27ae1bc0eff2659cbc7d3",
+  "implementation_head_tree_sha": "b74378b441337b682d895dd396b95f2faa4070e3",
+  "commits": [
+    "d3feb3b5fadce4fab0a27ae1bc0eff2659cbc7d3",
+    "89511ad1a333c952de8c6bda5d00ed361c4a7d48",
+    "4337297079a74f1267dc69b5ad3855637f0bc3b5",
+    "958369bf1af1e212333b0224400111ffb0655520",
+    "33313e27e4ed5629accb2bfc19da8b693403aa8d",
+    "b80f75744d2d41bed4613f666d498ce5868ff47c"
+  ],
+  "files_changed": [
+    "cmd/antinat-hook-runner/main.go",
+    "migrations/0010_hooks.sql",
+    "migrations/migrations.go",
+    "internal/controller/api/auth.go",
+    "internal/controller/api/hooks.go",
+    "internal/controller/api/hooks_test.go",
+    "internal/controller/app.go",
+    "internal/controller/app_test.go",
+    "internal/controller/store/backup_test.go",
+    "internal/controller/store/corrupt_internal_test.go",
+    "internal/controller/store/migrate_test.go",
+    "internal/controller/store/p10_r14_migration_test.go",
+    "internal/controller/store/probe_test.go",
+    "internal/hook/aliddns_test.go",
+    "internal/hook/broker.go",
+    "internal/hook/broker_test.go",
+    "internal/hook/client.go",
+    "internal/hook/client_test.go",
+    "internal/hook/crud.go",
+    "internal/hook/dispatcher.go",
+    "internal/hook/dispatcher_test.go",
+    "internal/hook/helper_test.go",
+    "internal/hook/hook.go",
+    "internal/hook/ipcheck.go",
+    "internal/hook/ipcheck_test.go",
+    "internal/hook/preparer.go",
+    "internal/hook/queue.go",
+    "internal/hook/queue_test.go",
+    "internal/hook/runner.go",
+    "internal/hook/runner_eval.go",
+    "internal/hook/runner_test.go",
+    "internal/hook/sandbox.go",
+    "internal/hook/sandbox_linux.go",
+    "internal/hook/sandbox_other.go",
+    "internal/hook/sandbox_test.go",
+    "internal/hook/secrets.go",
+    "internal/hook/secrets_test.go",
+    "internal/hook/service.go",
+    "internal/hook/store.go"
+  ],
+  "tests": [
+    {
+      "command": "GOWORK=off go build ./...",
+      "exit_code": 0,
+      "summary": "PASS; full build."
+    },
+    {
+      "command": "GOWORK=off go vet ./internal/hook ./internal/controller/api ./internal/controller/web ./internal/controller/store",
+      "exit_code": 0,
+      "summary": "PASS; named-package vet clean."
+    },
+    {
+      "command": "GOWORK=off go test ./internal/hook ./internal/controller/api ./internal/controller/store ./internal/controller/web -count=1",
+      "exit_code": 0,
+      "summary": "PASS; all four packages green (hook 0.87s, api 4.77s, store 10.20s, web 0.01s)."
+    },
+    {
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./internal/hook -run 'SSRF|Sandbox|Secret|Delivery|AliDNS' -count=10 -timeout 600s",
+      "exit_code": 0,
+      "summary": "PASS; 25.5s for 10 runs of the SSRF/Sandbox/Secret/Delivery/AliDNS focused set. Includes the REAL Linux OS-isolation gate (TestSandboxRealIsolationGate) and TestSandboxRunnerExecutesIsolatedScript, executed against the production cmd/antinat-hook-runner child with the provisioned antinat-sandbox (uid/gid 12001) identity. Without the identity the gate fails closed (webhook-only) and the fail-closed path is asserted (TestSandboxGateFailsClosedWithoutIdentity, TestDedicatedIdentityRejectsNobody)."
+    },
+    {
+      "command": "GOWORK=off go test -race ./internal/hook ./internal/controller/api -count=10",
+      "exit_code": 0,
+      "summary": "PASS; hook 109.2s + api 202.5s, no DATA RACE reported. (The P15-documented pre-existing store-package M4 time-budget issue is out of P16 scope; the brief's race gate is scoped to these two packages.)"
+    },
+    {
+      "command": "python3 test/contracts/validate_openapi.py .",
+      "exit_code": 0,
+      "summary": "PASS; openapi.yaml valid; 32 paths; 13 error statuses referenced; 13 registered."
+    },
+    {
+      "command": "gofmt -l internal/ && git diff --check",
+      "exit_code": 0,
+      "summary": "PASS; gofmt clean, no whitespace errors."
+    },
+    {
+      "command": "GOOS=windows GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/hook/...",
+      "exit_code": 0,
+      "summary": "PASS; Windows cross-build compiles (sandbox_other.go keeps Windows webhook-only). No Windows runtime execution performed."
+    },
+    {
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./...",
+      "exit_code": 0,
+      "summary": "PASS; broad suite green including the P03 spike sandbox (which also needs the dedicated identity) and the new internal/hook package."
+    }
+  ],
+  "evidence": [
+    "Commit tip d3feb3b5fadce4fab0a27ae1bc0eff2659cbc7d3 = P16 Story 6 (AliDNS fixture). 6 story commits on ai/P16-hooks-sandbox from base 0f310193b16509d8578d011914f79af3f004c8b5; reproduce with `git rev-list 0f310193..d3feb3b`.",
+    "Frozen contracts byte-identical base..tip: git diff --stat 0f310193 d3feb3b -- api openapi.yaml docs/ migrations/0001..0009 = empty. Only additive migration 0010_hooks.sql + additive migrations.go registry edits.",
+    "Story 5 real gate: TestSandboxRealIsolationGate + TestSandboxRunnerExecutesIsolatedScript PASS on this host with ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 (provisioned /etc/passwd antinat-sandbox identity at uid/gid 12001). The dedicated-UID gate rejects nobody/nogroup 65534 and missing provision (fail-closed), asserted in sandbox_test.go.",
+    "Story 6 fixture: TestAliDnsFullPathFixture PASS — lifecycle event enqueued only after a durable recorded+verified state event; in-process runner (identical interpreter code to the OS child) computes the canonical AliDNS request (sorted params, AS-MINUTE UTC timestamp, SignatureNonce, HMAC-SHA1 string-to-sign); broker validates the contribution against its own normalization and signs; stub sender (no network) delivers. The final Signature query param equals base64(HMAC-SHA1('AliDNS-AccessKeySecret&', 'GET&%2F&' + PercentEncode(canonical-without-Signature))) recomputed in the test, and no secret material appears in URL/body/headers.",
+    "TestServiceWiredPreparerSignsWebhook PASS — hook.NewService now composes the real DeliveryPreparer (broker + optional runner) into the dispatcher; a secret-bound webhook is delivered header-placement signed (X-Hook-Signature: sha256=...) through Service.PumpOnce with a stub sender.",
+    "Secret handling: secret values are AES-256-GCM encrypted at rest (migrations/0010_hooks.sql hook_secrets.ciphertext) and never returned by the API; the broker decrypts in-process, signs exactly one normalized final allowlisted request (MaxCalls bound, VerifyContribution gate against the broker's own canonicalization), and zeroizes the plaintext. Scripts receive only the request description, never the secret.",
+    "SSRF transport: ignore proxy env (Config.Proxy nil), resolve-then-validate-ALL A/AAAA (reject any blocked address: private/loopback/link-local/CGNAT/ULA/4-in-6/multicast/doc ranges), IP-pin while preserving SNI/Host, redirect revalidation per hop, redirected credentials stripped cross-origin, forbidden headers/userinfo/IP-literal ambiguity/CRLF rejected, gzip-decompression bytes bounded (4MiB cap), raw+header bytes bounded.",
+    "OS isolation child: cmd/antinat-hook-runner exec'd with CLONE_NEWNET|CLONE_NEWNS, chroot to a fresh empty root, drops to the dedicated non-nobody UID/GID, sanitized env, no inherited FDs, NoNewPrivileges, amd64 seccomp denying socket/socketpair/connect/execve(execveat)/ptrace/mount/fork/vfork, RLIMIT_NPROC/CPU/AS, 64KiB capped output, process-group tree-kill. ProbeSolidGate fails closed to webhook-only on any missing gate (never a skipped PASS).",
+    "Race/cluster: no DATA RACE reported anywhere in the brief's race gate (hook + api, -count=10)."
+  ],
+  "contracts_consumed": [
+    { "path": "api/openapi.yaml", "sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32" },
+    { "path": "docs/error-codes.md", "sha256": "be4f4c22c0cd7a5a04bc9076e14efef7028a4c7634eb926aa675e7f87cbfa3b5" },
+    { "path": "docs/protocol.md", "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74" },
+    { "path": "docs/state-model.md", "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03" },
+    { "path": "docs/v1-scope-contract.md", "sha256": "e016cfd0bb0e1395eb23dccf60bc283217139a81db56bf9c1f87ef5f3afe9eaf" },
+    { "path": "migrations/0001_core.sql", "sha256": "aace8ec1b8a650775473e8d092261b8bc2b6ee3a469134baebb95de521210119" },
+    { "path": "migrations/0002_control.sql", "sha256": "804cb5b5fae18dd40d4dba547f635c1d1298d71041e7cf916bbbe04b98d89ee2" },
+    { "path": "migrations/0003_enrollment.sql", "sha256": "b84b5b91bf3a780898f6fdf91afac74ae84dc631c6f0e521398e3e2cc7e251d8" },
+    { "path": "migrations/0004_probe.sql", "sha256": "e1bb1f5b591a29663a1a39254b90092b0a42fd537ebbd8608c6a4eb596b9190e" },
+    { "path": "migrations/0005_probe_hardening.sql", "sha256": "93a1982f9223facdf517be25ce804508ddb786f19e95bdc8feecdf034c14e97a" },
+    { "path": "migrations/0006_r13_hardening.sql", "sha256": "986fe804783b8082177dfabbe092c55f321669760aa460df564b8bcf4187fe0a" },
+    { "path": "migrations/0007_traversal.sql", "sha256": "860d0bc2296b8d8f4a1b9496281fd9ad6727e1399a469abffff5be44a05e50d4" },
+    { "path": "migrations/0008_lifecycle.sql", "sha256": "4812633e1c14e42ccbf9ad5d84173b62d464e49024eb7cf5ef3be078f8801582" },
+    { "path": "migrations/0009_api_metrics.sql", "sha256": "a67abbf7d6ae978fdce5624f434a21acb8d0ab204352e695c873f077aa36534b" }
+  ],
+  "contracts_changed": [],
+  "capability_result": "SUPPORTED_WITH_LIMITS",
+  "known_limits": [
+    "govulncheck is not available in this environment; no PASS is recorded for vulnerability scanning.",
+    "The real Linux OS-isolation gate requires root plus a provisioned dedicated identity (ANTINAT_DEDICATED_UID/GID = 12001 naming /etc/passwd antinat-sandbox). On any host without it the capability degrades to webhook-only (fail-closed, asserted, never a skipped PASS); on Windows the !linux sandbox_other.go keeps the package compiling and webhook-only. No Windows runtime execution was performed (cross-build only).",
+    "Story 6 fixture (and the in-process runner used by dispatcher tests) exercises the same interpreter code the OS-isolated child runs; the OS-isolation boundary itself is a separate production mitigation, proven by the real-gate tests that exec the production cmd/antinat-hook-runner child. In-process fixtures never claim OS isolation.",
+    "No real-WAN, real-AliDNS, or real-Agent network evidence is fabricated: all delivery-path proofs use an injected resolver/dialer or a stub sender, and the AliDNS signature is verified by local recomputation against the plaintext secret.",
+    "The P15-documented pre-existing store-package `-race -count=10` M4 time-budget issue is explicitly out of P16 scope; this phase's race gate (./internal/hook ./internal/controller/api -count=10) passed with no DATA RACE.",
+    "SignatureNonce is produced by crypto/rand and Timestamp by the runner runtime (UTC AS-MINUTE); both are non-deterministic, so the fixture verifies signatures by recomputing the canonical query from the final URL (Signature stripped) rather than from a fixed nonce."
+  ],
+  "ownership_transfers": [
+    "P15 -> P16 (additive registry only): migrations/migrations.go gains the 0010_hooks.sql embed; all prior migrations remain byte-identical.",
+    "P15 -> P16 (schema-version expectations 9 -> 10): internal/controller/store/migrate_test.go, p10_r14_migration_test.go, probe_test.go, corrupt_internal_test.go, backup_test.go.",
+    "P15 -> P16 (resource close-order): internal/controller/app_test.go now asserts close order [http hub probe hooks store].",
+    "P16 new ownership: internal/hook/** (queue/store/crud/dispatcher/ssrf-client/secrets/broker/preparer/service + mini-JS runner + OS sandbox + all tests), cmd/antinat-hook-runner/** , internal/controller/api/hooks.go + hooks_test.go, migrations/0010_hooks.sql.",
+    "P16 serializable minimal integration (edited under declared transfer only, no semantic change): internal/controller/api/auth.go (RouterConfig.Hooks + RegisterRoutes mounts), internal/controller/app.go (hook service + OS runner wiring + Run/Shutdown), internal/controller/web/router_min.go (unchanged surface)."
+  ],
+  "red_reasons": {
+    "story_1": "RED: before Story 1 there was no durable delivery queue — no hook_deliveries table, no at-least-once state machine, no bounded backoff, and no queue-full/DLQ/decommission policy; a webhook event had no durable store to reach a DELIVERED state.",
+    "story_2": "RED: before Story 2 there was no SSRF-safe transport — a plain net/http request to a private/loopback/documented-blocked address would succeed instead of being rejected (no resolve-then-validate-ALL pinning, no blocked-range check, no bounds).",
+    "story_3": "RED: before Story 3 secret values were not stored encrypted at rest and no broker existed — the API had no hook-secret routes and no signing path that could bind a secret capability to exactly one normalized final allowlisted request.",
+    "story_4": "RED: before Story 4 no isolated JS runner existed — a scripted delivery had no interpreter, no step/time/output bounds, and no no-bridge runtime; requiring/fetch/process were not errors because nothing implemented the surface.",
+    "story_5": "RED: before Story 5 the JS capability had no OS isolation and no fail-closed webhook-only gate — the in-process interpreter alone was used unconditionally, nothing rejected the shared nobody identity or a missing dedicated-identity provision, and the non-Linux build did not compile a closed fallback.",
+    "story_6": "RED: before Story 6 the production DeliveryPreparer did not exist (the Service dispatcher was constructed with a nil preparer), so a scripted delivery had NO code path from the durable queue to a signed, sender-ready request; TestAliDnsFullPathFixture asserts that full path end-to-end."
+  },
+  "self_approval": false,
+  "review_ready": true,
+  "merge_push_release": "not performed",
+  "cleanup_done": true
+}
