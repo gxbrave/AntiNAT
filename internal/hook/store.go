@@ -11,14 +11,17 @@ import (
 )
 
 // Definition is one webhook destination (api/openapi.yaml HookDefinition).
+// AllowParams is the INTERNAL per-hook signing param allowlist (P1-2); it is
+// never part of the frozen API response schema.
 type Definition struct {
-	ID        string
-	Name      string
-	Kind      string
-	URL       string
-	Revision  uint64
-	CreatedAt int64
-	UpdatedAt int64
+	ID          string
+	Name        string
+	Kind        string
+	URL         string
+	AllowParams []string
+	Revision    uint64
+	CreatedAt   int64
+	UpdatedAt   int64
 }
 
 // Secret is hook-secret metadata (api/openapi.yaml HookSecret). The plaintext
@@ -122,7 +125,7 @@ func (s *Store) SetClock(clock func() time.Time) {
 }
 
 func (s *Store) checkSchema() error {
-	for _, table := range []string{"hook_definitions", "hook_secrets", "hook_deliveries"} {
+	for _, table := range []string{"hook_definitions", "hook_secrets", "hook_secret_bindings", "hook_deliveries"} {
 		var n int
 		if err := s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&n); err != nil {
 			return fmt.Errorf("hook: inspect %s: %w", table, err)

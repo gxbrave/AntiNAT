@@ -2,6 +2,7 @@ package hook
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -9,11 +10,14 @@ import (
 
 // CreateDefinition inserts a webhook definition at revision 1 and returns it.
 func (s *Store) CreateDefinition(name, kind, url string) (Definition, error) {
-	id := randomHookID()
+	id, err := randomHookID()
+	if err != nil {
+		return Definition{}, err
+	}
 	ts := s.currentUnix()
-	_, err := s.db.Exec(`INSERT INTO hook_definitions
-		(id, name, kind, url, revision, created_at, updated_at)
-		VALUES (?, ?, ?, ?, 1, ?, ?)`, id, name, kind, url, ts, ts)
+	_, err = s.db.Exec(`INSERT INTO hook_definitions
+		(id, name, kind, url, allow_params_json, revision, created_at, updated_at)
+		VALUES (?, ?, ?, ?, '[]', 1, ?, ?)`, id, name, kind, url, ts, ts)
 	if err != nil {
 		return Definition{}, fmt.Errorf("hook: create definition: %w", err)
 	}
@@ -23,7 +27,7 @@ func (s *Store) CreateDefinition(name, kind, url string) (Definition, error) {
 // ListDefinitions returns every webhook definition ordered by name.
 func (s *Store) ListDefinitions() ([]Definition, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, kind, url, revision, created_at, updated_at
+		`SELECT id, name, kind, url, allow_params_json, revision, created_at, updated_at
 		   FROM hook_definitions ORDER BY name, id`)
 	if err != nil {
 		return nil, fmt.Errorf("hook: list definitions: %w", err)
@@ -31,8 +35,12 @@ func (s *Store) ListDefinitions() ([]Definition, error) {
 	var out []Definition
 	if err := scanAll(rows, nil, func(r *sql.Rows) error {
 		var d Definition
-		if err := r.Scan(&d.ID, &d.Name, &d.Kind, &d.URL, &d.Revision, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		var allowRaw string
+		if err := r.Scan(&d.ID, &d.Name, &d.Kind, &d.URL, &allowRaw, &d.Revision, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return err
+		}
+		if err := json.Unmarshal([]byte(allowRaw), &d.AllowParams); err != nil {
+			return fmt.Errorf("hook: parse allow_params_json: %w", err)
 		}
 		out = append(out, d)
 		return nil
@@ -45,15 +53,19 @@ func (s *Store) ListDefinitions() ([]Definition, error) {
 // GetDefinition returns one definition.
 func (s *Store) GetDefinition(id string) (Definition, error) {
 	var d Definition
+	var allowRaw string
 	err := s.db.QueryRow(
-		`SELECT id, name, kind, url, revision, created_at, updated_at
+		`SELECT id, name, kind, url, allow_params_json, revision, created_at, updated_at
 		   FROM hook_definitions WHERE id = ?`, id,
-	).Scan(&d.ID, &d.Name, &d.Kind, &d.URL, &d.Revision, &d.CreatedAt, &d.UpdatedAt)
+	).Scan(&d.ID, &d.Name, &d.Kind, &d.URL, &allowRaw, &d.Revision, &d.CreatedAt, &d.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Definition{}, ErrNotFound
 	}
 	if err != nil {
 		return Definition{}, fmt.Errorf("hook: get definition: %w", err)
+	}
+	if err := json.Unmarshal([]byte(allowRaw), &d.AllowParams); err != nil {
+		return Definition{}, fmt.Errorf("hook: parse allow_params_json: %w", err)
 	}
 	return d, nil
 }
@@ -109,11 +121,15 @@ func (s *Store) DeleteDefinition(id string, expectedRev uint64) error {
 
 // CreateSecret inserts encrypted secret material. secret_id is unique.
 func (s *Store) CreateSecret(secretID, algorithm string, ciphertext []byte, keyID string) (Secret, error) {
+	id, err := randomHookID()
+	if err != nil {
+		return Secret{}, err
+	}
 	ts := s.currentUnix()
-	_, err := s.db.Exec(`INSERT INTO hook_secrets
+	_, err = s.db.Exec(`INSERT INTO hook_secrets
 		(id, secret_id, algorithm, ciphertext, key_id, revision, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
-		randomHookID(), secretID, algorithm, ciphertext, keyID, ts, ts)
+		id, secretID, algorithm, ciphertext, keyID, ts, ts)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return Secret{}, ErrConflict

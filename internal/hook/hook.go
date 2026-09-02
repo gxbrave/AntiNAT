@@ -16,18 +16,18 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 )
 
-// randomHookID returns a 128-bit random hex identifier used by hook rows.
-func randomHookID() string {
+// randomHookID returns a 128-bit random hex identifier used by hook rows. It
+// FAILS CLOSED on crypto/rand failure instead of returning a degenerate stable
+// id that would later surface as unique-constraint conflicts (P3-11).
+func randomHookID() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		// crypto/rand failure is unrecoverable in practice; fall back to a
-		// deterministic-free time-based id so the API surfaces a conflict
-		// rather than a panic. This path is unreachable on any sane platform.
-		return "f" + hex.EncodeToString([]byte(err.Error()))[:30]
+		return "", fmt.Errorf("hook: random id: %w", err)
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
 }
 
 // Delivery states (the observable delivery surface, v0.8 §8.1).
@@ -63,4 +63,33 @@ var (
 	ErrCASConflict = errors.New("hook: revision CAS conflict")
 	ErrQueueFull   = errors.New("hook: delivery queue is full")
 	ErrNotMigrated = errors.New("hook: database not migrated to schema version 10")
+
+	// ErrSecretNotBoundToHook refuses a signing intent whose (hook_id,
+	// secret_id) pair is not durably bound (P1-2; fail closed so an unbound
+	// secret can never be turned into an oracle).
+	ErrSecretNotBoundToHook = errors.New("hook: secret is not bound to this hook")
+
+	// ErrNoSignatureBudget refuses a signing intent for a secret with no
+	// configured signature budget (0 == disabled, fail closed).
+	ErrNoSignatureBudget = errors.New("hook: secret has no configured signature budget")
+
+	// ErrSignatureBudgetExhausted refuses a signing intent past the secret's
+	// durable total-signature budget.
+	ErrSignatureBudgetExhausted = errors.New("hook: secret signature budget exhausted")
+
+	// ErrEndpointDeviation refuses an intent whose method/scheme/host/port/path
+	// deviate from the stored hook definition URL (defense in depth).
+	ErrEndpointDeviation = errors.New("hook: signing intent endpoint deviates from the hook definition")
+
+	// ErrNoParamsAllowlist fails query-placement signing closed when the hook
+	// has no per-hook params allowlist.
+	ErrNoParamsAllowlist = errors.New("hook: query-placement signing requires a per-hook params allowlist")
+
+	// ErrParamNotAllowlisted refuses a script-selected param key that is not in
+	// the hook's allowlist.
+	ErrParamNotAllowlisted = errors.New("hook: script-selected param is not allowlisted")
+
+	// ErrRunnerPanic is the bounded runner error returned when the in-process
+	// interpreter recovers from a panic instead of aborting the controller.
+	ErrRunnerPanic = errors.New("hook: isolated runner recovered from a panic")
 )

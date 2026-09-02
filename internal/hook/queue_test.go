@@ -298,6 +298,104 @@ func TestBackoffIsBounded(t *testing.T) {
 	}
 }
 
+// RED repair P3-9: coalescing INTO a FAILED row must reset its exhausted
+// attempt budget and deferred backoff so the newest payload actually gets
+// retried, instead of inheriting a near-exhausted budget or a long backoff.
+func TestCoalesceOntoFailedResetsBudget(t *testing.T) {
+	hs := newTestHookStore(t)
+	hs.SetJitter(func(int64) int64 { return 0 })
+	d := mustDefinition(t, hs, "web", "https://example.com/hook")
+	policy := hook.QueuePolicy{Version: 1, OnFull: hook.OnFullCoalesce, MaxQueue: 1, MaxAttempts: 3}
+	first := mustEnqueue(t, hs, hook.Event{
+		HookID: d.ID, EventID: "evt-a", Kind: "fwd", Payload: []byte(`{"n":1}`), Policy: policy,
+	})
+	// Drive the row to FAILED with a near-exhausted budget (attempt 2/3) and a
+	// deferred backoff.
+	for i := 0; i < 2; i++ {
+		hs.SetClock(func() time.Time { return time.Unix(1_700_000_000+int64(i)*30, 0) })
+		claimed, err := hs.ClaimDue(10)
+		if err != nil || len(claimed) != 1 {
+			t.Fatalf("claim %d: %v %d", i, err, len(claimed))
+		}
+		if err := hs.MarkFailed(claimed[0].ID, "boom"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pre, _ := hs.GetDelivery(first.ID)
+	if pre.State != hook.DeliveryFailed || pre.AttemptCount != 2 {
+		t.Fatalf("pre-coalesce state = %+v, want FAILED attempt 2", pre)
+	}
+	staleNext := pre.NextAttemptAt
+
+	hs.SetClock(func() time.Time { return time.Unix(1_700_000_060, 0) })
+	second, err := hs.EnqueueEvent(hook.Event{
+		HookID: d.ID, EventID: "evt-b", Kind: "fwd", Payload: []byte(`{"n":2}`), Policy: policy,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := hs.GetDelivery(first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != second.ID {
+		t.Fatalf("coalesce created a new row: %s vs %s", got.ID, second.ID)
+	}
+	if got.State != hook.DeliveryPending || got.AttemptCount != 0 {
+		t.Fatalf("coalesce onto FAILED did not reset attempt budget: %+v", got)
+	}
+	// The newest payload must be due IMMEDIATELY at the coalesce time, not at
+	// the stale deferred backoff (1_700_000_032).
+	if got.NextAttemptAt > 1_700_000_060 {
+		t.Fatalf("coalesce inherited the deferred backoff: next=%d (stale=%d)", got.NextAttemptAt, staleNext)
+	}
+	if got.PayloadJSON != `{"n":2}` {
+		t.Fatalf("coalesce payload = %q, want the newest event", got.PayloadJSON)
+	}
+}
+
+// RED repair P3-8: coalesce must PRESERVE the target row's delivery identity
+// (event_id). Rewriting event_id destroyed the dedup identity, so re-enqueuing
+// the same event_id could create duplicates instead of deduping to the row.
+func TestCoalescePreservesEventID(t *testing.T) {
+	hs := newTestHookStore(t)
+	d := mustDefinition(t, hs, "web", "https://example.com/hook")
+	policy := hook.QueuePolicy{Version: 1, OnFull: hook.OnFullCoalesce, MaxQueue: 1, MaxAttempts: 4}
+	first := mustEnqueue(t, hs, hook.Event{
+		HookID: d.ID, EventID: "evt-a", Kind: "fwd", Payload: []byte(`{"n":1}`), Policy: policy,
+	})
+	second, err := hs.EnqueueEvent(hook.Event{
+		HookID: d.ID, EventID: "evt-b", Kind: "fwd", Payload: []byte(`{"n":2}`), Policy: policy,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ID != first.ID {
+		t.Fatalf("coalesce returned a different row: %s vs %s", second.ID, first.ID)
+	}
+	got, _ := hs.GetDelivery(first.ID)
+	if got.EventID != "evt-a" {
+		t.Fatalf("coalesce clobbered event_id: got %q, want evt-a", got.EventID)
+	}
+	if got.PayloadJSON != `{"n":2}` {
+		t.Fatalf("coalesce payload = %q, want the newest event", got.PayloadJSON)
+	}
+	// Re-enqueuing the original event_id dedups to the SAME row (no duplicate).
+	again, err := hs.EnqueueEvent(hook.Event{
+		HookID: d.ID, EventID: "evt-a", Kind: "fwd", Payload: []byte(`{"n":3}`), Policy: policy,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ID != first.ID {
+		t.Fatalf("re-enqueued dedup key created a row: %s vs %s", again.ID, first.ID)
+	}
+	all, _ := hs.ListDeliveries(10)
+	if len(all) != 1 || all[0].EventID != "evt-a" {
+		t.Fatalf("dedup identity destroyed: %+v", all)
+	}
+}
+
 // TestOpenStoreFailsClosedOnUnmigratedDB: a hook store opened on a database
 // that did not apply migration 0010 fails closed instead of failing at first use.
 func TestOpenStoreFailsClosedOnUnmigratedDB(t *testing.T) {

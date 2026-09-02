@@ -107,6 +107,19 @@ func NewBroker(store *Store, keys *SecretKeystore) *Broker {
 
 // Sign validates and signs one intent, returning the final SignedRequest and
 // the bound capability. The plaintext secret value never leaves Sign.
+//
+// BEFORE signing, the broker enforces the P1-2 capability contract:
+//
+//  1. the secret must be durably bound to the hook (ErrSecretNotBoundToHook);
+//  2. the signing endpoint (method/scheme/host/port/path) must match the stored
+//     hook definition URL, re-derived here from the hook row — the event payload
+//     and any future caller-built intent cannot influence where the signed
+//     request goes (ErrEndpointDeviation);
+//  3. query-placement signing only signs params whose keys are on the hook's
+//     internal allowlist (ErrNoParamsAllowlist / ErrParamNotAllowlisted);
+//  4. the secret's durable total-signature budget is reserved atomically
+//     (ErrNoSignatureBudget / ErrSignatureBudgetExhausted), so the secret is
+//     never an unlimited HMAC oracle.
 func (b *Broker) Sign(ctx context.Context, intent SignIntent) (*SignedRequest, Capability, error) {
 	if b == nil || b.store == nil || b.keys == nil {
 		return nil, Capability{}, errors.New("hook: broker is not configured")
@@ -114,6 +127,33 @@ func (b *Broker) Sign(ctx context.Context, intent SignIntent) (*SignedRequest, C
 	if err := validateIntent(intent); err != nil {
 		return nil, Capability{}, err
 	}
+
+	// Re-derive the endpoint EXCLUSIVELY from the stored hook definition and
+	// refuse any deviation (defense in depth even if a caller builds the intent
+	// wrong; the event payload previously could influence method/path via
+	// requestMethod/requestPath — that overrides are gone, P1-2/P2-4).
+	def, err := b.store.GetDefinition(intent.HookID)
+	if err != nil {
+		return nil, Capability{}, fmt.Errorf("hook: bound hook: %w", err)
+	}
+	parsed, err := url.Parse(def.URL)
+	if err != nil {
+		return nil, Capability{}, fmt.Errorf("hook: parse hook definition url: %w", err)
+	}
+	ep := endpointFromURL(parsed)
+	if err := validateIntentEndpoint(intent, ep); err != nil {
+		return nil, Capability{}, err
+	}
+
+	// Durable secret-to-hook binding gate (fail closed).
+	bound, err := b.store.IsSecretBoundToHook(intent.HookID, intent.SecretID)
+	if err != nil {
+		return nil, Capability{}, err
+	}
+	if !bound {
+		return nil, Capability{}, fmt.Errorf("%w: hook %s secret %s", ErrSecretNotBoundToHook, intent.HookID, intent.SecretID)
+	}
+
 	row, err := b.store.GetSecretRow(intent.SecretID)
 	if err != nil {
 		return nil, Capability{}, fmt.Errorf("hook: bound secret: %w", err)
@@ -126,6 +166,34 @@ func (b *Broker) Sign(ctx context.Context, intent SignIntent) (*SignedRequest, C
 		return nil, Capability{}, err
 	}
 	defer zeroize(secret)
+
+	// Per-hook params allowlist gate for QUERY placement (script/provider
+	// signing). Header-placement webhook signing signs the broker-provided
+	// event body and needs no allowlist.
+	if intent.Placement == SignaturePlacementQuery {
+		allowed, err := b.store.GetHookParamsAllowlist(intent.HookID)
+		if err != nil {
+			return nil, Capability{}, err
+		}
+		if len(allowed) == 0 {
+			return nil, Capability{}, ErrNoParamsAllowlist
+		}
+		set := make(map[string]struct{}, len(allowed))
+		for _, k := range allowed {
+			set[k] = struct{}{}
+		}
+		for k := range intent.Query {
+			if _, ok := set[k]; !ok {
+				return nil, Capability{}, fmt.Errorf("%w: %s", ErrParamNotAllowlisted, k)
+			}
+		}
+	}
+
+	// Durable per-secret signature budget: reserve before computing the HMAC so
+	// a signature is never issued without a reserved, enforced budget unit.
+	if err := b.store.ReserveSecretSignature(intent.SecretID); err != nil {
+		return nil, Capability{}, err
+	}
 
 	canonical := CanonicalQuery(intent.Query)
 	sts := StringToSign(intent.Method, intent.Path, canonical)
@@ -157,6 +225,38 @@ func (b *Broker) Sign(ctx context.Context, intent SignIntent) (*SignedRequest, C
 		setSignedHeader(req, "X-Hook-Signature", signHeaderValue(intent.Algorithm, secret, intent.Body))
 	}
 	return req, cap, nil
+}
+
+// endpoint is the ONLY signing endpoint the broker accepts: derived from the
+// stored hook definition URL. The method is fixed as POST (webhook delivery);
+// the path is the hook URL path; scheme/host/port come from the URL.
+type endpoint struct {
+	method string
+	scheme string
+	host   string
+	port   int
+	path   string
+}
+
+func endpointFromURL(u *url.URL) endpoint {
+	return endpoint{
+		method: "POST",
+		scheme: u.Scheme,
+		host:   u.Hostname(),
+		port:   portOf(u),
+		path:   pathOf(u),
+	}
+}
+
+func validateIntentEndpoint(intent SignIntent, ep endpoint) error {
+	if !strings.EqualFold(intent.Method, ep.method) {
+		return fmt.Errorf("%w: method %s (derived %s)", ErrEndpointDeviation, intent.Method, ep.method)
+	}
+	if intent.Scheme != ep.scheme || !strings.EqualFold(intent.Host, ep.host) ||
+		intent.Port != ep.port || intent.Path != ep.path {
+		return fmt.Errorf("%w: scheme/host/port/path deviate from the hook definition url", ErrEndpointDeviation)
+	}
+	return nil
 }
 
 // VerifyContribution is the "not an arbitrary HMAC oracle" gate: the broker

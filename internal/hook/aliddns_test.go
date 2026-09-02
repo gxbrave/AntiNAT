@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -59,14 +60,23 @@ func TestAliDnsFullPathFixture(t *testing.T) {
 
 	d := mustDefinition(t, hs, "aliddns", "https://dns.aliyuncs.com/")
 	mustCreateSecret(t, hs, ks, "access-key-1", "HMAC-SHA1", "AliDNS-AccessKeySecret")
+	// P1-2: the secret must be durably bound to the hook, given a signature
+	// budget, and the hook must allowlist every query param the script may
+	// choose. Without these the broker fails closed.
+	mustEnableSecret(t, hs, d.ID, "access-key-1", 8,
+		"AccessKeyId", "Action", "Version",
+		"SignatureMethod", "SignatureVersion", "SignatureNonce", "Timestamp")
 
 	// The request-description is the only data the runner sees: it never
-	// contains the secret value.
+	// contains the secret value. The event payload's method/path are NO LONGER
+	// honored (P2-4/P1-2): the preparer derives method=POST and path from the
+	// hook definition URL, so a payload claiming DELETE /wrong must still be
+	// delivered as POST / of the hook URL.
 	payload, err := json.Marshal(map[string]any{
 		"event_id": "evt-aliddns-0001",
 		"hook_id":  d.ID,
-		"method":   "GET",
-		"path":     "/",
+		"method":   "DELETE",
+		"path":     "/wrong",
 		"params": map[string]any{
 			"AccessKeyId": "LTAI-test",
 			"Action":      "DescribeDomainRecords",
@@ -112,8 +122,8 @@ func TestAliDnsFullPathFixture(t *testing.T) {
 	if stub.req == nil {
 		t.Fatal("stub sender captured no request")
 	}
-	if stub.req.Method != "GET" {
-		t.Fatalf("captured method = %s, want GET", stub.req.Method)
+	if stub.req.Method != "POST" {
+		t.Fatalf("captured method = %s, want POST (derived from the hook URL, not the payload)", stub.req.Method)
 	}
 
 	u, err := url.Parse(stub.req.URL)
@@ -154,7 +164,7 @@ func TestAliDnsFullPathFixture(t *testing.T) {
 	}
 	delete(params, "Signature")
 	canonical := hook.CanonicalQuery(params)
-	sts := "GET&" + hook.PercentEncode("/") + "&" + hook.PercentEncode(canonical)
+	sts := "POST&" + hook.PercentEncode("/") + "&" + hook.PercentEncode(canonical)
 	mac := hmac.New(sha1.New, []byte("AliDNS-AccessKeySecret&"))
 	mac.Write([]byte(sts))
 	expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
@@ -180,6 +190,29 @@ func TestAliDnsFullPathFixture(t *testing.T) {
 				t.Fatalf("secret value leaked into header %s", key)
 			}
 		}
+	}
+
+	// Oracle closure asserted end-to-end: an unbound (hook, secret) pair and a
+	// disallowed param key must be refused by the broker even when a delivery
+	// row exists.
+	otherHook := mustDefinition(t, hs, "unbound-hook", "https://dns.aliyuncs.com/")
+	unbound := hook.SignIntent{
+		HookID: otherHook.ID, SecretID: "access-key-1", Algorithm: string(hook.AlgorithmHMACSHA1),
+		Method: "POST", Scheme: "https", Host: "dns.aliyuncs.com", Port: 443, Path: "/",
+		Placement: hook.SignaturePlacementQuery, MaxCalls: 1,
+		Query: map[string]string{"Action": "DescribeDomainRecords"},
+	}
+	if _, _, err := broker.Sign(context.Background(), unbound); !errors.Is(err, hook.ErrSecretNotBoundToHook) {
+		t.Fatalf("unbound pair error = %v, want ErrSecretNotBoundToHook", err)
+	}
+	disallowed := hook.SignIntent{
+		HookID: d.ID, SecretID: "access-key-1", Algorithm: string(hook.AlgorithmHMACSHA1),
+		Method: "POST", Scheme: "https", Host: "dns.aliyuncs.com", Port: 443, Path: "/",
+		Placement: hook.SignaturePlacementQuery, MaxCalls: 1,
+		Query: map[string]string{"Action": "DescribeDomainRecords", "NotAllowlisted": "1"},
+	}
+	if _, _, err := broker.Sign(context.Background(), disallowed); !errors.Is(err, hook.ErrParamNotAllowlisted) {
+		t.Fatalf("disallowed param error = %v, want ErrParamNotAllowlisted", err)
 	}
 }
 
@@ -213,6 +246,13 @@ func TestServiceWiredPreparerSignsWebhook(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := svc.CreateSecret("access-key-1", "HMAC-SHA256", "secret-value"); err != nil {
+		t.Fatal(err)
+	}
+	// P1-2: bind + budget the secret so the broker will sign for this hook.
+	if err := svc.BindSecretToHook(d.ID, "access-key-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetSecretSignatureBudget("access-key-1", 8); err != nil {
 		t.Fatal(err)
 	}
 	delivery, err := svc.EnqueueLifecycleEvent(hook.Event{

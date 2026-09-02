@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/gxbrave/AntiNAT/internal/protocol"
 )
@@ -39,7 +38,11 @@ func (r *Runner) RunEnvelope(ctx context.Context, script, request []byte, limits
 //   - secret + script: runner computes the canonical contribution, the broker
 //     verifies it against its own normalization and signs (query placement).
 //
-// Script deliveries fail closed when no ScriptRunner is configured (webhook-only).
+// The signing METHOD/Scheme/Host/Port/Path are derived EXCLUSIVELY from the
+// stored hook definition URL (P1-2/P2-4): the event payload can supply params
+// and descriptive fields but can never influence where the signed request goes
+// or how it signs (requestMethod/requestPath overrides were removed). Script
+// deliveries fail closed when no ScriptRunner is configured (webhook-only).
 type DeliveryPreparerImpl struct {
 	store  *Store
 	broker *Broker
@@ -62,8 +65,10 @@ func (p *DeliveryPreparerImpl) Prepare(ctx context.Context, d Delivery) (*Signed
 	if err != nil {
 		return nil, fmt.Errorf("hook: parse definition url: %w", err)
 	}
+	ep := endpointFromURL(u)
+
 	base := &SignedRequest{
-		Method:  "POST",
+		Method:  ep.method,
 		URL:     def.URL,
 		Headers: http.Header{},
 		Body:    []byte(d.PayloadJSON),
@@ -82,22 +87,37 @@ func (p *DeliveryPreparerImpl) Prepare(ctx context.Context, d Delivery) (*Signed
 	}
 
 	if d.ScriptB64 == "" {
-		// Header-placement body signature (no runner).
+		// Header-placement body signature (no runner). The broker re-derives
+		// the endpoint from the hook definition and refuses an unbound
+		// hook/secret pair or a deviating intent.
 		intent := SignIntent{
-			HookID: d.HookID, SecretID: d.SecretID, Algorithm: row.Algorithm,
-			Method: "POST", Scheme: u.Scheme, Host: u.Hostname(), Port: portOf(u),
-			Path: pathOf(u), Body: []byte(d.PayloadJSON),
-			Placement: SignaturePlacementHeader, MaxCalls: 1,
+			HookID:    d.HookID,
+			SecretID:  d.SecretID,
+			Algorithm: row.Algorithm,
+			Method:    ep.method,
+			Scheme:    ep.scheme,
+			Host:      ep.host,
+			Port:      ep.port,
+			Path:      ep.path,
+			Body:      []byte(d.PayloadJSON),
+			Placement: SignaturePlacementHeader,
+			MaxCalls:  1,
 		}
-		req, _, err := p.broker.Sign(ctx, intent)
+		req, capability, err := p.broker.Sign(ctx, intent)
 		if err != nil {
 			return nil, err
+		}
+		// The delivery may sign at most once per prepare (per-request bound).
+		if !capability.CanSign() {
+			return nil, ErrCapabilityExhausted
 		}
 		return mergeHeaders(req, d), nil
 	}
 
 	// Scripted provider-style contribution: runner computes, broker verifies +
-	// signs. The request-description is in the delivery payload.
+	// signs. The request-description the runner sees carries the event's params
+	// but NEVER a script-influenced method/path — it is rebuilt from the derived
+	// endpoint so the event payload cannot redirect the signed request (P2-4).
 	script, err := base64.StdEncoding.DecodeString(d.ScriptB64)
 	if err != nil {
 		return nil, fmt.Errorf("hook: invalid script encoding: %w", err)
@@ -105,7 +125,11 @@ func (p *DeliveryPreparerImpl) Prepare(ctx context.Context, d Delivery) (*Signed
 	if p.runner == nil {
 		return nil, ErrRunnerUnsupported
 	}
-	envelope, err := p.runner.RunEnvelope(ctx, script, []byte(d.PayloadJSON), p.limits)
+	request, err := buildRunnerRequest([]byte(d.PayloadJSON), ep)
+	if err != nil {
+		return nil, err
+	}
+	envelope, err := p.runner.RunEnvelope(ctx, script, request, p.limits)
 	if err != nil {
 		return nil, err
 	}
@@ -141,24 +165,49 @@ func (p *DeliveryPreparerImpl) Prepare(ctx context.Context, d Delivery) (*Signed
 		return nil, fmt.Errorf("%w: script contribution has no final params", ErrContributionMismatch)
 	}
 	intent := SignIntent{
-		HookID: d.HookID, SecretID: d.SecretID, Algorithm: row.Algorithm,
-		Method: firstNonEmpty(requestMethod(d), "GET"),
-		Scheme: u.Scheme, Host: u.Hostname(), Port: portOf(u),
-		Path:      firstNonEmpty(requestPath(d), pathOf(u)),
+		HookID:    d.HookID,
+		SecretID:  d.SecretID,
+		Algorithm: row.Algorithm,
+		Method:    ep.method,
+		Scheme:    ep.scheme,
+		Host:      ep.host,
+		Port:      ep.port,
+		Path:      ep.path,
 		Query:     contribution.Params,
 		Body:      []byte(d.PayloadJSON),
-		Placement: SignaturePlacementQuery, MaxCalls: 1,
+		Placement: SignaturePlacementQuery,
+		MaxCalls:  1,
 	}
 	// The broker refuses to sign unless the contribution matches its own
-	// canonicalization of the SAME final params.
+	// canonicalization of the SAME final allowlisted params.
 	if err := VerifyContribution(intent, raw); err != nil {
 		return nil, err
 	}
-	req, _, err := p.broker.Sign(ctx, intent)
+	req, capability, err := p.broker.Sign(ctx, intent)
 	if err != nil {
 		return nil, err
 	}
+	if !capability.CanSign() {
+		return nil, ErrCapabilityExhausted
+	}
 	return mergeHeaders(req, d), nil
+}
+
+// buildRunnerRequest builds the strict runner request-description from the
+// delivery payload and the derived endpoint. The payload may supply params and
+// descriptive fields (e.g. event_id, hook_id), but `method` and `path` are
+// replaced with the broker-derived values so the event payload can never
+// influence what is signed or where the signed request goes.
+func buildRunnerRequest(payload []byte, ep endpoint) ([]byte, error) {
+	decoded := map[string]any{}
+	if len(payload) > 0 {
+		if err := protocol.DecodeStrictJSONInto(payload, &decoded); err != nil {
+			return nil, fmt.Errorf("hook: request-description schema: %w", err)
+		}
+	}
+	decoded["method"] = ep.method
+	decoded["path"] = ep.path
+	return json.Marshal(decoded)
 }
 
 func mergeHeaders(req *SignedRequest, d Delivery) *SignedRequest {
@@ -185,27 +234,4 @@ func pathOf(u *url.URL) string {
 		return "/"
 	}
 	return u.Path
-}
-
-func firstNonEmpty(a, b string) string {
-	if strings.TrimSpace(a) != "" {
-		return a
-	}
-	return b
-}
-
-func requestMethod(d Delivery) string {
-	var rd struct {
-		Method string `json:"method"`
-	}
-	_ = json.Unmarshal([]byte(d.PayloadJSON), &rd)
-	return rd.Method
-}
-
-func requestPath(d Delivery) string {
-	var rd struct {
-		Path string `json:"path"`
-	}
-	_ = json.Unmarshal([]byte(d.PayloadJSON), &rd)
-	return rd.Path
 }

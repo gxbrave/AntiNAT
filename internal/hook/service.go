@@ -151,16 +151,50 @@ func (s *Service) DeleteSecret(id string, expectedRev uint64) error {
 // caller must already have durably recorded/verified the underlying state
 // change it describes (forward deletion, probe result, etc.); the queue never
 // fabricates the event.
+//
+// This is the PUBLIC enqueue seam (P2-3 integration handoff): the dispatcher
+// pump, at-least-once guarantee, and decommission-drop semantics are armed and
+// verified here, but no P14/P15 lifecycle file currently calls this method. The
+// production lifecycle→webhook wiring (forward-delete durable events; node
+// decommission/uninstall bounded best-effort drop) is an explicit P17/P19
+// composition point that consumes this seam. No P14/P15 lifecycle file was
+// modified to preserve ownership.
 func (s *Service) EnqueueLifecycleEvent(evt Event) (Delivery, error) {
 	return s.Store.EnqueueEvent(evt)
 }
 
+// RetryDelivery requeues a FAILED/DLQED delivery as PENDING in one transaction
+// with a fresh attempt budget and a durable audit.
 func (s *Service) RetryDelivery(id string) (Delivery, error) {
 	return s.Store.RetryDelivery(id)
 }
 
+// MarkDecommissioned bounds delivery best-effort for a node: deliveries
+// targeting the node are dropped after the deadline (dispatcher applies the
+// drop; this just arms the deadline). The arming and its audit share one
+// transaction.
 func (s *Service) MarkDecommissioned(nodeID string, deadline int64) error {
 	return s.Store.MarkDecommissioned(nodeID, deadline)
+}
+
+// --- INTERNAL capability wiring (P1-2; never part of the frozen API surface) ---
+
+// BindSecretToHook durably binds a secret to a hook. The broker refuses to
+// sign for an unbound (hook_id, secret_id) pair (ErrSecretNotBoundToHook).
+func (s *Service) BindSecretToHook(hookID, secretID string) error {
+	return s.Store.BindSecretToHook(hookID, secretID)
+}
+
+// SetSecretSignatureBudget sets the durable total-signature cap for a secret
+// (fail closed when 0). The broker reserves one unit per issued signature.
+func (s *Service) SetSecretSignatureBudget(secretID string, budget int64) error {
+	return s.Store.SetSecretSignatureBudget(secretID, budget)
+}
+
+// SetHookParamsAllowlist replaces the per-hook signing param allowlist used by
+// query-placement signing (absent allowlist -> ErrNoParamsAllowlist).
+func (s *Service) SetHookParamsAllowlist(hookID string, allowed []string) error {
+	return s.Store.SetHookParamsAllowlist(hookID, allowed)
 }
 
 func (s *Service) ListDeliveries(limit int) ([]Delivery, error) {
@@ -196,8 +230,12 @@ func validateHookURL(raw string) error {
 	if err != nil {
 		return fmt.Errorf("%w: invalid url: %v", ErrInvalid, err)
 	}
-	if u.Scheme != "https" && u.Scheme != "http" {
-		return fmt.Errorf("%w: url scheme must be https (or http for explicit allow)", ErrInvalid)
+	// Hook definitions must be HTTPS (P3-12). The production SSRF client
+	// (ClientConfig{} in app.go) rejects plain HTTP by default, so allowing an
+	// http:// hook definition would let a user create a webhook that can never
+	// be delivered.
+	if u.Scheme != "https" {
+		return fmt.Errorf("%w: url scheme must be https", ErrInvalid)
 	}
 	if u.User != nil {
 		return fmt.Errorf("%w: url must not contain userinfo", ErrInvalid)

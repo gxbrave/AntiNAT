@@ -31,10 +31,30 @@ func mustCreateSecret(t *testing.T, hs *hook.Store, ks *hook.SecretKeystore, sec
 	}
 }
 
+// mustEnableSecret binds the secret to the hook, sets a durable signature
+// budget, and (for query-placement tests) sets the per-hook params allowlist.
+func mustEnableSecret(t *testing.T, hs *hook.Store, hookID, secretID string, budget int64, allowed ...string) {
+	t.Helper()
+	if err := hs.BindSecretToHook(hookID, secretID); err != nil {
+		t.Fatal(err)
+	}
+	if err := hs.SetSecretSignatureBudget(secretID, budget); err != nil {
+		t.Fatal(err)
+	}
+	if len(allowed) > 0 {
+		if err := hs.SetHookParamsAllowlist(hookID, allowed); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func baseIntent(d hook.Definition) hook.SignIntent {
 	return hook.SignIntent{
 		HookID: d.ID, SecretID: "access-key-1", Algorithm: string(hook.AlgorithmHMACSHA256),
-		Method: "GET", Scheme: "https", Host: "dns.aliyuncs.com", Port: 443,
+		// P1-2: the signing method/path/scheme/host/port derive exclusively from
+		// the hook definition URL (POST, path = URL path). The broker refuses a
+		// deviating intent.
+		Method: "POST", Scheme: "https", Host: "dns.aliyuncs.com", Port: 443,
 		Path: "/", Placement: hook.SignaturePlacementHeader, MaxCalls: 1,
 		Query: map[string]string{"Action": "DescribeDomainRecords", "Version": "2015-01-09"},
 	}
@@ -48,6 +68,7 @@ func TestBrokerSignsHeaderWebhook(t *testing.T) {
 	hs, ks, broker := newBroker(t)
 	d := mustDefinition(t, hs, "web", "https://dns.aliyuncs.com/")
 	mustCreateSecret(t, hs, ks, "access-key-1", "HMAC-SHA256", "secret-value")
+	mustEnableSecret(t, hs, d.ID, "access-key-1", 8)
 	body := []byte(`{"event":"forward_deleted"}`)
 	intent := baseIntent(d)
 	intent.Body = body
@@ -55,7 +76,7 @@ func TestBrokerSignsHeaderWebhook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if req.Method != "GET" || req.URL != "https://dns.aliyuncs.com/" {
+	if req.Method != "POST" || req.URL != "https://dns.aliyuncs.com/" {
 		t.Fatalf("unexpected signed request: %s %s", req.Method, req.URL)
 	}
 	sig := req.Headers.Get("X-Hook-Signature")
@@ -79,6 +100,8 @@ func TestBrokerSignsQueryPlacement(t *testing.T) {
 	hs, ks, broker := newBroker(t)
 	d := mustDefinition(t, hs, "web", "https://dns.aliyuncs.com/")
 	mustCreateSecret(t, hs, ks, "access-key-1", "HMAC-SHA1", "AliDNS-AccessKeySecret")
+	mustEnableSecret(t, hs, d.ID, "access-key-1", 8,
+		"AccessKeyId", "Version", "Action", "SignatureMethod")
 	intent := baseIntent(d)
 	intent.Algorithm = string(hook.AlgorithmHMACSHA1)
 	intent.Placement = hook.SignaturePlacementQuery
@@ -156,5 +179,85 @@ func TestCapabilityCallBound(t *testing.T) {
 	}
 	if zero.CanSign() {
 		t.Fatal("zero-capability signed twice")
+	}
+}
+
+// RED repair P1-2 (oracle closure): the broker must refuse an UNBOUND
+// hook/secret pair, a query-placement sign without a per-hook allowlist, a
+// disallowed script-selected param key, and a deviating endpoint intent; and a
+// secret's durable signature budget is a hard total cap (never an unlimited
+// oracle).
+func TestBrokerRefusesUnboundDisallowedAndExhausted(t *testing.T) {
+	hs, ks, broker := newBroker(t)
+	d := mustDefinition(t, hs, "web", "https://dns.aliyuncs.com/")
+	mustCreateSecret(t, hs, ks, "access-key-1", "HMAC-SHA256", "secret-value")
+	ctx := context.Background()
+	headerIntent := baseIntent(d)
+	headerIntent.Body = []byte(`{}`)
+
+	// 1. Unbound pair -> ErrSecretNotBoundToHook (fail closed).
+	if _, _, err := broker.Sign(ctx, headerIntent); !errors.Is(err, hook.ErrSecretNotBoundToHook) {
+		t.Fatalf("unbound secret error = %v, want ErrSecretNotBoundToHook", err)
+	}
+
+	// 2. Bound but no signature budget -> ErrNoSignatureBudget.
+	if err := hs.BindSecretToHook(d.ID, "access-key-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := broker.Sign(ctx, headerIntent); !errors.Is(err, hook.ErrNoSignatureBudget) {
+		t.Fatalf("no-budget error = %v, want ErrNoSignatureBudget", err)
+	}
+
+	// 3. Query placement with no allowlist -> ErrNoParamsAllowlist.
+	if err := hs.BindSecretToHook(d.ID, "access-key-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := hs.SetSecretSignatureBudget("access-key-1", 8); err != nil {
+		t.Fatal(err)
+	}
+	queryIntent := baseIntent(d)
+	queryIntent.Placement = hook.SignaturePlacementQuery
+	queryIntent.Query = map[string]string{"Action": "DescribeDomainRecords"}
+	if _, _, err := broker.Sign(ctx, queryIntent); !errors.Is(err, hook.ErrNoParamsAllowlist) {
+		t.Fatalf("no-allowlist error = %v, want ErrNoParamsAllowlist", err)
+	}
+
+	// 4. Disallowed param key -> ErrParamNotAllowlisted.
+	if err := hs.SetHookParamsAllowlist(d.ID, []string{"Action"}); err != nil {
+		t.Fatal(err)
+	}
+	queryIntent.Query = map[string]string{"Action": "DescribeDomainRecords", "EvilParam": "1"}
+	if _, _, err := broker.Sign(ctx, queryIntent); !errors.Is(err, hook.ErrParamNotAllowlisted) {
+		t.Fatalf("disallowed param error = %v, want ErrParamNotAllowlisted", err)
+	}
+
+	// 5. Deviating endpoint intent (path not the hook URL path) -> refused.
+	if err := hs.SetHookParamsAllowlist(d.ID, []string{"Action"}); err != nil {
+		t.Fatal(err)
+	}
+	queryIntent.Query = map[string]string{"Action": "DescribeDomainRecords"}
+	queryIntent.Path = "/evil"
+	if _, _, err := broker.Sign(ctx, queryIntent); !errors.Is(err, hook.ErrEndpointDeviation) {
+		t.Fatalf("deviating endpoint error = %v, want ErrEndpointDeviation", err)
+	}
+
+	// 6. Durable budget exhaustion: budget 1 signs once, the second sign is
+	// refused even though each capability's MaxCalls is fresh.
+	queryIntent.Path = "/"
+	if err := hs.SetSecretSignatureBudget("access-key-1", 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := broker.Sign(ctx, queryIntent); err != nil {
+		t.Fatalf("first budgeted sign failed: %v", err)
+	}
+	if _, _, err := broker.Sign(ctx, queryIntent); !errors.Is(err, hook.ErrSignatureBudgetExhausted) {
+		t.Fatalf("over-budget sign error = %v, want ErrSignatureBudgetExhausted", err)
+	}
+	issued, budget, err := hs.SignatureUsage("access-key-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if budget != 1 || issued != 1 {
+		t.Fatalf("signature usage = %d/%d, want 1/1", issued, budget)
 	}
 }

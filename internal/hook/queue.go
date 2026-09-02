@@ -78,10 +78,6 @@ func (s *Store) AppendAudit(eventType, payload string) error {
 	return nil
 }
 
-func (s *Store) auditFor(eventType, payload string) {
-	_ = s.AppendAudit(eventType, payload)
-}
-
 // EnqueueEvent durably queues one delivery. It is idempotent for a repeated
 // (hook_id, event_id) and applies the versioned queue-full policy when the
 // hook's pending+inflight backlog is at the bound.
@@ -148,25 +144,52 @@ func (s *Store) enqueueFull(tx *dbTX, evt Event, policy QueuePolicy, kind string
 	switch policy.OnFull {
 	case OnFullCoalesce:
 		// A burst of state events for the same destination collapses to the
-		// latest payload (coalesce key: hook + event kind). The newest event
-		// id and payload replace the pending item; if there is nothing to
-		// coalesce into, fall through to the DLQ path.
-		var targetID string
-		err := tx.QueryRow(`SELECT id FROM hook_deliveries
+		// latest payload (coalesce key: hook + event kind). The target row's
+		// delivery identity (event_id) is PRESERVED so a later re-enqueue of the
+		// same event_id still dedups to the row (P3-8). Coalescing onto a FAILED
+		// row resets its exhausted attempt budget and deferred backoff so the
+		// newest payload actually gets retried (P3-9). If there is nothing to
+		// coalesce into, fall through to the DLQ path. The audit INSERT is folded
+		// into the same transaction (P3-10/P3-17): a failed audit rolls back the
+		// whole operation instead of being silently swallowed post-commit.
+		var targetID, targetState string
+		err := tx.QueryRow(`SELECT id, state FROM hook_deliveries
 			WHERE hook_id = ? AND kind = ? AND state IN ('PENDING','FAILED')
-			ORDER BY created_at LIMIT 1`, evt.HookID, kind).Scan(&targetID)
+			ORDER BY created_at LIMIT 1`, evt.HookID, kind).Scan(&targetID, &targetState)
 		if err == nil {
-			if _, upErr := tx.Exec(`UPDATE hook_deliveries
-				SET event_id = ?, payload_json = ?, script_b64 = ?, secret_id = ?, updated_at = ?
-				WHERE id = ?`, evt.EventID, string(evt.Payload), b64Str(evt.Script), evt.SecretID, ts, targetID); upErr != nil {
+			if targetState == DeliveryFailed {
+				if _, upErr := tx.Exec(`UPDATE hook_deliveries
+					SET state = ?, attempt_count = 0, next_attempt_at = ?,
+					    payload_json = ?, script_b64 = ?, secret_id = ?, updated_at = ?
+					WHERE id = ?`,
+					DeliveryPending, ts, string(evt.Payload), b64Str(evt.Script), evt.SecretID, ts, targetID); upErr != nil {
+					_ = tx.Rollback()
+					return Delivery{}, fmt.Errorf("hook: coalesce reset update: %w", upErr)
+				}
+			} else {
+				if _, upErr := tx.Exec(`UPDATE hook_deliveries
+					SET payload_json = ?, script_b64 = ?, secret_id = ?, updated_at = ?
+					WHERE id = ?`,
+					string(evt.Payload), b64Str(evt.Script), evt.SecretID, ts, targetID); upErr != nil {
+					_ = tx.Rollback()
+					return Delivery{}, fmt.Errorf("hook: coalesce update: %w", upErr)
+				}
+			}
+			if _, aErr := tx.Exec(`INSERT INTO admin_events (event_type, payload, created_at) VALUES (?, ?, ?)`,
+				"HOOK_DELIVERY_COALESCED",
+				fmt.Sprintf(`{"delivery_id":%q,"hook_id":%q,"event_id":%q}`, targetID, evt.HookID, evt.EventID),
+				ts); aErr != nil {
 				_ = tx.Rollback()
-				return Delivery{}, fmt.Errorf("hook: coalesce update: %w", upErr)
+				return Delivery{}, fmt.Errorf("hook: audit coalesce: %w", aErr)
 			}
 			if err := tx.Commit(); err != nil {
 				return Delivery{}, fmt.Errorf("hook: commit coalesce: %w", err)
 			}
-			s.auditFor("HOOK_DELIVERY_COALESCED", fmt.Sprintf(`{"delivery_id":%q,"hook_id":%q,"event_id":%q}`, targetID, evt.HookID, evt.EventID))
 			return s.GetDelivery(targetID)
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			_ = tx.Rollback()
+			return Delivery{}, fmt.Errorf("hook: coalesce target lookup: %w", err)
 		}
 		// No coalesce target: treat as a drop-style DLQ so nothing is silent.
 		d, err := insertDelivery(tx, evt, policy, kind, DeliveryDLQed, ts, ts, "queue coalesce fallback to DLQ")
@@ -174,14 +197,40 @@ func (s *Store) enqueueFull(tx *dbTX, evt Event, policy QueuePolicy, kind string
 			_ = tx.Rollback()
 			return Delivery{}, err
 		}
+		if _, aErr := tx.Exec(`INSERT INTO admin_events (event_type, payload, created_at) VALUES (?, ?, ?)`,
+			"HOOK_DELIVERY_DLQED",
+			fmt.Sprintf(`{"delivery_id":%q,"hook_id":%q,"event_id":%q,"reason":%q}`, d.ID, evt.HookID, evt.EventID, "queue full, no coalesce target"),
+			ts); aErr != nil {
+			_ = tx.Rollback()
+			return Delivery{}, fmt.Errorf("hook: audit coalesce-dlq: %w", aErr)
+		}
 		if err := tx.Commit(); err != nil {
 			return Delivery{}, fmt.Errorf("hook: commit coalesce-dlq: %w", err)
 		}
-		s.auditFor("HOOK_DELIVERY_DLQED", fmt.Sprintf(`{"delivery_id":%q,"hook_id":%q,"event_id":%q,"reason":%q}`, d.ID, evt.HookID, evt.EventID, "queue full, no coalesce target"))
 		return d, nil
 	case OnFullDrop:
+		// The event is refused with ErrQueueFull (the loss is surfaced to the
+		// caller, never silent). The audit row is written durably in its own
+		// immediate transaction so the SSE surface records the drop; a failed
+		// audit is returned as an error, never a silent swallow.
 		_ = tx.Rollback()
-		s.auditFor("HOOK_DELIVERY_DROPPED", fmt.Sprintf(`{"hook_id":%q,"event_id":%q,"policy":"drop"}`, evt.HookID, evt.EventID))
+		atx, err := s.beginImmediate()
+		if err != nil {
+			return Delivery{}, fmt.Errorf("hook: begin drop audit: %w", err)
+		}
+		if _, aErr := atx.Exec(`INSERT INTO admin_events (event_type, payload, created_at) VALUES (?, ?, ?)`,
+			"HOOK_DELIVERY_DROPPED",
+			fmt.Sprintf(`{"hook_id":%q,"event_id":%q,"policy":"drop"}`, evt.HookID, evt.EventID),
+			ts); aErr != nil {
+			_ = atx.Rollback()
+			_ = atx.Close()
+			return Delivery{}, fmt.Errorf("hook: audit drop: %w", aErr)
+		}
+		if cErr := atx.Commit(); cErr != nil {
+			_ = atx.Close()
+			return Delivery{}, fmt.Errorf("hook: commit drop audit: %w", cErr)
+		}
+		_ = atx.Close()
 		return Delivery{}, fmt.Errorf("%w: hook %s dropped event %s", ErrQueueFull, evt.HookID, evt.EventID)
 	default:
 		d, err := insertDelivery(tx, evt, policy, kind, DeliveryDLQed, ts, ts, "queue full (DLQ policy)")
@@ -189,17 +238,26 @@ func (s *Store) enqueueFull(tx *dbTX, evt Event, policy QueuePolicy, kind string
 			_ = tx.Rollback()
 			return Delivery{}, err
 		}
+		if _, aErr := tx.Exec(`INSERT INTO admin_events (event_type, payload, created_at) VALUES (?, ?, ?)`,
+			"HOOK_DELIVERY_DLQED",
+			fmt.Sprintf(`{"delivery_id":%q,"hook_id":%q,"event_id":%q,"reason":%q}`, d.ID, evt.HookID, evt.EventID, "queue full"),
+			ts); aErr != nil {
+			_ = tx.Rollback()
+			return Delivery{}, fmt.Errorf("hook: audit dlq: %w", aErr)
+		}
 		if err := tx.Commit(); err != nil {
 			return Delivery{}, fmt.Errorf("hook: commit dlq: %w", err)
 		}
-		s.auditFor("HOOK_DELIVERY_DLQED", fmt.Sprintf(`{"delivery_id":%q,"hook_id":%q,"event_id":%q,"reason":%q}`, d.ID, evt.HookID, evt.EventID, "queue full"))
 		return d, nil
 	}
 }
 
 func insertDelivery(tx execer, evt Event, policy QueuePolicy, kind, state string, ts, next int64, lastError string) (Delivery, error) {
-	id := randomHookID()
-	_, err := tx.Exec(`INSERT INTO hook_deliveries
+	id, err := randomHookID()
+	if err != nil {
+		return Delivery{}, err
+	}
+	_, err = tx.Exec(`INSERT INTO hook_deliveries
 		(id, hook_id, event_id, kind, state, attempt_count, max_attempts, next_attempt_at,
 		 policy_json, payload_json, script_b64, secret_id, last_error, node_id,
 		 decommission_deadline, created_at, updated_at)
@@ -414,13 +472,31 @@ func (s *Store) MarkFailed(id, errMsg string) error {
 	attempt := d.AttemptCount + 1
 	next := ts + backoffSeconds(attempt, s.jitter)
 	if attempt >= d.MaxAttempts {
-		if _, err := s.db.Exec(`UPDATE hook_deliveries
+		// The DLQ transition and its audit are folded into one transaction so a
+		// failed audit cannot silently swallow the dead-letter record (P3-10/
+		// P3-17 "never silent loss").
+		tx, err := s.beginImmediate()
+		if err != nil {
+			return fmt.Errorf("hook: begin mark dlq: %w", err)
+		}
+		defer func() { _ = tx.Close() }()
+		if _, err := tx.Exec(`UPDATE hook_deliveries
 			SET state = ?, attempt_count = ?, last_error = ?, updated_at = ?
 			WHERE id = ? AND state = ?`,
 			DeliveryDLQed, attempt, errMsg, ts, id, DeliveryInFlight); err != nil {
+			_ = tx.Rollback()
 			return fmt.Errorf("hook: mark dlq: %w", err)
 		}
-		s.auditFor("HOOK_DELIVERY_DLQED", fmt.Sprintf(`{"delivery_id":%q,"reason":%q}`, id, "max attempts reached"))
+		if _, aErr := tx.Exec(`INSERT INTO admin_events (event_type, payload, created_at) VALUES (?, ?, ?)`,
+			"HOOK_DELIVERY_DLQED",
+			fmt.Sprintf(`{"delivery_id":%q,"reason":%q}`, id, "max attempts reached"),
+			ts); aErr != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("hook: audit dlq: %w", aErr)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("hook: commit mark dlq: %w", err)
+		}
 		return nil
 	}
 	if _, err := s.db.Exec(`UPDATE hook_deliveries
@@ -434,28 +510,96 @@ func (s *Store) MarkFailed(id, errMsg string) error {
 
 // RetryDelivery requeues a FAILED or DLQED delivery as PENDING with a fresh
 // attempt budget (name matches the frozen POST /hook-deliveries/{id}/retry).
+// The requeue and its audit share one transaction (a failed audit surfaces as
+// an error, never a silent swallow).
 func (s *Store) RetryDelivery(id string) (Delivery, error) {
+	tx, err := s.beginImmediate()
+	if err != nil {
+		return Delivery{}, fmt.Errorf("hook: begin retry: %w", err)
+	}
+	defer func() { _ = tx.Close() }()
 	ts := s.currentUnix()
-	res, err := s.db.Exec(`UPDATE hook_deliveries
+	res, err := tx.Exec(`UPDATE hook_deliveries
 		SET state = ?, attempt_count = 0, next_attempt_at = ?, last_error = '', updated_at = ?
 		WHERE id = ? AND state IN (?, ?)`,
 		DeliveryPending, ts, ts, id, DeliveryFailed, DeliveryDLQed)
 	if err != nil {
+		_ = tx.Rollback()
 		return Delivery{}, fmt.Errorf("hook: retry delivery: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
+		_ = tx.Rollback()
 		if _, getErr := s.GetDelivery(id); errors.Is(getErr, ErrNotFound) {
 			return Delivery{}, ErrNotFound
 		}
 		return Delivery{}, fmt.Errorf("%w: delivery %s is not retryable", ErrInvalid, id)
 	}
-	s.auditFor("HOOK_DELIVERY_RETRY", fmt.Sprintf(`{"delivery_id":%q}`, id))
+	if _, aErr := tx.Exec(`INSERT INTO admin_events (event_type, payload, created_at) VALUES (?, ?, ?)`,
+		"HOOK_DELIVERY_RETRY", fmt.Sprintf(`{"delivery_id":%q}`, id), ts); aErr != nil {
+		_ = tx.Rollback()
+		return Delivery{}, fmt.Errorf("hook: audit retry: %w", aErr)
+	}
+	if err := tx.Commit(); err != nil {
+		return Delivery{}, fmt.Errorf("hook: commit retry: %w", err)
+	}
+	return s.GetDelivery(id)
+}
+
+// RetryDeliveryAndRecord requeues one FAILED/DLQED delivery as PENDING and
+// creates the durable API operation record (api_operations, kind
+// "hook_delivery_retry") IN THE SAME TRANSACTION as the requeue (P3-13). A
+// crash between the requeue and the operation record can therefore never strand
+// a requeued delivery with no 202 Operation (the client would otherwise get a
+// confusing 409 on its next retry). api_operations lives in the same SQLite
+// file the hook store opens (the controller store applied migration 0009), so
+// the insert is visible to the controller store immediately after commit.
+func (s *Store) RetryDeliveryAndRecord(id, opID, nodeID, detail string) (Delivery, error) {
+	if id == "" || opID == "" {
+		return Delivery{}, fmt.Errorf("%w: delivery and operation ids are required", ErrInvalid)
+	}
+	tx, err := s.beginImmediate()
+	if err != nil {
+		return Delivery{}, fmt.Errorf("hook: begin retry+record: %w", err)
+	}
+	defer func() { _ = tx.Close() }()
+	ts := s.currentUnix()
+	res, err := tx.Exec(`UPDATE hook_deliveries
+		SET state = ?, attempt_count = 0, next_attempt_at = ?, last_error = '', updated_at = ?
+		WHERE id = ? AND state IN (?, ?)`,
+		DeliveryPending, ts, ts, id, DeliveryFailed, DeliveryDLQed)
+	if err != nil {
+		_ = tx.Rollback()
+		return Delivery{}, fmt.Errorf("hook: retry delivery: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		_ = tx.Rollback()
+		if _, getErr := s.GetDelivery(id); errors.Is(getErr, ErrNotFound) {
+			return Delivery{}, ErrNotFound
+		}
+		return Delivery{}, fmt.Errorf("%w: delivery %s is not retryable", ErrInvalid, id)
+	}
+	if _, oErr := tx.Exec(`INSERT INTO api_operations
+		(id, kind, node_id, forward_id, state, detail, remote_cleanup_confirmed, created_at, updated_at, completed_at)
+		VALUES (?, 'hook_delivery_retry', NULLIF(?, ''), NULLIF(?, ''), 'ACCEPTED', ?, 0, ?, ?, NULL)`,
+		opID, nodeID, "", detail, ts, ts); oErr != nil {
+		_ = tx.Rollback()
+		return Delivery{}, fmt.Errorf("hook: operation record: %w", oErr)
+	}
+	if _, aErr := tx.Exec(`INSERT INTO admin_events (event_type, payload, created_at) VALUES (?, ?, ?)`,
+		"HOOK_DELIVERY_RETRY", fmt.Sprintf(`{"delivery_id":%q}`, id), ts); aErr != nil {
+		_ = tx.Rollback()
+		return Delivery{}, fmt.Errorf("hook: audit retry: %w", aErr)
+	}
+	if err := tx.Commit(); err != nil {
+		return Delivery{}, fmt.Errorf("hook: commit retry+record: %w", err)
+	}
 	return s.GetDelivery(id)
 }
 
 // MarkDecommissioned bounds delivery best-effort for a node: deliveries
 // targeting the node are dropped after the deadline (Dispatcher applies the
-// drop; this just arms the deadline).
+// drop; this just arms the deadline). The arming and its audit share one
+// transaction so a failed audit surfaces as an error (P3-10/P3-17).
 func (s *Store) MarkDecommissioned(nodeID string, deadline int64) error {
 	if nodeID == "" {
 		return fmt.Errorf("%w: node_id is required", ErrInvalid)
@@ -463,16 +607,31 @@ func (s *Store) MarkDecommissioned(nodeID string, deadline int64) error {
 	if deadline <= 0 {
 		return fmt.Errorf("%w: deadline must be in the future", ErrInvalid)
 	}
+	tx, err := s.beginImmediate()
+	if err != nil {
+		return fmt.Errorf("hook: begin decommission: %w", err)
+	}
+	defer func() { _ = tx.Close() }()
 	ts := s.currentUnix()
-	res, err := s.db.Exec(`UPDATE hook_deliveries
+	res, err := tx.Exec(`UPDATE hook_deliveries
 		SET decommission_deadline = ?, updated_at = ?
 		WHERE node_id = ? AND state IN ('PENDING','IN_FLIGHT','FAILED')`,
 		deadline, ts, nodeID)
 	if err != nil {
+		_ = tx.Rollback()
 		return fmt.Errorf("hook: mark decommissioned: %w", err)
 	}
 	n, _ := res.RowsAffected()
-	s.auditFor("HOOK_DECOMMISSION_MARKED", fmt.Sprintf(`{"node_id":%q,"deadline":%d,"affected":%d}`, nodeID, deadline, n))
+	if _, aErr := tx.Exec(`INSERT INTO admin_events (event_type, payload, created_at) VALUES (?, ?, ?)`,
+		"HOOK_DECOMMISSION_MARKED",
+		fmt.Sprintf(`{"node_id":%q,"deadline":%d,"affected":%d}`, nodeID, deadline, n),
+		ts); aErr != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("hook: audit decommission marked: %w", aErr)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("hook: commit decommission: %w", err)
+	}
 	return nil
 }
 
