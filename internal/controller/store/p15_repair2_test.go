@@ -124,3 +124,60 @@ func TestP15Repair2PutTraversalDefaultsConcurrentSingleWinner(t *testing.T) {
 		t.Fatalf("node after concurrent PUTs = %+v err %v, want revision 2", n, err)
 	}
 }
+
+// RED P2-C: UpdateNavigationCategoryCAS pre-checked order_index with a separate
+// SELECT and then ran an unconditional UPDATE; two concurrent writers claiming
+// the same order_index raced on the UPDATE, and any constraint error surfaced as
+// a raw error (500 in the handler) instead of ErrNavigationOrderConflict (409).
+// Now serialized under BEGIN IMMEDIATE: exactly one writer wins order 99 and the
+// loser maps to ErrNavigationOrderConflict; no duplicate order_index persists.
+func TestP15Repair2NavigationCategoryOrderRaceSingleWinner(t *testing.T) {
+	s := openRepairStore(t)
+	if _, err := s.CreateNavigationCategory(store.NavigationCategory{ID: "cat-a", Name: "A", OrderIndex: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateNavigationCategory(store.NavigationCategory{ID: "cat-b", Name: "B", OrderIndex: 2}); err != nil {
+		t.Fatal(err)
+	}
+
+	const order = 99
+	results := make([]error, 2)
+	var wg sync.WaitGroup
+	for i, id := range []string{"cat-a", "cat-b"} {
+		wg.Add(1)
+		go func(i int, id string) {
+			defer wg.Done()
+			_, err := s.UpdateNavigationCategoryCAS(id, 1, id, order)
+			results[i] = err
+		}(i, id)
+	}
+	wg.Wait()
+
+	winners := 0
+	for i, err := range results {
+		if err == nil {
+			winners++
+			continue
+		}
+		if !errors.Is(err, store.ErrNavigationOrderConflict) {
+			t.Fatalf("writer %d error = %v, want nil or ErrNavigationOrderConflict (RED: pre-fix raw error)", i, err)
+		}
+	}
+	if winners != 1 {
+		t.Fatalf("winners = %d, want exactly one (results=%v)", winners, results)
+	}
+	// Exactly one category may hold order 99.
+	cats, err := s.ListNavigationCategories()
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, c := range cats {
+		if c.OrderIndex == order {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("categories with order %d = %d, want 1", order, count)
+	}
+}

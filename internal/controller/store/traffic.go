@@ -731,20 +731,52 @@ func (s *Store) UpdateNavigationCategoryCAS(id string, expected uint64, name str
 	if order < 0 {
 		return NavigationCategory{}, ErrNavigationOrderConflict
 	}
+	// repair-2 P2-C: the EXISTS pre-check and the UPDATE were two separate
+	// statements, so two concurrent writers could BOTH pass the pre-check and
+	// then race the same order_index on the UPDATE. Serialize them under
+	// BEGIN IMMEDIATE: the loser's pre-check runs after the winner commits and
+	// sees the winning row, so it maps to ErrNavigationOrderConflict instead of
+	// racing a duplicate. The UNIQUE-error mapping is the defensive belt: a
+	// duplicate row surfaced by any path stays a navigation-order conflict
+	// (409), never a raw error (500).
+	conn, err := s.db.Conn(context.Background())
+	if err != nil {
+		return NavigationCategory{}, fmt.Errorf("store: navigation category conn: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		return NavigationCategory{}, fmt.Errorf("store: begin navigation category update: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
 	var exists int
-	if err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM navigation_categories WHERE order_index=? AND id<>?)`, order, id).Scan(&exists); err != nil {
+	if err := conn.QueryRowContext(context.Background(),
+		`SELECT EXISTS(SELECT 1 FROM navigation_categories WHERE order_index=? AND id<>?)`, order, id).Scan(&exists); err != nil {
 		return NavigationCategory{}, err
 	}
 	if exists != 0 {
 		return NavigationCategory{}, ErrNavigationOrderConflict
 	}
-	res, err := s.db.Exec(`UPDATE navigation_categories SET name=?,order_index=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?`, name, order, s.currentUnix(), id, expected)
+	res, err := conn.ExecContext(context.Background(),
+		`UPDATE navigation_categories SET name=?,order_index=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?`,
+		name, order, s.currentUnix(), id, expected)
 	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			return NavigationCategory{}, ErrNavigationOrderConflict
+		}
 		return NavigationCategory{}, err
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
 		return NavigationCategory{}, ErrCASConflict
 	}
+	if _, err := conn.ExecContext(context.Background(), "COMMIT"); err != nil {
+		return NavigationCategory{}, fmt.Errorf("store: commit navigation category update: %w", err)
+	}
+	committed = true
 	return s.GetNavigationCategory(id)
 }
 func (s *Store) DeleteNavigationCategoryCAS(id string, expected uint64) error {
@@ -822,20 +854,48 @@ func (s *Store) UpdateNavigationItemCAS(i NavigationItem, expected uint64) (Navi
 	if i.Name == "" || i.CategoryID == "" || i.ForwardID == "" || i.OrderIndex < 0 {
 		return NavigationItem{}, ErrTrafficInvalid
 	}
+	// repair-2 P2-C: same pre-check/UPDATE race as UpdateNavigationCategoryCAS;
+	// serialize under BEGIN IMMEDIATE so a concurrent writer claiming the same
+	// (category_id, order_index) maps to ErrNavigationOrderConflict, never a raw
+	// error (500). The UNIQUE-error mapping is the defensive belt.
+	conn, err := s.db.Conn(context.Background())
+	if err != nil {
+		return NavigationItem{}, fmt.Errorf("store: navigation item conn: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		return NavigationItem{}, fmt.Errorf("store: begin navigation item update: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
 	var exists int
-	if err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM navigation_items WHERE category_id=? AND order_index=? AND id<>?)`, i.CategoryID, i.OrderIndex, i.ID).Scan(&exists); err != nil {
+	if err := conn.QueryRowContext(context.Background(),
+		`SELECT EXISTS(SELECT 1 FROM navigation_items WHERE category_id=? AND order_index=? AND id<>?)`, i.CategoryID, i.OrderIndex, i.ID).Scan(&exists); err != nil {
 		return NavigationItem{}, err
 	}
 	if exists != 0 {
 		return NavigationItem{}, ErrNavigationOrderConflict
 	}
-	res, err := s.db.Exec(`UPDATE navigation_items SET name=?,description=?,protocol=?,category_id=?,forward_id=?,order_index=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?`, i.Name, i.Description, i.Protocol, i.CategoryID, i.ForwardID, i.OrderIndex, s.currentUnix(), i.ID, expected)
+	res, err := conn.ExecContext(context.Background(),
+		`UPDATE navigation_items SET name=?,description=?,protocol=?,category_id=?,forward_id=?,order_index=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?`,
+		i.Name, i.Description, i.Protocol, i.CategoryID, i.ForwardID, i.OrderIndex, s.currentUnix(), i.ID, expected)
 	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			return NavigationItem{}, ErrNavigationOrderConflict
+		}
 		return NavigationItem{}, err
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
 		return NavigationItem{}, ErrCASConflict
 	}
+	if _, err := conn.ExecContext(context.Background(), "COMMIT"); err != nil {
+		return NavigationItem{}, fmt.Errorf("store: commit navigation item update: %w", err)
+	}
+	committed = true
 	return s.GetNavigationItem(i.ID)
 }
 func (s *Store) DeleteNavigationItemCAS(id string, expected uint64) error {

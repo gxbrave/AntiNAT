@@ -9,6 +9,7 @@ package api_test
 import (
 	"encoding/json"
 	"net/http"
+	"sync"
 	"testing"
 )
 
@@ -130,5 +131,54 @@ func TestP15Repair2ForceDeleteOperationAndTombstoneCorrelated(t *testing.T) {
 	}
 	if cleanup, err := st.IsCleanupOnly(node2); err != nil || cleanup {
 		t.Fatalf("normal delete quarantine = %v err %v, want false (never quarantines)", cleanup, err)
+	}
+}
+
+// RED P2-C through the handler: two concurrent category PATCHes racing for the
+// same order_index must resolve to exactly one 200 and one 409 — never a 500
+// (the pre-fix UNIQUE race surfaced as INTERNAL_ERROR). Under BEGIN IMMEDIATE
+// the loser's pre-check runs after the winner commits and maps to CONFLICT.
+func TestP15Repair2NavigationCategoryOrderRaceNever500(t *testing.T) {
+	srv, st := newTestServer(t)
+	user, pass := initAdmin(t, srv, st)
+	cookie := login(t, srv, user, pass)
+
+	createCategory := func(name string, order int, key string) (id, etag string) {
+		resp, body := doReqKey(t, srv, http.MethodPost, "/api/v1/navigation/categories", cookie,
+			map[string]any{"name": name, "order_index": order}, key)
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("create category %s = %d (%s)", name, resp.StatusCode, body)
+		}
+		var c map[string]any
+		_ = json.Unmarshal(body, &c)
+		return c["id"].(string), c["etag"].(string)
+	}
+	idA, etagA := createCategory("nav-a", 1, "nav-cat-key-a-0001")
+	idB, etagB := createCategory("nav-b", 2, "nav-cat-key-b-0002")
+
+	statuses := make([]int, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		resp, _ := doReqIfMatch(t, srv, http.MethodPatch, "/api/v1/navigation/categories/"+idA, cookie,
+			map[string]any{"order_index": 99}, etagA)
+		statuses[0] = resp.StatusCode
+	}()
+	go func() {
+		defer wg.Done()
+		resp, _ := doReqIfMatch(t, srv, http.MethodPatch, "/api/v1/navigation/categories/"+idB, cookie,
+			map[string]any{"order_index": 99}, etagB)
+		statuses[1] = resp.StatusCode
+	}()
+	wg.Wait()
+
+	for i, status := range statuses {
+		if status != http.StatusOK && status != http.StatusConflict {
+			t.Fatalf("writer %d category PATCH = %d, want 200 or 409 (RED: pre-fix 500 on UNIQUE race)", i, status)
+		}
+	}
+	if statuses[0] == statuses[1] {
+		t.Fatalf("both category PATCHes = %d/%d: exactly one wins and one conflicts", statuses[0], statuses[1])
 	}
 }
