@@ -119,6 +119,18 @@ func (s *Store) DeleteDefinition(id string, expectedRev uint64) error {
 	return nil
 }
 
+// defaultSecretSignatureBudget is the durable total-signature hard cap applied
+// when a secret is created through the PUBLIC create path (Store.CreateSecret is
+// the single insertion point behind POST /api/v1/hooks/secrets). The budget only
+// bounds the TOTAL number of signatures a secret can ever issue (defense against
+// an unlimited HMAC oracle); WHAT can be signed is already bound by the endpoint
+// derivation, hook-binding and per-hook params allowlist (P1-2). Operators can
+// raise or lower it via the internal SetSecretSignatureBudget API, or set it to
+// 0 to disable signing entirely (fail closed). The migration default remains 0
+// so any hypothetical insert that does not explicitly budget a secret fails
+// closed at the broker.
+const defaultSecretSignatureBudget int64 = 1024
+
 // CreateSecret inserts encrypted secret material. secret_id is unique.
 func (s *Store) CreateSecret(secretID, algorithm string, ciphertext []byte, keyID string) (Secret, error) {
 	id, err := randomHookID()
@@ -127,9 +139,9 @@ func (s *Store) CreateSecret(secretID, algorithm string, ciphertext []byte, keyI
 	}
 	ts := s.currentUnix()
 	_, err = s.db.Exec(`INSERT INTO hook_secrets
-		(id, secret_id, algorithm, ciphertext, key_id, revision, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
-		id, secretID, algorithm, ciphertext, keyID, ts, ts)
+		(id, secret_id, algorithm, ciphertext, key_id, signature_budget, revision, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+		id, secretID, algorithm, ciphertext, keyID, defaultSecretSignatureBudget, ts, ts)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return Secret{}, ErrConflict

@@ -200,8 +200,13 @@ func TestBrokerRefusesUnboundDisallowedAndExhausted(t *testing.T) {
 		t.Fatalf("unbound secret error = %v, want ErrSecretNotBoundToHook", err)
 	}
 
-	// 2. Bound but no signature budget -> ErrNoSignatureBudget.
+	// 2. Bound but signature budget explicitly 0 (disabled) -> ErrNoSignatureBudget.
+	// (The public create path applies a default budget, so the fail-closed
+	// "no budget" state is reached by DISABLING it explicitly.)
 	if err := hs.BindSecretToHook(d.ID, "access-key-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := hs.SetSecretSignatureBudget("access-key-1", 0); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := broker.Sign(ctx, headerIntent); !errors.Is(err, hook.ErrNoSignatureBudget) {

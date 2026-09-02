@@ -1,12 +1,14 @@
 package api_test
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,8 +21,13 @@ import (
 
 // newHooksTestServer builds a controller store + API server with the hook
 // service composed (routes registered), returning the server, store, and hook
-// service.
+// service. The dispatcher sender is nil (delivery pump fails closed) unless the
+// caller uses newHooksTestServerWithSender.
 func newHooksTestServer(t *testing.T) (*httptest.Server, *store.Store, *hook.Service) {
+	return newHooksTestServerWithSender(t, nil)
+}
+
+func newHooksTestServerWithSender(t *testing.T, sender hook.Sender) (*httptest.Server, *store.Store, *hook.Service) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "controller.db")
 	st, err := store.Open(dbPath)
@@ -31,7 +38,7 @@ func newHooksTestServer(t *testing.T) (*httptest.Server, *store.Store, *hook.Ser
 	svc, err := hook.NewService(hook.ServiceConfig{
 		DBPath:  dbPath,
 		KeyPath: filepath.Join(t.TempDir(), "hook-secret.key"),
-		Sender:  nil,
+		Sender:  sender,
 	})
 	if err != nil {
 		t.Fatalf("hook service: %v", err)
@@ -277,5 +284,119 @@ func TestHookDeliveryRetryReturnsOperation(t *testing.T) {
 	got, err := svc.Store.GetDelivery(deliv.ID)
 	if err != nil || got.State != hook.DeliveryPending {
 		t.Fatalf("delivery after retry: %v %+v", err, got)
+	}
+}
+
+// hookE2ESender is the network-free delivery sink for the API E2E test.
+type hookE2ESender struct {
+	mu  sync.Mutex
+	req *hook.SignedRequest
+}
+
+func (s *hookE2ESender) Send(_ context.Context, req *hook.SignedRequest) (*hook.SendResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.req = req
+	return &hook.SendResult{StatusCode: 200}, nil
+}
+
+// RED repair follow-up (P1-2 budget semantics): a secret created through the
+// frozen PUBLIC API path (POST /api/v1/hooks/secrets) must be immediately
+// usable for header-placement webhook signing — the public create path applies
+// a bounded DEFAULT signature budget, so the broker does NOT fail with
+// ErrNoSignatureBudget (the regression this guards: CreateSecret left the
+// migration default 0, making every API-created secret un-signable). The test
+// also proves the durable budget actually caps signing: setting budget=1 after
+// the first sign refuses the second signature (never DELIVERED).
+func TestHookSecretPublicCreateSignsDelivery(t *testing.T) {
+	sender := &hookE2ESender{}
+	srv, st, svc := newHooksTestServerWithSender(t, sender)
+	user, pass := initAdmin(t, srv, st)
+	cookie := login(t, srv, user, pass)
+
+	// Public create of the hook definition and the secret. NO internal budget
+	// setting is performed — this same route must leave the secret signable.
+	hookID, _ := createHookDef(t, srv, cookie, "web", "https://example.org/events")
+	resp, body := doReqKey2(t, srv, http.MethodPost, "/api/v1/hooks/secrets", cookie,
+		map[string]any{"secret_id": "access-key-1", "algorithm": "HMAC-SHA256", "value": "secret-value"},
+		"sec-key-0001")
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create secret = %d (%s)", resp.StatusCode, body)
+	}
+
+	// The public create path MUST have applied a bounded default budget.
+	issued, budget, err := svc.Store.SignatureUsage("access-key-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if budget <= 0 {
+		t.Fatalf("public create left signature_budget = %d, want > 0 (default applied; previously un-signable)", budget)
+	}
+	if issued != 0 {
+		t.Fatalf("public create started with %d issued signatures, want 0", issued)
+	}
+
+	// Hook-binding is internal wiring (P17), separate from the create-secret path.
+	if err := svc.BindSecretToHook(hookID, "access-key-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	delivery, err := svc.EnqueueLifecycleEvent(hook.Event{
+		HookID: hookID, EventID: "evt-1", NodeID: "node-1",
+		Payload: []byte(`{"event":"forward_deleted"}`), SecretID: "access-key-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := svc.PumpOnce(); n != 1 {
+		t.Fatalf("pump handled %d deliveries, want 1", n)
+	}
+	got, err := svc.Store.GetDelivery(delivery.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != hook.DeliveryDelivered {
+		t.Fatalf("delivery state = %s last_err=%q, want DELIVERED", got.State, got.LastError)
+	}
+	sender.mu.Lock()
+	req := sender.req
+	sender.mu.Unlock()
+	if req == nil {
+		t.Fatal("stub sender captured no request")
+	}
+	sig := req.Headers.Get("X-Hook-Signature")
+	if !strings.HasPrefix(sig, "sha256=") {
+		t.Fatalf("header-placement signature missing/malformed from public-create secret: %q", sig)
+	}
+	if strings.Contains(sig, "secret-value") ||
+		strings.Contains(req.URL, "secret-value") ||
+		strings.Contains(string(req.Body), "secret-value") {
+		t.Fatal("secret plaintext leaked into the signed request")
+	}
+
+	// Durable budget cap: after the first sign the secret has issued 1 unit.
+	// Setting budget=1 means the NEXT signature must be refused, not delivered.
+	if err := svc.SetSecretSignatureBudget("access-key-1", 1); err != nil {
+		t.Fatal(err)
+	}
+	delivery2, err := svc.EnqueueLifecycleEvent(hook.Event{
+		HookID: hookID, EventID: "evt-2", NodeID: "node-1",
+		Payload: []byte(`{"event":"second"}`), SecretID: "access-key-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := svc.PumpOnce(); n != 1 {
+		t.Fatalf("second pump handled %d deliveries, want 1", n)
+	}
+	got2, err := svc.Store.GetDelivery(delivery2.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2.State == hook.DeliveryDelivered {
+		t.Fatalf("over-budget signature was accepted and delivered: %+v", got2)
+	}
+	if !strings.Contains(got2.LastError, "budget") {
+		t.Fatalf("over-budget failure did not surface the budget error: %q", got2.LastError)
 	}
 }
