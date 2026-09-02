@@ -140,6 +140,13 @@ func (b *Broker) Sign(ctx context.Context, intent SignIntent) (*SignedRequest, C
 	if err != nil {
 		return nil, Capability{}, fmt.Errorf("hook: parse hook definition url: %w", err)
 	}
+	// P2-1 defense at the signing path: even a query/fragment-bearing hook URL
+	// that bypassed service validation cannot be signed/delivered — buildURL
+	// derives the signed URL from scheme/host/port/path only, so accepting one
+	// here would silently strip the query and deliver to the wrong final URL.
+	if err := rejectURLQueryFragment(parsed); err != nil {
+		return nil, Capability{}, err
+	}
 	ep := endpointFromURL(parsed)
 	if err := validateIntentEndpoint(intent, ep); err != nil {
 		return nil, Capability{}, err
@@ -203,9 +210,10 @@ func (b *Broker) Sign(ctx context.Context, intent SignIntent) (*SignedRequest, C
 	if maxCalls <= 0 {
 		maxCalls = 1
 	}
-	if maxCalls > maxCapabilityCalls {
-		return nil, Capability{}, fmt.Errorf("hook: requested %d signing calls exceeds the bound %d", maxCalls, maxCapabilityCalls)
-	}
+	// P3-4: the maxCalls bound is validated in validateIntent BEFORE the durable
+	// budget reserve, so an over-bound intent is refused without consuming one
+	// budget unit. This normalization is all that remains here (MaxCalls <= 0
+	// defaults to a single allowed call).
 	cap := Capability{
 		HookID: intent.HookID, SecretID: intent.SecretID, Algorithm: intent.Algorithm,
 		Method: intent.Method, Scheme: intent.Scheme, Host: intent.Host, Port: intent.Port,
@@ -340,6 +348,13 @@ func validateIntent(intent SignIntent) error {
 	if intent.Placement != SignaturePlacementQuery && intent.Placement != SignaturePlacementHeader {
 		return errors.New("hook: invalid signature placement")
 	}
+	// P3-4: the per-request signing-call bound is validated here — the FIRST
+	// gate in Sign, before the durable per-secret signature budget is reserved —
+	// so a refused over-bound intent never consumes a budget unit. maxCalls <= 0
+	// defaults to a single allowed call and can never exceed the cap.
+	if intent.MaxCalls > maxCapabilityCalls {
+		return fmt.Errorf("hook: requested %d signing calls exceeds the bound %d", intent.MaxCalls, maxCapabilityCalls)
+	}
 	return nil
 }
 
@@ -394,7 +409,16 @@ func StringToSign(method, path, canonicalQuery string) string {
 }
 
 func signBytes(algorithm string, secret []byte, msg []byte) []byte {
-	mac := hmac.New(digest(algorithm), append(secret, '&'))
+	// P3-6: build the HMAC key on a FRESH buffer instead of append(secret, '&').
+	// The provider convention appends the '&' separator to the secret for the
+	// HMAC key; appending into the decrypted secret's backing array could land
+	// the trailing '&' in its spare capacity, where zeroize(secret) (len(secret)
+	// bytes only) would never reach it. key is a new len(secret)+1 buffer,
+	// zeroized after hmac.New has already derived its pads, and the caller's
+	// zeroize(secret) continues to cover the plaintext exactly.
+	key := append(append([]byte(nil), secret...), '&')
+	defer zeroize(key)
+	mac := hmac.New(digest(algorithm), key)
 	mac.Write(msg)
 	return mac.Sum(nil)
 }

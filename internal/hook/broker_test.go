@@ -182,6 +182,31 @@ func TestCapabilityCallBound(t *testing.T) {
 	}
 }
 
+// RED repair P3-4: the per-request maxCalls bound is validated BEFORE the
+// durable budget reserve, so an over-bound signing intent is refused without
+// consuming a single signature_issued unit. Previously the maxCalls bound was
+// checked after ReserveSecretSignature, so a refused over-bound intent burned
+// one durable budget unit despite issuing nothing.
+func TestOverBoundIntentDoesNotConsumeSignatureBudget(t *testing.T) {
+	hs, ks, broker := newBroker(t)
+	d := mustDefinition(t, hs, "web", "https://dns.aliyuncs.com/")
+	mustCreateSecret(t, hs, ks, "access-key-1", "HMAC-SHA256", "secret-value")
+	mustEnableSecret(t, hs, d.ID, "access-key-1", 8)
+	intent := baseIntent(d)
+	intent.Body = []byte(`{}`)
+	intent.MaxCalls = 100 // far above the broker's bound (8)
+	if _, _, err := broker.Sign(context.Background(), intent); err == nil {
+		t.Fatal("over-bound intent unexpectedly signed")
+	}
+	issued, budget, err := hs.SignatureUsage("access-key-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issued != 0 || budget != 8 {
+		t.Fatalf("over-bound intent consumed budget: issued=%d budget=%d, want 0/8", issued, budget)
+	}
+}
+
 // RED repair P1-2 (oracle closure): the broker must refuse an UNBOUND
 // hook/secret pair, a query-placement sign without a per-hook allowlist, a
 // disallowed script-selected param key, and a deviating endpoint intent; and a
