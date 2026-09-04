@@ -21,7 +21,6 @@ if [ -n "${ANTINAT_TEST_PASSWORD:-}" ]; then
 else
   TEST_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
 fi
-export ANTINAT_TEST_USER="$TEST_USER" ANTINAT_TEST_PASSWORD="$TEST_PASSWORD"
 
 PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/root/.cache/ms-playwright}"
 
@@ -74,6 +73,7 @@ run_suite() {
     admin.spec.js|deployment.spec.js) auth_state="$WORK/browser-auth.json" ;;
   esac
   ( cd "$BROWSER_DIR" && ANTINAT_BASE_URL="http://127.0.0.1:$PORT" \
+      ANTINAT_TEST_USER="$TEST_USER" ANTINAT_TEST_PASSWORD="$TEST_PASSWORD" \
       ANTINAT_AUTH_STATE="$auth_state" \
       PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_PATH" \
       npx playwright test "$spec" )
@@ -111,7 +111,7 @@ if ! wait_ready "$PORT"; then
 fi
 
 echo "== test-browser: seed public fixture =="
-( cd "$ROOT" && go run ./test/browser/seed -store "$WORK/controller.db" -scenario public )
+( cd "$ROOT" && ANTINAT_TEST_USER="$TEST_USER" ANTINAT_TEST_PASSWORD="$TEST_PASSWORD" go run ./test/browser/seed -store "$WORK/controller.db" -scenario public )
 
 run_suite home-public.spec.js || FAILED=1
 
@@ -124,7 +124,7 @@ run_suite destructive.spec.js || FAILED=1
 run_suite a11y.spec.js || FAILED=1
 
 echo "== test-browser: seed private-site fixture =="
-( cd "$ROOT" && go run ./test/browser/seed -store "$WORK/controller.db" -scenario private )
+( cd "$ROOT" && ANTINAT_TEST_USER="$TEST_USER" ANTINAT_TEST_PASSWORD="$TEST_PASSWORD" go run ./test/browser/seed -store "$WORK/controller.db" -scenario private )
 
 run_suite home-private.spec.js || FAILED=1
 
