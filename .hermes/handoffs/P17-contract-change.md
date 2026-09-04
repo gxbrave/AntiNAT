@@ -12,7 +12,7 @@ waive the frozen P04/P15/P16 contracts and does not authorize any old
 - Child plan: `.hermes/plans/v1-beta/17-web-ui-deployment.md`
 - Continuation source: `.hermes/handoffs/P17-paused-handoff.md`
 - Required implementation base: `329fdf5039e4e55350d923462f78c2d4ee2e3588`
-- P17 candidate implementation commit: `7cc4e4f`
+- P17 candidate implementation commit: `b5040b1`
 - Pre-P17 OpenAPI manifest SHA-256: `aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32`
 - P17 OpenAPI SHA-256: `43785c94abf6f158f52f0059d38a260d4d68f052a5ca1aed26539e48bc06c1eb`
 
@@ -86,6 +86,8 @@ acceptance and are limited to the corresponding durable behavior:
 | `internal/controller/api/operations.go` | report completed node cleanup ACK as `remote_cleanup_confirmed` | operation projection only |
 | `internal/controller/api/forwards_min.go` | project existing runtime UpdatedAt/ActivationID as evidence metadata | additive response fields; no new route |
 | `internal/controller/store/p15_repair1_page.go` | hide force-tombstoned nodes from regular navigation | durable node row retained; no lifecycle deletion |
+| `internal/controller/store/node_delete_p17.go` | atomically bind node deletion operation/outbox to node revision | node-delete CAS seam only |
+| `internal/controller/store/p15_repair1_node_delete.go` | validate ACK status/force/matching tombstone before completion | deletion ACK projection only |
 | `internal/controller/api/nodes_min.go` | prevent caching of the pre-existing one-time enrollment response | response header only; no new token field or route |
 | `internal/controller/api/auth.go`, `observability.go` | bound/redact the minimal fallback SSE path | fallback stream only; canonical route remains bounded |
 | `internal/controller/web/sse.go` | close remaining canonical redaction gaps | SSE payload redaction only |

@@ -3,7 +3,7 @@
   "schema_version": "antinat.handoff/v1",
   "branch": "ai/P17-web-ui",
   "base_sha": "329fdf5039e4e55350d923462f78c2d4ee2e3588",
-  "head_sha": "f4df0ff8d3e69d0ecfc03822ecf8b7aeeb562d51",
+  "head_sha": "b5040b1379126c622277a9df5381ea22ab72a7a3",
   "commits": [
     "1a01ab7edd58a481905859c181832d33d2604e02",
     "f6f05924a110835780692a8115b381f338d1a5d7",
@@ -20,9 +20,12 @@
     "8916bdb0fdbd22dbf26fe7aaaa8ed7ae3962acfb",
     "7cc4e4f644f43e36dea2665cad062ff49b86f3b8",
     "be3692cd07875259450ec1210d902f8dc17ffbca",
-    "f4df0ff8d3e69d0ecfc03822ecf8b7aeeb562d51"
+    "f4df0ff8d3e69d0ecfc03822ecf8b7aeeb562d51",
+    "ad97acd7cfaab3b7ce030615a1a4fad8b2e469ca",
+    "7faeaf03ebee21a16963e69d7b785be89534b616",
+    "b5040b1379126c622277a9df5381ea22ab72a7a3"
   ],
-  "files_changed_count": 68,
+  "files_changed_count": 70,
   "files_changed": [
     ".gitignore",
     ".hermes/handoffs/P17-contract-change.md",
@@ -50,6 +53,8 @@
     "internal/controller/store/deployment_p17_test.go",
     "internal/controller/store/deployment_profile.go",
     "internal/controller/store/node_bundle.go",
+    "internal/controller/store/node_delete_p17.go",
+    "internal/controller/store/p15_repair1_node_delete.go",
     "internal/controller/store/p15_repair1_page.go",
     "internal/controller/store/traffic.go",
     "internal/controller/web/admin.go",
@@ -163,12 +168,12 @@
   ],
   "evidence_sha256": {
     "test/browser/evidence/p17-admin-desktop.png": "332960277b00776658cace79e054a5e4b273a50a52034bbf24ea41118d75a485",
-    "test/browser/evidence/p17-admin-mobile.png": "4f7dbd82e0e606b8ac00ac8f77b1794e6abe1369a80579f09e57ab4cdf959411",
+    "test/browser/evidence/p17-admin-mobile.png": "bfca9f6a6ac84fed91c32e1816bdd29adc34266c41d53a00dd2499725735f59e",
     "test/browser/evidence/p17-admin-en.png": "3ba2f1c6f76a60a3c554ad6a48aa5725b64b3edc33712bc89c9a0aed57357d78",
-    "test/browser/evidence/p17-home-zh.png": "f5fc3e7cbc370e5a396b446e2d5c7e56fef5a272acb860f0658c620614c34e54",
-    "test/browser/evidence/p17-home-en.png": "926e0df8d84bb12b6c68b08f282c8b70aada5107c3e547323241ac77a86de2b0",
-    "test/browser/evidence/p17-home-mobile.png": "160feb6e2164f98819ff952b2aa0632d2c287b75de496870eddac54d9ae4af35",
-    ".hermes/handoffs/P17-contract-change.md": "80b5937c8d39befe0a0055413c8852baafd9f6981d22720bd4d8ef2c25554d43",
+    "test/browser/evidence/p17-home-zh.png": "2a99cc375dec0822f70e0b01e3a0b8ff577c0204046ee617843620a7ca6855f8",
+    "test/browser/evidence/p17-home-en.png": "9af985463a453d5455799dc0cd6afcce9d3f7a31a456bc94b78e6053a3ddd556",
+    "test/browser/evidence/p17-home-mobile.png": "c636451864f559591e44bc61670f301451ad9943d604a6201f380b9cff385682",
+    ".hermes/handoffs/P17-contract-change.md": "2a5c9bd59be03f99709972102e060784c083d7e300ba7547574cc848339f6557",
     ".hermes/handoffs/P17-validation.log": "bac8e09f11bc2a35f4e46b42ce66a8f5b1c573a07efb1319e2e51d5485e473ac"
   },
   "contracts_consumed": [
@@ -217,7 +222,9 @@
         "internal/controller/store/traffic.go",
         "internal/controller/store/deployment_profile.go",
         "internal/controller/store/node_bundle.go",
-        "internal/controller/store/p15_repair1_page.go"
+        "internal/controller/store/p15_repair1_page.go",
+        "internal/controller/store/node_delete_p17.go",
+        "internal/controller/store/p15_repair1_node_delete.go"
       ],
       "reason": "strict profile CAS, NODE_CREATED event, tombstone navigation filtering",
       "boundary": "existing P15 tables/rows only; schema registry unchanged"
@@ -249,15 +256,18 @@
       "boundary": "tests only"
     }
   ],
-  "review_status": "pending_exact_head_final_review",
+  "review_status": "FINAL_CODE_REVIEW_RECORD_PENDING",
   "capability_result": "SUPPORTED_WITH_LIMITS",
   "known_limits": [
     "Traversal detection is queued PENDING only; P17 fabricates no per-strategy/all-failed result.",
     "Browser evidence is loopback-only with temporary store; no real WAN/router/native Windows/Docker runtime evidence.",
     "Installer URL and Docker image remain mutable releases/latest/:latest references; UI explicitly warns to verify signed artifact/digest before production. P18 owns trust-pinned installer implementation.",
-    "No native Windows execution, Docker runtime, release artifact signature verification, or probe-round ID beyond durable activation ID.",
     "P17 validates HTTP(S) syntax but does not enforce non-loopback HTTPS.",
-    "P17 does not wire P18 installer runtime or P19 lifecycle/deployment delivery."
+    "P17 does not wire P18 installer runtime or P19 lifecycle/deployment delivery.",
+    "Non-loopback controller/proxy HTTP is rejected; loopback HTTP remains allowed for local development.",
+    "The evidence rail projects durable runtime UpdatedAt and activation ID; no separate probe-round ID exists in the current frozen row.",
+    "govulncheck is unavailable in this environment and was not treated as PASS.",
+    "Force deletion and ACK paths are covered by durable CAS/tombstone guards; no native Windows/Docker runtime or real WAN evidence is claimed."
   ],
   "next_module": {
     "plan": "P18",
