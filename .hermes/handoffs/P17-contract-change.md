@@ -63,10 +63,8 @@ macOS and other legacy product-intent fields are not profile fields.
 ## Persistence and migration
 
 P15 already created `node_deployment_profiles` in migration `0009`; P17 does
-not create a second profile/token/command table. Migration `0011_deployment.sql`
-adds only the recency index:
-
-`idx_node_deployment_profiles_updated ON node_deployment_profiles(updated_at, node_id)`
+not create a second profile/token/command table and does not change the schema
+version or migration registry.
 
 The P15 `PutDeploymentProfile` seam now delegates to the explicit P17
 `internal/controller/store/deployment_profile.go` implementation. The write
@@ -87,7 +85,6 @@ acceptance and are limited to the corresponding durable behavior:
 | `internal/controller/store/node_bundle.go` | append `NODE_CREATED` in the node-create transaction | one durable event; no node lifecycle changes |
 | `internal/controller/api/auth.go`, `observability.go` | bound/redact the minimal fallback SSE path | fallback stream only; canonical route remains bounded |
 | `internal/controller/web/sse.go` | close remaining canonical redaction gaps | SSE payload redaction only |
-| migration/version tests | register and verify `0011_deployment.sql` | one additive index only |
 
 No P19 lifecycle wiring, agent delivery, or unrelated P15/P16 endpoint is
 transferred by this record. The user-requested acceptance/integration task is

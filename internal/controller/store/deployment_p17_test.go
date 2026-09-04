@@ -1,35 +1,11 @@
 package store
 
 import (
-	"database/sql"
 	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
 )
-
-func TestP17DeploymentMigrationAddsProfileRecencyIndex(t *testing.T) {
-	s, err := Open(filepath.Join(t.TempDir(), "controller.db"))
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer s.Close()
-
-	version, err := s.SchemaVersion()
-	if err != nil {
-		t.Fatalf("SchemaVersion: %v", err)
-	}
-	if version != 11 {
-		t.Fatalf("SchemaVersion = %d, want 11 (P17 deployment)", version)
-	}
-	var indexSQL sql.NullString
-	if err := s.db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_node_deployment_profiles_updated'`).Scan(&indexSQL); err != nil {
-		t.Fatalf("deployment profile index missing: %v", err)
-	}
-	if !indexSQL.Valid {
-		t.Fatal("deployment profile index has no SQL definition")
-	}
-}
 
 func TestP17DeploymentProfileStrictCAS(t *testing.T) {
 	s, err := Open(filepath.Join(t.TempDir(), "controller.db"))
