@@ -11,5 +11,6 @@ controller-keys
 backups
 terminal.marker
 agent.marker
+schema.version
 ownership-manifest.json
 ownership.key

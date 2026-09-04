@@ -312,15 +312,21 @@ func TestVerifiedPurgeManifestMustMatchAllowlist(t *testing.T) {
 
 func TestDefaultPurgeResourcesIncludesControllerKeys(t *testing.T) {
 	for _, layout := range []Layout{LinuxLayout(t.TempDir()), WindowsLayout(t.TempDir())} {
-		found := false
+		foundControllerKeys := false
+		foundSchemaMarker := false
 		for _, resource := range DefaultPurgeResources(layout) {
 			if resource.Root == layout.DataDir && resource.Path == "controller-keys" {
-				found = true
-				break
+				foundControllerKeys = true
+			}
+			if resource.Root == layout.DataDir && resource.Path == "schema.version" {
+				foundSchemaMarker = true
 			}
 		}
-		if !found {
+		if !foundControllerKeys {
 			t.Fatalf("DefaultPurgeResources(%s) omitted controller-keys", layout.Platform)
+		}
+		if !foundSchemaMarker {
+			t.Fatalf("DefaultPurgeResources(%s) omitted schema.version", layout.Platform)
 		}
 	}
 }

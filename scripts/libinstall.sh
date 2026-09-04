@@ -7,6 +7,7 @@
 set -euo pipefail
 
 INSTALLER_VERSION="1"
+INSTALLER_SCHEMA_VERSION=3
 INSTALLER_SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 
 INSTALLER_EXIT_SUCCESS=0
@@ -40,6 +41,8 @@ INSTALLER_VERSION_REQUESTED=0
 INSTALLER_PURGE_KEEP_OTHER=0
 INSTALLER_AGENT_REENABLE=0
 INSTALLER_CONTROLLER_REENABLE=0
+INSTALLER_SCHEMA_EXISTED_BEFORE_INSTALL=0
+INSTALLER_SCHEMA_BACKUP=""
 
 INSTALLER_TEST_ROOT="${ANTINAT_TEST_ROOT:-}"
 INSTALLER_ROLE="${ANTINAT_ROLE:-agent}"
@@ -100,6 +103,7 @@ installer_init_paths() {
     INSTALLER_OWNERSHIP_MANIFEST=$(installer_logical_path /var/lib/antinat/ownership-manifest.json)
     INSTALLER_OWNERSHIP_KEY=$(installer_logical_path /var/lib/antinat/ownership.key)
     INSTALLER_BACKUP_DIR=$(installer_logical_path /var/lib/antinat/backups)
+    INSTALLER_SCHEMA_FILE=$(installer_logical_path /var/lib/antinat/schema.version)
     INSTALLER_SERVICE_MANAGER="${ANTINAT_SERVICE_MANAGER:-}"
     if [[ -z "$INSTALLER_SERVICE_MANAGER" ]]; then
         if [[ -n "$INSTALLER_TEST_ROOT" || "${ANTINAT_TEST_MODE:-0}" == 1 ]]; then
@@ -115,6 +119,8 @@ installer_init_paths() {
     [[ "$INSTALLER_SERVICE_MANAGER" == systemd || "$INSTALLER_SERVICE_MANAGER" == openrc ]] || return "$INSTALLER_EXIT_USAGE"
     INSTALLER_AGENT_REENABLE=0
     INSTALLER_CONTROLLER_REENABLE=0
+    INSTALLER_SCHEMA_EXISTED_BEFORE_INSTALL=0
+    INSTALLER_SCHEMA_BACKUP=""
 }
 
 installer_parse_args() {
@@ -226,6 +232,21 @@ installer_parse_args() {
     installer_validate_text "$INSTALLER_BIND_INTERFACE" || return "$INSTALLER_EXIT_USAGE"
     installer_validate_text "$INSTALLER_GITHUB_PROXY" || return "$INSTALLER_EXIT_USAGE"
     installer_validate_text "$INSTALLER_SCHEDULER" || return "$INSTALLER_EXIT_USAGE"
+    case "$INSTALLER_LOG_LEVEL" in
+        debug|info|warn|error) ;;
+        *) return "$INSTALLER_EXIT_USAGE" ;;
+    esac
+    case "$INSTALLER_AUTO_UPDATE" in
+        disabled|manual|stable|enabled) ;;
+        *) return "$INSTALLER_EXIT_USAGE" ;;
+    esac
+    case "$INSTALLER_SCHEDULER" in
+        sequential|parallel) ;;
+        *) return "$INSTALLER_EXIT_USAGE" ;;
+    esac
+    if [[ -n "$INSTALLER_GITHUB_PROXY" && ("$INSTALLER_GITHUB_PROXY" == *"@"* || ! "$INSTALLER_GITHUB_PROXY" =~ ^https://[^[:space:]/?#]+(/[^[:space:]?#]*)?$) ]]; then
+        return "$INSTALLER_EXIT_USAGE"
+    fi
     return 0
 }
 
@@ -267,19 +288,23 @@ installer_fetch_release() {
         return 0
     fi
     local base_url="${ANTINAT_RELEASE_BASE_URL:-https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta}"
-    [[ "$base_url" =~ ^https://[^[:space:]/?#]+(/[^[:space:]?#]*)?$ ]] || return "$INSTALLER_EXIT_ARTIFACT"
+    [[ "$base_url" != *"@"* && "$base_url" =~ ^https://[^[:space:]/?#]+(/[^[:space:]?#]*)?$ ]] || return "$INSTALLER_EXIT_ARTIFACT"
     local scratch
     scratch=$(mktemp -d "${TMPDIR:-/tmp}/antinat-release.XXXXXX") || return "$INSTALLER_EXIT_ARTIFACT"
     INSTALLER_ARTIFACT_DIR="$scratch"
     INSTALLER_MANIFEST_FILE="$scratch/manifest.json"
     INSTALLER_SIGNATURE_FILE="$scratch/manifest.sig"
-    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --max-time 60 "$base_url/manifest.json" -o "$INSTALLER_MANIFEST_FILE" || return "$INSTALLER_EXIT_ARTIFACT"
-    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --max-time 60 "$base_url/manifest.sig" -o "$INSTALLER_SIGNATURE_FILE" || return "$INSTALLER_EXIT_ARTIFACT"
+    local -a curl_options=(--fail --silent --show-error --location --proto '=https' --tlsv1.2)
+    if [[ -n "$INSTALLER_GITHUB_PROXY" ]]; then
+        curl_options+=(--proxy "$INSTALLER_GITHUB_PROXY")
+    fi
+    curl "${curl_options[@]}" --max-time 60 "$base_url/manifest.json" -o "$INSTALLER_MANIFEST_FILE" || return "$INSTALLER_EXIT_ARTIFACT"
+    curl "${curl_options[@]}" --max-time 60 "$base_url/manifest.sig" -o "$INSTALLER_SIGNATURE_FILE" || return "$INSTALLER_EXIT_ARTIFACT"
     local artifact
     while IFS= read -r artifact; do
         [[ -n "$artifact" ]] || continue
         [[ "$artifact" != */* ]] && artifact="${artifact##*/}"
-        curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --max-time 120 "$base_url/$artifact" -o "$scratch/${artifact##*/}" || return "$INSTALLER_EXIT_ARTIFACT"
+        curl "${curl_options[@]}" --max-time 120 "$base_url/$artifact" -o "$scratch/${artifact##*/}" || return "$INSTALLER_EXIT_ARTIFACT"
     done < <(jq -r '.artifacts | keys[]' "$INSTALLER_MANIFEST_FILE")
     return 0
 }
@@ -614,6 +639,10 @@ installer_write_config() {
         if [[ -n "$INSTALLER_GITHUB_PROXY" ]]; then
             printf "ANTINAT_GITHUB_PROXY='%s'\n" "${INSTALLER_GITHUB_PROXY//\'/\'\\\'\'}"
         fi
+        printf "ANTINAT_BIND_INTERFACE='%s'\n" "${INSTALLER_BIND_INTERFACE//\'/\'\\\'}"
+        printf "ANTINAT_LOG_LEVEL='%s'\n" "${INSTALLER_LOG_LEVEL//\'/\'\\\'}"
+        printf "ANTINAT_AUTO_UPDATE='%s'\n" "${INSTALLER_AUTO_UPDATE//\'/\'\\\'}"
+        printf "ANTINAT_DETECTION_SCHEDULER='%s'\n" "${INSTALLER_SCHEDULER//\'/\'\\\'}"
         if [[ -n "${ANTINAT_STUN_SERVERS:-}" ]]; then
             printf "ANTINAT_STUN_SERVERS='%s'\n" "${ANTINAT_STUN_SERVERS//\'/\'\\\'\'}"
         fi
@@ -632,6 +661,90 @@ installer_create_user() {
     fi
     if ! id antinat >/dev/null 2>&1; then
         useradd --system --gid antinat --home-dir /var/lib/antinat --shell /usr/sbin/nologin antinat
+    fi
+}
+
+installer_write_schema_version() {
+    local temporary
+    mkdir -p -- "$INSTALLER_DATA_DIR"
+    if [[ -e "$INSTALLER_SCHEMA_FILE" || -L "$INSTALLER_SCHEMA_FILE" ]]; then
+        [[ -f "$INSTALLER_SCHEMA_FILE" && ! -L "$INSTALLER_SCHEMA_FILE" ]] || return 1
+    fi
+    temporary=$(mktemp "$INSTALLER_DATA_DIR/.schema-version.XXXXXX") || return 1
+    chmod 600 -- "$temporary"
+    if ! printf '%s\n' "$INSTALLER_SCHEMA_VERSION" >"$temporary" || ! mv -f -- "$temporary" "$INSTALLER_SCHEMA_FILE"; then
+        rm -f -- "$temporary"
+        return 1
+    fi
+    chmod 600 -- "$INSTALLER_SCHEMA_FILE"
+    installer_chown antinat:antinat "$INSTALLER_SCHEMA_FILE"
+}
+
+installer_backup_schema_for_install() {
+    INSTALLER_SCHEMA_EXISTED_BEFORE_INSTALL=0
+    INSTALLER_SCHEMA_BACKUP=""
+    if [[ ! -e "$INSTALLER_SCHEMA_FILE" && ! -L "$INSTALLER_SCHEMA_FILE" ]]; then
+        return 0
+    fi
+    INSTALLER_SCHEMA_EXISTED_BEFORE_INSTALL=1
+    [[ -f "$INSTALLER_SCHEMA_FILE" && ! -L "$INSTALLER_SCHEMA_FILE" ]] || return 1
+    INSTALLER_SCHEMA_BACKUP=$(mktemp "$INSTALLER_DATA_DIR/.schema-rollback.XXXXXX") || return 1
+    chmod 600 -- "$INSTALLER_SCHEMA_BACKUP"
+    if ! cp -p -- "$INSTALLER_SCHEMA_FILE" "$INSTALLER_SCHEMA_BACKUP"; then
+        rm -f -- "$INSTALLER_SCHEMA_BACKUP"
+        INSTALLER_SCHEMA_BACKUP=""
+        return 1
+    fi
+    INSTALLER_SCHEMA_EXISTED_BEFORE_INSTALL=1
+}
+
+installer_cleanup_schema_backup() {
+    if [[ -n "$INSTALLER_SCHEMA_BACKUP" ]]; then
+        rm -f -- "$INSTALLER_SCHEMA_BACKUP"
+    fi
+    INSTALLER_SCHEMA_BACKUP=""
+}
+
+installer_restore_install_schema() {
+    if [[ "$INSTALLER_SCHEMA_EXISTED_BEFORE_INSTALL" == 1 ]]; then
+        [[ -n "$INSTALLER_SCHEMA_BACKUP" && -f "$INSTALLER_SCHEMA_BACKUP" && ! -L "$INSTALLER_SCHEMA_BACKUP" ]] || return 1
+        local temporary
+        temporary=$(mktemp "$INSTALLER_DATA_DIR/.schema-restore.XXXXXX") || return 1
+        if ! cp -p -- "$INSTALLER_SCHEMA_BACKUP" "$temporary" || ! mv -f -- "$temporary" "$INSTALLER_SCHEMA_FILE"; then
+            rm -f -- "$temporary"
+            return 1
+        fi
+    else
+        installer_safe_remove "$INSTALLER_DATA_DIR" schema.version || return 1
+    fi
+}
+
+installer_validate_upgrade_version() {
+    local previous_text previous_version marker_size
+    if [[ ! -e "$INSTALLER_SCHEMA_FILE" && ! -L "$INSTALLER_SCHEMA_FILE" ]]; then
+        # Releases before the marker was introduced are treated as N-1. This
+        # is the only compatibility assumption made for legacy installs.
+        previous_version=$((INSTALLER_SCHEMA_VERSION - 1))
+    else
+        [[ -f "$INSTALLER_SCHEMA_FILE" && ! -L "$INSTALLER_SCHEMA_FILE" ]] || {
+            installer_die "$INSTALLER_EXIT_MIGRATION" "schema version marker is unsafe" || true
+            return "$INSTALLER_EXIT_MIGRATION"
+        }
+        marker_size=$(stat -c '%s' -- "$INSTALLER_SCHEMA_FILE") || return "$INSTALLER_EXIT_MIGRATION"
+        if ((marker_size > 64)); then
+            installer_die "$INSTALLER_EXIT_MIGRATION" "schema version marker is too large" || true
+            return "$INSTALLER_EXIT_MIGRATION"
+        fi
+        previous_text=$(<"$INSTALLER_SCHEMA_FILE") || return "$INSTALLER_EXIT_MIGRATION"
+        [[ "$previous_text" =~ ^[1-9][0-9]*$ ]] || {
+            installer_die "$INSTALLER_EXIT_MIGRATION" "schema version marker is invalid" || true
+            return "$INSTALLER_EXIT_MIGRATION"
+        }
+        previous_version="$previous_text"
+    fi
+    if [[ "$previous_version" != "$INSTALLER_SCHEMA_VERSION" && "$previous_version" != "$((INSTALLER_SCHEMA_VERSION - 1))" ]]; then
+        installer_die "$INSTALLER_EXIT_MIGRATION" "schema upgrade from $previous_version to $INSTALLER_SCHEMA_VERSION is not N/N-1 compatible" || true
+        return "$INSTALLER_EXIT_MIGRATION"
     fi
 }
 
@@ -807,6 +920,7 @@ installer_ownership_resource_role() {
             return 0
             ;;
         "$INSTALLER_DATA_DIR:backups"|\
+        "$INSTALLER_DATA_DIR:schema.version"|\
         "$INSTALLER_DATA_DIR:ownership-manifest.json"|\
         "$INSTALLER_DATA_DIR:ownership.key")
             printf 'shared\n'
@@ -920,6 +1034,7 @@ installer_make_ownership_manifest() {
         --arg manager "$INSTALLER_SERVICE_MANAGER" \
         '. + [
           {root:$data,path:"backups"},
+          {root:$data,path:"schema.version"},
           {root:$data,path:"ownership-manifest.json"},
           {root:$data,path:"ownership.key"}
         ] | unique_by([.root,.path])' <<<"$resources")
@@ -959,6 +1074,7 @@ installer_install_files() {
             return "$INSTALLER_EXIT_ARTIFACT"
         fi
     fi
+    installer_write_schema_version || return "$INSTALLER_EXIT_GENERIC"
     if installer_role_has_controller; then
         if installer_copy_artifact "antinat-controller-linux-amd64" "$INSTALLER_CONTROLLER_BINARY" 755; then
             :
@@ -1075,8 +1191,16 @@ installer_install() {
     fi
     installer_create_user
     installer_prepare_dirs
+    if ! installer_backup_schema_for_install; then
+        installer_rollback_new_install
+        return "$INSTALLER_EXIT_GENERIC"
+    fi
     if installer_role_has_agent && [[ -n "$INSTALLER_TOKEN_FD" || -n "$INSTALLER_TOKEN_FILE" || "${ANTINAT_TEST_MODE:-0}" != 1 ]]; then
-        installer_read_token || { installer_cleanup_token; return "$INSTALLER_EXIT_TOKEN"; }
+        installer_read_token || {
+            installer_cleanup_token
+            installer_rollback_new_install
+            return "$INSTALLER_EXIT_TOKEN"
+        }
     fi
     if installer_install_files; then
         :
@@ -1131,6 +1255,7 @@ installer_install() {
         installer_rollback_new_install
         return "$INSTALLER_EXIT_GENERIC"
     fi
+    installer_cleanup_schema_backup
     if installer_role_has_agent; then
         installer_chown antinat:antinat "$INSTALLER_CONFIG"
     fi
@@ -1332,13 +1457,22 @@ installer_rollback_new_install() {
         installer_safe_remove "$INSTALLER_SERVICE_DIR" antinat-controller.service || true
         installer_safe_remove "$INSTALLER_OPENRC_DIR" antinat-controller || true
     fi
-    # A failed role install must not destroy a manifest/key that belongs to a
-    # role already installed on the same host. A fresh install has no other
-    # role state and can safely remove these authority files.
+    # A failed role install must not destroy shared ownership state or a schema
+    # marker that belongs to a role already installed on the same host.
     if [[ ! -e "$INSTALLER_INSTALL_DIR/bin/antinat-agent" && ! -e "$INSTALLER_INSTALL_DIR/bin/antinat-controller" ]]; then
         installer_safe_remove "$INSTALLER_DATA_DIR" ownership-manifest.json || true
         installer_safe_remove "$INSTALLER_DATA_DIR" ownership.key || true
     fi
+    if [[ "$INSTALLER_SCHEMA_EXISTED_BEFORE_INSTALL" == 1 ]]; then
+        # If the backup could not be created, no install resource has been
+        # written yet; preserve the existing marker in that failure case.
+        if [[ -n "$INSTALLER_SCHEMA_BACKUP" ]]; then
+            installer_restore_install_schema || failed=1
+        fi
+    else
+        installer_safe_remove "$INSTALLER_DATA_DIR" schema.version || true
+    fi
+    installer_cleanup_schema_backup
     rmdir -- "$INSTALLER_BIN_DIR" 2>/dev/null || true
     rmdir -- "$INSTALLER_INSTALL_DIR" 2>/dev/null || true
     rmdir -- "$INSTALLER_SERVICE_DIR" 2>/dev/null || true
@@ -1366,6 +1500,9 @@ installer_fallback_purge() {
         installer_safe_remove "$INSTALLER_DATA_DIR" controller-keys || return 1
         installer_safe_remove "$INSTALLER_SERVICE_DIR" antinat-controller.service || return 1
         installer_safe_remove "$INSTALLER_OPENRC_DIR" antinat-controller || return 1
+    fi
+    if [[ ! -e "$INSTALLER_INSTALL_DIR/bin/antinat-agent" && ! -e "$INSTALLER_INSTALL_DIR/bin/antinat-controller" ]]; then
+        installer_safe_remove "$INSTALLER_DATA_DIR" schema.version || return 1
     fi
 }
 
@@ -1615,6 +1752,7 @@ installer_upgrade_resource_list() {
         printf '%s\t%s\n' "$INSTALLER_DATA_DIR" node.key
         printf '%s\t%s\n' "$INSTALLER_DATA_DIR" terminal.marker
         printf '%s\t%s\n' "$INSTALLER_DATA_DIR" agent.marker
+        printf '%s\t%s\n' "$INSTALLER_DATA_DIR" schema.version
     fi
     if installer_role_has_controller; then
         printf '%s\t%s\n' "$INSTALLER_INSTALL_DIR" bin/antinat-controller
@@ -1678,6 +1816,7 @@ installer_restore_snapshot() {
 
 installer_upgrade() {
     installer_init_paths
+    installer_validate_upgrade_version || return $?
     installer_require_tools
     installer_fetch_release || return "$INSTALLER_EXIT_ARTIFACT"
     installer_verify_artifacts
@@ -1705,6 +1844,9 @@ installer_upgrade() {
         if ((failed == 0)) && installer_role_has_controller; then
             installer_copy_artifact "antinat-controller-linux-amd64" "$INSTALLER_CONTROLLER_BINARY" 755 || failed=1
         fi
+        if ((failed == 0)); then
+            installer_write_schema_version || failed=1
+        fi
         if [[ "${ANTINAT_FAIL_MIGRATION:-0}" == 1 ]]; then
             failed=1
         fi
@@ -1729,6 +1871,7 @@ installer_upgrade() {
         fi
         return "$INSTALLER_EXIT_ROLLBACK"
     fi
+    installer_cleanup_schema_backup
     rm -f -- "$lock"
     printf 'antinat installer: upgrade complete\n'
 }

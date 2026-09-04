@@ -294,6 +294,7 @@ func DefaultPurgeResources(layout Layout) []OwnedResource {
 		{Root: layout.DataDir, Path: "controller-keys"},
 		{Root: layout.DataDir, Path: "terminal.marker"},
 		{Root: layout.DataDir, Path: "agent.marker"},
+		{Root: layout.DataDir, Path: "schema.version"},
 		{Root: layout.DataDir, Path: "backups"},
 		{Root: layout.DataDir, Path: "ownership-manifest.json"},
 		{Root: layout.DataDir, Path: "ownership.key"},

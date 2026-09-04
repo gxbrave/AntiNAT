@@ -6,6 +6,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $InstallerVersion = '1'
+$InstallerSchemaVersion = 3
 $ExitGeneric = 1
 $ExitUsage = 2
 $ExitToken = 3
@@ -13,9 +14,12 @@ $ExitArtifact = 4
 $ExitConflict = 5
 $ExitRollback = 6
 $ExitPurge = 7
+$ExitMigration = 8
 $script:TokenTemp = ''
 $script:TokenSource = ''
 $script:TokenSourceIdentity = ''
+$script:SchemaExistedBeforeInstall = $false
+$script:SchemaBackup = ''
 
 function Initialize-NativeFileApi {
     if ('AntiNAT.NativeFile' -as [type]) { return }
@@ -160,6 +164,7 @@ function Validate-Endpoint([string] $Value) {
     if ($Value -match '^http://' -and $env:ANTINAT_TEST_MODE -ne '1') {
         Fail $ExitUsage 'remote controller endpoint must use HTTPS'
     }
+    if ($Value -match '@') { Fail $ExitUsage 'controller endpoint must not contain URL userinfo' }
 }
 
 function Parse-Arguments([string[]] $InputArguments) {
@@ -239,6 +244,10 @@ function Parse-Arguments([string[]] $InputArguments) {
     if ($script:Role -notin @('agent', 'controller', 'both')) { Fail $ExitUsage 'ANTINAT_ROLE must be agent, controller, or both' }
     if ($script:Command -eq 'install' -and $script:Role -in @('agent', 'both') -and [string]::IsNullOrEmpty($script:Endpoint) -and $env:ANTINAT_TEST_MODE -ne '1') { Fail $ExitUsage 'controller endpoint is required' }
     if ($script:Command -eq 'install' -and $script:InstallDirOverride -ne '' -and $script:InstallDirOverride -ne $script:InstallDir) { Fail $ExitUsage 'install directory is frozen' }
+    if ($script:LogLevel -and $script:LogLevel -notin @('debug', 'info', 'warn', 'error')) { Fail $ExitUsage 'unsupported log level' }
+    if ($script:AutoUpdate -and $script:AutoUpdate -notin @('disabled', 'manual', 'stable', 'enabled')) { Fail $ExitUsage 'unsupported auto-update policy' }
+    if ($script:DetectionScheduler -and $script:DetectionScheduler -notin @('sequential', 'parallel')) { Fail $ExitUsage 'unsupported detection scheduler' }
+    if ($script:GitHubProxy -and ($script:GitHubProxy -match '@' -or $script:GitHubProxy -notmatch '^https://[^\s/?#]+(?:/[^\s?#]*)?$')) { Fail $ExitUsage 'GitHub proxy must use HTTPS without URL userinfo' }
 }
 
 function Set-Paths {
@@ -261,6 +270,7 @@ function Set-Paths {
     $script:Manifest = P "$env:ProgramData\AntiNAT\ownership-manifest.json"
     $script:OwnershipKey = P "$env:ProgramData\AntiNAT\ownership.key"
     $script:BackupDir = P "$env:ProgramData\AntiNAT\backups"
+    $script:SchemaVersion = P "$env:ProgramData\AntiNAT\schema.version"
 }
 
 function Assert-NoReparsePath([string] $Path) {
@@ -342,6 +352,20 @@ function Test-StrictFileAcl([string] $Path, [bool] $RequireCurrentOwner) {
     if ($RequireCurrentOwner -and -not $hasCurrent) { throw 'file ACL does not grant the current user access' }
 }
 
+function Test-StrictDirectoryAcl([string] $Path) {
+    Assert-NoReparsePath $Path
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if (-not $item.PSIsContainer -or $item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { throw 'artifact path is not a regular non-reparse directory' }
+    $acl = Get-Acl -LiteralPath $Path
+    if (-not $acl.AreAccessRulesProtected) { throw 'directory ACL inheritance must be disabled' }
+    $trusted = Get-TrustedSids
+    if ((Get-SidString $acl.Owner) -notin $trusted) { throw 'directory owner is not trusted' }
+    foreach ($rule in @($acl.Access)) {
+        if ($rule.IsInherited -or $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { throw 'directory ACL is not a strict allow list' }
+        if ((Get-SidString $rule.IdentityReference) -notin $trusted) { throw 'directory ACL grants an untrusted principal' }
+    }
+}
+
 function Set-SystemOnlyAcl([string] $Path, [bool] $Directory) {
     $acl = Get-Acl -LiteralPath $Path
     $acl.SetAccessRuleProtection($true, $false)
@@ -396,6 +420,86 @@ function Write-SystemToken([string] $Path, [byte[]] $Bytes) {
     }
 }
 
+function Write-SchemaVersion {
+    $existing = Get-ExistingItem $SchemaVersion
+    if ($null -ne $existing) {
+        Assert-NoReparsePath $SchemaVersion
+        if ($existing.PSIsContainer) { throw 'schema version marker is unsafe' }
+    }
+    $encoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList @($false)
+    Write-PrivateBytes $SchemaVersion $encoding.GetBytes("$InstallerSchemaVersion`n")
+}
+
+function Backup-SchemaForInstall {
+    $script:SchemaExistedBeforeInstall = $false
+    $script:SchemaBackup = ''
+    $existing = Get-ExistingItem $SchemaVersion
+    if ($null -eq $existing) { return }
+    $script:SchemaExistedBeforeInstall = $true
+    Assert-NoReparsePath $SchemaVersion
+    if ($existing.PSIsContainer) { throw 'schema version marker is unsafe' }
+    $backup = Join-Path $DataDir ('.schema-rollback.' + [Guid]::NewGuid().ToString('N'))
+    try {
+        Copy-FileAtomic $SchemaVersion $backup
+        Set-PrivateAcl $backup $false
+        $script:SchemaBackup = $backup
+    } catch {
+        try { if ($null -ne (Get-ExistingItem $backup)) { Remove-ExactPath $backup } } catch { }
+        throw
+    }
+}
+
+function Cleanup-SchemaBackup {
+    $backup = $script:SchemaBackup
+    $script:SchemaBackup = ''
+    $script:SchemaExistedBeforeInstall = $false
+    if ($backup) {
+        try {
+            if ($null -ne (Get-ExistingItem $backup)) { Assert-NoReparsePath $backup; Remove-ExactPath $backup }
+        } catch { }
+    }
+}
+
+function Restore-SchemaAfterInstall {
+    if ($script:SchemaExistedBeforeInstall) {
+        # A failed backup means the marker was never changed; leave it intact.
+        if (-not $script:SchemaBackup) { return }
+        Copy-FileAtomic $script:SchemaBackup $SchemaVersion
+        Set-PrivateAcl $SchemaVersion $false
+        return
+    }
+    if ($null -ne (Get-ExistingItem $SchemaVersion)) { Remove-Owned $DataDir 'schema.version' }
+}
+
+function Validate-UpgradeVersion {
+    $item = Get-ExistingItem $SchemaVersion
+    $previous = $InstallerSchemaVersion - 1
+    if ($null -ne $item) {
+        Assert-NoReparsePath $SchemaVersion
+        if ($item.PSIsContainer -or $item.Length -gt 64) { Fail $ExitMigration 'schema version marker is unsafe' }
+        $raw = [IO.File]::ReadAllText($SchemaVersion)
+        $parsed = 0L
+        if ($raw -notmatch '^(?<version>[1-9][0-9]*)(?:\r?\n)?$' -or
+            -not [long]::TryParse($Matches.version, [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$parsed) -or
+            $parsed -lt 1) {
+            Fail $ExitMigration 'schema version marker is invalid'
+        }
+        $previous = $parsed
+    }
+    if ($previous -gt $InstallerSchemaVersion -or $InstallerSchemaVersion - $previous -gt 1) {
+        Fail $ExitMigration "schema upgrade from $previous to $InstallerSchemaVersion is not N/N-1 compatible"
+    }
+}
+
+function Invoke-ReleaseDownload([string] $Uri, [string] $OutFile) {
+    $parameters = @{ UseBasicParsing = $true; Uri = $Uri; OutFile = $OutFile }
+    if ($GitHubProxy) {
+        $parameters.Proxy = $GitHubProxy
+        $parameters.ProxyUseDefaultCredentials = $false
+    }
+    Invoke-WebRequest @parameters
+}
+
 function Get-ReleaseDirectory {
     if ($env:ANTINAT_ARTIFACT_DIR) {
         $script:ArtifactDir = $env:ANTINAT_ARTIFACT_DIR
@@ -404,14 +508,15 @@ function Get-ReleaseDirectory {
         return
     }
     $base = if ($env:ANTINAT_RELEASE_BASE_URL) { $env:ANTINAT_RELEASE_BASE_URL } else { 'https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta' }
-    if ($base -notmatch '^https://[^\s/?#]+(?:/[^\s?#]*)?$') { Fail $ExitArtifact 'release base URL must use HTTPS' }
+    if ($base -match '@' -or $base -notmatch '^https://[^\s/?#]+(?:/[^\s?#]*)?$') { Fail $ExitArtifact 'release base URL must use HTTPS without URL userinfo' }
     $script:ArtifactDir = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
     New-Item -ItemType Directory -Path $ArtifactDir | Out-Null
+    try { Set-PrivateAcl $ArtifactDir $true } catch { Fail $ExitArtifact 'could not protect the release artifact directory' }
     $script:ManifestFile = Join-Path $ArtifactDir 'manifest.json'
     $script:SignatureFile = Join-Path $ArtifactDir 'manifest.sig'
     try {
-        Invoke-WebRequest -UseBasicParsing -Uri "$base/manifest.json" -OutFile $ManifestFile
-        Invoke-WebRequest -UseBasicParsing -Uri "$base/manifest.sig" -OutFile $SignatureFile
+        Invoke-ReleaseDownload "$base/manifest.json" $ManifestFile
+        Invoke-ReleaseDownload "$base/manifest.sig" $SignatureFile
         $manifest = Get-Content -Raw -LiteralPath $ManifestFile | ConvertFrom-Json
         $seen = @{}
         foreach ($property in @($manifest.artifacts.psobject.Properties)) {
@@ -420,7 +525,7 @@ function Get-ReleaseDirectory {
             $leaf = [IO.Path]::GetFileName($name.Replace('/', '\'))
             if ([string]::IsNullOrEmpty($leaf) -or $seen.ContainsKey($leaf)) { Fail $ExitArtifact 'release manifest has colliding artifact names' }
             $seen[$leaf] = $true
-            Invoke-WebRequest -UseBasicParsing -Uri "$base/$name" -OutFile (Join-Path $ArtifactDir $leaf)
+            Invoke-ReleaseDownload "$base/$name" (Join-Path $ArtifactDir $leaf)
         }
     } catch { Fail $ExitArtifact 'release artifact download failed' }
 }
@@ -429,7 +534,7 @@ function Verify-Release {
     $trust = if ($env:ANTINAT_TRUST_ROOT_FILE) { $env:ANTINAT_TRUST_ROOT_FILE } else { Join-Path $PSScriptRoot '..\deploy\trust\release-ed25519.pub' }
     $artifactItem = Get-ExistingItem $ArtifactDir
     if ($null -eq $artifactItem -or -not $artifactItem.PSIsContainer) { Fail $ExitArtifact 'artifact directory is unavailable' }
-    try { Assert-NoReparsePath $ArtifactDir } catch { Fail $ExitArtifact 'artifact directory contains a reparse point' }
+    try { Test-StrictDirectoryAcl $ArtifactDir } catch { Fail $ExitArtifact 'artifact directory is not a protected private directory' }
     $trustItem = Get-ExistingItem $trust
     $manifestItem = Get-ExistingItem $ManifestFile
     $signatureItem = Get-ExistingItem $SignatureFile
@@ -480,6 +585,29 @@ function Find-Artifact([string] $Suffix) {
     if ($matches.Count -ne 1) { return $null }
     $script:FoundArtifactDigest = $matches[0].Digest
     return Join-Path $ArtifactDir $matches[0].Leaf
+}
+
+function Get-RoleArtifact([string] $BaseName) {
+    $artifact = Find-Artifact ($BaseName + '.exe')
+    if (-not $artifact) { $artifact = Find-Artifact $BaseName }
+    return $artifact
+}
+
+function Require-ReleaseArtifacts {
+    $script:AgentReleaseArtifact = $null
+    $script:AgentReleaseDigest = ''
+    $script:ControllerReleaseArtifact = $null
+    $script:ControllerReleaseDigest = ''
+    if ($Role -in @('agent', 'both')) {
+        $script:AgentReleaseArtifact = Get-RoleArtifact 'antinat-agent-windows-amd64'
+        $script:AgentReleaseDigest = $script:FoundArtifactDigest
+        if (-not $script:AgentReleaseArtifact) { Fail $ExitArtifact 'Windows Agent artifact is missing' }
+    }
+    if ($Role -in @('controller', 'both')) {
+        $script:ControllerReleaseArtifact = Get-RoleArtifact 'antinat-controller-windows-amd64'
+        $script:ControllerReleaseDigest = $script:FoundArtifactDigest
+        if (-not $script:ControllerReleaseArtifact) { Fail $ExitArtifact 'Windows Controller artifact is missing' }
+    }
 }
 
 function Read-TokenBytes([byte[]] $Raw) {
@@ -563,7 +691,7 @@ function Read-Token {
             $token = $null
             Clear-Variable token -ErrorAction SilentlyContinue
         }
-    } catch { Fail $ExitToken 'token input rejected' }
+    } catch { throw 'token input rejected' }
 }
 
 function Write-Config([string] $TokenPath) {
@@ -578,6 +706,12 @@ function Write-Config([string] $TokenPath) {
     if ($TokenPath) { $contents += "ANTINAT_TOKEN_FILE=$(Q $TokenPath)" }
     if ($BindInterface) { $contents += "ANTINAT_BIND_INTERFACE=$(Q $BindInterface)" }
     if ($GitHubProxy) { $contents += "ANTINAT_GITHUB_PROXY=$(Q $GitHubProxy)" }
+    $effectiveLogLevel = if ($LogLevel) { $LogLevel } else { 'info' }
+    $effectiveAutoUpdate = if ($AutoUpdate) { $AutoUpdate } else { 'disabled' }
+    $effectiveScheduler = if ($DetectionScheduler) { $DetectionScheduler } else { 'sequential' }
+    $contents += "ANTINAT_LOG_LEVEL=$(Q $effectiveLogLevel)"
+    $contents += "ANTINAT_AUTO_UPDATE=$(Q $effectiveAutoUpdate)"
+    $contents += "ANTINAT_DETECTION_SCHEDULER=$(Q $effectiveScheduler)"
     $encoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList @($false)
     Write-PrivateBytes $Config $encoding.GetBytes(($contents -join [char]10) + [char]10)
 }
@@ -774,6 +908,7 @@ function Get-CompileTimeResources {
         )
     }
     $resources += @(
+        [ordered]@{ root = $DataDir; path = 'schema.version' },
         [ordered]@{ root = $DataDir; path = 'backups' },
         [ordered]@{ root = $DataDir; path = 'ownership-manifest.json' },
         [ordered]@{ root = $DataDir; path = 'ownership.key' }
@@ -792,6 +927,7 @@ function Get-AllCompileTimeResources {
         [ordered]@{ root = $DataDir; path = 'controller-keys' },
         [ordered]@{ root = $DataDir; path = 'terminal.marker' },
         [ordered]@{ root = $DataDir; path = 'agent.marker' },
+        [ordered]@{ root = $DataDir; path = 'schema.version' },
         [ordered]@{ root = $DataDir; path = 'backups' },
         [ordered]@{ root = $DataDir; path = 'ownership-manifest.json' },
         [ordered]@{ root = $DataDir; path = 'ownership.key' },
@@ -977,6 +1113,11 @@ function Purge-Install {
                 $remaining += [ordered]@{ root = [string]$resource.root; path = [string]$resource.path }
             }
         }
+        if (-not $manifestVerified -and
+            $null -eq (Get-ExistingItem $Agent) -and
+            $null -eq (Get-ExistingItem $Controller)) {
+            Remove-Owned $DataDir 'schema.version'
+        }
         if ($manifestVerified -and $keepOtherRole) {
             $key = [IO.File]::ReadAllBytes($OwnershipKey)
             $payload = [ordered]@{ schema_version = 1; installation_id = [string]$manifest.installation_id; resources = $remaining }
@@ -1109,6 +1250,7 @@ function Get-UpgradeResources {
             [ordered]@{ root = $DataDir; path = 'controller-keys' }
         )
     }
+    $resources += [ordered]@{ root = $DataDir; path = 'schema.version' }
     return $resources
 }
 
@@ -1182,12 +1324,15 @@ function Rollback-New-Install {
     Stop-Delete-Service
     $resources = @(Get-CompileTimeResources)
     foreach ($resource in $resources) {
+        if ([string]$resource.path -eq 'schema.version') { continue }
         if ([string]$resource.path -in @('backups', 'ownership-manifest.json', 'ownership.key') -and
             (($resource.path -eq 'ownership-manifest.json' -and $script:ManifestExistedBeforeInstall) -or
              ($resource.path -eq 'ownership.key' -and $script:OwnershipKeyExistedBeforeInstall) -or
              $resource.path -eq 'backups')) { continue }
         try { Remove-Owned ([string]$resource.root) ([string]$resource.path) } catch { }
     }
+    try { Restore-SchemaAfterInstall } catch { }
+    Cleanup-SchemaBackup
     foreach ($path in @($BinDir, $InstallDir, $ServiceDir, (Split-Path -LiteralPath $Config -Parent), $DataDir)) {
         try { Remove-EmptyDirectory $path } catch { }
     }
@@ -1198,6 +1343,7 @@ function Install-Flow {
     Set-Paths
     Get-ReleaseDirectory
     Verify-Release
+    Require-ReleaseArtifacts
     $script:ManifestExistedBeforeInstall = $null -ne (Get-ExistingItem $Manifest)
     $script:OwnershipKeyExistedBeforeInstall = $null -ne (Get-ExistingItem $OwnershipKey)
     if (($Role -in @('agent', 'both') -and $null -ne (Get-ExistingItem $Agent)) -or
@@ -1209,21 +1355,19 @@ function Install-Flow {
         Set-PrivateAcl $controllerKeys $true
     }
     try { Set-PrivateAcl $DataDir $true } catch { Fail $ExitGeneric 'could not protect the data directory' }
-    if ($Role -in @('agent', 'both') -and ($env:ANTINAT_TEST_MODE -ne '1' -or $TokenFile -or $TokenFD -ge 0)) { Read-Token }
+    try { Backup-SchemaForInstall } catch { Rollback-New-Install; Fail $ExitGeneric 'could not prepare the schema marker transaction' }
+    if ($Role -in @('agent', 'both') -and ($env:ANTINAT_TEST_MODE -ne '1' -or $TokenFile -or $TokenFD -ge 0)) {
+        try { Read-Token } catch { Cleanup-TokenOnFailure; Rollback-New-Install; Fail $ExitToken 'token input rejected' }
+    }
     try {
         if ($Role -in @('agent', 'both')) {
-            $agentArtifact = Find-Artifact 'antinat-agent-windows-amd64.exe'
-            if (-not $agentArtifact) { $agentArtifact = Find-Artifact 'antinat-agent-windows-amd64' }
-            if (-not $agentArtifact) { throw 'Windows Agent artifact is missing' }
-            Copy-VerifiedFileAtomic $agentArtifact $Agent $script:FoundArtifactDigest
+            Copy-VerifiedFileAtomic $script:AgentReleaseArtifact $Agent $script:AgentReleaseDigest
             Write-Config $script:TokenTemp
         }
         if ($Role -in @('controller', 'both')) {
-            $controllerArtifact = Find-Artifact 'antinat-controller-windows-amd64.exe'
-            if (-not $controllerArtifact) { $controllerArtifact = Find-Artifact 'antinat-controller-windows-amd64' }
-            if (-not $controllerArtifact) { throw 'Windows Controller artifact is missing' }
-            Copy-VerifiedFileAtomic $controllerArtifact $Controller $script:FoundArtifactDigest
+            Copy-VerifiedFileAtomic $script:ControllerReleaseArtifact $Controller $script:ControllerReleaseDigest
         }
+        Write-SchemaVersion
         Install-Services ($Role -in @('agent', 'both') -and $null -ne $script:TokenTemp -and $script:TokenTemp -ne '')
     } catch {
         Cleanup-TokenOnFailure
@@ -1245,6 +1389,7 @@ function Install-Flow {
         Fail $ExitToken 'enrollment token was not consumed; installation was rolled back'
     }
     try { New-OwnershipManifest } catch { Cleanup-TokenOnFailure; Rollback-New-Install; Fail $ExitGeneric 'ownership manifest creation failed; installation was rolled back' }
+    Cleanup-SchemaBackup
     $script:TokenTemp = ''
     $script:TokenSource = ''
     Write-Output 'antinat installer: install complete'
@@ -1252,8 +1397,10 @@ function Install-Flow {
 
 function Upgrade-Flow {
     Set-Paths
+    Validate-UpgradeVersion
     Get-ReleaseDirectory
     Verify-Release
+    Require-ReleaseArtifacts
     if (($Role -in @('agent', 'both') -and $null -eq (Get-ExistingItem $Agent)) -or
         ($Role -in @('controller', 'both') -and $null -eq (Get-ExistingItem $Controller))) { Fail $ExitConflict 'installation is not present' }
     New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
@@ -1274,17 +1421,12 @@ function Upgrade-Flow {
         $records = @(Create-UpgradeSnapshot $backup)
         Verify-UpgradeSnapshot $backup $records
         if ($Role -in @('agent', 'both')) {
-            $artifact = Find-Artifact 'antinat-agent-windows-amd64.exe'
-            if (-not $artifact) { $artifact = Find-Artifact 'antinat-agent-windows-amd64' }
-            if (-not $artifact) { throw 'Windows Agent artifact is missing' }
-            Copy-VerifiedFileAtomic $artifact $Agent $script:FoundArtifactDigest
+            Copy-VerifiedFileAtomic $script:AgentReleaseArtifact $Agent $script:AgentReleaseDigest
         }
         if ($Role -in @('controller', 'both')) {
-            $artifact = Find-Artifact 'antinat-controller-windows-amd64.exe'
-            if (-not $artifact) { $artifact = Find-Artifact 'antinat-controller-windows-amd64' }
-            if (-not $artifact) { throw 'Windows Controller artifact is missing' }
-            Copy-VerifiedFileAtomic $artifact $Controller $script:FoundArtifactDigest
+            Copy-VerifiedFileAtomic $script:ControllerReleaseArtifact $Controller $script:ControllerReleaseDigest
         }
+        Write-SchemaVersion
         if ($env:ANTINAT_FORCE_HEALTH_FAIL -eq '1') { throw 'health check failed' }
         if ($wasAgentRunning) { Start-Service -Name $ServiceName -ErrorAction Stop }
         if ($wasControllerRunning) { Start-Service -Name $ControllerServiceName -ErrorAction Stop }

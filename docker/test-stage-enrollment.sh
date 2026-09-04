@@ -11,7 +11,7 @@ fake_agent="$test_dir/fake-agent"
 run_log="$test_dir/run.log"
 mkdir -- "$state_dir"
 chmod 700 -- "$state_dir"
-printf '%s\n' docker-test-token >"$secret_file"
+od -An -N32 -tx1 /dev/urandom | tr -d ' \n' >"$secret_file"
 chmod 0444 -- "$secret_file"
 
 printf '%s\n' \
