@@ -17,6 +17,7 @@ import (
 )
 
 const upgradeManifestSchema = "antinat.upgrade/v1"
+const rollbackJournalSchema = "antinat.rollback/v1"
 
 // SnapshotFile is one file in a transactional upgrade snapshot. Present=false
 // records an optional file that did not exist before promotion, allowing a
@@ -93,6 +94,14 @@ func CreateSnapshot(root, destination string, files []string) (SnapshotManifest,
 // VerifySnapshot validates every manifest entry and rejects a changed or
 // symlinked backup before any restore begins.
 func VerifySnapshot(destination string, manifest SnapshotManifest) error {
+	return verifySnapshotFiles(destination, manifest, "snapshot")
+}
+
+func verifyLiveSnapshot(root string, manifest SnapshotManifest) error {
+	return verifySnapshotFiles(root, manifest, "live")
+}
+
+func verifySnapshotFiles(root string, manifest SnapshotManifest, label string) error {
 	if manifest.SchemaVersion != upgradeManifestSchema || len(manifest.Files) == 0 {
 		return errors.New("invalid upgrade snapshot manifest")
 	}
@@ -105,7 +114,7 @@ func VerifySnapshot(destination string, manifest SnapshotManifest) error {
 			return fmt.Errorf("duplicate snapshot path %q", entry.Path)
 		}
 		seen[entry.Path] = struct{}{}
-		path, err := secureJoin(destination, entry.Path)
+		path, err := secureJoin(root, entry.Path)
 		if err != nil {
 			return err
 		}
@@ -117,23 +126,23 @@ func VerifySnapshot(destination string, manifest SnapshotManifest) error {
 			if err != nil {
 				return err
 			}
-			return fmt.Errorf("absent snapshot path %q exists", entry.Path)
+			return fmt.Errorf("absent %s path %q exists", label, entry.Path)
 		}
 		if err != nil {
-			return fmt.Errorf("snapshot entry %q: %w", entry.Path, err)
+			return fmt.Errorf("%s entry %q: %w", label, entry.Path, err)
 		}
 		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("snapshot entry %q is not a regular non-symlink", entry.Path)
+			return fmt.Errorf("%s entry %q is not a regular non-symlink", label, entry.Path)
 		}
 		if uint32(info.Mode().Perm()) != entry.Mode {
-			return fmt.Errorf("snapshot mode mismatch for %q", entry.Path)
+			return fmt.Errorf("%s mode mismatch for %q", label, entry.Path)
 		}
 		digest, err := fileSHA256(path)
 		if err != nil {
 			return err
 		}
 		if digest != entry.SHA256 {
-			return fmt.Errorf("snapshot digest mismatch for %q", entry.Path)
+			return fmt.Errorf("%s digest mismatch for %q", label, entry.Path)
 		}
 	}
 	return nil
@@ -142,26 +151,75 @@ func VerifySnapshot(destination string, manifest SnapshotManifest) error {
 // RestoreSnapshot restores the exact file set recorded by a verified snapshot.
 // It refuses to replace symlinks and never follows a path outside root.
 func RestoreSnapshot(root, destination string, manifest SnapshotManifest) error {
+	return restoreSnapshotWithProgress(root, destination, manifest, nil)
+}
+
+func restoreSnapshotWithProgress(root, destination string, manifest SnapshotManifest, progress func(string) error) error {
 	if err := VerifySnapshot(destination, manifest); err != nil {
 		return err
 	}
+	if err := preflightRestoreTargets(root, manifest); err != nil {
+		if verifyErr := verifyLiveSnapshot(root, manifest); verifyErr != nil {
+			return errors.Join(err, fmt.Errorf("verify complete live restoration: %w", verifyErr))
+		}
+		return err
+	}
+	var restoreErrors []error
+	for _, entry := range manifest.Files {
+		target, err := secureJoin(root, entry.Path)
+		if err != nil {
+			restoreErrors = append(restoreErrors, err)
+			continue
+		}
+		if !entry.Present {
+			if err := removeRegularFile(target); err != nil {
+				restoreErrors = append(restoreErrors, fmt.Errorf("remove promoted file %q: %w", entry.Path, err))
+				continue
+			}
+		} else {
+			source, err := secureJoin(destination, entry.Path)
+			if err != nil {
+				restoreErrors = append(restoreErrors, err)
+				continue
+			}
+			if err := copyFileAtomic(source, target, os.FileMode(entry.Mode)); err != nil {
+				restoreErrors = append(restoreErrors, fmt.Errorf("restore file %q: %w", entry.Path, err))
+				continue
+			}
+		}
+		if progress != nil {
+			if err := progress(entry.Path); err != nil {
+				restoreErrors = append(restoreErrors, fmt.Errorf("record restored file %q: %w", entry.Path, err))
+			}
+		}
+	}
+	if len(restoreErrors) != 0 {
+		if err := verifyLiveSnapshot(root, manifest); err != nil {
+			restoreErrors = append(restoreErrors, fmt.Errorf("verify complete live restoration: %w", err))
+		}
+		return errors.Join(restoreErrors...)
+	}
+	if err := verifyLiveSnapshot(root, manifest); err != nil {
+		return fmt.Errorf("verify complete live restoration: %w", err)
+	}
+	return nil
+}
+
+func preflightRestoreTargets(root string, manifest SnapshotManifest) error {
 	for _, entry := range manifest.Files {
 		target, err := secureJoin(root, entry.Path)
 		if err != nil {
 			return err
 		}
-		if !entry.Present {
-			if err := removeRegularFile(target); err != nil {
-				return fmt.Errorf("remove promoted file %q: %w", entry.Path, err)
-			}
+		info, err := os.Lstat(target)
+		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
-		source, err := secureJoin(destination, entry.Path)
 		if err != nil {
-			return err
+			return fmt.Errorf("inspect restore target %q: %w", entry.Path, err)
 		}
-		if err := copyFileAtomic(source, target, os.FileMode(entry.Mode)); err != nil {
-			return fmt.Errorf("restore file %q: %w", entry.Path, err)
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("restore target %q is not a regular non-symlink", entry.Path)
 		}
 	}
 	return nil
@@ -186,10 +244,22 @@ type UpgradeRequest struct {
 }
 
 type UpgradeResult struct {
-	BackupPath string
-	RolledBack bool
-	Promoted   bool
-	Manifest   SnapshotManifest
+	BackupPath          string
+	RolledBack          bool
+	RollbackFailed      bool
+	RollbackJournalPath string
+	Promoted            bool
+	Manifest            SnapshotManifest
+}
+
+type rollbackJournal struct {
+	SchemaVersion string           `json:"schema"`
+	LiveRoot      string           `json:"live_root"`
+	BackupPath    string           `json:"backup_path"`
+	Manifest      SnapshotManifest `json:"manifest"`
+	State         string           `json:"state"`
+	Completed     []string         `json:"completed,omitempty"`
+	Error         string           `json:"error,omitempty"`
 }
 
 var upgradeSequence atomic.Uint64
@@ -295,11 +365,52 @@ func TransactionalUpgrade(ctx context.Context, request UpgradeRequest) (result U
 }
 
 func rollbackUpgrade(ctx context.Context, request UpgradeRequest, result UpgradeResult, cause error) (UpgradeResult, error) {
-	if err := RestoreSnapshot(request.LiveRoot, result.BackupPath, result.Manifest); err != nil {
-		return result, upgradeError(ExitRollbackPerformed, "rollback failed", errors.Join(cause, err))
+	result.RollbackJournalPath = filepath.Join(result.BackupPath, "rollback.json")
+	journal := rollbackJournal{
+		SchemaVersion: rollbackJournalSchema,
+		LiveRoot:      request.LiveRoot,
+		BackupPath:    result.BackupPath,
+		Manifest:      result.Manifest,
+		State:         "in_progress",
+	}
+	journalErr := writeRollbackJournal(result.RollbackJournalPath, journal)
+	restoreErr := restoreSnapshotWithProgress(request.LiveRoot, result.BackupPath, result.Manifest, func(path string) error {
+		journal.Completed = append(journal.Completed, path)
+		if journalErr != nil {
+			return journalErr
+		}
+		return writeRollbackJournal(result.RollbackJournalPath, journal)
+	})
+	if restoreErr != nil {
+		result.RollbackFailed = true
+		journal.State = "failed"
+		journal.Error = restoreErr.Error()
+		if err := writeRollbackJournal(result.RollbackJournalPath, journal); err != nil {
+			restoreErr = errors.Join(restoreErr, fmt.Errorf("record rollback failure: %w", err))
+		}
+		if journalErr != nil {
+			restoreErr = errors.Join(journalErr, restoreErr)
+		}
+		return result, upgradeError(ExitGenericFailure, "rollback failed", errors.Join(cause, restoreErr))
 	}
 	result.RolledBack = true
+	journal.State = "complete"
+	if journalErr == nil {
+		if err := writeRollbackJournal(result.RollbackJournalPath, journal); err != nil {
+			return result, upgradeError(ExitRollbackPerformed, "rollback performed; journal finalization failed", errors.Join(cause, err))
+		}
+	} else {
+		return result, upgradeError(ExitRollbackPerformed, "rollback performed; journal unavailable", errors.Join(cause, journalErr))
+	}
 	return result, cause
+}
+
+func writeRollbackJournal(path string, journal rollbackJournal) error {
+	raw, err := json.MarshalIndent(journal, "", "  ")
+	if err != nil {
+		return err
+	}
+	return atomicWritePrivate(path, raw, 0o600)
 }
 
 func validateUpgradePaths(request UpgradeRequest) error {

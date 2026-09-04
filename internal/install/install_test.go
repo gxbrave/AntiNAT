@@ -6,7 +6,9 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -302,6 +304,21 @@ func TestVerifiedPurgeManifestMustMatchAllowlist(t *testing.T) {
 	}
 }
 
+func TestDefaultPurgeResourcesIncludesControllerKeys(t *testing.T) {
+	for _, layout := range []Layout{LinuxLayout(t.TempDir()), WindowsLayout(t.TempDir())} {
+		found := false
+		for _, resource := range DefaultPurgeResources(layout) {
+			if resource.Root == layout.DataDir && resource.Path == "controller-keys" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("DefaultPurgeResources(%s) omitted controller-keys", layout.Platform)
+		}
+	}
+}
+
 func TestTransactionalUpgradeRestoresCompleteFileSet(t *testing.T) {
 	root := t.TempDir()
 	stage := t.TempDir()
@@ -345,9 +362,98 @@ func TestTransactionalUpgradeRestoresCompleteFileSet(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".antinat-upgrade.lock")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("upgrade lock residue: %v", err)
 	}
+	if result.RollbackJournalPath == "" {
+		t.Fatal("successful rollback did not expose its journal path")
+	}
+	journalRaw, err := os.ReadFile(result.RollbackJournalPath)
+	if err != nil {
+		t.Fatalf("read rollback journal: %v", err)
+	}
+	var journal rollbackJournal
+	if err := json.Unmarshal(journalRaw, &journal); err != nil {
+		t.Fatalf("decode rollback journal: %v", err)
+	}
+	if journal.State != "complete" || len(journal.Completed) != len(files) {
+		t.Fatalf("rollback journal = %+v", journal)
+	}
 
 	if err := ValidateNMinusOne(4, 2); err == nil || CodeOf(err) != ExitUpgradeMigrationBlocked {
 		t.Fatal("accepted skipped schema upgrade")
+	}
+}
+
+func TestTransactionalUpgradeReportsRollbackFailure(t *testing.T) {
+	root := t.TempDir()
+	stage := t.TempDir()
+	files := []string{"first", "second"}
+	for _, path := range files {
+		if err := os.WriteFile(filepath.Join(root, path), []byte("old-"+path), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(stage, path), []byte("new-"+path), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := TransactionalUpgrade(context.Background(), UpgradeRequest{
+		LiveRoot: root, StagingRoot: stage, Files: files, CurrentVersion: 2, PreviousVersion: 1,
+		HealthCheck: func(context.Context, string) error {
+			second := filepath.Join(root, "second")
+			if err := os.Remove(second); err != nil {
+				return fmt.Errorf("prepare rollback failure: %w", err)
+			}
+			if err := os.Mkdir(second, 0o700); err != nil {
+				return fmt.Errorf("prepare rollback failure: %w", err)
+			}
+			return errors.New("unhealthy")
+		},
+	})
+	if err == nil || CodeOf(err) != ExitGenericFailure {
+		t.Fatalf("rollback failure result=%+v err=%v code=%d", result, err, CodeOf(err))
+	}
+	if !result.RollbackFailed || result.RolledBack {
+		t.Fatalf("rollback status = %+v", result)
+	}
+	if !strings.Contains(err.Error(), "rollback failed") {
+		t.Fatalf("rollback failure was not explicit: %v", err)
+	}
+	journalRaw, err := os.ReadFile(result.RollbackJournalPath)
+	if err != nil {
+		t.Fatalf("read failed rollback journal: %v", err)
+	}
+	var journal rollbackJournal
+	if err := json.Unmarshal(journalRaw, &journal); err != nil {
+		t.Fatalf("decode failed rollback journal: %v", err)
+	}
+	if journal.State != "failed" {
+		t.Fatalf("failed rollback journal = %+v", journal)
+	}
+}
+
+func TestRestoreSnapshotVerifiesCompleteLiveSet(t *testing.T) {
+	root := t.TempDir()
+	backup := filepath.Join(t.TempDir(), "backup")
+	files := []string{"first", "second"}
+	for _, path := range files {
+		if err := os.WriteFile(filepath.Join(root, path), []byte("old-"+path), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest, err := CreateSnapshot(root, backup, files)
+	if err != nil {
+		t.Fatalf("create snapshot: %v", err)
+	}
+	for _, path := range files {
+		if err := os.WriteFile(filepath.Join(root, path), []byte("new-"+path), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := restoreSnapshotWithProgress(root, backup, manifest, func(path string) error {
+		if path == "first" {
+			return os.WriteFile(filepath.Join(root, path), []byte("tampered"), 0o600)
+		}
+		return nil
+	}); err == nil || !strings.Contains(err.Error(), "verify complete live restoration") {
+		t.Fatalf("accepted a tampered live restore: %v", err)
 	}
 }
 
