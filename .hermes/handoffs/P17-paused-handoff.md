@@ -1,6 +1,6 @@
 # P17 paused handoff — resume point for the next developer agent
 
-> **Current pointer (authoritative):** implementation candidate `0e2d47bd68d163b0b6bd466ea9403188c595e56e`; handoff metadata is being regenerated after final review fixes. The historical fields below describe the original pause only.
+> **Current pointer (authoritative):** implementation candidate `5af5431bdb67e1ac4f2e389d306311e0fce42ae6`; handoff metadata is in the later documentation commit `1a1d785`. The historical fields below describe the original pause only.
 
 **Status:** `SUPERSEDED_BY_P17_CANDIDATE`
 
