@@ -114,6 +114,12 @@ func TestTokenFDAndReaderAreBounded(t *testing.T) {
 	if err := input.Abort(); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := reader.Stat(); err != nil {
+		t.Fatalf("token input closed the caller-owned descriptor: %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close caller-owned token descriptor: %v", err)
+	}
 	if _, err := ReadTokenFromReader(strings.NewReader(strings.Repeat("x", maxTokenBytes+1))); err == nil {
 		t.Fatal("accepted oversized token")
 	}

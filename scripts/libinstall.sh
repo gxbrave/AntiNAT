@@ -25,6 +25,7 @@ INSTALLER_ENDPOINT=""
 INSTALLER_BIND_INTERFACE=""
 INSTALLER_DIR="/opt/antinat"
 INSTALLER_SERVICE_NAME="antinat-agent.service"
+INSTALLER_SERVICE_MANAGER=""
 INSTALLER_LOG_LEVEL="info"
 INSTALLER_AUTO_UPDATE="disabled"
 INSTALLER_GITHUB_PROXY=""
@@ -32,12 +33,24 @@ INSTALLER_SCHEDULER="sequential"
 INSTALLER_TOKEN_FD=""
 INSTALLER_TOKEN_FILE=""
 INSTALLER_TOKEN_TMP=""
+INSTALLER_TOKEN_IDENTITY_TMP=""
 INSTALLER_TOKEN_SOURCE_CONSUMED=0
 INSTALLER_HELP_REQUESTED=0
 INSTALLER_VERSION_REQUESTED=0
+INSTALLER_PURGE_KEEP_OTHER=0
+INSTALLER_AGENT_REENABLE=0
+INSTALLER_CONTROLLER_REENABLE=0
 
 INSTALLER_TEST_ROOT="${ANTINAT_TEST_ROOT:-}"
 INSTALLER_ROLE="${ANTINAT_ROLE:-agent}"
+
+installer_role_has_agent() {
+    [[ "$INSTALLER_ROLE" == agent || "$INSTALLER_ROLE" == both ]]
+}
+
+installer_role_has_controller() {
+    [[ "$INSTALLER_ROLE" == controller || "$INSTALLER_ROLE" == both ]]
+}
 
 installer_die() {
     local code="$1"
@@ -80,11 +93,28 @@ installer_init_paths() {
     INSTALLER_CONFIG=$(installer_logical_path /etc/antinat/agent.conf)
     INSTALLER_LOG_DIR=$(installer_logical_path /var/log/antinat)
     INSTALLER_SERVICE_DIR=$(installer_logical_path /etc/systemd/system)
+    INSTALLER_OPENRC_DIR=$(installer_logical_path /etc/init.d)
     INSTALLER_AGENT_UNIT=$(installer_logical_path "/etc/systemd/system/${INSTALLER_SERVICE_NAME}")
     INSTALLER_CONTROLLER_UNIT=$(installer_logical_path /etc/systemd/system/antinat-controller.service)
+    INSTALLER_CONTROLLER_KEY_DIR=$(installer_logical_path /var/lib/antinat/controller-keys)
     INSTALLER_OWNERSHIP_MANIFEST=$(installer_logical_path /var/lib/antinat/ownership-manifest.json)
     INSTALLER_OWNERSHIP_KEY=$(installer_logical_path /var/lib/antinat/ownership.key)
     INSTALLER_BACKUP_DIR=$(installer_logical_path /var/lib/antinat/backups)
+    INSTALLER_SERVICE_MANAGER="${ANTINAT_SERVICE_MANAGER:-}"
+    if [[ -z "$INSTALLER_SERVICE_MANAGER" ]]; then
+        if [[ -n "$INSTALLER_TEST_ROOT" || "${ANTINAT_TEST_MODE:-0}" == 1 ]]; then
+            INSTALLER_SERVICE_MANAGER=systemd
+        elif command -v systemctl >/dev/null 2>&1; then
+            INSTALLER_SERVICE_MANAGER=systemd
+        elif command -v rc-service >/dev/null 2>&1 && command -v rc-update >/dev/null 2>&1; then
+            INSTALLER_SERVICE_MANAGER=openrc
+        else
+            INSTALLER_SERVICE_MANAGER=systemd
+        fi
+    fi
+    [[ "$INSTALLER_SERVICE_MANAGER" == systemd || "$INSTALLER_SERVICE_MANAGER" == openrc ]] || return "$INSTALLER_EXIT_USAGE"
+    INSTALLER_AGENT_REENABLE=0
+    INSTALLER_CONTROLLER_REENABLE=0
 }
 
 installer_parse_args() {
@@ -182,13 +212,14 @@ installer_parse_args() {
     [[ "$INSTALLER_PLATFORM" == linux ]] || return "$INSTALLER_EXIT_USAGE"
     [[ "$INSTALLER_DIR" == /opt/antinat ]] || return "$INSTALLER_EXIT_USAGE"
     [[ "$INSTALLER_SERVICE_NAME" == antinat-agent.service ]] || return "$INSTALLER_EXIT_USAGE"
+    [[ "$INSTALLER_ROLE" == agent || "$INSTALLER_ROLE" == controller || "$INSTALLER_ROLE" == both ]] || return "$INSTALLER_EXIT_USAGE"
     if [[ -n "$INSTALLER_TOKEN_FD" && -n "$INSTALLER_TOKEN_FILE" ]]; then
         return "$INSTALLER_EXIT_TOKEN"
     fi
     if [[ -n "$INSTALLER_TOKEN_FD" ]]; then
         [[ "$INSTALLER_TOKEN_FD" =~ ^[3-9][0-9]*$ ]] || return "$INSTALLER_EXIT_TOKEN"
     fi
-    if [[ "$INSTALLER_COMMAND" == install && -z "$INSTALLER_ENDPOINT" && "${ANTINAT_TEST_MODE:-0}" != 1 ]]; then
+    if [[ "$INSTALLER_COMMAND" == install && ("$INSTALLER_ROLE" == agent || "$INSTALLER_ROLE" == both) && -z "$INSTALLER_ENDPOINT" && "${ANTINAT_TEST_MODE:-0}" != 1 ]]; then
         return "$INSTALLER_EXIT_USAGE"
     fi
     installer_validate_text "$INSTALLER_ENDPOINT" || return "$INSTALLER_EXIT_USAGE"
@@ -208,12 +239,19 @@ installer_validate_text() {
 installer_validate_endpoint() {
     local endpoint="$1"
     [[ "$endpoint" =~ ^https?://[^[:space:]/?#]+(:[0-9]+)?([/][^[:space:]?#]*)?$ ]] || return 1
-    [[ "$endpoint" != *"@"* && "$endpoint" != *"?"* && "$endpoint" != *"#"* ]]
+    [[ "$endpoint" != *"@"* && "$endpoint" != *"?"* && "$endpoint" != *"#"* ]] || return 1
+    # Enrollment carries the one-time token in the request body. Plain HTTP is
+    # allowed only for an explicitly local test endpoint; remote controllers
+    # must use TLS before any token is read.
+    if [[ "$endpoint" == http://* ]]; then
+        [[ "${ANTINAT_TEST_MODE:-0}" == 1 ]] || return 1
+        [[ "$endpoint" =~ ^http://(127\.0\.0\.1|localhost|\[::1\])(:[0-9]+)?([/][^[:space:]?#]*)?$ ]] || return 1
+    fi
 }
 
 installer_require_tools() {
     local tool
-    for tool in awk chmod cp curl find getent groupadd hostname id install jq mktemp mv od openssl readlink rm rmdir sha256sum stat tr useradd; do
+    for tool in awk chmod cp curl find getent groupadd head hostname id install jq mktemp mv od openssl python3 readlink rm rmdir sha256sum sleep stat timeout tr useradd wc; do
         if ! command -v "$tool" >/dev/null 2>&1; then
             installer_die "$INSTALLER_EXIT_GENERIC" "required tool $tool is unavailable" || true
             return "$INSTALLER_EXIT_GENERIC"
@@ -252,6 +290,17 @@ installer_verify_artifacts() {
         installer_die "$INSTALLER_EXIT_ARTIFACT" "artifact directory is not a private canonical directory" || true
         return "$INSTALLER_EXIT_ARTIFACT"
     fi
+    # A caller-supplied release directory is an input boundary. Requiring a
+    # root-owned, non-writable directory makes the signed manifest and the
+    # bytes selected from it immutable to an unprivileged local process after
+    # verification. Downloads created by mktemp already satisfy this rule.
+    local artifact_mode artifact_owner
+    artifact_mode=$(stat -c '%a' -- "$INSTALLER_ARTIFACT_DIR") || return "$INSTALLER_EXIT_ARTIFACT"
+    artifact_owner=$(stat -c '%u' -- "$INSTALLER_ARTIFACT_DIR") || return "$INSTALLER_EXIT_ARTIFACT"
+    [[ "$artifact_owner" == 0 && "$artifact_mode" == 700 ]] || {
+        installer_die "$INSTALLER_EXIT_ARTIFACT" "artifact directory must be root-owned and mode 0700" || true
+        return "$INSTALLER_EXIT_ARTIFACT"
+    }
     if [[ ! -r "$trust_root" ]]; then
         installer_die "$INSTALLER_EXIT_ARTIFACT" "pinned release trust root is unavailable" || true
         return "$INSTALLER_EXIT_ARTIFACT"
@@ -316,12 +365,98 @@ installer_verify_artifacts() {
     done < <(jq -r '.artifacts | to_entries[] | [.key,.value] | @tsv' "$INSTALLER_MANIFEST_FILE")
 }
 
+installer_find_artifact_name() {
+    local suffix="$1" name count=0 match=""
+    while IFS= read -r name; do
+        [[ -n "$name" ]] || continue
+        count=$((count + 1))
+        match="$name"
+    done < <(jq -r --arg suffix "$suffix" '.artifacts | keys[] | select(endswith($suffix))' "$INSTALLER_MANIFEST_FILE")
+    [[ "$count" == 1 ]] || return 1
+    printf '%s\n' "$match"
+}
+
 installer_find_artifact() {
-    local suffix="$1"
-    local name
-    name=$(jq -r --arg suffix "$suffix" '.artifacts | keys[] | select(endswith($suffix))' "$INSTALLER_MANIFEST_FILE" | head -n 1)
-    [[ -n "$name" ]] || return 1
+    local suffix="$1" name
+    name=$(installer_find_artifact_name "$suffix") || return 1
     printf '%s/%s' "$INSTALLER_ARTIFACT_DIR" "${name##*/}"
+}
+
+installer_read_token_file_bound() {
+    local source="$1" destination="$2" identity="$3"
+    python3 - "$source" "$destination" "$identity" <<'PY'
+import os
+import stat
+import sys
+
+source, destination, identity = sys.argv[1:]
+parent = os.path.dirname(source) or "."
+name = os.path.basename(source)
+parent_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+try:
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent_fd)
+    try:
+        st = os.fstat(fd)
+        if (not stat.S_ISREG(st.st_mode) or (st.st_mode & 0o7777) != 0o600 or
+                st.st_uid != os.geteuid() or st.st_nlink != 1):
+            raise OSError("token source is not a private owner-only file")
+        data = bytearray()
+        while len(data) <= 4096:
+            chunk = os.read(fd, 4097 - len(data))
+            if not chunk:
+                break
+            data.extend(chunk)
+        if len(data) > 4096:
+            raise OSError("token source exceeds size limit")
+        out_fd = os.open(destination, os.O_WRONLY | os.O_TRUNC | os.O_CLOEXEC)
+        try:
+            view = memoryview(data)
+            while view:
+                written = os.write(out_fd, view)
+                view = view[written:]
+            os.fsync(out_fd)
+        finally:
+            os.close(out_fd)
+        meta_fd = os.open(identity, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC, 0o600)
+        try:
+            os.write(meta_fd, f"{st.st_dev} {st.st_ino}\n".encode("ascii"))
+            os.fsync(meta_fd)
+        finally:
+            os.close(meta_fd)
+    finally:
+        os.close(fd)
+finally:
+    os.close(parent_fd)
+PY
+}
+
+installer_consume_token_file_bound() {
+    local source="$1" identity="$2"
+    python3 - "$source" "$identity" <<'PY'
+import os
+import stat
+import sys
+
+source, identity = sys.argv[1:]
+with open(identity, "rb") as stream:
+    fields = stream.read(128).split()
+if len(fields) != 2:
+    raise OSError("token identity record is invalid")
+expected_dev, expected_ino = int(fields[0]), int(fields[1])
+parent = os.path.dirname(source) or "."
+name = os.path.basename(source)
+parent_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+try:
+    st = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    if (not stat.S_ISREG(st.st_mode) or (st.st_mode & 0o7777) != 0o600 or
+            st.st_uid != os.geteuid() or st.st_nlink != 1 or
+            st.st_dev != expected_dev or st.st_ino != expected_ino):
+        raise OSError("token file was replaced before consumption")
+    os.unlink(name, dir_fd=parent_fd)
+    os.fsync(parent_fd)
+finally:
+    os.close(parent_fd)
+PY
 }
 
 installer_read_token() {
@@ -330,18 +465,13 @@ installer_read_token() {
     chmod 700 -- "$token_tmp_dir"
     INSTALLER_TOKEN_TMP=$(mktemp "$token_tmp_dir/.enrollment-token.XXXXXX") || return "$INSTALLER_EXIT_TOKEN"
     chmod 600 -- "$INSTALLER_TOKEN_TMP"
+    INSTALLER_TOKEN_IDENTITY_TMP="${INSTALLER_TOKEN_TMP}.identity"
     if [[ -n "$INSTALLER_TOKEN_FD" ]]; then
         # The descriptor is read directly; its contents are never placed in
         # argv or an environment variable.
         head -c 4097 <&"$INSTALLER_TOKEN_FD" >"$INSTALLER_TOKEN_TMP" || return "$INSTALLER_EXIT_TOKEN"
     elif [[ -n "$INSTALLER_TOKEN_FILE" ]]; then
-        [[ -f "$INSTALLER_TOKEN_FILE" && ! -L "$INSTALLER_TOKEN_FILE" ]] || return "$INSTALLER_EXIT_TOKEN"
-        local mode owner links
-        mode=$(stat -c '%a' -- "$INSTALLER_TOKEN_FILE") || return "$INSTALLER_EXIT_TOKEN"
-        owner=$(stat -c '%u' -- "$INSTALLER_TOKEN_FILE") || return "$INSTALLER_EXIT_TOKEN"
-        links=$(stat -c '%h' -- "$INSTALLER_TOKEN_FILE") || return "$INSTALLER_EXIT_TOKEN"
-        [[ "$mode" == 600 && "$owner" == "$(id -u)" && "$links" == 1 ]] || return "$INSTALLER_EXIT_TOKEN"
-        head -c 4097 -- "$INSTALLER_TOKEN_FILE" >"$INSTALLER_TOKEN_TMP" || return "$INSTALLER_EXIT_TOKEN"
+        installer_read_token_file_bound "$INSTALLER_TOKEN_FILE" "$INSTALLER_TOKEN_TMP" "$INSTALLER_TOKEN_IDENTITY_TMP" || return "$INSTALLER_EXIT_TOKEN"
     else
         local tty=/dev/tty token
         [[ -r "$tty" && -w "$tty" ]] || return "$INSTALLER_EXIT_TOKEN"
@@ -362,18 +492,17 @@ installer_cleanup_token() {
         chmod 600 -- "$INSTALLER_TOKEN_TMP" 2>/dev/null || true
         rm -f -- "$INSTALLER_TOKEN_TMP"
     fi
+    if [[ -n "$INSTALLER_TOKEN_IDENTITY_TMP" ]]; then
+        rm -f -- "$INSTALLER_TOKEN_IDENTITY_TMP"
+    fi
     INSTALLER_TOKEN_TMP=""
+    INSTALLER_TOKEN_IDENTITY_TMP=""
 }
 
 installer_consume_source_token() {
     [[ -n "$INSTALLER_TOKEN_FILE" && "$INSTALLER_TOKEN_SOURCE_CONSUMED" == 0 ]] || return 0
-    [[ -f "$INSTALLER_TOKEN_FILE" && ! -L "$INSTALLER_TOKEN_FILE" ]] || return "$INSTALLER_EXIT_TOKEN"
-    local mode owner links
-    mode=$(stat -c '%a' -- "$INSTALLER_TOKEN_FILE") || return "$INSTALLER_EXIT_TOKEN"
-    owner=$(stat -c '%u' -- "$INSTALLER_TOKEN_FILE") || return "$INSTALLER_EXIT_TOKEN"
-    links=$(stat -c '%h' -- "$INSTALLER_TOKEN_FILE") || return "$INSTALLER_EXIT_TOKEN"
-    [[ "$mode" == 600 && "$owner" == "$(id -u)" && "$links" == 1 ]] || return "$INSTALLER_EXIT_TOKEN"
-    rm -f -- "$INSTALLER_TOKEN_FILE" || return "$INSTALLER_EXIT_TOKEN"
+    [[ -n "$INSTALLER_TOKEN_IDENTITY_TMP" && -f "$INSTALLER_TOKEN_IDENTITY_TMP" ]] || return "$INSTALLER_EXIT_TOKEN"
+    installer_consume_token_file_bound "$INSTALLER_TOKEN_FILE" "$INSTALLER_TOKEN_IDENTITY_TMP" || return "$INSTALLER_EXIT_TOKEN"
     INSTALLER_TOKEN_SOURCE_CONSUMED=1
 }
 
@@ -390,6 +519,70 @@ installer_atomic_copy() {
     fi
     chmod "$mode" -- "$temporary"
     mv -f -- "$temporary" "$destination"
+}
+
+installer_atomic_copy_verified() {
+    local source="$1" destination="$2" mode="$3" expected="$4"
+    [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || return 1
+    mkdir -p -- "$(dirname -- "$destination")"
+    python3 - "$source" "$destination" "$mode" "$expected" <<'PY'
+import hashlib
+import os
+import stat
+import sys
+import tempfile
+
+source, destination, mode, expected = sys.argv[1:]
+source_fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+temporary_path = None
+try:
+    source_stat = os.fstat(source_fd)
+    if not stat.S_ISREG(source_stat.st_mode) or source_stat.st_nlink != 1:
+        raise OSError("artifact is not a private regular file")
+    parent = os.path.dirname(destination) or "."
+    destination_fd, temporary_path = tempfile.mkstemp(prefix=".antinat-copy-", dir=parent)
+    try:
+        os.fchmod(destination_fd, int(mode, 8))
+        digest = hashlib.sha256()
+        while True:
+            chunk = os.read(source_fd, 1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+            view = memoryview(chunk)
+            while view:
+                written = os.write(destination_fd, view)
+                view = view[written:]
+        if digest.hexdigest() != expected:
+            raise OSError("artifact digest changed during copy")
+        if os.fstat(source_fd).st_ino != source_stat.st_ino or os.fstat(source_fd).st_dev != source_stat.st_dev:
+            raise OSError("artifact identity changed during copy")
+        os.fsync(destination_fd)
+    finally:
+        os.close(destination_fd)
+    os.replace(temporary_path, destination)
+    temporary_path = None
+    directory_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+finally:
+    os.close(source_fd)
+    if temporary_path is not None:
+        try:
+            os.unlink(temporary_path)
+        except FileNotFoundError:
+            pass
+PY
+}
+
+installer_copy_artifact() {
+    local suffix="$1" destination="$2" mode="$3" name expected
+    name=$(installer_find_artifact_name "$suffix") || return 1
+    [[ -n "$name" ]] || return 1
+    expected=$(jq -r --arg name "$name" '.artifacts[$name]' "$INSTALLER_MANIFEST_FILE")
+    installer_atomic_copy_verified "$INSTALLER_ARTIFACT_DIR/${name##*/}" "$destination" "$mode" "$expected"
 }
 
 installer_write_config() {
@@ -470,6 +663,27 @@ installer_find_service_source() {
     return 1
 }
 
+installer_find_openrc_source() {
+    local service="$1" candidate
+    if [[ -n "${ANTINAT_OPENRC_DIR:-}" ]]; then
+        candidate="$ANTINAT_OPENRC_DIR/$service"
+        if [[ -r "$candidate" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    fi
+    for candidate in \
+        "$INSTALLER_SCRIPT_DIR/../deploy/openrc/$service" \
+        "$INSTALLER_SCRIPT_DIR/openrc/$service" \
+        "/usr/share/antinat/openrc/$service"; do
+        if [[ -r "$candidate" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
 installer_install_embedded_unit() {
     local unit="$1" destination="$2" temporary
     temporary=$(mktemp "${TMPDIR:-/tmp}/antinat-unit.XXXXXX") || return 1
@@ -525,9 +739,43 @@ installer_install_service_unit() {
     fi
 }
 
+installer_install_openrc_service() {
+    local service="$1" destination="$INSTALLER_OPENRC_DIR/$1" source
+    if source=$(installer_find_openrc_source "$service"); then
+        installer_atomic_copy "$source" "$destination" 755
+        return
+    fi
+    return 1
+}
+
+installer_openrc() {
+    [[ -n "$INSTALLER_TEST_ROOT" || "${ANTINAT_TEST_MODE:-0}" == 1 ]] && return 0
+    local action="$1" service="$2"
+    case "$action" in
+        start|stop|restart)
+            rc-service "$service" "$action"
+            ;;
+        add|del)
+            rc-update "$action" "$service" default
+            ;;
+        *)
+            return 2
+            ;;
+    esac
+}
+
 installer_systemctl() {
     [[ -n "$INSTALLER_TEST_ROOT" || "${ANTINAT_TEST_MODE:-0}" == 1 ]] && return 0
     systemctl "$@"
+}
+
+installer_systemd_unit_present() {
+    local unit="$1"
+    if [[ -n "$INSTALLER_TEST_ROOT" || "${ANTINAT_TEST_MODE:-0}" == 1 ]]; then
+        [[ -e "$INSTALLER_SERVICE_DIR/$unit" || "$unit" == "$INSTALLER_SERVICE_NAME" && -e "$INSTALLER_AGENT_UNIT" ]]
+        return
+    fi
+    systemctl cat "$unit" >/dev/null 2>&1
 }
 
 installer_chown() {
@@ -535,75 +783,257 @@ installer_chown() {
     chown "$@"
 }
 
+installer_ownership_resource_role() {
+    local root="$1" path="$2"
+    case "$root:$path" in
+        "$INSTALLER_INSTALL_DIR:bin/antinat-agent"|\
+        "$INSTALLER_INSTALL_DIR:bin/antinat-hook-runner"|\
+        "$INSTALLER_DATA_DIR:state.db"|\
+        "$INSTALLER_DATA_DIR:node.key"|\
+        "$INSTALLER_DATA_DIR:terminal.marker"|\
+        "$INSTALLER_DATA_DIR:agent.marker"|\
+        "$(dirname -- "$INSTALLER_CONFIG"):agent.conf"|\
+        "$INSTALLER_SERVICE_DIR:$INSTALLER_SERVICE_NAME"|\
+        "$INSTALLER_OPENRC_DIR:antinat-agent")
+            printf 'agent\n'
+            return 0
+            ;;
+        "$INSTALLER_INSTALL_DIR:bin/antinat-controller"|\
+        "$INSTALLER_DATA_DIR:controller.db"|\
+        "$INSTALLER_DATA_DIR:controller-keys"|\
+        "$INSTALLER_SERVICE_DIR:antinat-controller.service"|\
+        "$INSTALLER_OPENRC_DIR:antinat-controller")
+            printf 'controller\n'
+            return 0
+            ;;
+        "$INSTALLER_DATA_DIR:backups"|\
+        "$INSTALLER_DATA_DIR:ownership-manifest.json"|\
+        "$INSTALLER_DATA_DIR:ownership.key")
+            printf 'shared\n'
+            return 0
+            ;;
+    esac
+    printf 'unknown\n'
+    return 1
+}
+
+installer_manifest_validate() {
+    [[ -f "$INSTALLER_OWNERSHIP_MANIFEST" && ! -L "$INSTALLER_OWNERSHIP_MANIFEST" ]] || return 1
+    [[ -f "$INSTALLER_OWNERSHIP_KEY" && ! -L "$INSTALLER_OWNERSHIP_KEY" ]] || return 1
+    local mode owner links
+    mode=$(stat -c '%a' -- "$INSTALLER_OWNERSHIP_KEY") || return 1
+    owner=$(stat -c '%u' -- "$INSTALLER_OWNERSHIP_KEY") || return 1
+    links=$(stat -c '%h' -- "$INSTALLER_OWNERSHIP_KEY") || return 1
+    [[ "$mode" == 600 && "$owner" == "$(id -u)" && "$links" == 1 ]] || return 1
+    mode=$(stat -c '%a' -- "$INSTALLER_OWNERSHIP_MANIFEST") || return 1
+    owner=$(stat -c '%u' -- "$INSTALLER_OWNERSHIP_MANIFEST") || return 1
+    links=$(stat -c '%h' -- "$INSTALLER_OWNERSHIP_MANIFEST") || return 1
+    [[ "$mode" == 600 && "$owner" == "$(id -u)" && "$links" == 1 ]] || return 1
+    if ! jq -e 'type == "object" and ((keys - ["schema_version", "installation_id", "resources", "hmac"]) | length == 0) and .schema_version == 1 and (.installation_id | type == "string" and test("^[A-Za-z0-9._-]+$")) and (.resources | type == "array" and length > 0 and all(.[]; type == "object" and ((keys - ["root", "path"]) | length == 0) and (.root | type == "string") and (.path | type == "string"))) and (.hmac | type == "string" and test("^[0-9a-f]{64}$"))' "$INSTALLER_OWNERSHIP_MANIFEST" >/dev/null; then
+        return 1
+    fi
+    local key_hex expected payload actual root path role
+    key_hex=$(od -An -v -tx1 "$INSTALLER_OWNERSHIP_KEY" | tr -d ' \n') || return 1
+    payload=$(jq -c '{schema_version,installation_id,resources}' "$INSTALLER_OWNERSHIP_MANIFEST") || return 1
+    expected=$(jq -r '.hmac // empty' "$INSTALLER_OWNERSHIP_MANIFEST") || return 1
+    actual=$(printf '%s' "$payload" | openssl dgst -sha256 -mac HMAC -macopt "hexkey:$key_hex" | awk '{print $NF}') || return 1
+    [[ "$expected" == "$actual" ]] || return 1
+    while IFS=$'\t' read -r root path; do
+        role=$(installer_ownership_resource_role "$root" "$path") || true
+        [[ "$role" != unknown ]] || return 1
+    done < <(jq -r '.resources[] | [.root,.path] | @tsv' "$INSTALLER_OWNERSHIP_MANIFEST")
+}
+
+installer_write_ownership_manifest() {
+    local installation_id="$1" resources="$2"
+    local key_hex payload mac manifest temporary
+    key_hex=$(od -An -v -tx1 "$INSTALLER_OWNERSHIP_KEY" | tr -d ' \n') || return 1
+    payload=$(jq -cn --arg id "$installation_id" --argjson resources "$resources" \
+        '{schema_version:1,installation_id:$id,resources:$resources}') || return 1
+    mac=$(printf '%s' "$payload" | openssl dgst -sha256 -mac HMAC -macopt "hexkey:$key_hex" | awk '{print $NF}') || return 1
+    manifest=$(printf '%s' "$payload" | jq -c --arg hmac "$mac" '. + {hmac:$hmac}') || return 1
+    temporary=$(mktemp "$(dirname -- "$INSTALLER_OWNERSHIP_MANIFEST")/.ownership-manifest.XXXXXX") || return 1
+    chmod 600 -- "$temporary"
+    if ! printf '%s\n' "$manifest" >"$temporary" || ! mv -f -- "$temporary" "$INSTALLER_OWNERSHIP_MANIFEST"; then
+        rm -f -- "$temporary"
+        return 1
+    fi
+    chmod 600 -- "$INSTALLER_OWNERSHIP_MANIFEST"
+    installer_chown root:root "$INSTALLER_OWNERSHIP_MANIFEST"
+}
+
 installer_make_ownership_manifest() {
-    local installation_id
-    installation_id=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+    local installation_id resources='[]'
     mkdir -p -- "$INSTALLER_DATA_DIR"
     chmod 700 -- "$INSTALLER_DATA_DIR"
-    [[ -e "$INSTALLER_OWNERSHIP_KEY" ]] || head -c 32 /dev/urandom >"$INSTALLER_OWNERSHIP_KEY"
+    if [[ -e "$INSTALLER_OWNERSHIP_KEY" || -L "$INSTALLER_OWNERSHIP_KEY" ]]; then
+        [[ -f "$INSTALLER_OWNERSHIP_KEY" && ! -L "$INSTALLER_OWNERSHIP_KEY" ]] || return 1
+    else
+        head -c 32 /dev/urandom >"$INSTALLER_OWNERSHIP_KEY"
+    fi
     chmod 600 -- "$INSTALLER_OWNERSHIP_KEY"
-    local key_hex payload mac manifest
-    key_hex=$(od -An -v -tx1 "$INSTALLER_OWNERSHIP_KEY" | tr -d ' \n')
-    payload=$(jq -cn \
-        --arg id "$installation_id" \
-        --arg install "$INSTALLER_INSTALL_DIR" \
+    if [[ -e "$INSTALLER_OWNERSHIP_MANIFEST" ]]; then
+        installer_manifest_validate || return 1
+        installation_id=$(jq -r '.installation_id' "$INSTALLER_OWNERSHIP_MANIFEST")
+        resources=$(jq -c '.resources' "$INSTALLER_OWNERSHIP_MANIFEST")
+    else
+        installation_id=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+    fi
+    if installer_role_has_agent; then
+        resources=$(jq -c \
+            --arg root "$INSTALLER_INSTALL_DIR" \
+            --arg data "$INSTALLER_DATA_DIR" \
+            --arg config "$(dirname -- "$INSTALLER_CONFIG")" \
+            --arg service "$INSTALLER_SERVICE_DIR" \
+            --arg openrc "$INSTALLER_OPENRC_DIR" \
+            --arg manager "$INSTALLER_SERVICE_MANAGER" \
+            '$ARGS.positional as $r | . + [
+              {root:$root,path:"bin/antinat-agent"},
+              {root:$root,path:"bin/antinat-hook-runner"},
+              {root:$data,path:"state.db"},
+              {root:$data,path:"node.key"},
+              {root:$data,path:"terminal.marker"},
+              {root:$data,path:"agent.marker"},
+              {root:$config,path:"agent.conf"},
+              (if $manager == "systemd" then {root:$service,path:"antinat-agent.service"} else {root:$openrc,path:"antinat-agent"} end)
+            ] | unique_by([.root,.path])' <<<"$resources")
+    fi
+    if installer_role_has_controller; then
+        resources=$(jq -c \
+            --arg root "$INSTALLER_INSTALL_DIR" \
+            --arg data "$INSTALLER_DATA_DIR" \
+            --arg service "$INSTALLER_SERVICE_DIR" \
+            --arg openrc "$INSTALLER_OPENRC_DIR" \
+            --arg manager "$INSTALLER_SERVICE_MANAGER" \
+            '. + [
+              {root:$root,path:"bin/antinat-controller"},
+              {root:$data,path:"controller.db"},
+              {root:$data,path:"controller-keys"},
+              (if $manager == "systemd" then {root:$service,path:"antinat-controller.service"} else {root:$openrc,path:"antinat-controller"} end)
+            ] | unique_by([.root,.path])' <<<"$resources")
+    fi
+    resources=$(jq -c \
         --arg data "$INSTALLER_DATA_DIR" \
-        --arg config "$(dirname -- "$INSTALLER_CONFIG")" \
+        --arg backup "$INSTALLER_BACKUP_DIR" \
         --arg service "$INSTALLER_SERVICE_DIR" \
-        '{schema_version:1,installation_id:$id,resources:[
-          {root:$install,path:"bin/antinat-agent"},
-          {root:$install,path:"bin/antinat-controller"},
-          {root:$install,path:"bin/antinat-hook-runner"},
-          {root:$data,path:"state.db"},
-          {root:$data,path:"node.key"},
-          {root:$data,path:"controller.db"},
-          {root:$data,path:"terminal.marker"},
-          {root:$data,path:"agent.marker"},
+        --arg openrc "$INSTALLER_OPENRC_DIR" \
+        --arg manager "$INSTALLER_SERVICE_MANAGER" \
+        '. + [
           {root:$data,path:"backups"},
           {root:$data,path:"ownership-manifest.json"},
-          {root:$data,path:"ownership.key"},
-          {root:$config,path:"agent.conf"},
-          {root:$service,path:"antinat-agent.service"},
-          {root:$service,path:"antinat-controller.service"}
-        ]}')
-    mac=$(printf '%s' "$payload" | openssl dgst -sha256 -mac HMAC -macopt "hexkey:$key_hex" | awk '{print $NF}')
-    manifest=$(printf '%s' "$payload" | jq -c --arg hmac "$mac" '. + {hmac:$hmac}')
-    printf '%s\n' "$manifest" >"$INSTALLER_OWNERSHIP_MANIFEST"
-    chmod 600 -- "$INSTALLER_OWNERSHIP_MANIFEST"
+          {root:$data,path:"ownership.key"}
+        ] | unique_by([.root,.path])' <<<"$resources")
+    installer_write_ownership_manifest "$installation_id" "$resources"
 }
 
 installer_prepare_dirs() {
-    mkdir -p -- "$INSTALLER_BIN_DIR" "$INSTALLER_DATA_DIR" "$INSTALLER_LOG_DIR" "$INSTALLER_SERVICE_DIR" "$(dirname -- "$INSTALLER_CONFIG")"
-    chmod 755 -- "$INSTALLER_INSTALL_DIR" "$INSTALLER_BIN_DIR" "$INSTALLER_LOG_DIR" "$INSTALLER_SERVICE_DIR"
+    mkdir -p -- "$INSTALLER_BIN_DIR" "$INSTALLER_DATA_DIR" "$INSTALLER_LOG_DIR" \
+        "$(dirname -- "$INSTALLER_CONFIG")"
+    if [[ "$INSTALLER_SERVICE_MANAGER" == systemd ]]; then
+        mkdir -p -- "$INSTALLER_SERVICE_DIR"
+    else
+        mkdir -p -- "$INSTALLER_OPENRC_DIR"
+    fi
+    if installer_role_has_controller; then
+        mkdir -p -- "$INSTALLER_CONTROLLER_KEY_DIR"
+        chmod 700 -- "$INSTALLER_CONTROLLER_KEY_DIR"
+        installer_chown antinat:antinat "$INSTALLER_CONTROLLER_KEY_DIR"
+    fi
+    chmod 755 -- "$INSTALLER_INSTALL_DIR" "$INSTALLER_BIN_DIR" "$INSTALLER_LOG_DIR"
+    if [[ "$INSTALLER_SERVICE_MANAGER" == systemd ]]; then
+        chmod 755 -- "$INSTALLER_SERVICE_DIR"
+    else
+        chmod 755 -- "$INSTALLER_OPENRC_DIR"
+    fi
     chmod 700 -- "$INSTALLER_DATA_DIR"
     chmod 750 -- "$(dirname -- "$INSTALLER_CONFIG")"
     installer_chown antinat:antinat "$INSTALLER_DATA_DIR" "$INSTALLER_LOG_DIR"
 }
 
 installer_install_files() {
-    local agent controller hook
-    if ! agent=$(installer_find_artifact "antinat-agent-linux-amd64"); then
-        installer_die "$INSTALLER_EXIT_ARTIFACT" "Linux Agent artifact is missing" || true
-        return "$INSTALLER_EXIT_ARTIFACT"
+    if installer_role_has_agent; then
+        if installer_copy_artifact "antinat-agent-linux-amd64" "$INSTALLER_AGENT_BINARY" 755; then
+            :
+        else
+            installer_die "$INSTALLER_EXIT_ARTIFACT" "Linux Agent artifact is missing" || true
+            return "$INSTALLER_EXIT_ARTIFACT"
+        fi
     fi
-    installer_atomic_copy "$agent" "$INSTALLER_AGENT_BINARY" 755 || return 1
-    controller=$(installer_find_artifact "antinat-controller-linux-amd64") || true
-    if [[ -n "$controller" && -f "$controller" ]]; then
-        installer_atomic_copy "$controller" "$INSTALLER_CONTROLLER_BINARY" 755 || return 1
+    if installer_role_has_controller; then
+        if installer_copy_artifact "antinat-controller-linux-amd64" "$INSTALLER_CONTROLLER_BINARY" 755; then
+            :
+        else
+            installer_die "$INSTALLER_EXIT_ARTIFACT" "Linux Controller artifact is missing" || true
+            return "$INSTALLER_EXIT_ARTIFACT"
+        fi
     fi
-    hook=$(installer_find_artifact "antinat-hook-runner-linux-amd64") || true
-    if [[ -n "$hook" && -f "$hook" ]]; then
-        installer_atomic_copy "$hook" "$INSTALLER_HOOK_BINARY" 755 || return 1
+    if installer_role_has_agent && jq -e --arg suffix "antinat-hook-runner-linux-amd64" '.artifacts | keys[] | select(endswith($suffix))' "$INSTALLER_MANIFEST_FILE" >/dev/null; then
+        if installer_copy_artifact "antinat-hook-runner-linux-amd64" "$INSTALLER_HOOK_BINARY" 755; then
+            :
+        else
+            return "$INSTALLER_EXIT_ARTIFACT"
+        fi
     fi
 }
 
 installer_install_services() {
-    installer_install_service_unit antinat-agent.service "$INSTALLER_AGENT_UNIT" || return 1
-    if [[ -f "$INSTALLER_CONTROLLER_BINARY" ]]; then
-        installer_install_service_unit antinat-controller.service "$INSTALLER_CONTROLLER_UNIT" || return 1
+    if [[ "$INSTALLER_SERVICE_MANAGER" == systemd ]]; then
+        if installer_role_has_controller; then
+            installer_install_service_unit antinat-controller.service "$INSTALLER_CONTROLLER_UNIT" || return 1
+        fi
+        if installer_role_has_agent; then
+            installer_install_service_unit antinat-agent.service "$INSTALLER_AGENT_UNIT" || return 1
+        fi
+        installer_systemctl daemon-reload
+        if installer_role_has_controller; then
+            installer_systemctl enable --now antinat-controller.service || return 1
+        fi
+        if installer_role_has_agent; then
+            installer_systemctl enable --now "$INSTALLER_SERVICE_NAME" || return 1
+        fi
+        return 0
     fi
-    installer_systemctl daemon-reload
-    installer_systemctl enable --now "$INSTALLER_SERVICE_NAME"
+    if installer_role_has_controller; then
+        installer_install_openrc_service antinat-controller || return 1
+        installer_openrc add antinat-controller || return 1
+    fi
+    if installer_role_has_agent; then
+        installer_install_openrc_service antinat-agent || return 1
+        installer_openrc add antinat-agent || return 1
+    fi
+    if installer_role_has_controller; then
+        installer_openrc start antinat-controller || return 1
+    fi
+    if installer_role_has_agent; then
+        installer_openrc start antinat-agent || return 1
+    fi
+}
+
+installer_start_services() {
+    if [[ "$INSTALLER_SERVICE_MANAGER" == systemd ]]; then
+        installer_systemctl daemon-reload || return 1
+        if installer_role_has_controller && installer_systemd_unit_present antinat-controller.service; then
+            if [[ "$INSTALLER_CONTROLLER_REENABLE" == 1 ]]; then
+                installer_systemctl enable antinat-controller.service || return 1
+            fi
+            installer_systemctl start antinat-controller.service || return 1
+        fi
+        if installer_role_has_agent && installer_systemd_unit_present "$INSTALLER_SERVICE_NAME"; then
+            if [[ "$INSTALLER_AGENT_REENABLE" == 1 ]]; then
+                installer_systemctl enable "$INSTALLER_SERVICE_NAME" || return 1
+            fi
+            installer_systemctl start "$INSTALLER_SERVICE_NAME" || return 1
+        fi
+        return 0
+    fi
+    if installer_role_has_controller && [[ -e "$INSTALLER_OPENRC_DIR/antinat-controller" ]]; then
+        installer_openrc add antinat-controller || return 1
+        installer_openrc start antinat-controller || return 1
+    fi
+    if installer_role_has_agent && [[ -e "$INSTALLER_OPENRC_DIR/antinat-agent" ]]; then
+        installer_openrc add antinat-agent || return 1
+        installer_openrc start antinat-agent || return 1
+    fi
 }
 
 installer_wait_for_token_consumption() {
@@ -621,11 +1051,17 @@ installer_wait_for_token_consumption() {
 
 installer_conflict() {
     [[ "$INSTALLER_COMMAND" == install ]] || return 1
-    [[ -e "$INSTALLER_AGENT_BINARY" || -e "$INSTALLER_AGENT_UNIT" ]]
+    if installer_role_has_agent && [[ -e "$INSTALLER_AGENT_BINARY" || -e "$INSTALLER_AGENT_UNIT" ]]; then
+        return 0
+    fi
+    if installer_role_has_controller && [[ -e "$INSTALLER_CONTROLLER_BINARY" || -e "$INSTALLER_CONTROLLER_UNIT" ]]; then
+        return 0
+    fi
+    return 1
 }
 
 installer_install() {
-    if ! installer_validate_endpoint "$INSTALLER_ENDPOINT"; then
+    if installer_role_has_agent && ! installer_validate_endpoint "$INSTALLER_ENDPOINT"; then
         installer_die "$INSTALLER_EXIT_USAGE" "controller endpoint must be an http(s) URL without credentials, query or fragment" || true
         return "$INSTALLER_EXIT_USAGE"
     fi
@@ -639,186 +1075,346 @@ installer_install() {
     fi
     installer_create_user
     installer_prepare_dirs
-    if [[ -n "$INSTALLER_TOKEN_FD" || -n "$INSTALLER_TOKEN_FILE" || "${ANTINAT_TEST_MODE:-0}" != 1 ]]; then
+    if installer_role_has_agent && [[ -n "$INSTALLER_TOKEN_FD" || -n "$INSTALLER_TOKEN_FILE" || "${ANTINAT_TEST_MODE:-0}" != 1 ]]; then
         installer_read_token || { installer_cleanup_token; return "$INSTALLER_EXIT_TOKEN"; }
     fi
-    installer_install_files || {
+    if installer_install_files; then
+        :
+    else
+        local install_status=$?
         installer_cleanup_token
         installer_rollback_new_install
-        return "$INSTALLER_EXIT_GENERIC"
-    }
+        return "${install_status:-$INSTALLER_EXIT_GENERIC}"
+    fi
     local token_for_service="${INSTALLER_TOKEN_TMP:-}"
-    installer_write_config "$token_for_service" || {
-        installer_cleanup_token
-        installer_rollback_new_install
-        return "$INSTALLER_EXIT_GENERIC"
-    }
+    if installer_role_has_agent; then
+        installer_write_config "$token_for_service" || {
+            installer_cleanup_token
+            installer_rollback_new_install
+            return "$INSTALLER_EXIT_GENERIC"
+        }
+    fi
     installer_install_services || {
         installer_cleanup_token
         installer_rollback_new_install
         return "$INSTALLER_EXIT_GENERIC"
     }
-    installer_wait_for_token_consumption || {
-        installer_cleanup_token
-        installer_rollback_new_install
-        return "$INSTALLER_EXIT_TOKEN"
-    }
-    if [[ -n "$INSTALLER_TEST_ROOT" || "${ANTINAT_TEST_MODE:-0}" == 1 ]]; then
-        installer_consume_source_token || {
+    if installer_role_has_agent; then
+        installer_wait_for_token_consumption || {
             installer_cleanup_token
             installer_rollback_new_install
             return "$INSTALLER_EXIT_TOKEN"
         }
-    fi
-    if [[ -n "$INSTALLER_TOKEN_TMP" ]]; then
-        # The one-time path is only needed until enrollment commits. Keeping
-        # it in the service environment would make every later restart try to
-        # enroll against a file that the Agent already consumed.
-        installer_write_config "" || {
-            installer_cleanup_token
-            installer_rollback_new_install
-            return "$INSTALLER_EXIT_GENERIC"
-        }
-        installer_systemctl daemon-reload || true
+        if [[ -n "$INSTALLER_TEST_ROOT" || "${ANTINAT_TEST_MODE:-0}" == 1 ]]; then
+            installer_consume_source_token || {
+                installer_cleanup_token
+                installer_rollback_new_install
+                return "$INSTALLER_EXIT_TOKEN"
+            }
+        fi
+        if [[ -n "$INSTALLER_TOKEN_TMP" ]]; then
+            # The one-time path is only needed until enrollment commits. Keeping
+            # it in the service environment would make every later restart try
+            # to enroll against a file that the Agent already consumed.
+            installer_write_config "" || {
+                installer_cleanup_token
+                installer_rollback_new_install
+                return "$INSTALLER_EXIT_GENERIC"
+            }
+            if [[ "$INSTALLER_SERVICE_MANAGER" == systemd ]]; then
+                installer_systemctl daemon-reload || true
+            fi
+        fi
     fi
     installer_cleanup_token
     if ! installer_make_ownership_manifest; then
         installer_rollback_new_install
         return "$INSTALLER_EXIT_GENERIC"
     fi
-    installer_chown antinat:antinat "$INSTALLER_CONFIG" "$INSTALLER_OWNERSHIP_MANIFEST" "$INSTALLER_OWNERSHIP_KEY"
+    if installer_role_has_agent; then
+        installer_chown antinat:antinat "$INSTALLER_CONFIG"
+    fi
+    # The manifest and HMAC key are installer authority, not Agent state. Keep
+    # both root-owned so an Agent cannot authorize its own purge.
+    installer_chown root:root "$INSTALLER_OWNERSHIP_MANIFEST" "$INSTALLER_OWNERSHIP_KEY"
     printf 'antinat installer: install complete\n'
 }
 
 installer_stop_service() {
-    installer_systemctl stop "$INSTALLER_SERVICE_NAME" || true
-    installer_systemctl disable "$INSTALLER_SERVICE_NAME" || true
-    installer_systemctl daemon-reload || true
+    local failed=0
+    if [[ "$INSTALLER_SERVICE_MANAGER" == openrc ]]; then
+        if installer_role_has_agent && [[ -e "$INSTALLER_OPENRC_DIR/antinat-agent" ]]; then
+            installer_openrc stop antinat-agent || failed=1
+            installer_openrc del antinat-agent || failed=1
+        fi
+        if installer_role_has_controller && [[ -e "$INSTALLER_OPENRC_DIR/antinat-controller" ]]; then
+            installer_openrc stop antinat-controller || failed=1
+            installer_openrc del antinat-controller || failed=1
+        fi
+    else
+        local unit
+        local units=()
+        installer_role_has_agent && units+=("$INSTALLER_SERVICE_NAME")
+        installer_role_has_controller && units+=(antinat-controller.service)
+        for unit in "${units[@]}"; do
+            if installer_systemd_unit_present "$unit"; then
+                if [[ -n "$INSTALLER_TEST_ROOT" || "${ANTINAT_TEST_MODE:-0}" == 1 ]]; then
+                    installer_systemctl stop "$unit" || failed=1
+                    installer_systemctl disable "$unit" || failed=1
+                else
+                    if systemctl is-active --quiet "$unit"; then
+                        systemctl stop "$unit" || failed=1
+                    fi
+                    if systemctl is-enabled --quiet "$unit"; then
+                        if [[ "$unit" == "$INSTALLER_SERVICE_NAME" ]]; then
+                            INSTALLER_AGENT_REENABLE=1
+                        elif [[ "$unit" == antinat-controller.service ]]; then
+                            INSTALLER_CONTROLLER_REENABLE=1
+                        fi
+                        systemctl disable "$unit" || failed=1
+                    fi
+                fi
+            fi
+        done
+        installer_systemctl daemon-reload || failed=1
+    fi
+    return "$failed"
+}
+
+installer_remote_uninstall_notice() {
+    # The running Agent owns the signed notice/receipt protocol. The installer
+    # invokes an explicitly provisioned helper when one is available and never
+    # claims remote deletion when the node is offline or the helper is absent.
+    [[ "${ANTINAT_TEST_MODE:-0}" == 1 ]] && return 0
+    local action="${1:-uninstall}" operation_id helper export_path
+    [[ "$action" == uninstall || "$action" == purge ]] || return 1
+    operation_id=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+    helper="${ANTINAT_UNINSTALL_NOTICE_HELPER:-}"
+    if [[ -n "$helper" ]]; then
+        [[ -x "$helper" && ! -L "$helper" ]] || return 1
+        if ! timeout 35 "$helper" --operation-id "$operation_id" --action "$action"; then
+            return 1
+        fi
+        return 0
+    fi
+    export_path="${ANTINAT_OFFLINE_EXPORT_FILE:-}"
+    if [[ -n "$export_path" ]]; then
+        umask 077
+        umask 077
+        printf '{"operation_id":"%s","status":"UNKNOWN","requested_action":"%s","action":"operator_review_required"}\n' "$operation_id" "$action" >"$export_path" || return 1
+        printf 'antinat installer: offline uninstall notice exported; Controller decommission is still required\n' >&2
+    fi
+    [[ "${ANTINAT_FORCE_OFFLINE_PURGE:-0}" == 1 ]]
 }
 
 installer_uninstall() {
     installer_init_paths
-    installer_stop_service
-    rm -f -- "$INSTALLER_AGENT_UNIT" "$INSTALLER_CONTROLLER_UNIT" "$INSTALLER_AGENT_BINARY" "$INSTALLER_CONTROLLER_BINARY" "$INSTALLER_HOOK_BINARY" "$INSTALLER_CONFIG"
+    installer_stop_service || return "$INSTALLER_EXIT_GENERIC"
+    installer_remote_uninstall_notice || return "$INSTALLER_EXIT_GENERIC"
+    if installer_role_has_agent; then
+        installer_safe_remove "$INSTALLER_INSTALL_DIR" bin/antinat-agent || return "$INSTALLER_EXIT_GENERIC"
+        installer_safe_remove "$INSTALLER_INSTALL_DIR" bin/antinat-hook-runner || return "$INSTALLER_EXIT_GENERIC"
+        installer_safe_remove "$INSTALLER_SERVICE_DIR" "$INSTALLER_SERVICE_NAME" || return "$INSTALLER_EXIT_GENERIC"
+        installer_safe_remove "$INSTALLER_OPENRC_DIR" antinat-agent || return "$INSTALLER_EXIT_GENERIC"
+        installer_safe_remove "$(dirname -- "$INSTALLER_CONFIG")" agent.conf || return "$INSTALLER_EXIT_GENERIC"
+    fi
+    if installer_role_has_controller; then
+        installer_safe_remove "$INSTALLER_INSTALL_DIR" bin/antinat-controller || return "$INSTALLER_EXIT_GENERIC"
+        installer_safe_remove "$INSTALLER_SERVICE_DIR" antinat-controller.service || return "$INSTALLER_EXIT_GENERIC"
+        installer_safe_remove "$INSTALLER_OPENRC_DIR" antinat-controller || return "$INSTALLER_EXIT_GENERIC"
+    fi
     printf 'antinat installer: service and executable files removed; state retained\n'
 }
 
 installer_safe_remove() {
     local root="$1" relative="$2"
     [[ "$root" == /* && "$relative" != /* && "$relative" != *".."* && "$relative" != *"\\"* ]] || return 1
-    local canonical_root canonical_target
-    canonical_root=$(readlink -f -- "$root") || return 1
-    [[ "$canonical_root" == "$root" ]] || return 1
-    local target="$root/$relative"
-    [[ ! -L "$target" ]] || return 1
-    if [[ -e "$target" || -L "$target" ]]; then
-        canonical_target=$(readlink -f -- "$target") || return 1
-        [[ "$canonical_target" == "$target" ]] || return 1
-    fi
-    if [[ -d "$target" ]]; then
-        local child
-        while IFS= read -r -d '' child; do
-            [[ ! -L "$child" ]] || return 1
-            if [[ -d "$child" ]]; then
-                installer_safe_remove "$root" "${child#"$root"/}" || return 1
-            else
-                [[ -f "$child" ]] || return 1
-                rm -f -- "$child"
-            fi
-        done < <(find -P -- "$target" -mindepth 1 -maxdepth 1 -print0)
-        rmdir -- "$target"
-    elif [[ -e "$target" ]]; then
-        [[ -f "$target" ]] || return 1
-        rm -f -- "$target"
-    fi
+    # Python's dir_fd APIs map directly to openat/unlinkat. The complete tree
+    # is preflighted before the first unlink, and every component is opened
+    # with O_NOFOLLOW, so a reparse/symlink replacement fails closed.
+    python3 - "$root" "$relative" <<'PY'
+import errno
+import os
+import stat
+import sys
+
+root, relative = sys.argv[1:]
+parts = relative.split('/')
+if not parts or any(not p or p in ('.', '..') for p in parts):
+    raise OSError("unsafe ownership path")
+if not os.path.isabs(root) or '\\' in relative:
+    raise OSError("unsafe ownership path")
+
+def open_child(parent, name):
+    return os.open(name, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_DIRECTORY, dir_fd=parent)
+
+def inspect_at(parent, names):
+    try:
+        st = os.stat(names[0], dir_fd=parent, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    if stat.S_ISLNK(st.st_mode) or not (stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode)):
+        raise OSError("owned tree contains a link or special file")
+    if len(names) > 1:
+        if not stat.S_ISDIR(st.st_mode):
+            raise OSError("owned parent is not a directory")
+        child = open_child(parent, names[0])
+        try:
+            return inspect_at(child, names[1:])
+        finally:
+            os.close(child)
+    if stat.S_ISDIR(st.st_mode):
+        child = open_child(parent, names[0])
+        try:
+            for name in os.listdir(child):
+                inspect_at(child, [name])
+        finally:
+            os.close(child)
+    return True
+
+def remove_at(parent, names):
+    try:
+        st = os.stat(names[0], dir_fd=parent, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    if stat.S_ISLNK(st.st_mode) or not (stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode)):
+        raise OSError("owned tree changed to a link or special file")
+    if len(names) > 1:
+        child = open_child(parent, names[0])
+        try:
+            removed = remove_at(child, names[1:])
+        finally:
+            os.close(child)
+        return removed
+    if stat.S_ISDIR(st.st_mode):
+        child = open_child(parent, names[0])
+        try:
+            for name in os.listdir(child):
+                remove_at(child, [name])
+        finally:
+            os.close(child)
+        os.rmdir(names[0], dir_fd=parent)
+    else:
+        os.unlink(names[0], dir_fd=parent)
+    return True
+
+try:
+    root_fd = os.open(root, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_DIRECTORY)
+except FileNotFoundError:
+    raise SystemExit(0)
+try:
+    if inspect_at(root_fd, parts):
+        remove_at(root_fd, parts)
+    os.fsync(root_fd)
+finally:
+    os.close(root_fd)
+PY
 }
 
 installer_rollback_new_install() {
-    installer_stop_service
-    installer_safe_remove "$INSTALLER_INSTALL_DIR" bin/antinat-agent || true
-    installer_safe_remove "$INSTALLER_INSTALL_DIR" bin/antinat-controller || true
-    installer_safe_remove "$INSTALLER_INSTALL_DIR" bin/antinat-hook-runner || true
-    installer_safe_remove "$INSTALLER_DATA_DIR" state.db || true
-    installer_safe_remove "$INSTALLER_DATA_DIR" node.key || true
-    installer_safe_remove "$INSTALLER_DATA_DIR" controller.db || true
-    installer_safe_remove "$INSTALLER_DATA_DIR" terminal.marker || true
-    installer_safe_remove "$INSTALLER_DATA_DIR" agent.marker || true
-    installer_safe_remove "$INSTALLER_DATA_DIR" ownership-manifest.json || true
-    installer_safe_remove "$INSTALLER_DATA_DIR" ownership.key || true
-    installer_safe_remove "$(dirname -- "$INSTALLER_CONFIG")" agent.conf || true
-    installer_safe_remove "$INSTALLER_SERVICE_DIR" antinat-agent.service || true
-    installer_safe_remove "$INSTALLER_SERVICE_DIR" antinat-controller.service || true
+    local failed=0
+    installer_stop_service || failed=1
+    if installer_role_has_agent; then
+        installer_safe_remove "$INSTALLER_INSTALL_DIR" bin/antinat-agent || true
+        installer_safe_remove "$INSTALLER_INSTALL_DIR" bin/antinat-hook-runner || true
+        installer_safe_remove "$INSTALLER_DATA_DIR" state.db || true
+        installer_safe_remove "$INSTALLER_DATA_DIR" node.key || true
+        installer_safe_remove "$INSTALLER_DATA_DIR" terminal.marker || true
+        installer_safe_remove "$INSTALLER_DATA_DIR" agent.marker || true
+        installer_safe_remove "$(dirname -- "$INSTALLER_CONFIG")" agent.conf || true
+        installer_safe_remove "$INSTALLER_SERVICE_DIR" antinat-agent.service || true
+        installer_safe_remove "$INSTALLER_OPENRC_DIR" antinat-agent || true
+    fi
+    if installer_role_has_controller; then
+        installer_safe_remove "$INSTALLER_INSTALL_DIR" bin/antinat-controller || true
+        installer_safe_remove "$INSTALLER_DATA_DIR" controller.db || true
+        installer_safe_remove "$INSTALLER_DATA_DIR" controller-keys || true
+        installer_safe_remove "$INSTALLER_SERVICE_DIR" antinat-controller.service || true
+        installer_safe_remove "$INSTALLER_OPENRC_DIR" antinat-controller || true
+    fi
+    # A failed role install must not destroy a manifest/key that belongs to a
+    # role already installed on the same host. A fresh install has no other
+    # role state and can safely remove these authority files.
+    if [[ ! -e "$INSTALLER_INSTALL_DIR/bin/antinat-agent" && ! -e "$INSTALLER_INSTALL_DIR/bin/antinat-controller" ]]; then
+        installer_safe_remove "$INSTALLER_DATA_DIR" ownership-manifest.json || true
+        installer_safe_remove "$INSTALLER_DATA_DIR" ownership.key || true
+    fi
     rmdir -- "$INSTALLER_BIN_DIR" 2>/dev/null || true
     rmdir -- "$INSTALLER_INSTALL_DIR" 2>/dev/null || true
     rmdir -- "$INSTALLER_SERVICE_DIR" 2>/dev/null || true
+    rmdir -- "$INSTALLER_OPENRC_DIR" 2>/dev/null || true
     rmdir -- "$(dirname -- "$INSTALLER_CONFIG")" 2>/dev/null || true
     rmdir -- "$INSTALLER_DATA_DIR" 2>/dev/null || true
+    return "$failed"
 }
 
 installer_fallback_purge() {
-    installer_safe_remove "$INSTALLER_INSTALL_DIR" bin/antinat-agent || return 1
-    installer_safe_remove "$INSTALLER_INSTALL_DIR" bin/antinat-controller || return 1
-    installer_safe_remove "$INSTALLER_INSTALL_DIR" bin/antinat-hook-runner || return 1
-    installer_safe_remove "$INSTALLER_DATA_DIR" terminal.marker || return 1
-    installer_safe_remove "$INSTALLER_DATA_DIR" agent.marker || return 1
-    installer_safe_remove "$INSTALLER_DATA_DIR" state.db || return 1
-    installer_safe_remove "$INSTALLER_DATA_DIR" node.key || return 1
-    installer_safe_remove "$INSTALLER_DATA_DIR" controller.db || return 1
-    installer_safe_remove "$INSTALLER_DATA_DIR" backups || return 1
-    installer_safe_remove "$INSTALLER_DATA_DIR" ownership-manifest.json || return 1
-    installer_safe_remove "$INSTALLER_DATA_DIR" ownership.key || return 1
-    installer_safe_remove "$(dirname -- "$INSTALLER_CONFIG")" agent.conf || return 1
-    installer_safe_remove "$INSTALLER_SERVICE_DIR" antinat-agent.service || return 1
-    installer_safe_remove "$INSTALLER_SERVICE_DIR" antinat-controller.service || return 1
+    if installer_role_has_agent; then
+        installer_safe_remove "$INSTALLER_INSTALL_DIR" bin/antinat-agent || return 1
+        installer_safe_remove "$INSTALLER_INSTALL_DIR" bin/antinat-hook-runner || return 1
+        installer_safe_remove "$INSTALLER_DATA_DIR" terminal.marker || return 1
+        installer_safe_remove "$INSTALLER_DATA_DIR" agent.marker || return 1
+        installer_safe_remove "$INSTALLER_DATA_DIR" state.db || return 1
+        installer_safe_remove "$INSTALLER_DATA_DIR" node.key || return 1
+        installer_safe_remove "$(dirname -- "$INSTALLER_CONFIG")" agent.conf || return 1
+        installer_safe_remove "$INSTALLER_SERVICE_DIR" antinat-agent.service || return 1
+        installer_safe_remove "$INSTALLER_OPENRC_DIR" antinat-agent || return 1
+    fi
+    if installer_role_has_controller; then
+        installer_safe_remove "$INSTALLER_INSTALL_DIR" bin/antinat-controller || return 1
+        installer_safe_remove "$INSTALLER_DATA_DIR" controller.db || return 1
+        installer_safe_remove "$INSTALLER_DATA_DIR" controller-keys || return 1
+        installer_safe_remove "$INSTALLER_SERVICE_DIR" antinat-controller.service || return 1
+        installer_safe_remove "$INSTALLER_OPENRC_DIR" antinat-controller || return 1
+    fi
 }
 
 installer_manifest_purge() {
-    [[ -f "$INSTALLER_OWNERSHIP_MANIFEST" && ! -L "$INSTALLER_OWNERSHIP_MANIFEST" ]] || return 1
-    [[ -f "$INSTALLER_OWNERSHIP_KEY" && ! -L "$INSTALLER_OWNERSHIP_KEY" ]] || return 1
-    local mode owner links
-    mode=$(stat -c '%a' -- "$INSTALLER_OWNERSHIP_KEY") || return 1
-    owner=$(stat -c '%u' -- "$INSTALLER_OWNERSHIP_KEY") || return 1
-    links=$(stat -c '%h' -- "$INSTALLER_OWNERSHIP_KEY") || return 1
-    [[ "$mode" == 600 && "$owner" == "$(id -u)" && "$links" == 1 ]] || return 1
-    local key_hex expected payload actual
-    key_hex=$(od -An -v -tx1 "$INSTALLER_OWNERSHIP_KEY" | tr -d ' \n')
-    if ! jq -e 'type == "object" and ((keys - ["schema_version", "installation_id", "resources", "hmac"]) | length == 0) and .schema_version == 1 and (.installation_id | type == "string" and test("^[A-Za-z0-9._-]+$")) and (.resources | type == "array" and length > 0) and (.hmac | type == "string" and test("^[0-9a-f]{64}$"))' "$INSTALLER_OWNERSHIP_MANIFEST" >/dev/null; then
-        return 1
-    fi
-    payload=$(jq -c '{schema_version,installation_id,resources}' "$INSTALLER_OWNERSHIP_MANIFEST") || return 1
-    expected=$(jq -r '.hmac // empty' "$INSTALLER_OWNERSHIP_MANIFEST")
-    actual=$(printf '%s' "$payload" | openssl dgst -sha256 -mac HMAC -macopt "hexkey:$key_hex" | awk '{print $NF}')
-    [[ "$expected" =~ ^[0-9a-f]{64}$ && "$expected" == "$actual" ]] || return 1
-    local root path allowlisted
+    installer_manifest_validate || return 1
+    local installation_id resources remaining='[]' root path class keep_other=0 remove
+    installation_id=$(jq -r '.installation_id' "$INSTALLER_OWNERSHIP_MANIFEST") || return 1
+    resources=$(jq -c '.resources' "$INSTALLER_OWNERSHIP_MANIFEST") || return 1
     while IFS=$'\t' read -r root path; do
-        allowlisted=0
-        case "$root:$path" in
-            "$INSTALLER_INSTALL_DIR:bin/antinat-agent"|\
-            "$INSTALLER_INSTALL_DIR:bin/antinat-controller"|\
-            "$INSTALLER_INSTALL_DIR:bin/antinat-hook-runner"|\
-            "$INSTALLER_DATA_DIR:state.db"|\
-            "$INSTALLER_DATA_DIR:node.key"|\
-            "$INSTALLER_DATA_DIR:controller.db"|\
-            "$INSTALLER_DATA_DIR:terminal.marker"|\
-            "$INSTALLER_DATA_DIR:agent.marker"|\
-            "$INSTALLER_DATA_DIR:backups"|\
-            "$INSTALLER_DATA_DIR:ownership-manifest.json"|\
-            "$INSTALLER_DATA_DIR:ownership.key"|\
-            "$(dirname -- "$INSTALLER_CONFIG"):agent.conf"|\
-            "$INSTALLER_SERVICE_DIR:antinat-agent.service"|\
-            "$INSTALLER_SERVICE_DIR:antinat-controller.service")
-                allowlisted=1
-                ;;
-        esac
-        ((allowlisted == 1)) || return 1
-        installer_safe_remove "$root" "$path" || return 1
+        class=$(installer_ownership_resource_role "$root" "$path") || true
+        if [[ "$class" == agent ]] && ! installer_role_has_agent; then
+            keep_other=1
+        elif [[ "$class" == controller ]] && ! installer_role_has_controller; then
+            keep_other=1
+        fi
     done < <(jq -r '.resources[] | [.root,.path] | @tsv' "$INSTALLER_OWNERSHIP_MANIFEST")
+    while IFS=$'\t' read -r root path; do
+        class=$(installer_ownership_resource_role "$root" "$path") || true
+        remove=0
+        if [[ "$class" == agent ]] && installer_role_has_agent; then
+            remove=1
+        elif [[ "$class" == controller ]] && installer_role_has_controller; then
+            remove=1
+        elif [[ "$class" == shared && "$keep_other" == 0 ]]; then
+            remove=1
+        fi
+        if [[ "$remove" == 1 ]]; then
+            if [[ "$class" != shared || ("$path" != ownership-manifest.json && "$path" != ownership.key) ]]; then
+                installer_safe_remove "$root" "$path" || return 1
+            fi
+        else
+            remaining=$(jq -c --arg root "$root" --arg path "$path" '. + [{root:$root,path:$path}]' <<<"$remaining") || return 1
+        fi
+    done < <(jq -r '.resources[] | [.root,.path] | @tsv' "$INSTALLER_OWNERSHIP_MANIFEST")
+    if [[ "$keep_other" == 1 ]]; then
+        installer_write_ownership_manifest "$installation_id" "$remaining" || return 1
+    else
+        installer_safe_remove "$INSTALLER_DATA_DIR" ownership.key || return 1
+        installer_safe_remove "$INSTALLER_DATA_DIR" ownership-manifest.json || return 1
+    fi
+    INSTALLER_PURGE_KEEP_OTHER="$keep_other"
 }
 
 installer_purge() {
     installer_init_paths
-    installer_stop_service
+    installer_stop_service || return "$INSTALLER_EXIT_GENERIC"
+    installer_remote_uninstall_notice || return "$INSTALLER_EXIT_GENERIC"
     local used_manifest=1
+    INSTALLER_PURGE_KEEP_OTHER=0
     if ! installer_manifest_purge; then
         used_manifest=0
         printf 'antinat installer: ownership manifest unavailable or invalid; using compile-time allowlist only\n' >&2
@@ -829,53 +1425,255 @@ installer_purge() {
     rmdir -- "$INSTALLER_BIN_DIR" 2>/dev/null || true
     rmdir -- "$INSTALLER_INSTALL_DIR" 2>/dev/null || true
     rmdir -- "$INSTALLER_SERVICE_DIR" 2>/dev/null || true
+    rmdir -- "$INSTALLER_OPENRC_DIR" 2>/dev/null || true
     rmdir -- "$(dirname -- "$INSTALLER_CONFIG")" 2>/dev/null || true
     rmdir -- "$INSTALLER_DATA_DIR" 2>/dev/null || true
     if ((used_manifest == 0)); then
         printf 'antinat installer: remote decommission status is unknown; verify Controller-side purge separately\n' >&2
+        printf 'antinat installer: purge complete; allowlisted role resources removed, ownership metadata retained because the manifest was not authenticated\n'
+    elif ((INSTALLER_PURGE_KEEP_OTHER == 1)); then
+        printf 'antinat installer: current role purge complete; another role and shared ownership state remain\n'
+    else
+        printf 'antinat installer: purge complete; no owned residue remains\n'
     fi
-    printf 'antinat installer: purge complete; no owned residue remains\n'
     return "$INSTALLER_EXIT_PURGE"
+}
+
+installer_snapshot_copy() {
+    local source="$1" destination="$2"
+    mkdir -p -- "$(dirname -- "$destination")"
+    python3 - "$source" "$destination" <<'PY'
+import os
+import stat
+import sys
+import tempfile
+
+source, destination = sys.argv[1:]
+
+def reject(st):
+    if stat.S_ISLNK(st.st_mode) or not (stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode)):
+        raise OSError("snapshot resource contains a link or special file")
+
+def copy_entry(source_parent, source_name, destination_parent, destination_name):
+    source_stat = os.stat(source_name, dir_fd=source_parent, follow_symlinks=False)
+    reject(source_stat)
+    mode = stat.S_IMODE(source_stat.st_mode)
+    if stat.S_ISDIR(source_stat.st_mode):
+        os.mkdir(destination_name, mode=mode, dir_fd=destination_parent)
+        source_dir = os.open(source_name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=source_parent)
+        destination_dir = os.open(destination_name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=destination_parent)
+        try:
+            for child in os.listdir(source_dir):
+                copy_entry(source_dir, child, destination_dir, child)
+            os.fsync(destination_dir)
+        finally:
+            os.close(source_dir)
+            os.close(destination_dir)
+        return
+    source_fd = os.open(source_name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=source_parent)
+    temporary_path = None
+    temporary_fd = -1
+    try:
+        current = os.fstat(source_fd)
+        if not stat.S_ISREG(current.st_mode):
+            raise OSError("snapshot source changed to a non-regular file")
+        temporary_fd, temporary_path = tempfile.mkstemp(prefix=".antinat-snapshot-", dir=os.path.dirname(os.path.abspath(destination)))
+        os.fchmod(temporary_fd, mode)
+        while True:
+            chunk = os.read(source_fd, 1024 * 1024)
+            if not chunk:
+                break
+            view = memoryview(chunk)
+            while view:
+                written = os.write(temporary_fd, view)
+                view = view[written:]
+        os.fsync(temporary_fd)
+        os.close(temporary_fd)
+        temporary_fd = -1
+        staged_path = os.path.join(os.path.dirname(os.path.abspath(destination)), os.path.basename(temporary_path))
+        os.replace(staged_path, destination_name, dst_dir_fd=destination_parent)
+        temporary_path = None
+    finally:
+        if temporary_fd >= 0:
+            os.close(temporary_fd)
+        os.close(source_fd)
+        if temporary_path is not None:
+            try:
+                os.unlink(temporary_path)
+            except FileNotFoundError:
+                pass
+
+source_stat = os.lstat(source)
+reject(source_stat)
+destination_parent_path = os.path.dirname(destination) or "."
+destination_name = os.path.basename(destination)
+destination_parent = os.open(destination_parent_path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+try:
+    if stat.S_ISDIR(source_stat.st_mode):
+        os.mkdir(destination_name, mode=stat.S_IMODE(source_stat.st_mode), dir_fd=destination_parent)
+        source_parent = os.open(source, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        destination_dir = os.open(destination_name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=destination_parent)
+        try:
+            for child in os.listdir(source_parent):
+                copy_entry(source_parent, child, destination_dir, child)
+            os.fsync(destination_dir)
+        finally:
+            os.close(source_parent)
+            os.close(destination_dir)
+    else:
+        source_parent = os.open(os.path.dirname(source) or ".", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            copy_entry(source_parent, os.path.basename(source), destination_parent, destination_name)
+        finally:
+            os.close(source_parent)
+    os.fsync(destination_parent)
+finally:
+    os.close(destination_parent)
+PY
+}
+
+installer_snapshot_matches() {
+    local current="$1" backup="$2"
+    python3 - "$current" "$backup" <<'PY'
+import hashlib
+import os
+import stat
+import sys
+
+left, right = sys.argv[1:]
+
+def compare(a, b):
+    sa, sb = os.lstat(a), os.lstat(b)
+    if stat.S_IMODE(sa.st_mode) != stat.S_IMODE(sb.st_mode) or stat.S_ISLNK(sa.st_mode) or stat.S_ISLNK(sb.st_mode):
+        return False
+    if stat.S_ISREG(sa.st_mode) != stat.S_ISREG(sb.st_mode) or stat.S_ISDIR(sa.st_mode) != stat.S_ISDIR(sb.st_mode):
+        return False
+    if stat.S_ISREG(sa.st_mode):
+        digest_a, digest_b = hashlib.sha256(), hashlib.sha256()
+        with open(a, "rb", buffering=0) as fa, open(b, "rb", buffering=0) as fb:
+            while True:
+                ca, cb = fa.read(1024 * 1024), fb.read(1024 * 1024)
+                if ca != cb:
+                    return False
+                if not ca:
+                    break
+                digest_a.update(ca)
+                digest_b.update(cb)
+        return digest_a.digest() == digest_b.digest()
+    if not stat.S_ISDIR(sa.st_mode):
+        return False
+    names_a, names_b = sorted(os.listdir(a)), sorted(os.listdir(b))
+    return names_a == names_b and all(compare(os.path.join(a, n), os.path.join(b, n)) for n in names_a)
+
+raise SystemExit(0 if compare(left, right) else 1)
+PY
 }
 
 installer_snapshot_files() {
     local backup="$1"
     mkdir -p -- "$backup"
     chmod 700 -- "$backup"
-    local root relative source destination
+    local metadata_tmp="$backup/.snapshot.tsv.tmp" metadata="$backup/snapshot.tsv"
+    : >"$metadata_tmp"
+    chmod 600 -- "$metadata_tmp"
+    local root relative source destination kind mode index=0
     while IFS=$'\t' read -r root relative; do
         source="$root/$relative"
-        [[ -e "$source" ]] || continue
-        [[ -f "$source" && ! -L "$source" ]] || return 1
-        destination="$backup/${root#/}/$relative"
-        mkdir -p -- "$(dirname -- "$destination")"
-        cp -- "$source" "$destination" || return 1
-        chmod "$(stat -c '%a' -- "$source")" -- "$destination"
+        if [[ -e "$source" || -L "$source" ]]; then
+            [[ ! -L "$source" ]] || return 1
+            if [[ -d "$source" ]]; then
+                kind=directory
+            elif [[ -f "$source" ]]; then
+                kind=file
+            else
+                return 1
+            fi
+            mode=$(stat -c '%a' -- "$source") || return 1
+            destination="$backup/file-$index"
+            installer_snapshot_copy "$source" "$destination" || return 1
+            printf '1\t%s\t%s\t%s\t%s\tfile-%s\n' "$kind" "$root" "$relative" "$mode" "$index" >>"$metadata_tmp"
+        else
+            printf '0\tnone\t%s\t%s\t-\n' "$root" "$relative" >>"$metadata_tmp"
+        fi
+        index=$((index + 1))
     done < <(installer_upgrade_resource_list)
+    mv -f -- "$metadata_tmp" "$metadata"
+    chmod 600 -- "$metadata"
 }
 
 installer_upgrade_resource_list() {
-    printf '%s\t%s\n' "$INSTALLER_INSTALL_DIR" bin/antinat-agent
-    printf '%s\t%s\n' "$INSTALLER_INSTALL_DIR" bin/antinat-controller
-    printf '%s\t%s\n' "$INSTALLER_INSTALL_DIR" bin/antinat-hook-runner
-    printf '%s\t%s\n' "$INSTALLER_DATA_DIR" state.db
-    printf '%s\t%s\n' "$INSTALLER_DATA_DIR" node.key
-    printf '%s\t%s\n' "$INSTALLER_DATA_DIR" controller.db
+    if installer_role_has_agent; then
+        printf '%s\t%s\n' "$INSTALLER_INSTALL_DIR" bin/antinat-agent
+        printf '%s\t%s\n' "$INSTALLER_INSTALL_DIR" bin/antinat-hook-runner
+        printf '%s\t%s\n' "$(dirname -- "$INSTALLER_CONFIG")" agent.conf
+        if [[ "$INSTALLER_SERVICE_MANAGER" == systemd ]]; then
+            printf '%s\t%s\n' "$INSTALLER_SERVICE_DIR" antinat-agent.service
+        else
+            printf '%s\t%s\n' "$INSTALLER_OPENRC_DIR" antinat-agent
+        fi
+        printf '%s\t%s\n' "$INSTALLER_DATA_DIR" state.db
+        printf '%s\t%s\n' "$INSTALLER_DATA_DIR" node.key
+        printf '%s\t%s\n' "$INSTALLER_DATA_DIR" terminal.marker
+        printf '%s\t%s\n' "$INSTALLER_DATA_DIR" agent.marker
+    fi
+    if installer_role_has_controller; then
+        printf '%s\t%s\n' "$INSTALLER_INSTALL_DIR" bin/antinat-controller
+        printf '%s\t%s\n' "$INSTALLER_DATA_DIR" controller.db
+        printf '%s\t%s\n' "$INSTALLER_DATA_DIR" controller-keys
+        if [[ "$INSTALLER_SERVICE_MANAGER" == systemd ]]; then
+            printf '%s\t%s\n' "$INSTALLER_SERVICE_DIR" antinat-controller.service
+        else
+            printf '%s\t%s\n' "$INSTALLER_OPENRC_DIR" antinat-controller
+        fi
+    fi
     printf '%s\t%s\n' "$INSTALLER_DATA_DIR" ownership-manifest.json
     printf '%s\t%s\n' "$INSTALLER_DATA_DIR" ownership.key
-    printf '%s\t%s\n' "$(dirname -- "$INSTALLER_CONFIG")" agent.conf
+}
+
+installer_verify_snapshot_state() {
+    local backup="$1" present kind root relative mode backup_name current
+    [[ -f "$backup/snapshot.tsv" && ! -L "$backup/snapshot.tsv" ]] || return 1
+    while IFS=$'\t' read -r present kind root relative mode backup_name; do
+        current="$root/$relative"
+        if [[ "$present" == 0 ]]; then
+            [[ ! -e "$current" && ! -L "$current" ]] || return 1
+            continue
+        fi
+        [[ -e "$current" && ! -L "$current" && -e "$backup/$backup_name" ]] || return 1
+        if [[ "$kind" == directory ]]; then
+            [[ -d "$current" ]] || return 1
+        elif [[ "$kind" == file ]]; then
+            [[ -f "$current" ]] || return 1
+        else
+            return 1
+        fi
+        [[ "$(stat -c '%a' -- "$current")" == "$mode" ]] || return 1
+        installer_snapshot_matches "$current" "$backup/$backup_name" || return 1
+    done <"$backup/snapshot.tsv"
 }
 
 installer_restore_snapshot() {
     local backup="$1"
-    local root relative source destination
-    while IFS=$'\t' read -r root relative; do
+    local present kind root relative mode backup_name source destination
+    installer_verify_snapshot_state "$backup" 2>/dev/null && return 0
+    [[ -f "$backup/snapshot.tsv" && ! -L "$backup/snapshot.tsv" ]] || return 1
+    while IFS=$'\t' read -r present kind root relative mode backup_name; do
         source="$root/$relative"
-        destination="$backup/${root#/}/$relative"
-        if [[ -f "$destination" ]]; then
-            installer_atomic_copy "$destination" "$source" "$(stat -c '%a' -- "$destination")" || return 1
+        destination="$backup/$backup_name"
+        if [[ "$present" == 0 ]]; then
+            installer_safe_remove "$root" "$relative" || return 1
+        elif [[ "$kind" == directory ]]; then
+            [[ -d "$destination" && ! -L "$destination" ]] || return 1
+            installer_safe_remove "$root" "$relative" || return 1
+            installer_snapshot_copy "$destination" "$source" || return 1
+        elif [[ "$kind" == file ]]; then
+            [[ -f "$destination" && ! -L "$destination" ]] || return 1
+            installer_atomic_copy "$destination" "$source" "$mode" || return 1
+        else
+            return 1
         fi
-    done < <(installer_upgrade_resource_list)
+    done <"$backup/snapshot.tsv"
+    installer_verify_snapshot_state "$backup"
 }
 
 installer_upgrade() {
@@ -883,11 +1681,13 @@ installer_upgrade() {
     installer_require_tools
     installer_fetch_release || return "$INSTALLER_EXIT_ARTIFACT"
     installer_verify_artifacts
-    if [[ ! -e "$INSTALLER_AGENT_BINARY" ]]; then
+    if installer_role_has_agent && [[ ! -e "$INSTALLER_AGENT_BINARY" ]] || \
+        installer_role_has_controller && [[ ! -e "$INSTALLER_CONTROLLER_BINARY" ]]; then
         installer_die "$INSTALLER_EXIT_CONFLICT" "cannot upgrade an installation that is not present" || true
         return "$INSTALLER_EXIT_CONFLICT"
     fi
     mkdir -p -- "$INSTALLER_BACKUP_DIR"
+    chmod 700 -- "$INSTALLER_BACKUP_DIR"
     local lock="$INSTALLER_DATA_DIR/.upgrade.lock"
     if ! (set -C; printf '%s\n' "upgrade barrier" >"$lock") 2>/dev/null; then
         installer_die "$INSTALLER_EXIT_CONFLICT" "another upgrade is already running" || true
@@ -895,32 +1695,38 @@ installer_upgrade() {
     fi
     local backup
     backup=$(mktemp -d "$INSTALLER_BACKUP_DIR/upgrade.XXXXXX") || { rm -f -- "$lock"; return "$INSTALLER_EXIT_GENERIC"; }
-    local failed=0
-    installer_stop_service
+    local failed=0 rollback_failed=0
+    installer_stop_service || failed=1
     installer_snapshot_files "$backup" || failed=1
     if ((failed == 0)); then
-        local agent
-        agent=$(installer_find_artifact "antinat-agent-linux-amd64") || failed=1
-        ((failed == 1)) || installer_atomic_copy "$agent" "$INSTALLER_AGENT_BINARY" 755 || failed=1
+        if installer_role_has_agent; then
+            installer_copy_artifact "antinat-agent-linux-amd64" "$INSTALLER_AGENT_BINARY" 755 || failed=1
+        fi
+        if ((failed == 0)) && installer_role_has_controller; then
+            installer_copy_artifact "antinat-controller-linux-amd64" "$INSTALLER_CONTROLLER_BINARY" 755 || failed=1
+        fi
         if [[ "${ANTINAT_FAIL_MIGRATION:-0}" == 1 ]]; then
             failed=1
         fi
         if ((failed == 0)); then
-            installer_systemctl daemon-reload || failed=1
-            installer_systemctl start "$INSTALLER_SERVICE_NAME" || failed=1
+            installer_start_services || failed=1
         fi
         if ((failed == 0 && "${ANTINAT_FORCE_HEALTH_FAIL:-0}" == 1)); then
             failed=1
         fi
-        if ((failed == 0)) && [[ -z "$INSTALLER_TEST_ROOT" ]] && [[ "${ANTINAT_TEST_MODE:-0}" != 1 ]]; then
+        if ((failed == 0)) && installer_role_has_controller && [[ -z "$INSTALLER_TEST_ROOT" ]] && [[ "${ANTINAT_TEST_MODE:-0}" != 1 ]]; then
             curl --fail --silent --show-error --max-time 10 http://127.0.0.1:3111/readyz >/dev/null || failed=1
         fi
     fi
     if ((failed != 0)); then
-        installer_restore_snapshot "$backup" || true
-        installer_systemctl start "$INSTALLER_SERVICE_NAME" || true
+        installer_restore_snapshot "$backup" || rollback_failed=1
+        installer_start_services || rollback_failed=1
         rm -f -- "$lock"
-        printf 'antinat installer: upgrade failed; previous version restored\n' >&2
+        if ((rollback_failed != 0)); then
+            printf 'antinat installer: upgrade failed; rollback could not be verified\n' >&2
+        else
+            printf 'antinat installer: upgrade failed; previous version restored\n' >&2
+        fi
         return "$INSTALLER_EXIT_ROLLBACK"
     fi
     rm -f -- "$lock"

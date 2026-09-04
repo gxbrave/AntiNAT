@@ -22,8 +22,16 @@ func openDescriptorToken(fd int) (*TokenInput, error) {
 	if fd < 3 {
 		return nil, tokenError(errors.New("token fd must be >= 3"))
 	}
-	file := os.NewFile(uintptr(fd), "antinat-enrollment-token-fd")
+	// The caller owns the inherited handle. Duplicate it so TokenInput can
+	// close its copy without invalidating a caller-side handle wrapper.
+	process := windows.CurrentProcess()
+	var ownedHandle windows.Handle
+	if err := windows.DuplicateHandle(process, windows.Handle(fd), process, &ownedHandle, 0, false, windows.DUPLICATE_SAME_ACCESS); err != nil {
+		return nil, tokenError(fmt.Errorf("duplicate token fd: %w", err))
+	}
+	file := os.NewFile(uintptr(ownedHandle), "antinat-enrollment-token-fd")
 	if file == nil {
+		_ = windows.CloseHandle(ownedHandle)
 		return nil, tokenError(errors.New("token fd is invalid"))
 	}
 	token, err := readTokenBytes(file)

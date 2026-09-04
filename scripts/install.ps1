@@ -15,6 +15,128 @@ $ExitRollback = 6
 $ExitPurge = 7
 $script:TokenTemp = ''
 $script:TokenSource = ''
+$script:TokenSourceIdentity = ''
+
+function Initialize-NativeFileApi {
+    if ('AntiNAT.NativeFile' -as [type]) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.IO;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+namespace AntiNAT {
+    public sealed class TokenReadHandle : IDisposable {
+        public FileStream Stream { get; private set; }
+        public string Identity { get; private set; }
+        internal TokenReadHandle(SafeFileHandle handle, string identity) {
+            Stream = new FileStream(handle, FileAccess.Read, 4096, false);
+            Identity = identity;
+        }
+        public void Dispose() {
+            if (Stream != null) { Stream.Dispose(); Stream = null; }
+        }
+    }
+
+    public static class NativeFile {
+        private const uint GenericRead = 0x80000000;
+        private const uint Delete = 0x00010000;
+        private const uint FileReadAttributes = 0x00000080;
+        private const uint ShareRead = 0x00000001;
+        private const uint ShareWrite = 0x00000002;
+        private const uint ShareDelete = 0x00000004;
+        private const uint OpenExisting = 3;
+        private const uint OpenReparsePoint = 0x00200000;
+        private const uint BackupSemantics = 0x02000000;
+        private const uint FileAttributeDirectory = 0x00000010;
+        private const uint FileAttributeReparsePoint = 0x00000400;
+        private const int FileDispositionInfo = 4;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct ByHandleFileInformation {
+            public uint FileAttributes;
+            public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+            public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+            public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+            public uint VolumeSerialNumber;
+            public uint FileSizeHigh;
+            public uint FileSizeLow;
+            public uint NumberOfLinks;
+            public uint FileIndexHigh;
+            public uint FileIndexLow;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct FileDispositionInfo { public byte DeleteFile; }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern SafeFileHandle CreateFile(
+            string name, uint access, uint share, IntPtr security, uint creation,
+            uint flags, IntPtr template);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GetFileInformationByHandle(
+            SafeFileHandle handle, out ByHandleFileInformation information);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetFileInformationByHandle(
+            SafeFileHandle handle, int informationClass, ref FileDispositionInfo information, uint size);
+
+        private static SafeFileHandle Open(string path, uint access) {
+            var handle = CreateFile(path, access, ShareRead | ShareWrite | ShareDelete,
+                IntPtr.Zero, OpenExisting, OpenReparsePoint | BackupSemantics, IntPtr.Zero);
+            if (handle.IsInvalid) {
+                int error = Marshal.GetLastWin32Error();
+                handle.Dispose();
+                throw new Win32Exception(error);
+            }
+            return handle;
+        }
+
+        private static string ReadIdentity(SafeFileHandle handle, out ByHandleFileInformation information, bool allowDirectory) {
+            if (!GetFileInformationByHandle(handle, out information)) {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            bool directory = (information.FileAttributes & FileAttributeDirectory) != 0;
+            if ((!allowDirectory && directory) || (information.FileAttributes & FileAttributeReparsePoint) != 0 ||
+                (!directory && information.NumberOfLinks != 1)) {
+                throw new IOException("file is not a regular non-reparse file");
+            }
+            ulong index = ((ulong)information.FileIndexHigh << 32) | information.FileIndexLow;
+            return information.VolumeSerialNumber.ToString("X8") + ":" + index.ToString("X16");
+        }
+
+        public static TokenReadHandle OpenRead(string path) {
+            var handle = Open(path, GenericRead);
+            try {
+                ByHandleFileInformation information;
+                string identity = ReadIdentity(handle, out information, false);
+                return new TokenReadHandle(handle, identity);
+            } catch {
+                handle.Dispose();
+                throw;
+            }
+        }
+
+        public static void DeleteExact(string path, string expectedIdentity) {
+            var handle = Open(path, Delete | FileReadAttributes);
+            try {
+                ByHandleFileInformation information;
+                string identity = ReadIdentity(handle, out information, true);
+                if (!String.IsNullOrEmpty(expectedIdentity) && !String.Equals(identity, expectedIdentity, StringComparison.Ordinal)) {
+                    throw new IOException("file identity changed before deletion");
+                }
+                var disposition = new FileDispositionInfo { DeleteFile = 1 };
+                if (!SetFileInformationByHandle(handle, FileDispositionInfo, ref disposition, (uint)Marshal.SizeOf(typeof(FileDispositionInfo)))) {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+            } finally { handle.Dispose(); }
+        }
+    }
+}
+'@
+}
 
 function Fail([int] $Code, [string] $Message) {
     [Console]::Error.WriteLine("antinat installer: $Message")
@@ -26,6 +148,17 @@ function Validate-Text([string] $Value) {
     if ($null -ne $Value) { foreach ($character in $Value.ToCharArray()) { if ([char]::IsControl($character)) { Fail $ExitUsage 'value contains a control character' } } }
     if ($null -ne $Value -and ($Value.Contains("`r") -or $Value.Contains("`n") -or $Value.Contains([char]0))) {
         Fail $ExitUsage 'value contains a control character'
+    }
+}
+
+function Validate-Endpoint([string] $Value) {
+    if ([string]::IsNullOrEmpty($Value)) { Fail $ExitUsage 'controller endpoint is required' }
+    if ($Value -notmatch '^https://[^\s/?#]+(?::[0-9]+)?(?:/[^\s?#]*)?$' -and
+        $Value -notmatch '^http://(?:127\.0\.0\.1|localhost|\[::1\])(?::[0-9]+)?(?:/[^\s?#]*)?$') {
+        Fail $ExitUsage 'controller endpoint must use HTTPS; HTTP is limited to local test endpoints'
+    }
+    if ($Value -match '^http://' -and $env:ANTINAT_TEST_MODE -ne '1') {
+        Fail $ExitUsage 'remote controller endpoint must use HTTPS'
     }
 }
 
@@ -48,6 +181,8 @@ function Parse-Arguments([string[]] $InputArguments) {
     $script:TokenFD = -1
     $script:TokenSource = ''
     $script:ServiceName = 'AntiNATAgent'
+    $script:ControllerServiceName = 'AntiNATController'
+    $script:Role = if ($env:ANTINAT_ROLE) { $env:ANTINAT_ROLE } else { 'agent' }
     $script:InstallDirOverride = ''
     $script:HelpRequested = $false
     $script:VersionRequested = $false
@@ -97,10 +232,12 @@ function Parse-Arguments([string[]] $InputArguments) {
         }
     }
     if ($script:HelpRequested -and $script:VersionRequested) { Fail $ExitUsage 'help and version are mutually exclusive' }
+    if ($script:TokenFD -ge 0 -and $script:TokenFile -ne '') { Fail $ExitToken 'token fd and token file are mutually exclusive' }
+    if (($script:HelpRequested -or $script:VersionRequested) -and ($script:TokenFD -ge 0 -or $script:TokenFile)) { Fail $ExitUsage 'metadata requests cannot select a token input' }
     if ($script:HelpRequested) { Write-Output 'Usage: install.ps1 {install|uninstall|purge|upgrade} [flags]'; exit 0 }
     if ($script:VersionRequested) { Write-Output "antinat-installer $InstallerVersion"; exit 0 }
-    if ($script:TokenFD -ge 0 -and $script:TokenFile -ne '') { Fail $ExitToken 'token fd and token file are mutually exclusive' }
-    if ($script:Command -eq 'install' -and [string]::IsNullOrEmpty($script:Endpoint) -and $env:ANTINAT_TEST_MODE -ne '1') { Fail $ExitUsage 'controller endpoint is required' }
+    if ($script:Role -notin @('agent', 'controller', 'both')) { Fail $ExitUsage 'ANTINAT_ROLE must be agent, controller, or both' }
+    if ($script:Command -eq 'install' -and $script:Role -in @('agent', 'both') -and [string]::IsNullOrEmpty($script:Endpoint) -and $env:ANTINAT_TEST_MODE -ne '1') { Fail $ExitUsage 'controller endpoint is required' }
     if ($script:Command -eq 'install' -and $script:InstallDirOverride -ne '' -and $script:InstallDirOverride -ne $script:InstallDir) { Fail $ExitUsage 'install directory is frozen' }
 }
 
@@ -290,6 +427,9 @@ function Get-ReleaseDirectory {
 
 function Verify-Release {
     $trust = if ($env:ANTINAT_TRUST_ROOT_FILE) { $env:ANTINAT_TRUST_ROOT_FILE } else { Join-Path $PSScriptRoot '..\deploy\trust\release-ed25519.pub' }
+    $artifactItem = Get-ExistingItem $ArtifactDir
+    if ($null -eq $artifactItem -or -not $artifactItem.PSIsContainer) { Fail $ExitArtifact 'artifact directory is unavailable' }
+    try { Assert-NoReparsePath $ArtifactDir } catch { Fail $ExitArtifact 'artifact directory contains a reparse point' }
     $trustItem = Get-ExistingItem $trust
     $manifestItem = Get-ExistingItem $ManifestFile
     $signatureItem = Get-ExistingItem $SignatureFile
@@ -317,25 +457,29 @@ function Verify-Release {
         $leaf = [IO.Path]::GetFileName($name.Replace('/', '\'))
         if ([string]::IsNullOrEmpty($leaf) -or $seen.ContainsKey($leaf)) { Fail $ExitArtifact 'artifact names collide after extraction' }
         $seen[$leaf] = $true
-        if ([string]$property.Value -notmatch '^[0-9a-f]{64}$') { Fail $ExitArtifact 'artifact digest is not lowercase SHA-256' }
+        if ([string]$property.Value -cnotmatch '^[0-9a-f]{64}$') { Fail $ExitArtifact 'artifact digest is not lowercase SHA-256' }
         $path = Join-Path $ArtifactDir $leaf
         $artifactItem = Get-ExistingItem $path
         if ($null -eq $artifactItem -or $artifactItem.PSIsContainer) { Fail $ExitArtifact 'artifact is missing' }
         try { Assert-NoReparsePath $path } catch { Fail $ExitArtifact 'artifact is reparse-point backed' }
         if ($artifactItem.Length -gt 512MB) { Fail $ExitArtifact 'artifact exceeds size limit' }
         $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant()
-        if ($actual -ne [string]$property.Value) { Fail $ExitArtifact 'artifact digest mismatch' }
+        if ($actual -cne [string]$property.Value) { Fail $ExitArtifact 'artifact digest mismatch' }
     }
     $script:ReleaseManifest = $manifest
 }
 
 function Find-Artifact([string] $Suffix) {
     $matches = @()
+    $script:FoundArtifactDigest = ''
     foreach ($property in $ReleaseManifest.artifacts.psobject.Properties) {
-        if ($property.Name.EndsWith($Suffix, [StringComparison]::OrdinalIgnoreCase)) { $matches += [IO.Path]::GetFileName($property.Name) }
+        if ($property.Name.EndsWith($Suffix, [StringComparison]::OrdinalIgnoreCase)) {
+            $matches += [pscustomobject]@{ Leaf = [IO.Path]::GetFileName($property.Name); Digest = [string]$property.Value }
+        }
     }
     if ($matches.Count -ne 1) { return $null }
-    return Join-Path $ArtifactDir $matches[0]
+    $script:FoundArtifactDigest = $matches[0].Digest
+    return Join-Path $ArtifactDir $matches[0].Leaf
 }
 
 function Read-TokenBytes([byte[]] $Raw) {
@@ -389,13 +533,14 @@ function Read-Token {
     try {
         if ($TokenFile) {
             Test-StrictFileAcl $TokenFile $true
-            $item = Get-ExistingItem $TokenFile
-            if ($null -eq $item) { throw 'token file is missing' }
-            if ($item.Length -gt 4096) { throw 'token input exceeds size limit' }
-            $token = Read-TokenBytes ([IO.File]::ReadAllBytes($TokenFile))
+            Initialize-NativeFileApi
+            $opened = [AntiNAT.NativeFile]::OpenRead($TokenFile)
+            try {
+                $token = Read-TokenStream $opened.Stream
+                $script:TokenSourceIdentity = $opened.Identity
+            } finally { $opened.Dispose() }
             $script:TokenSource = $TokenFile
-        }
-        if ($TokenFD -ge 0) {
+        } elseif ($TokenFD -ge 0) {
             # On Windows the frozen descriptor is an inherited native handle.
             # It is borrowed here and is not closed by the installer.
             $safeHandle = New-Object -TypeName Microsoft.Win32.SafeHandles.SafeFileHandle -ArgumentList @([IntPtr]$TokenFD, $false)
@@ -452,17 +597,41 @@ function Get-ServiceCommand([bool] $IncludeToken) {
 function Install-Service([bool] $IncludeToken) {
     if ($env:ANTINAT_TEST_MODE -eq '1') { return }
     if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) { Fail $ExitConflict 'service already exists' }
-    # New-Service defaults to LocalSystem. Verify the effective identity because
-    # the enrollment token ACL is deliberately restricted to that identity.
+    # LocalSystem is retained for the protected token ACL, but the service SID
+    # must be restricted so the process does not receive an unrestricted
+    # service identity.
     New-Service -Name $ServiceName -BinaryPathName (Get-ServiceCommand $IncludeToken) -DisplayName 'AntiNAT Agent' -StartupType Automatic -Description 'AntiNAT forwarding agent' | Out-Null
     $serviceInfo = Get-CimInstance -ClassName Win32_Service -Filter ("Name='{0}'" -f $ServiceName)
     if ($null -eq $serviceInfo -or [string]$serviceInfo.StartName -ne 'LocalSystem') {
         & sc.exe delete $ServiceName *> $null
-        throw 'service must run as LocalSystem for the protected enrollment token'
+        throw 'service must run as LocalSystem for the protected enrollment token ACL'
     }
-    & sc.exe sidtype $ServiceName unrestricted *> $null
+    & sc.exe sidtype $ServiceName restricted *> $null
     if ($LASTEXITCODE -ne 0) { throw 'service SID configuration failed' }
     Start-Service -Name $ServiceName
+}
+
+function Get-ControllerServiceCommand {
+    return (Get-WindowsArgument $Controller) + ' -listen 127.0.0.1:3111 -store ' + (Get-WindowsArgument (Join-Path $DataDir 'controller.db')) + ' -keydir ' + (Get-WindowsArgument (Join-Path $DataDir 'controller-keys'))
+}
+
+function Install-ControllerService {
+    if ($env:ANTINAT_TEST_MODE -eq '1') { return }
+    if (Get-Service -Name $ControllerServiceName -ErrorAction SilentlyContinue) { Fail $ExitConflict 'controller service already exists' }
+    New-Service -Name $ControllerServiceName -BinaryPathName (Get-ControllerServiceCommand) -DisplayName 'AntiNAT Controller' -StartupType Automatic -Description 'AntiNAT controller' | Out-Null
+    $serviceInfo = Get-CimInstance -ClassName Win32_Service -Filter ("Name='{0}'" -f $ControllerServiceName)
+    if ($null -eq $serviceInfo -or [string]$serviceInfo.StartName -ne 'LocalSystem') {
+        & sc.exe delete $ControllerServiceName *> $null
+        throw 'controller service must run as LocalSystem'
+    }
+    & sc.exe sidtype $ControllerServiceName restricted *> $null
+    if ($LASTEXITCODE -ne 0) { throw 'controller service SID configuration failed' }
+    Start-Service -Name $ControllerServiceName
+}
+
+function Install-Services([bool] $IncludeToken) {
+    if ($Role -in @('controller', 'both')) { Install-ControllerService }
+    if ($Role -in @('agent', 'both')) { Install-Service $IncludeToken }
 }
 
 function Update-ServiceCommand {
@@ -473,10 +642,46 @@ function Update-ServiceCommand {
 
 function Stop-Delete-Service {
     if ($env:ANTINAT_TEST_MODE -eq '1') { return }
-    if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
-        Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
-        & sc.exe delete $ServiceName *> $null
+    $services = @()
+    if ($Role -in @('agent', 'both')) { $services += $ServiceName }
+    if ($Role -in @('controller', 'both')) { $services += $ControllerServiceName }
+    foreach ($name in $services) {
+        if (Get-Service -Name $name -ErrorAction SilentlyContinue) {
+            Stop-Service -Name $name -Force -ErrorAction Stop
+            & sc.exe delete $name *> $null
+            if ($LASTEXITCODE -ne 0 -and (Get-Service -Name $name -ErrorAction SilentlyContinue)) { throw "service deletion failed: $name" }
+        }
     }
+}
+
+function Send-RemoteUninstallNotice([string] $Action = 'uninstall') {
+    if ($env:ANTINAT_TEST_MODE -eq '1') { return }
+    if ($Action -notin @('uninstall', 'purge')) { throw 'unsupported remote lifecycle action' }
+    $operationId = [Guid]::NewGuid().ToString('N')
+    if ($env:ANTINAT_UNINSTALL_NOTICE_HELPER) {
+        $helper = $env:ANTINAT_UNINSTALL_NOTICE_HELPER
+        Assert-NoReparsePath $helper
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $process.StartInfo.FileName = $helper
+        $process.StartInfo.UseShellExecute = $false
+        $process.StartInfo.Arguments = '--operation-id ' + (Get-WindowsArgument $operationId) + ' --action ' + (Get-WindowsArgument $Action)
+        if (-not $process.Start()) { throw 'remote uninstall helper could not start' }
+        if (-not $process.WaitForExit(35000)) {
+            $process.Kill()
+            throw 'remote uninstall receipt timed out'
+        }
+        if ($process.ExitCode -ne 0) { throw 'remote uninstall receipt was not confirmed' }
+        return
+    }
+    if ($env:ANTINAT_OFFLINE_EXPORT_FILE) {
+        $export = $env:ANTINAT_OFFLINE_EXPORT_FILE
+        $payload = '{"operation_id":"' + $operationId + '","status":"UNKNOWN","requested_action":"' + $Action + '","action":"operator_review_required"}' + [char]10
+        $encoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList @($false)
+        Write-PrivateBytes $export $encoding.GetBytes($payload)
+        Write-Warning 'offline uninstall notice exported; Controller decommission is still required'
+    }
+    if ($env:ANTINAT_FORCE_OFFLINE_PURGE -ne '1') { throw 'remote uninstall receipt unavailable; use an online helper or explicit offline force' }
 }
 
 function Wait-TokenConsumption {
@@ -495,11 +700,11 @@ function Wait-TokenConsumption {
 
 function Consume-TokenSource {
     if (-not $script:TokenSource) { return }
-    $item = Get-ExistingItem $script:TokenSource
-    if ($null -eq $item) { return }
     Test-StrictFileAcl $script:TokenSource $true
-    Assert-NoReparsePath $script:TokenSource
-    Remove-Item -LiteralPath $script:TokenSource -Force
+    Initialize-NativeFileApi
+    try {
+        [AntiNAT.NativeFile]::DeleteExact($script:TokenSource, $script:TokenSourceIdentity)
+    } catch { throw 'source token file changed before consumption' }
     if ($null -ne (Get-ExistingItem $script:TokenSource)) { throw 'source token file was not consumed' }
 }
 
@@ -525,7 +730,7 @@ function Remove-Owned([string] $Root, [string] $Relative) {
     if ($item.PSIsContainer) {
         foreach ($child in Get-ChildItem -LiteralPath $path -Force) { Remove-Owned $path $child.Name }
     }
-    Remove-Item -LiteralPath $path -Force
+    Remove-ExactPath $path
 }
 
 function Assert-OwnedTreeSafe([string] $Path) {
@@ -540,7 +745,43 @@ function Assert-OwnedTreeSafe([string] $Path) {
     }
 }
 
+function Remove-ExactPath([string] $Path) {
+    $item = Get-ExistingItem $Path
+    if ($null -eq $item) { return }
+    Assert-NoReparsePath $Path
+    Initialize-NativeFileApi
+    [AntiNAT.NativeFile]::DeleteExact($Path, '')
+}
+
 function Get-CompileTimeResources {
+    $resources = @()
+    if ($Role -in @('agent', 'both')) {
+        $resources += @(
+            [ordered]@{ root = $InstallDir; path = 'bin/antinat-agent.exe' },
+            [ordered]@{ root = $InstallDir; path = 'bin/antinat-hook-runner.exe' },
+            [ordered]@{ root = $DataDir; path = 'state.db' },
+            [ordered]@{ root = $DataDir; path = 'node.key' },
+            [ordered]@{ root = $DataDir; path = 'terminal.marker' },
+            [ordered]@{ root = $DataDir; path = 'agent.marker' },
+            [ordered]@{ root = (Split-Path -LiteralPath $Config -Parent); path = 'agent.conf' }
+        )
+    }
+    if ($Role -in @('controller', 'both')) {
+        $resources += @(
+            [ordered]@{ root = $InstallDir; path = 'bin/antinat-controller.exe' },
+            [ordered]@{ root = $DataDir; path = 'controller.db' },
+            [ordered]@{ root = $DataDir; path = 'controller-keys' }
+        )
+    }
+    $resources += @(
+        [ordered]@{ root = $DataDir; path = 'backups' },
+        [ordered]@{ root = $DataDir; path = 'ownership-manifest.json' },
+        [ordered]@{ root = $DataDir; path = 'ownership.key' }
+    )
+    return $resources
+}
+
+function Get-AllCompileTimeResources {
     return @(
         [ordered]@{ root = $InstallDir; path = 'bin/antinat-agent.exe' },
         [ordered]@{ root = $InstallDir; path = 'bin/antinat-controller.exe' },
@@ -548,6 +789,7 @@ function Get-CompileTimeResources {
         [ordered]@{ root = $DataDir; path = 'state.db' },
         [ordered]@{ root = $DataDir; path = 'node.key' },
         [ordered]@{ root = $DataDir; path = 'controller.db' },
+        [ordered]@{ root = $DataDir; path = 'controller-keys' },
         [ordered]@{ root = $DataDir; path = 'terminal.marker' },
         [ordered]@{ root = $DataDir; path = 'agent.marker' },
         [ordered]@{ root = $DataDir; path = 'backups' },
@@ -555,6 +797,19 @@ function Get-CompileTimeResources {
         [ordered]@{ root = $DataDir; path = 'ownership.key' },
         [ordered]@{ root = (Split-Path -LiteralPath $Config -Parent); path = 'agent.conf' }
     )
+}
+
+function Get-OwnershipResourceRole($Resource) {
+    $root = [string]$Resource.root
+    $path = [string]$Resource.path
+    foreach ($allowed in @(Get-AllCompileTimeResources)) {
+        if ([IO.Path]::GetFullPath([string]$allowed.root) -ieq [IO.Path]::GetFullPath($root) -and [string]$allowed.path -ieq $path) {
+            if ($allowed.path -in @('bin/antinat-agent.exe', 'bin/antinat-hook-runner.exe', 'state.db', 'node.key', 'terminal.marker', 'agent.marker', 'agent.conf')) { return 'agent' }
+            if ($allowed.path -in @('bin/antinat-controller.exe', 'controller.db', 'controller-keys')) { return 'controller' }
+            return 'shared'
+        }
+    }
+    return 'unknown'
 }
 
 function Validate-OwnershipResource($Resource) {
@@ -568,7 +823,7 @@ function Validate-OwnershipResource($Resource) {
 }
 
 function Test-AllowedOwnershipResource($Resource) {
-    foreach ($allowed in @(Get-CompileTimeResources)) {
+    foreach ($allowed in @(Get-AllCompileTimeResources)) {
         if ([IO.Path]::GetFullPath([string]$allowed.root) -ieq [IO.Path]::GetFullPath([string]$Resource.root) -and [string]$allowed.path -ieq [string]$Resource.path) { return $true }
     }
     return $false
@@ -619,10 +874,31 @@ function New-OwnershipManifest {
     Test-StrictFileAcl $OwnershipKey $false
     $key = [IO.File]::ReadAllBytes($OwnershipKey)
     if ($key.Length -lt 16) { throw 'ownership HMAC key is too short' }
+    $existingManifest = Get-ExistingItem $Manifest
+    $installationId = $null
+    $resources = @()
+    if ($null -ne $existingManifest) {
+        $oldManifest = Read-OwnershipManifest
+        $installationId = [string]$oldManifest.installation_id
+        foreach ($resource in @($oldManifest.resources)) {
+            $resources += [ordered]@{ root = [string]$resource.root; path = [string]$resource.path }
+        }
+    }
+    if ([string]::IsNullOrEmpty($installationId)) { $installationId = ConvertTo-Hex (New-RandomBytes 16) }
+    foreach ($resource in @(Get-CompileTimeResources)) {
+        $duplicate = $false
+        foreach ($existing in $resources) {
+            if ([IO.Path]::GetFullPath([string]$existing.root) -ieq [IO.Path]::GetFullPath([string]$resource.root) -and [string]$existing.path -ieq [string]$resource.path) {
+                $duplicate = $true
+                break
+            }
+        }
+        if (-not $duplicate) { $resources += $resource }
+    }
     $payload = [ordered]@{
         schema_version = 1
-        installation_id = ConvertTo-Hex (New-RandomBytes 16)
-        resources = @(Get-CompileTimeResources)
+        installation_id = $installationId
+        resources = $resources
     }
     $payloadJson = [string]($payload | ConvertTo-Json -Compress -Depth 8)
     $manifest = [ordered]@{
@@ -659,11 +935,12 @@ function Remove-EmptyDirectory([string] $Path) {
     $item = Get-ExistingItem $Path
     if ($null -eq $item) { return }
     Assert-NoReparsePath $Path
-    if ($item.PSIsContainer -and @(Get-ChildItem -LiteralPath $Path -Force).Count -eq 0) { Remove-Item -LiteralPath $Path -Force }
+    if ($item.PSIsContainer -and @(Get-ChildItem -LiteralPath $Path -Force).Count -eq 0) { Remove-ExactPath $Path }
 }
 
 function Purge-Install {
     Stop-Delete-Service
+    Send-RemoteUninstallNotice 'purge'
     $manifestVerified = $false
     try {
         $manifest = Read-OwnershipManifest
@@ -671,19 +948,61 @@ function Purge-Install {
         $manifestVerified = $true
     } catch {
         Write-Warning 'ownership manifest unavailable or invalid; using compile-time allowlist only'
-        $resources = @(Get-CompileTimeResources)
+        $resources = @(Get-CompileTimeResources | Where-Object { (Get-OwnershipResourceRole $_) -ne 'shared' })
     }
     try {
+        $keepOtherRole = $false
+        if ($manifestVerified) {
+            foreach ($resource in $resources) {
+                $resourceRole = Get-OwnershipResourceRole $resource
+                if (($resourceRole -eq 'agent' -and $Role -notin @('agent', 'both')) -or
+                    ($resourceRole -eq 'controller' -and $Role -notin @('controller', 'both'))) { $keepOtherRole = $true }
+            }
+        }
+        $remaining = @()
         foreach ($resource in $resources) {
             $root = [IO.Path]::GetFullPath([string]$resource.root)
             $target = [IO.Path]::GetFullPath((Join-Path $root ([string]$resource.path).Replace('/', '\')))
             Assert-OwnedTreeSafe $target
         }
-        foreach ($resource in $resources) { Remove-Owned ([string]$resource.root) ([string]$resource.path) }
+        foreach ($resource in $resources) {
+            $resourceRole = Get-OwnershipResourceRole $resource
+            $remove = ($resourceRole -eq 'agent' -and $Role -in @('agent', 'both')) -or
+                ($resourceRole -eq 'controller' -and $Role -in @('controller', 'both')) -or
+                ($resourceRole -eq 'shared' -and -not $keepOtherRole)
+            if ($remove -and $resourceRole -eq 'shared' -and [string]$resource.path -in @('ownership-manifest.json', 'ownership.key')) { $remove = $false }
+            if ($remove) {
+                Remove-Owned ([string]$resource.root) ([string]$resource.path)
+            } else {
+                $remaining += [ordered]@{ root = [string]$resource.root; path = [string]$resource.path }
+            }
+        }
+        if ($manifestVerified -and $keepOtherRole) {
+            $key = [IO.File]::ReadAllBytes($OwnershipKey)
+            $payload = [ordered]@{ schema_version = 1; installation_id = [string]$manifest.installation_id; resources = $remaining }
+            $payloadJson = [string]($payload | ConvertTo-Json -Compress -Depth 8)
+            $newManifest = [ordered]@{
+                schema_version = 1
+                installation_id = [string]$manifest.installation_id
+                resources = $remaining
+                hmac = Get-HmacHex $payloadJson $key
+            }
+            $encoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList @($false)
+            Write-PrivateBytes $Manifest $encoding.GetBytes(([string]($newManifest | ConvertTo-Json -Compress -Depth 8)) + [char]10)
+        } elseif ($manifestVerified) {
+            Remove-Owned $DataDir 'ownership.key'
+            Remove-Owned $DataDir 'ownership-manifest.json'
+        }
         foreach ($path in @($BinDir, $InstallDir, $ServiceDir, (Split-Path -LiteralPath $Config -Parent), $DataDir)) { Remove-EmptyDirectory $path }
     } catch { Fail $ExitGeneric 'purge refused because an owned path is unsafe or could not be removed' }
     if (-not $manifestVerified) { Write-Warning 'remote decommission status is unknown; verify Controller-side purge separately' }
-    Write-Output 'antinat installer: purge complete; no owned residue remains'
+    if (-not $manifestVerified) {
+        Write-Output 'antinat installer: purge complete; allowlisted role resources removed, ownership metadata retained because the manifest was not authenticated'
+    } elseif ($keepOtherRole) {
+        Write-Output 'antinat installer: current role purge complete; another role and shared ownership state remain'
+    } else {
+        Write-Output 'antinat installer: purge complete; no owned residue remains'
+    }
     exit $ExitPurge
 }
 
@@ -704,16 +1023,93 @@ function Copy-FileAtomic([string] $Source, [string] $Destination) {
     }
 }
 
+function Copy-VerifiedFileAtomic([string] $Source, [string] $Destination, [string] $ExpectedDigest) {
+    if ($ExpectedDigest -notmatch '^[0-9a-f]{64}$') { throw 'artifact digest is invalid' }
+    Initialize-NativeFileApi
+    $opened = [AntiNAT.NativeFile]::OpenRead($Source)
+    $parent = Split-Path -LiteralPath $Destination -Parent
+    New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    Assert-NoReparsePath $parent
+    Assert-NoReparsePath $Destination
+    $temporary = Join-Path $parent ('.antinat-verified.' + [Guid]::NewGuid().ToString('N'))
+    $hash = [Security.Cryptography.SHA256]::Create()
+    $output = $null
+    try {
+        $output = New-Object -TypeName System.IO.FileStream -ArgumentList @($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None, 1048576, [IO.FileOptions]::WriteThrough)
+        $buffer = New-Object -TypeName byte[] -ArgumentList 1048576
+        while (($count = $opened.Stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            $hash.TransformBlock($buffer, 0, $count, $buffer, 0) | Out-Null
+            $output.Write($buffer, 0, $count)
+        }
+        $hash.TransformFinalBlock((New-Object byte[] 0), 0, 0)
+        $actual = ConvertTo-Hex $hash.Hash
+        if ($actual -ne $ExpectedDigest) { throw 'artifact digest changed during copy' }
+        $output.Flush($true)
+        $output.Dispose()
+        $output = $null
+        Move-Item -LiteralPath $temporary -Destination $Destination -Force
+        Set-PrivateAcl $Destination $false
+    } finally {
+        if ($null -ne $output) { $output.Dispose() }
+        $opened.Dispose()
+        $hash.Dispose()
+        if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+function Copy-TreeSnapshot([string] $Source, [string] $Destination) {
+    $item = Get-ExistingItem $Source
+    if ($null -eq $item -or $item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { throw 'snapshot tree contains a reparse point' }
+    if (-not $item.PSIsContainer) {
+        Copy-FileAtomic $Source $Destination
+        return
+    }
+    New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+    Assert-NoReparsePath $Destination
+    foreach ($child in Get-ChildItem -LiteralPath $Source -Force) {
+        Copy-TreeSnapshot $child.FullName (Join-Path $Destination $child.Name)
+    }
+}
+
+function Test-SnapshotTree([string] $Left, [string] $Right) {
+    $leftItem = Get-ExistingItem $Left
+    $rightItem = Get-ExistingItem $Right
+    if ($null -eq $leftItem -or $null -eq $rightItem) { return $false }
+    if ($leftItem.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint) -or $rightItem.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { return $false }
+    if ($leftItem.PSIsContainer -ne $rightItem.PSIsContainer) { return $false }
+    if (-not $leftItem.PSIsContainer) {
+        return (Get-FileHash -Algorithm SHA256 -LiteralPath $Left).Hash -eq (Get-FileHash -Algorithm SHA256 -LiteralPath $Right).Hash
+    }
+    $leftChildren = @(Get-ChildItem -LiteralPath $Left -Force | ForEach-Object { $_.Name } | Sort-Object)
+    $rightChildren = @(Get-ChildItem -LiteralPath $Right -Force | ForEach-Object { $_.Name } | Sort-Object)
+    if (($leftChildren -join "`n") -ne ($rightChildren -join "`n")) { return $false }
+    foreach ($name in $leftChildren) {
+        if (-not (Test-SnapshotTree (Join-Path $Left $name) (Join-Path $Right $name))) { return $false }
+    }
+    return $true
+}
+
 function Get-UpgradeResources {
-    return @(
-        [ordered]@{ root = $InstallDir; path = 'bin/antinat-agent.exe' },
-        [ordered]@{ root = $InstallDir; path = 'bin/antinat-controller.exe' },
-        [ordered]@{ root = $InstallDir; path = 'bin/antinat-hook-runner.exe' },
-        [ordered]@{ root = $DataDir; path = 'state.db' },
-        [ordered]@{ root = $DataDir; path = 'node.key' },
-        [ordered]@{ root = $DataDir; path = 'controller.db' },
-        [ordered]@{ root = (Split-Path -LiteralPath $Config -Parent); path = 'agent.conf' }
-    )
+    $resources = @()
+    if ($Role -in @('agent', 'both')) {
+        $resources += @(
+            [ordered]@{ root = $InstallDir; path = 'bin/antinat-agent.exe' },
+            [ordered]@{ root = $InstallDir; path = 'bin/antinat-hook-runner.exe' },
+            [ordered]@{ root = $DataDir; path = 'state.db' },
+            [ordered]@{ root = $DataDir; path = 'node.key' },
+            [ordered]@{ root = $DataDir; path = 'terminal.marker' },
+            [ordered]@{ root = $DataDir; path = 'agent.marker' },
+            [ordered]@{ root = (Split-Path -LiteralPath $Config -Parent); path = 'agent.conf' }
+        )
+    }
+    if ($Role -in @('controller', 'both')) {
+        $resources += @(
+            [ordered]@{ root = $InstallDir; path = 'bin/antinat-controller.exe' },
+            [ordered]@{ root = $DataDir; path = 'controller.db' },
+            [ordered]@{ root = $DataDir; path = 'controller-keys' }
+        )
+    }
+    return $resources
 }
 
 function Create-UpgradeSnapshot([string] $Destination) {
@@ -725,11 +1121,17 @@ function Create-UpgradeSnapshot([string] $Destination) {
         $relative = ([string]$resource.path).Replace('/', '\')
         $source = [IO.Path]::GetFullPath((Join-Path ([string]$resource.root) $relative))
         Assert-NoReparsePath ([string]$resource.root)
-        $record = [ordered]@{ root = $resource.root; path = $resource.path; present = $false; backup = "file-$index" }
+        $record = [ordered]@{ root = $resource.root; path = $resource.path; present = $false; kind = 'missing'; backup = "file-$index" }
         $item = Get-ExistingItem $source
         if ($null -ne $item) {
-            if ($item.PSIsContainer -or $item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint) -or $item.Length -gt 512MB) { throw 'upgrade snapshot resource is unsafe' }
-            Copy-FileAtomic $source (Join-Path $Destination $record.backup)
+            if ($item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { throw 'upgrade snapshot resource is unsafe' }
+            if (-not $item.PSIsContainer -and $item.Length -gt 512MB) { throw 'upgrade snapshot resource is unsafe' }
+            $record.kind = if ($item.PSIsContainer) { 'directory' } else { 'file' }
+            if ($record.kind -eq 'directory') {
+                Copy-TreeSnapshot $source (Join-Path $Destination $record.backup)
+            } else {
+                Copy-FileAtomic $source (Join-Path $Destination $record.backup)
+            }
             $record.present = $true
         }
         $records += $record
@@ -743,15 +1145,35 @@ function Create-UpgradeSnapshot([string] $Destination) {
 
 function Restore-UpgradeSnapshot([string] $Destination, $Records) {
     foreach ($record in $Records) {
-        $target = [IO.Path]::GetFullPath((Join-Path ([string]$record.root) ([string]$record.path).Replace('/', '\')))
-        Assert-NoReparsePath ([string]$record.root)
+        $root = [string]$record.root
+        $relative = ([string]$record.path).Replace('/', '\')
+        $target = [IO.Path]::GetFullPath((Join-Path $root $relative))
+        Assert-NoReparsePath $root
         if ($record.present) {
-            Copy-FileAtomic (Join-Path $Destination ([string]$record.backup)) $target
+            $backup = Join-Path $Destination ([string]$record.backup)
+            if ([string]$record.kind -eq 'directory') {
+                Remove-Owned $root ([string]$record.path)
+                Copy-TreeSnapshot $backup $target
+            } elseif ([string]$record.kind -eq 'file') {
+                Copy-FileAtomic $backup $target
+            } else {
+                throw 'upgrade snapshot record has an invalid kind'
+            }
         } elseif ($null -ne (Get-ExistingItem $target)) {
-            Assert-NoReparsePath $target
-            $item = Get-Item -LiteralPath $target -Force
-            if ($item.PSIsContainer) { throw 'promoted upgrade path is unexpectedly a directory' }
-            Remove-Item -LiteralPath $target -Force
+            Remove-Owned $root ([string]$record.path)
+        }
+    }
+}
+
+function Verify-UpgradeSnapshot([string] $Destination, $Records) {
+    foreach ($record in $Records) {
+        $root = [string]$record.root
+        $target = [IO.Path]::GetFullPath((Join-Path $root ([string]$record.path).Replace('/', '\')))
+        $backup = Join-Path $Destination ([string]$record.backup)
+        if ($record.present) {
+            if (-not (Test-SnapshotTree $target $backup)) { throw "upgrade snapshot restore mismatch: $($record.path)" }
+        } elseif ($null -ne (Get-ExistingItem $target)) {
+            throw "upgrade snapshot restored an absent resource: $($record.path)"
         }
     }
 }
@@ -760,6 +1182,10 @@ function Rollback-New-Install {
     Stop-Delete-Service
     $resources = @(Get-CompileTimeResources)
     foreach ($resource in $resources) {
+        if ([string]$resource.path -in @('backups', 'ownership-manifest.json', 'ownership.key') -and
+            (($resource.path -eq 'ownership-manifest.json' -and $script:ManifestExistedBeforeInstall) -or
+             ($resource.path -eq 'ownership.key' -and $script:OwnershipKeyExistedBeforeInstall) -or
+             $resource.path -eq 'backups')) { continue }
         try { Remove-Owned ([string]$resource.root) ([string]$resource.path) } catch { }
     }
     foreach ($path in @($BinDir, $InstallDir, $ServiceDir, (Split-Path -LiteralPath $Config -Parent), $DataDir)) {
@@ -768,29 +1194,45 @@ function Rollback-New-Install {
 }
 
 function Install-Flow {
-    if ($Endpoint -and ($Endpoint -notmatch '^https?://[^\s/?#]+(:[0-9]+)?(/[^\s?#]*)?$' -or $Endpoint -match '["<>]')) { Fail $ExitUsage 'controller endpoint is invalid' }
+    if ($Role -in @('agent', 'both')) { Validate-Endpoint $Endpoint }
     Set-Paths
     Get-ReleaseDirectory
     Verify-Release
-    if ($null -ne (Get-ExistingItem $Agent)) { Fail $ExitConflict 'AntiNAT is already installed; use upgrade' }
+    $script:ManifestExistedBeforeInstall = $null -ne (Get-ExistingItem $Manifest)
+    $script:OwnershipKeyExistedBeforeInstall = $null -ne (Get-ExistingItem $OwnershipKey)
+    if (($Role -in @('agent', 'both') -and $null -ne (Get-ExistingItem $Agent)) -or
+        ($Role -in @('controller', 'both') -and $null -ne (Get-ExistingItem $Controller))) { Fail $ExitConflict 'AntiNAT is already installed; use upgrade' }
     New-Item -ItemType Directory -Force -Path $BinDir, $DataDir | Out-Null
+    if ($Role -in @('controller', 'both')) {
+        $controllerKeys = Join-Path $DataDir 'controller-keys'
+        New-Item -ItemType Directory -Force -Path $controllerKeys | Out-Null
+        Set-PrivateAcl $controllerKeys $true
+    }
     try { Set-PrivateAcl $DataDir $true } catch { Fail $ExitGeneric 'could not protect the data directory' }
-    if ($env:ANTINAT_TEST_MODE -ne '1' -or $TokenFile -or $TokenFD -ge 0) { Read-Token }
+    if ($Role -in @('agent', 'both') -and ($env:ANTINAT_TEST_MODE -ne '1' -or $TokenFile -or $TokenFD -ge 0)) { Read-Token }
     try {
-        $agentArtifact = Find-Artifact 'antinat-agent-windows-amd64.exe'
-        if (-not $agentArtifact) { $agentArtifact = Find-Artifact 'antinat-agent-windows-amd64' }
-        if (-not $agentArtifact) { throw 'Windows Agent artifact is missing' }
-        Copy-FileAtomic $agentArtifact $Agent
-        Write-Config $script:TokenTemp
-        Install-Service ($null -ne $script:TokenTemp -and $script:TokenTemp -ne '')
+        if ($Role -in @('agent', 'both')) {
+            $agentArtifact = Find-Artifact 'antinat-agent-windows-amd64.exe'
+            if (-not $agentArtifact) { $agentArtifact = Find-Artifact 'antinat-agent-windows-amd64' }
+            if (-not $agentArtifact) { throw 'Windows Agent artifact is missing' }
+            Copy-VerifiedFileAtomic $agentArtifact $Agent $script:FoundArtifactDigest
+            Write-Config $script:TokenTemp
+        }
+        if ($Role -in @('controller', 'both')) {
+            $controllerArtifact = Find-Artifact 'antinat-controller-windows-amd64.exe'
+            if (-not $controllerArtifact) { $controllerArtifact = Find-Artifact 'antinat-controller-windows-amd64' }
+            if (-not $controllerArtifact) { throw 'Windows Controller artifact is missing' }
+            Copy-VerifiedFileAtomic $controllerArtifact $Controller $script:FoundArtifactDigest
+        }
+        Install-Services ($Role -in @('agent', 'both') -and $null -ne $script:TokenTemp -and $script:TokenTemp -ne '')
     } catch {
         Cleanup-TokenOnFailure
         Rollback-New-Install
         Fail $ExitGeneric 'installation failed; partial state was removed'
     }
     try {
-        Wait-TokenConsumption
-        if ($script:TokenTemp) {
+        if ($Role -in @('agent', 'both')) { Wait-TokenConsumption }
+        if ($Role -in @('agent', 'both') -and $script:TokenTemp) {
             # Remove the one-time input from both the config file and the
             # persisted Windows service command after enrollment succeeds.
             Write-Config ''
@@ -812,64 +1254,60 @@ function Upgrade-Flow {
     Set-Paths
     Get-ReleaseDirectory
     Verify-Release
-    if ($null -eq (Get-ExistingItem $Agent)) { Fail $ExitConflict 'installation is not present' }
+    if (($Role -in @('agent', 'both') -and $null -eq (Get-ExistingItem $Agent)) -or
+        ($Role -in @('controller', 'both') -and $null -eq (Get-ExistingItem $Controller))) { Fail $ExitConflict 'installation is not present' }
     New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
     Set-PrivateAcl $BackupDir $true
     $backup = Join-Path $BackupDir ('upgrade.' + [Guid]::NewGuid().ToString('N'))
     $records = $null
-    $wasRunning = $false
+    $wasAgentRunning = $false
+    $wasControllerRunning = $false
     try {
         New-Item -ItemType Directory -Path $backup | Out-Null
         Set-PrivateAcl $backup $true
-        $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-        $wasRunning = $null -ne $service -and $service.Status -eq 'Running'
-        if ($wasRunning) { Stop-Service -Name $ServiceName -Force }
-        $records = @()
-        $index = 0
-        foreach ($resource in @(
-            [ordered]@{ root = $InstallDir; path = 'bin/antinat-agent.exe' },
-            [ordered]@{ root = $InstallDir; path = 'bin/antinat-controller.exe' },
-            [ordered]@{ root = $InstallDir; path = 'bin/antinat-hook-runner.exe' },
-            [ordered]@{ root = $DataDir; path = 'state.db' },
-            [ordered]@{ root = $DataDir; path = 'node.key' },
-            [ordered]@{ root = $DataDir; path = 'controller.db' },
-            [ordered]@{ root = (Split-Path -Parent $Config); path = 'agent.conf' }
-        )) {
-            $source = [IO.Path]::GetFullPath((Join-Path ([string]$resource.root) ([string]$resource.path).Replace('/', '\')))
-            Assert-NoReparsePath ([string]$resource.root)
-            $record = [ordered]@{ root = $resource.root; path = $resource.path; present = $false; backup = "file-$index" }
-            $item = Get-ExistingItem $source
-            if ($null -ne $item) {
-                if ($item.PSIsContainer -or $item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint) -or $item.Length -gt 512MB) { throw 'upgrade snapshot resource is unsafe' }
-                Copy-Item -LiteralPath $source -Destination (Join-Path $backup $record.backup)
-                $record.present = $true
-            }
-            $records += $record
-            $index++
+        $agentService = if ($Role -in @('agent', 'both')) { Get-Service -Name $ServiceName -ErrorAction SilentlyContinue } else { $null }
+        $controllerService = if ($Role -in @('controller', 'both')) { Get-Service -Name $ControllerServiceName -ErrorAction SilentlyContinue } else { $null }
+        $wasAgentRunning = $Role -in @('agent', 'both') -and $null -ne $agentService -and $agentService.Status -eq 'Running'
+        $wasControllerRunning = $Role -in @('controller', 'both') -and $null -ne $controllerService -and $controllerService.Status -eq 'Running'
+        if ($wasAgentRunning) { Stop-Service -Name $ServiceName -Force -ErrorAction Stop }
+        if ($wasControllerRunning) { Stop-Service -Name $ControllerServiceName -Force -ErrorAction Stop }
+        $records = @(Create-UpgradeSnapshot $backup)
+        Verify-UpgradeSnapshot $backup $records
+        if ($Role -in @('agent', 'both')) {
+            $artifact = Find-Artifact 'antinat-agent-windows-amd64.exe'
+            if (-not $artifact) { $artifact = Find-Artifact 'antinat-agent-windows-amd64' }
+            if (-not $artifact) { throw 'Windows Agent artifact is missing' }
+            Copy-VerifiedFileAtomic $artifact $Agent $script:FoundArtifactDigest
         }
-        $records | ConvertTo-Json -Compress -Depth 8 | Set-Content -LiteralPath (Join-Path $backup 'snapshot.json') -Encoding UTF8
-        $artifact = Find-Artifact 'antinat-agent-windows-amd64.exe'
-        if (-not $artifact) { $artifact = Find-Artifact 'antinat-agent-windows-amd64' }
-        if (-not $artifact) { throw 'Windows Agent artifact is missing' }
-        Copy-FileAtomic $artifact $Agent
+        if ($Role -in @('controller', 'both')) {
+            $artifact = Find-Artifact 'antinat-controller-windows-amd64.exe'
+            if (-not $artifact) { $artifact = Find-Artifact 'antinat-controller-windows-amd64' }
+            if (-not $artifact) { throw 'Windows Controller artifact is missing' }
+            Copy-VerifiedFileAtomic $artifact $Controller $script:FoundArtifactDigest
+        }
         if ($env:ANTINAT_FORCE_HEALTH_FAIL -eq '1') { throw 'health check failed' }
-        if ($wasRunning) { Start-Service -Name $ServiceName }
+        if ($wasAgentRunning) { Start-Service -Name $ServiceName -ErrorAction Stop }
+        if ($wasControllerRunning) { Start-Service -Name $ControllerServiceName -ErrorAction Stop }
         Write-Output 'antinat installer: upgrade complete'
     } catch {
-        if ($records) {
-            try {
-                foreach ($record in $records) {
-                    $target = [IO.Path]::GetFullPath((Join-Path ([string]$record.root) ([string]$record.path).Replace('/', '\')))
-                    if ($record.present) {
-                        Copy-FileAtomic (Join-Path $backup $record.backup) $target
-                    } elseif ($null -ne (Get-ExistingItem $target)) {
-                        Assert-NoReparsePath $target
-                        Remove-Item -LiteralPath $target -Force
-                    }
-                }
-            } catch { }
+        $cause = $_
+        if ($null -eq $records) {
+            if ($wasAgentRunning) { try { Start-Service -Name $ServiceName -ErrorAction Stop } catch { } }
+            if ($wasControllerRunning) { try { Start-Service -Name $ControllerServiceName -ErrorAction Stop } catch { } }
+            Fail $ExitGeneric 'upgrade failed before a complete snapshot was created'
         }
-        if ($wasRunning) { Start-Service -Name $ServiceName -ErrorAction SilentlyContinue }
+        $rollbackError = $null
+        try {
+            Restore-UpgradeSnapshot $backup $records
+            Verify-UpgradeSnapshot $backup $records
+        } catch { $rollbackError = $_ }
+        try {
+            if ($wasAgentRunning) { Start-Service -Name $ServiceName -ErrorAction Stop }
+            if ($wasControllerRunning) { Start-Service -Name $ControllerServiceName -ErrorAction Stop }
+        } catch { if ($null -eq $rollbackError) { $rollbackError = $_ } }
+        if ($null -ne $rollbackError) {
+            Fail $ExitRollback 'upgrade failed; rollback could not be verified'
+        }
         Fail $ExitRollback 'upgrade failed; previous version restored'
     }
 }
@@ -882,7 +1320,13 @@ switch ($script:Command) {
     'upgrade' { Upgrade-Flow }
     'uninstall' {
         Stop-Delete-Service
-        Remove-Item -LiteralPath $Agent, $Controller, $Hook, $Config -Force -ErrorAction SilentlyContinue
+        Send-RemoteUninstallNotice 'uninstall'
+        if ($Role -in @('agent', 'both')) {
+            Remove-Owned $InstallDir 'bin/antinat-agent.exe'
+            Remove-Owned $InstallDir 'bin/antinat-hook-runner.exe'
+            Remove-Owned (Split-Path -LiteralPath $Config -Parent) 'agent.conf'
+        }
+        if ($Role -in @('controller', 'both')) { Remove-Owned $InstallDir 'bin/antinat-controller.exe' }
         Write-Output 'antinat installer: service and executable files removed; state retained'
     }
     'purge' { Purge-Install }

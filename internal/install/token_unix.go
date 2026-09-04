@@ -32,9 +32,16 @@ func openDescriptorToken(fd int) (*TokenInput, error) {
 	if fd < 3 {
 		return nil, tokenError(errors.New("token fd must be >= 3"))
 	}
-	unix.CloseOnExec(fd)
-	file := os.NewFile(uintptr(fd), "antinat-enrollment-token-fd")
+	// The caller owns the descriptor passed through the CLI. Use a private
+	// descriptor for the TokenInput lifecycle so a caller-side *os.File cannot
+	// later close a recycled descriptor number behind our back.
+	ownedFD, err := unix.FcntlInt(uintptr(fd), unix.F_DUPFD_CLOEXEC, 3)
+	if err != nil {
+		return nil, tokenError(fmt.Errorf("duplicate token fd: %w", err))
+	}
+	file := os.NewFile(uintptr(ownedFD), "antinat-enrollment-token-fd")
 	if file == nil {
+		_ = unix.Close(ownedFD)
 		return nil, tokenError(errors.New("token fd is invalid"))
 	}
 	token, err := readTokenBytes(file)

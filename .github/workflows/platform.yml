@@ -23,6 +23,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Shell syntax and Docker staging smoke
+        run: |
+          sh -n docker/*.sh
+          bash docker/test-stage-enrollment.sh
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
@@ -95,22 +99,42 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Detect Docker daemon
+        id: docker
+        run: |
+          if docker info >/dev/null 2>&1; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+            echo 'Docker daemon: AVAILABLE'
+          else
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            echo 'SUPPORTED_WITH_LIMITS: Docker daemon unavailable; build/runtime OCI evidence will not be claimed.'
+          fi
       - name: Build agent image
+        if: steps.docker.outputs.available == 'true'
         run: docker buildx build --platform linux/amd64 --target agent --tag antinat:p18-agent --load .
       - name: Build controller image
+        if: steps.docker.outputs.available == 'true'
         run: docker buildx build --platform linux/amd64 --target controller --tag antinat:p18-controller --load .
       - name: Inspect non-root image settings
+        if: steps.docker.outputs.available == 'true'
         run: |
           for image in antinat:p18-agent antinat:p18-controller; do
             docker image inspect "$image" --format '{{json .Config.User}}' | jq -e '.[0:5] == "65532"' >/dev/null
             docker image inspect "$image" --format '{{json .Config.Volumes}}' | jq -e 'has("/var/lib/antinat") and has("/var/log/antinat")' >/dev/null
           done
-          docker image inspect antinat:p18-agent --format '{{json .Config.Entrypoint}}' | jq -e '.[0] == "/opt/antinat/bin/antinat-agent"' >/dev/null
+          docker image inspect antinat:p18-agent --format '{{json .Config.Entrypoint}}' | jq -e '.[0] == "/opt/antinat/bin/stage-enrollment"' >/dev/null
           docker image inspect antinat:p18-controller --format '{{json .Config.Entrypoint}}' | jq -e '.[0] == "/opt/antinat/bin/antinat-controller"' >/dev/null
+          docker image inspect antinat:p18-agent --format '{{json .Config.Healthcheck.Test}}' | jq -e 'join(" ") | contains("healthcheck-agent")' >/dev/null
           docker image inspect antinat:p18-controller --format '{{json .Config.Healthcheck.Test}}' | jq -e 'join(" ") | contains("/readyz")' >/dev/null
+      - name: OCI digest, SBOM, and signature contract evidence
+        run: docker/verify-oci-contract.sh antinat:p18-agent antinat:p18-controller
       - name: Inspect host-network compose contract
         env:
           ANTINAT_ENDPOINT: https://controller.example
           ANTINAT_NODE: ci-node
           ANTINAT_PIN: 0000000000000000000000000000000000000000000000000000000000000000
-        run: docker compose -f docker/compose.yaml config --quiet
+          ANTINAT_ENROLLMENT_TOKEN_FILE: ${{ runner.temp }}/antinat-enrollment-token
+        run: |
+          : > "$ANTINAT_ENROLLMENT_TOKEN_FILE"
+          chmod 600 "$ANTINAT_ENROLLMENT_TOKEN_FILE"
+          docker compose -f docker/compose.yaml config --quiet

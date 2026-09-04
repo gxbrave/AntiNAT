@@ -27,6 +27,8 @@ RUN addgroup -S -g 65532 antinat && adduser -S -D -H -u 65532 -G antinat antinat
 COPY --from=build /out/antinat-agent /opt/antinat/bin/antinat-agent
 COPY --from=build /out/antinat-controller /opt/antinat/bin/antinat-controller
 COPY --from=build /out/antinat-hook-runner /opt/antinat/bin/antinat-hook-runner
+COPY docker/healthcheck-agent.sh /opt/antinat/bin/healthcheck-agent
+COPY docker/stage-enrollment.sh /opt/antinat/bin/stage-enrollment
 RUN chmod 0755 /opt/antinat/bin/*
 USER 65532:65532
 WORKDIR /var/lib/antinat
@@ -37,7 +39,8 @@ LABEL org.opencontainers.image.title="AntiNAT Agent" \
       org.opencontainers.image.source="https://github.com/gxbrave/AntiNAT" \
       org.opencontainers.image.description="AntiNAT forwarding agent" \
       org.opencontainers.image.licenses="Apache-2.0"
-ENTRYPOINT ["/opt/antinat/bin/antinat-agent"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["/opt/antinat/bin/healthcheck-agent"]
+ENTRYPOINT ["/opt/antinat/bin/stage-enrollment"]
 
 FROM runtime AS controller
 LABEL org.opencontainers.image.title="AntiNAT Controller" \

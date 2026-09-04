@@ -32,12 +32,28 @@ services:
       ANTINAT_NODE: ${ANTINAT_NODE:?set ANTINAT_NODE}
       ANTINAT_PIN: ${ANTINAT_PIN:?set ANTINAT_PIN}
       ANTINAT_STATE: /var/lib/antinat
+      ANTINAT_DOCKER_TOKEN_FILE: /run/secrets/antinat_enrollment_token
+    entrypoint: ["/opt/antinat/bin/stage-enrollment"]
     volumes:
       - agent-data:/var/lib/antinat
       - agent-log:/var/log/antinat
+    secrets:
+      - source: antinat_enrollment_token
+        target: antinat_enrollment_token
+        mode: 0444
+    healthcheck:
+      test: ["CMD", "/opt/antinat/bin/healthcheck-agent"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   controller-data:
   controller-log:
   agent-data:
   agent-log:
+
+secrets:
+  antinat_enrollment_token:
+    file: ${ANTINAT_ENROLLMENT_TOKEN_FILE:?set ANTINAT_ENROLLMENT_TOKEN_FILE}
