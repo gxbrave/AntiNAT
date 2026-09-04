@@ -3,7 +3,7 @@
   "schema_version": "antinat.handoff/v1",
   "branch": "ai/P17-web-ui",
   "base_sha": "329fdf5039e4e55350d923462f78c2d4ee2e3588",
-  "head_sha": "aa2853cb9e41da218afa9dc162063a2da7da87ee",
+  "head_sha": "90bf774a4dc3045caaab451e6c40640a5e1e2388",
   "commits": [
     "1a01ab7edd58a481905859c181832d33d2604e02",
     "f6f05924a110835780692a8115b381f338d1a5d7",
@@ -12,9 +12,13 @@
     "5af5431bdb67e1ac4f2e389d306311e0fce42ae6",
     "1a1d78592652776b4df6036bcf6a51b82bb0b096",
     "e2ca97aa48ddfa122427877342960684c382a05b",
-    "aa2853cb9e41da218afa9dc162063a2da7da87ee"
+    "aa2853cb9e41da218afa9dc162063a2da7da87ee",
+    "fd1e6fba95e208850bd4352eee87b9654ff3de41",
+    "f8bdc0313e9af4c123945cff5bf5d125c3e949b1",
+    "afbab12458be5450b4205c2b305f410e3694bab5",
+    "90bf774a4dc3045caaab451e6c40640a5e1e2388"
   ],
-  "files_changed_count": 55,
+  "files_changed_count": 67,
   "files_changed": [
     ".gitignore",
     ".hermes/handoffs/P17-contract-change.md",
@@ -26,8 +30,14 @@
     "internal/controller/api/auth.go",
     "internal/controller/api/deployment.go",
     "internal/controller/api/deployment_test.go",
+    "internal/controller/api/forwards_min.go",
+    "internal/controller/api/node_delete.go",
     "internal/controller/api/node_ops.go",
+    "internal/controller/api/nodes_min.go",
     "internal/controller/api/observability.go",
+    "internal/controller/api/operations.go",
+    "internal/controller/api/p15_repair1_h3_test.go",
+    "internal/controller/api/p15_repair2_test.go",
     "internal/controller/deployment/command.go",
     "internal/controller/deployment/command_test.go",
     "internal/controller/deployment/profile.go",
@@ -35,11 +45,13 @@
     "internal/controller/store/deployment_p17_test.go",
     "internal/controller/store/deployment_profile.go",
     "internal/controller/store/node_bundle.go",
+    "internal/controller/store/p15_repair1_page.go",
     "internal/controller/store/traffic.go",
     "internal/controller/web/admin.go",
     "internal/controller/web/assets.go",
     "internal/controller/web/home.go",
     "internal/controller/web/home_test.go",
+    "internal/controller/web/p15_repair2_test.go",
     "internal/controller/web/router_min.go",
     "internal/controller/web/sse.go",
     "internal/controller/web/ui.go",
@@ -51,7 +63,11 @@
     "test/browser/deployment.spec.js",
     "test/browser/destructive.spec.js",
     "test/browser/evidence/p17-admin-desktop.png",
+    "test/browser/evidence/p17-admin-en.png",
     "test/browser/evidence/p17-admin-mobile.png",
+    "test/browser/evidence/p17-home-en.png",
+    "test/browser/evidence/p17-home-mobile.png",
+    "test/browser/evidence/p17-home-zh.png",
     "test/browser/global-setup.js",
     "test/browser/home-private.spec.js",
     "test/browser/home-public.spec.js",
@@ -74,34 +90,34 @@
   ],
   "tests": [
     {
-      "command": "gofmt -w internal/controller/api internal/controller/deployment internal/controller/store internal/controller/web test/browser/seed && GOWORK=off go test ./internal/controller/deployment ./internal/controller/api ./internal/controller/store ./internal/controller/web -count=1",
+      "command": "env ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./internal/controller/deployment ./internal/controller/web ./internal/controller/api ./internal/controller/store ./internal/controller/lifecycle -count=1",
       "exit_code": 0,
-      "summary": "Affected packages passed after final scope/CAS/profile/SSE fixes."
+      "summary": "Affected packages pass including strict profile/null/depth, CAS, SSE, node delete and evidence projection."
     },
     {
       "command": "./scripts/test-browser.sh",
       "exit_code": 0,
-      "summary": "32 loopback Chromium tests passed: home 6, admin 10, deployment 7, destructive 3, accessibility 3, private 3; test password generated at runtime; failure cleanup removes DB/keys/storage/report."
+      "summary": "35 loopback Chromium tests pass: home 6, admin 10, deployment 9, destructive 3, accessibility 4, private 3; runtime-generated password; no trace/screenshot/video on failure and cleanup removes DB/keys/storage/reports."
     },
     {
-      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./test/contracts/... -count=1 -v",
+      "command": "env ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./test/contracts/... -count=1 -v",
       "exit_code": 0,
-      "summary": "Contract vectors, manifest and OpenAPI/error-code tests passed."
+      "summary": "Contract vectors, manifest and OpenAPI/error-code tests pass."
     },
     {
-      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1",
+      "command": "env ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1",
       "exit_code": 0,
-      "summary": "Full repository tests passed."
+      "summary": "Full repository tests pass on final product HEAD."
     },
     {
-      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./... -count=1",
+      "command": "env ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./... -count=1",
       "exit_code": 0,
-      "summary": "Full repository race tests passed."
+      "summary": "Full repository race tests pass on final product HEAD with dedicated identity."
     },
     {
       "command": "go vet ./...",
       "exit_code": 0,
-      "summary": "go vet passed."
+      "summary": "go vet passes."
     },
     {
       "command": "gofmt -l internal/",
@@ -116,7 +132,7 @@
     {
       "command": "GOOS=windows GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/controller/deployment/...",
       "exit_code": 0,
-      "summary": "Windows amd64 cross-build passed; no native Windows runtime claim."
+      "summary": "Windows amd64 cross-build passes; no native Windows execution claim."
     },
     {
       "command": "python3 test/contracts/validate_openapi.py .",
@@ -124,21 +140,29 @@
       "summary": "OpenAPI valid; 33 paths, 13 error statuses, 13 registered."
     },
     {
-      "command": "static scan for fixed browser credentials/raw token channels/unsafe shell-eval",
+      "command": "static scan for fixed passwords/raw token channels/unsafe shell-eval",
       "exit_code": 0,
-      "summary": "No fixed browser password literal or unsafe command pattern found."
+      "summary": "No fixed browser password literal or raw token command channel found."
     }
   ],
   "evidence": [
     "test/browser/evidence/p17-admin-desktop.png",
     "test/browser/evidence/p17-admin-mobile.png",
+    "test/browser/evidence/p17-admin-en.png",
+    "test/browser/evidence/p17-home-zh.png",
+    "test/browser/evidence/p17-home-en.png",
+    "test/browser/evidence/p17-home-mobile.png",
     ".hermes/handoffs/P17-contract-change.md",
     "api/openapi.yaml"
   ],
   "evidence_sha256": {
     "test/browser/evidence/p17-admin-desktop.png": "332960277b00776658cace79e054a5e4b273a50a52034bbf24ea41118d75a485",
-    "test/browser/evidence/p17-admin-mobile.png": "ebc01ce7288e0ea2b228a9e04cd832c3c54b4d7e096bad33099cf5280f440695",
-    ".hermes/handoffs/P17-contract-change.md": "d180bd6e75cdbcc4453334bf869aff50908d725a7582a756482980c13e253430"
+    "test/browser/evidence/p17-admin-mobile.png": "61c2408e5d08a8a863471f6cf399d8f6522c7433356869a014740b1d7442e1b2",
+    "test/browser/evidence/p17-admin-en.png": "3ba2f1c6f76a60a3c554ad6a48aa5725b64b3edc33712bc89c9a0aed57357d78",
+    "test/browser/evidence/p17-home-zh.png": "6eaa6aebed5f5ccbfac69053360d9c700ca0f04c3e85d4fa29ff8b825c901f44",
+    "test/browser/evidence/p17-home-en.png": "8a4198a63d2fd45a7285196aa0291cb5f2868d865b810040d78286e244fee6ba",
+    "test/browser/evidence/p17-home-mobile.png": "dd7a43d7816154702ffe4ed720e2d1087d31d0a10755bb7b3d5e1672dfac4672",
+    ".hermes/handoffs/P17-contract-change.md": "776b4a012e5b5349f12737230bbdb1fa9ef06767e130aca22145f56110b995de"
   },
   "contracts_consumed": [
     {
@@ -158,62 +182,80 @@
     {
       "path": "api/openapi.yaml",
       "before_sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32",
-      "after_sha256": "46da443e52a3a5520ca9fd0a97231d49b0bbff16c6fa65e300000457f71d6052",
-      "summary": "Add only GET/PUT /api/v1/nodes/{id}/deployment-profile; no POST or legacy /api/admin route."
+      "after_sha256": "43785c94abf6f158f52f0059d38a260d4d68f052a5ca1aed26539e48bc06c1eb",
+      "summary": "Add GET/PUT deployment-profile; add additive Forward evidence metadata and safety headers/preconditions on existing routes; no legacy route."
     },
     {
       "path": "test/contracts/manifest.json",
-      "sha256": "02571c9a9fe203ecd46425818ee8fe69695ed3d9a7630d4c572433155f7875b7",
-      "summary": "Manifest points at the current approved OpenAPI bytes."
+      "sha256": "b1ca3f29b9132307fe84f8b5661696efd0857135a21ae1bcad898263a4fd050b",
+      "summary": "Manifest matches final OpenAPI bytes."
     }
   ],
   "ownership_transfers": [
     {
       "files": [
-        "internal/controller/api/node_ops.go"
+        "internal/controller/api/node_ops.go",
+        "internal/controller/api/node_delete.go",
+        "internal/controller/api/nodes_min.go",
+        "internal/controller/api/operations.go",
+        "internal/controller/api/forwards_min.go",
+        "internal/controller/api/auth.go",
+        "internal/controller/api/observability.go"
       ],
-      "reason": "approved deployment-profile subresource dispatch only",
-      "boundary": "no legacy route or lifecycle API"
+      "reason": "P17 admin/deployment/status safety integration on existing P15 API seams",
+      "boundary": "no legacy route, protocol or lifecycle delivery expansion"
     },
     {
       "files": [
         "internal/controller/store/traffic.go",
-        "internal/controller/store/deployment_profile.go"
+        "internal/controller/store/deployment_profile.go",
+        "internal/controller/store/node_bundle.go",
+        "internal/controller/store/p15_repair1_page.go"
       ],
-      "reason": "strict atomic profile CAS",
-      "boundary": "profile rows only"
+      "reason": "strict profile CAS, NODE_CREATED event, tombstone navigation filtering",
+      "boundary": "existing P15 tables/rows only; schema registry unchanged"
     },
     {
       "files": [
-        "internal/controller/store/node_bundle.go"
+        "internal/controller/web/admin.go",
+        "internal/controller/web/home.go",
+        "internal/controller/web/home_test.go",
+        "internal/controller/web/router_min.go",
+        "internal/controller/web/ui.go",
+        "internal/controller/web/ui18n.go",
+        "internal/controller/web/sse.go",
+        "web/embed.go"
       ],
-      "reason": "NODE_CREATED durable event in node-create transaction",
-      "boundary": "no lifecycle changes"
+      "reason": "P17 UI handler/embed/status/SSE wiring",
+      "boundary": "no protocol or P19 lifecycle changes"
     },
     {
       "files": [
-        "internal/controller/api/auth.go",
-        "internal/controller/api/observability.go",
-        "internal/controller/web/sse.go"
+        "internal/controller/api/api_test.go",
+        "internal/controller/api/deployment_test.go",
+        "internal/controller/api/p15_repair1_h3_test.go",
+        "internal/controller/api/p15_repair2_test.go",
+        "internal/controller/deployment/profile_test.go",
+        "internal/controller/store/deployment_p17_test.go"
       ],
-      "reason": "bounded fallback/canonical SSE and payload redaction",
-      "boundary": "event stream safety only"
+      "reason": "regression coverage for transferred seams",
+      "boundary": "tests only"
     }
   ],
-  "review_status": "pending_final_fresh_review",
+  "review_status": "pending_exact_head_final_review",
   "capability_result": "SUPPORTED_WITH_LIMITS",
   "known_limits": [
-    "Traversal detection queues PENDING only; no per-strategy result or all-failed completion is fabricated.",
-    "Evidence rail shows the real durable runtime-snapshot source, but frozen Forward response exposes no per-axis update timestamp/probe-round ID; the UI does not fabricate one.",
-    "Browser evidence is loopback-only with a temporary store; no real WAN/router/native Windows/Docker runtime/release artifact evidence.",
-    "Installer URL remains the frozen releases/latest placeholder; P17 does not prove artifact signatures or release readiness.",
-    "HTTP(S) syntax is validated; P17 does not add non-loopback HTTPS enforcement.",
+    "Traversal detection is queued PENDING only; P17 fabricates no per-strategy/all-failed result.",
+    "Browser evidence is loopback-only with temporary store; no real WAN/router/native Windows/Docker runtime evidence.",
+    "Installer URL and Docker image remain mutable releases/latest/:latest references; UI explicitly warns to verify signed artifact/digest before production. P18 owns trust-pinned installer implementation.",
+    "No native Windows execution, Docker runtime, release artifact signature verification, or probe-round ID beyond durable activation ID.",
+    "P17 validates HTTP(S) syntax but does not enforce non-loopback HTTPS.",
     "P17 does not wire P18 installer runtime or P19 lifecycle/deployment delivery."
   ],
   "next_module": {
     "plan": "P18",
     "path": ".hermes/plans/v1-beta/18-installers-platforms.md",
-    "requires_integrated_sha": "set by P17-integrated.json",
+    "requires_integrated_sha": "write P17-integrated.json integrated_sha here",
     "do_not_start_until": "P17-integrated.json exists"
   },
   "cleanup_done": true
