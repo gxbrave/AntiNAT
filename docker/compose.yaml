@@ -1,0 +1,43 @@
+name: antinat
+
+services:
+  controller:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: controller
+    network_mode: host
+    user: "65532:65532"
+    restart: unless-stopped
+    volumes:
+      - controller-data:/var/lib/antinat
+      - controller-log:/var/log/antinat
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3111/readyz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  agent:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: agent
+    network_mode: host
+    user: "65532:65532"
+    restart: unless-stopped
+    environment:
+      ANTINAT_ENDPOINT: ${ANTINAT_ENDPOINT:?set ANTINAT_ENDPOINT}
+      ANTINAT_NODE: ${ANTINAT_NODE:?set ANTINAT_NODE}
+      ANTINAT_PIN: ${ANTINAT_PIN:?set ANTINAT_PIN}
+      ANTINAT_STATE: /var/lib/antinat
+    volumes:
+      - agent-data:/var/lib/antinat
+      - agent-log:/var/log/antinat
+
+volumes:
+  controller-data:
+  controller-log:
+  agent-data:
+  agent-log:

@@ -1,0 +1,30 @@
+# syntax=docker/dockerfile:1.7
+
+FROM golang:1.26-bookworm AS build
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN GOWORK=off go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOWORK=off \
+    go build -trimpath -ldflags "-s -w -X github.com/gxbrave/AntiNAT/internal/buildinfo.Version=${VERSION} -X github.com/gxbrave/AntiNAT/internal/buildinfo.Commit=${COMMIT} -X github.com/gxbrave/AntiNAT/internal/buildinfo.Date=${BUILD_DATE}" \
+    -o /out/antinat-agent ./cmd/antinat-agent
+
+FROM alpine:3.22
+RUN addgroup -S -g 65532 antinat && adduser -S -D -H -u 65532 -G antinat antinat \
+    && mkdir -p /var/lib/antinat /var/log/antinat \
+    && chown -R 65532:65532 /var/lib/antinat /var/log/antinat
+COPY --from=build /out/antinat-agent /opt/antinat/bin/antinat-agent
+RUN chmod 0755 /opt/antinat/bin/antinat-agent
+USER 65532:65532
+WORKDIR /var/lib/antinat
+VOLUME ["/var/lib/antinat", "/var/log/antinat"]
+LABEL org.opencontainers.image.title="AntiNAT Agent" \
+      org.opencontainers.image.source="https://github.com/gxbrave/AntiNAT" \
+      org.opencontainers.image.description="AntiNAT forwarding agent" \
+      org.opencontainers.image.licenses="Apache-2.0"
+ENTRYPOINT ["/opt/antinat/bin/antinat-agent"]

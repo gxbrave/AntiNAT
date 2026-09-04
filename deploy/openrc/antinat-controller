@@ -1,0 +1,23 @@
+#!/sbin/openrc-run
+
+name="antinat-controller"
+description="AntiNAT Controller"
+command="/opt/antinat/bin/antinat-controller"
+command_args="-listen 127.0.0.1:3111 -store /var/lib/antinat/controller.db -keydir /var/lib/antinat/controller-keys"
+command_user="antinat:antinat"
+command_background="yes"
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="/var/log/antinat/controller.log"
+error_log="/var/log/antinat/controller.err"
+retry="TERM/15/KILL/5"
+
+depend() {
+	need net
+	after firewall
+}
+
+start_pre() {
+	checkpath --directory --mode 0700 --owner antinat:antinat /var/lib/antinat
+	checkpath --directory --mode 0750 --owner antinat:antinat /var/log/antinat
+	checkpath --directory --mode 0700 --owner antinat:antinat /var/lib/antinat/controller-keys
+}
