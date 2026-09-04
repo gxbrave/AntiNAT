@@ -3,16 +3,18 @@
   "schema_version": "antinat.handoff/v1",
   "branch": "ai/P17-web-ui",
   "base_sha": "329fdf5039e4e55350d923462f78c2d4ee2e3588",
-  "head_sha": "5af5431bdb67e1ac4f2e389d306311e0fce42ae6",
-  "working_tree_head_at_handoff": "5af5431bdb67e1ac4f2e389d306311e0fce42ae6",
+  "head_sha": "aa2853cb9e41da218afa9dc162063a2da7da87ee",
   "commits": [
     "1a01ab7edd58a481905859c181832d33d2604e02",
     "f6f05924a110835780692a8115b381f338d1a5d7",
     "0e2d47bd68d163b0b6bd466ea9403188c595e56e",
     "3f5c17323afe2e45e6cde451fd861a922c280061",
-    "5af5431bdb67e1ac4f2e389d306311e0fce42ae6"
+    "5af5431bdb67e1ac4f2e389d306311e0fce42ae6",
+    "1a1d78592652776b4df6036bcf6a51b82bb0b096",
+    "e2ca97aa48ddfa122427877342960684c382a05b",
+    "aa2853cb9e41da218afa9dc162063a2da7da87ee"
   ],
-  "files_changed_count": 62,
+  "files_changed_count": 55,
   "files_changed": [
     ".gitignore",
     ".hermes/handoffs/P17-contract-change.md",
@@ -30,14 +32,9 @@
     "internal/controller/deployment/command_test.go",
     "internal/controller/deployment/profile.go",
     "internal/controller/deployment/profile_test.go",
-    "internal/controller/store/backup_test.go",
-    "internal/controller/store/corrupt_internal_test.go",
     "internal/controller/store/deployment_p17_test.go",
     "internal/controller/store/deployment_profile.go",
-    "internal/controller/store/migrate_test.go",
     "internal/controller/store/node_bundle.go",
-    "internal/controller/store/p10_r14_migration_test.go",
-    "internal/controller/store/probe_test.go",
     "internal/controller/store/traffic.go",
     "internal/controller/web/admin.go",
     "internal/controller/web/assets.go",
@@ -47,8 +44,6 @@
     "internal/controller/web/sse.go",
     "internal/controller/web/ui.go",
     "internal/controller/web/ui18n.go",
-    "migrations/0011_deployment.sql",
-    "migrations/migrations.go",
     "scripts/test-browser.sh",
     "test/browser/README.md",
     "test/browser/a11y.spec.js",
@@ -79,14 +74,14 @@
   ],
   "tests": [
     {
-      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./internal/controller/deployment ./internal/controller/web ./internal/controller/api ./internal/controller/store -count=1",
+      "command": "gofmt -w internal/controller/api internal/controller/deployment internal/controller/store internal/controller/web test/browser/seed && GOWORK=off go test ./internal/controller/deployment ./internal/controller/api ./internal/controller/store ./internal/controller/web -count=1",
       "exit_code": 0,
-      "summary": "Affected controller/deployment/store/web packages passed after final fixes."
+      "summary": "Affected packages passed after final scope/CAS/profile/SSE fixes."
     },
     {
       "command": "./scripts/test-browser.sh",
       "exit_code": 0,
-      "summary": "32 loopback Chromium tests passed: home 6, admin 10, deployment 7, destructive 3, accessibility 3, private 3; runtime-generated fixture password; failure cleanup removes DB, keys, storage state and reports."
+      "summary": "32 loopback Chromium tests passed: home 6, admin 10, deployment 7, destructive 3, accessibility 3, private 3; test password generated at runtime; failure cleanup removes DB/keys/storage/report."
     },
     {
       "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./test/contracts/... -count=1 -v",
@@ -96,17 +91,17 @@
     {
       "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1",
       "exit_code": 0,
-      "summary": "Full repository test suite passed."
+      "summary": "Full repository tests passed."
     },
     {
       "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./... -count=1",
       "exit_code": 0,
-      "summary": "Full repository race suite passed."
+      "summary": "Full repository race tests passed."
     },
     {
       "command": "go vet ./...",
       "exit_code": 0,
-      "summary": "Repository vet passed."
+      "summary": "go vet passed."
     },
     {
       "command": "gofmt -l internal/",
@@ -129,21 +124,21 @@
       "summary": "OpenAPI valid; 33 paths, 13 error statuses, 13 registered."
     },
     {
-      "command": "static credential/unsafe-command scan over tracked and new files",
+      "command": "static scan for fixed browser credentials/raw token channels/unsafe shell-eval",
       "exit_code": 0,
-      "summary": "No fixed browser password literal, raw token command channel, or unsafe shell-eval pattern found."
+      "summary": "No fixed browser password literal or unsafe command pattern found."
     }
   ],
   "evidence": [
     "test/browser/evidence/p17-admin-desktop.png",
     "test/browser/evidence/p17-admin-mobile.png",
     ".hermes/handoffs/P17-contract-change.md",
-    "api/openapi.yaml",
-    "migrations/0011_deployment.sql"
+    "api/openapi.yaml"
   ],
   "evidence_sha256": {
     "test/browser/evidence/p17-admin-desktop.png": "332960277b00776658cace79e054a5e4b273a50a52034bbf24ea41118d75a485",
-    "test/browser/evidence/p17-admin-mobile.png": "6e0874184029cd200587cdc6f9cba463e9d22dfd99a61423f183872613cd0315"
+    "test/browser/evidence/p17-admin-mobile.png": "6e0874184029cd200587cdc6f9cba463e9d22dfd99a61423f183872613cd0315",
+    ".hermes/handoffs/P17-contract-change.md": "d180bd6e75cdbcc4453334bf869aff50908d725a7582a756482980c13e253430"
   },
   "contracts_consumed": [
     {
@@ -170,11 +165,6 @@
       "path": "test/contracts/manifest.json",
       "sha256": "02571c9a9fe203ecd46425818ee8fe69695ed3d9a7630d4c572433155f7875b7",
       "summary": "Manifest points at the current approved OpenAPI bytes."
-    },
-    {
-      "path": "migrations/0011_deployment.sql",
-      "sha256": "d4b86b6ef7cacb238f3786e41050c2f74f5eda872ba71c05eb1e28a3b8b74059",
-      "summary": "One additive recency index over the existing P15 profile table."
     }
   ],
   "ownership_transfers": [
@@ -213,17 +203,17 @@
   "review_status": "pending_final_fresh_review",
   "capability_result": "SUPPORTED_WITH_LIMITS",
   "known_limits": [
-    "Traversal detection queues a PENDING operation only; no per-strategy result or all-failed completion is fabricated.",
-    "The evidence rail shows real durable runtime-snapshot source, but the frozen Forward response does not expose per-axis update timestamps/probe-round IDs; the UI does not fabricate them.",
-    "Browser evidence is loopback-only with a temporary store; no real WAN, router, native Windows, Docker runtime or release artifact evidence.",
+    "Traversal detection queues PENDING only; no per-strategy result or all-failed completion is fabricated.",
+    "Evidence rail shows the real durable runtime-snapshot source, but frozen Forward response exposes no per-axis update timestamp/probe-round ID; the UI does not fabricate one.",
+    "Browser evidence is loopback-only with a temporary store; no real WAN/router/native Windows/Docker runtime/release artifact evidence.",
     "Installer URL remains the frozen releases/latest placeholder; P17 does not prove artifact signatures or release readiness.",
-    "HTTP(S) endpoint syntax is validated; P17 does not add a non-loopback HTTPS enforcement policy.",
+    "HTTP(S) syntax is validated; P17 does not add non-loopback HTTPS enforcement.",
     "P17 does not wire P18 installer runtime or P19 lifecycle/deployment delivery."
   ],
   "next_module": {
     "plan": "P18",
     "path": ".hermes/plans/v1-beta/18-installers-platforms.md",
-    "requires_integrated_sha": "set after P17 integration",
+    "requires_integrated_sha": "set by P17-integrated.json",
     "do_not_start_until": "P17-integrated.json exists"
   },
   "cleanup_done": true
