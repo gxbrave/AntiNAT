@@ -157,6 +157,12 @@ func (s *Store) CompleteNodeDeletionResult(messageID string) (NodeDeletionOperat
 	if ack.NodeID != inboxNode || ack.OperationID != inboxOperation || ack.NodeID != op.NodeID || ack.OperationID != op.ID {
 		return NodeDeletionOperation{}, false, fmt.Errorf("%w: node decommission ack binding mismatch %q", ErrPermanentDeletionResult, messageID)
 	}
+	if ack.Status != "DECOMMISSIONED" && ack.Status != "DROPPED_DUE_TO_DECOMMISSION" {
+		return NodeDeletionOperation{}, false, fmt.Errorf("%w: unsupported node decommission ack status %q", ErrPermanentDeletionResult, ack.Status)
+	}
+	if ack.Force != (op.Mode == "force") {
+		return NodeDeletionOperation{}, false, fmt.Errorf("%w: node decommission ack force mismatch %q", ErrPermanentDeletionResult, messageID)
+	}
 
 	switch op.Status {
 	case "COMPLETED":
@@ -180,9 +186,9 @@ func (s *Store) CompleteNodeDeletionResult(messageID string) (NodeDeletionOperat
 		return NodeDeletionOperation{}, false, fmt.Errorf("%w: node deletion operation is %s", ErrCASConflict, op.Status)
 	}
 
-	if op.Mode == "force" || ack.Force {
-		// Best-effort tombstone confirmation: a force operation always has a
-		// tombstone; if the fact is absent the operation itself still completes.
+	if op.Mode == "force" && ack.Status == "DECOMMISSIONED" {
+		// A successful remote decommission is the only ACK that confirms the
+		// force tombstone. DROPPED_DUE_TO_DECOMMISSION remains unconfirmed.
 		if _, err := conn.ExecContext(context.Background(),
 			`UPDATE node_cleanup_tombstones SET remote_cleanup_confirmed = 1, updated_at = ?
 			  WHERE node_id = ?`, s.currentUnix(), op.NodeID); err != nil {

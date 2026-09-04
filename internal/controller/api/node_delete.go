@@ -38,6 +38,9 @@ func (s *Server) createNodeDeletion(w http.ResponseWriter, r *http.Request, node
 	if err := requireIfMatch(w, r, etagFor(node.Revision)); err != nil {
 		return
 	}
+	if body.Mode == "normal" && s.rejectCleanupOnly(w, nodeID) {
+		return
+	}
 	// repair-2 P2-B: an already-tombstoned node's force delete is an idempotent
 	// re-entry. The terminal fact (cleanup tombstone) never forks; a second
 	// request with a fresh operation id would be just so much 500-ing. Return
@@ -48,7 +51,7 @@ func (s *Server) createNodeDeletion(w http.ResponseWriter, r *http.Request, node
 	if body.Mode == "force" {
 		if tombstone, tsErr := s.store.NodeCleanupTombstone(nodeID); tsErr == nil {
 			if existingOp, err := s.store.GetNodeDeletionOperation(tombstone.OperationID); err == nil {
-				writeJSON(w, 202, nodeDeletionView(existingOp))
+				writeJSON(w, 202, s.nodeDeletionView(existingOp))
 				return
 			}
 			writeError(w, 409, "CONFLICT", "node is already being force-deleted")
@@ -97,7 +100,7 @@ func (s *Server) createNodeDeletion(w http.ResponseWriter, r *http.Request, node
 				_ = s.store.DeleteNodeDeletionOperation(opID)
 				if tombstone, tsErr := s.store.NodeCleanupTombstone(nodeID); tsErr == nil {
 					if existingOp, opErr := s.store.GetNodeDeletionOperation(tombstone.OperationID); opErr == nil {
-						writeJSON(w, http.StatusAccepted, nodeDeletionView(existingOp))
+						writeJSON(w, http.StatusAccepted, s.nodeDeletionView(existingOp))
 						return
 					}
 				}

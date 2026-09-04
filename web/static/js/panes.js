@@ -570,6 +570,7 @@
       var statusEl = h('p', { class: 'form-error', 'data-settings-status': '' });
       var save = h('button', { class: 'btn btn-primary', type: 'button' }, t('admin.save'));
       save.addEventListener('click', async function () {
+        if (save.disabled) return;
         var payload = {};
         byData('[data-field-el]', form).forEach(function (ctrl) {
           var name = ctrl.getAttribute('data-field');
@@ -577,19 +578,37 @@
           else if (name === 'retention_days') payload[name] = parseInt(ctrl.value, 10) || 0;
           else payload[name] = ctrl.value;
         });
-        var out = await api('/api/v1/settings', { method: 'PUT', body: payload, headers: { 'If-Match': etag } });
-        if (out.ok) {
-          var previousLanguage = s.language || 'zh';
-          etag = out.etag || (out.data && out.data.etag) || etag;
-          s = Object.assign({}, s, payload, { etag: etag });
-          statusEl.textContent = t('admin.saved');
-          setHidden(statusEl, false);
-          if (payload.language && payload.language !== previousLanguage) {
-            setTimeout(function () { window.location.reload(); }, 350);
+        save.disabled = true;
+        setHidden(statusEl, true);
+        try {
+          var out = await api('/api/v1/settings', { method: 'PUT', body: payload, headers: { 'If-Match': etag } });
+          if (out.ok) {
+            var previousLanguage = s.language || 'zh';
+            etag = out.etag || (out.data && out.data.etag) || etag;
+            s = Object.assign({}, s, payload, { etag: etag });
+            statusEl.textContent = t('admin.saved');
+            setHidden(statusEl, false);
+            if (payload.language && payload.language !== previousLanguage) {
+              setTimeout(function () { window.location.reload(); }, 350);
+            }
+          } else if (out.status === 412) {
+            var fresh = await api('/api/v1/settings');
+            if (fresh.ok && fresh.data) {
+              etag = fresh.etag || fresh.data.etag || etag;
+              statusEl.textContent = t('admin.saveConflict');
+            } else {
+              statusEl.textContent = t('admin.saveError') + ' (412)';
+            }
+            setHidden(statusEl, false);
+          } else {
+            statusEl.textContent = t('admin.saveError') + (out.status ? ' (' + out.status + ')' : '');
+            setHidden(statusEl, false);
           }
-        } else {
-          statusEl.textContent = t('admin.saveError') + (out.status ? ' (' + out.status + ')' : '');
+        } catch (e) {
+          statusEl.textContent = e.message || t('admin.saveError');
           setHidden(statusEl, false);
+        } finally {
+          save.disabled = false;
         }
       });
 

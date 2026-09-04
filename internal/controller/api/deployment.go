@@ -37,6 +37,9 @@ func (s *Server) handleDeploymentProfile(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "node lookup failed")
 		return
 	}
+	if s.rejectCleanupOnly(w, nodeID) {
+		return
+	}
 
 	current, err := s.currentDeploymentProfile(nodeID)
 	if err != nil {

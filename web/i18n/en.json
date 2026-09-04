@@ -80,6 +80,7 @@
   "admin.retry": "Retry",
   "admin.save": "Save",
   "admin.saveError": "Save failed",
+  "admin.saveConflict": "Settings changed elsewhere; the current version was reloaded. Review and save again.",
   "admin.saved": "Saved",
   "admin.cancel": "Cancel",
   "admin.close": "Close",

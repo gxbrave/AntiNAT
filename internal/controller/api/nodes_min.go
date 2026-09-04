@@ -116,6 +116,9 @@ func (s *Server) handleNodeByID(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
 	}
+	if s.rejectCleanupOnly(w, nodeID) {
+		return
+	}
 	plain, err := s.store.CreateEnrollmentToken(nodeID, 3600)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "token issuance failed")

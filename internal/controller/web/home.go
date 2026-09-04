@@ -228,6 +228,9 @@ func deriveHomeStatus(st *store.Store, node store.Node, fwd store.Forward) (stat
 		}
 		return "unknown", "neutral", "no runtime evidence"
 	}
+	if states.ActivationID != fwd.CurrentActivationID || !states.GenerationBound || states.Generation != fwd.Revision {
+		return "unknown", "neutral", "runtime evidence is stale"
+	}
 	var axes protocol.ActivationStates
 	if err := decodeStates(states.SnapshotJSON, &axes); err != nil {
 		return "unknown", "neutral", "undecodable runtime evidence"

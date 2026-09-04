@@ -23,8 +23,14 @@ func operationTime(unix int64) string {
 	return time.Unix(unix, 0).UTC().Format(time.RFC3339)
 }
 
-func nodeDeletionView(op store.NodeDeletionOperation) operationView {
-	return operationView{OperationID: op.ID, State: op.Status, RemoteCleanupConfirmed: op.Status == "COMPLETED",
+func (s *Server) nodeDeletionView(op store.NodeDeletionOperation) operationView {
+	confirmed := false
+	if op.Mode == "force" {
+		if tombstone, err := s.store.NodeCleanupTombstone(op.NodeID); err == nil {
+			confirmed = tombstone.RemoteCleanupConfirmed
+		}
+	}
+	return operationView{OperationID: op.ID, State: op.Status, RemoteCleanupConfirmed: confirmed,
 		CreatedAt: operationTime(op.CreatedAt), UpdatedAt: operationTime(maxInt64(op.CreatedAt, op.CompletedAt))}
 }
 

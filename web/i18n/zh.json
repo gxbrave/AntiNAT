@@ -80,6 +80,7 @@
   "admin.retry": "重试",
   "admin.save": "保存",
   "admin.saveError": "保存失败",
+  "admin.saveConflict": "设置已在其他位置变更，当前版本已重新加载；请检查后再次保存。",
   "admin.saved": "已保存",
   "admin.cancel": "取消",
   "admin.close": "关闭",

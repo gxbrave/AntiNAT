@@ -111,7 +111,7 @@ func (s *Server) handleNodeDeletion(w http.ResponseWriter, r *http.Request, oper
 		writeError(w, 500, "INTERNAL_ERROR", "node deletion lookup failed")
 		return
 	}
-	writeJSON(w, 200, nodeDeletionView(op))
+	writeJSON(w, 200, s.nodeDeletionView(op))
 }
 
 func (s *Server) handleTraversalDefaults(w http.ResponseWriter, r *http.Request, nodeID string) {
@@ -126,6 +126,9 @@ func (s *Server) handleTraversalDefaults(w http.ResponseWriter, r *http.Request,
 	}
 	if err != nil {
 		writeError(w, 500, "INTERNAL_ERROR", "node lookup failed")
+		return
+	}
+	if s.rejectCleanupOnly(w, nodeID) {
 		return
 	}
 	if err := requireIfMatch(w, r, etagFor(node.Revision)); err != nil {
@@ -174,6 +177,9 @@ func (s *Server) handleTraversalDetection(w http.ResponseWriter, r *http.Request
 		writeError(w, 404, "NOT_FOUND", "node not found")
 		return
 	}
+	if s.rejectCleanupOnly(w, nodeID) {
+		return
+	}
 	opID, err := randomHexID()
 	if err != nil {
 		writeError(w, 500, "INTERNAL_ERROR", "operation id generation failed")
@@ -196,4 +202,17 @@ func validateForwardCapability(protoName, strategy string) error {
 		return err
 	}
 	return nil
+}
+
+func (s *Server) rejectCleanupOnly(w http.ResponseWriter, nodeID string) bool {
+	cleanupOnly, err := s.store.IsCleanupOnly(nodeID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "node lifecycle lookup failed")
+		return true
+	}
+	if cleanupOnly {
+		writeError(w, http.StatusConflict, "CONFLICT", "node is cleanup-only after force deletion")
+		return true
+	}
+	return false
 }

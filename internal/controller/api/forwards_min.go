@@ -57,6 +57,9 @@ func (s *Server) forwardView(f store.Forward, spec protocol.ForwardSpec, states 
 		DesiredRevision:   spec.DesiredRevision, ETag: etagFor(f.Revision),
 	}
 	if states != nil {
+		if states.ActivationID != f.CurrentActivationID || !states.GenerationBound || states.Generation != f.Revision {
+			return view
+		}
 		var st protocol.ActivationStates
 		if json.Unmarshal([]byte(states.SnapshotJSON), &st) == nil {
 			view.States = st
@@ -347,10 +350,22 @@ func (s *Server) handleForwardByID(w http.ResponseWriter, r *http.Request) {
 		got, _ := s.store.GetForward(id)
 		writeJSON(w, http.StatusOK, s.forwardView(got, spec, nil))
 	case http.MethodDelete:
-		// Once a delete intent has fenced and advanced the parent revision,
-		// repeated DELETEs replay its operation id. This is deliberately checked
-		// before If-Match so a retry carrying the original ETag is idempotent.
-		if previous, findErr := s.store.LatestForwardDeletion(id); findErr == nil && previous.DesiredRevision+1 == f.Revision {
+		previous, findErr := s.store.LatestForwardDeletion(id)
+		if findErr == nil && previous.DesiredRevision+1 == f.Revision {
+			provided := strings.TrimSpace(r.Header.Get("If-Match"))
+			if provided == "" {
+				if err := requireIfMatch(w, r, etagFor(f.Revision)); err != nil {
+					return
+				}
+			}
+			if provided != etagFor(previous.DesiredRevision) && provided != etagFor(f.Revision) {
+				if err := requireIfMatch(w, r, etagFor(f.Revision)); err != nil {
+					return
+				}
+			}
+			// A retry of the same durable intent is idempotent. It may carry
+			// the original ETag or the post-fence ETag, but never an unrelated
+			// stale value or an omitted precondition.
 			writeJSON(w, http.StatusAccepted, map[string]any{
 				"operation_id": previous.ID, "state": previous.Status,
 			})
