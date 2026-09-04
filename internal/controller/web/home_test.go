@@ -132,6 +132,32 @@ func TestHomeStatusDerivationOverRealSnapshots(t *testing.T) {
 	}
 }
 
+func TestHomeVerifiedRequiresCompleteEvidence(t *testing.T) {
+	st := seedHomeFixture(t)
+	h := newTestUI(t, st)
+	axes := protocol.ActivationStates{
+		ControlState: "ONLINE", ListenerState: "STARTING", MappingState: "PUBLIC_CANDIDATE",
+		KeepaliveState: "HEALTHY", WanReachabilityState: "OPEN_FROM_VANTAGE", ReturnPathState: "VERIFIED",
+		TargetHealthState: "PASS", PublicationState: "PUBLISHED_VERIFIED", DataPlaneState: "READY",
+	}
+	act := protocol.ActivationID("f-incomplete", 1)
+	actHex := hexString(act[:])
+	if _, err := st.CreateForward(store.Forward{ID: "f-incomplete", NodeID: "n-on", Name: "incomplete", Protocol: "tcp", CurrentActivationID: actHex, Revision: 1}); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(axes)
+	if err := st.SetForwardRuntimeStatus("f-incomplete", actHex, 1, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := h.resolveHomeItem("zh", store.NavigationItem{ID: "i-incomplete", Name: "incomplete", CategoryID: "c", ForwardID: "f-incomplete"})
+	if !ok {
+		t.Fatal("resolveHomeItem returned not ok")
+	}
+	if got.Status == "verified" || got.Clickable {
+		t.Fatalf("incomplete evidence was published as verified: %+v", got)
+	}
+}
+
 func TestHomeCategoryAssemblyWithNoRuntimeEvidence(t *testing.T) {
 	st := seedHomeFixture(t)
 	h := newTestUI(t, st)

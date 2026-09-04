@@ -13,6 +13,7 @@ tags:
   - name: health
   - name: auth
   - name: nodes
+  - name: deployment
   - name: forwards
   - name: navigation
   - name: hooks
@@ -222,9 +223,79 @@ paths:
       responses:
         "201":
           description: Token issued (shown once)
+          headers:
+            Cache-Control:
+              schema: { type: string, enum: ["private, no-store"] }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/EnrollmentToken" }
+  /api/v1/nodes/{id}/deployment-profile:
+    parameters:
+      - { $ref: "#/components/parameters/NodeIdParam" }
+    get:
+      tags: [deployment]
+      operationId: getDeploymentProfile
+      summary: Read a structured, secret-free deployment profile
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Deployment profile and current revision
+          headers:
+            Cache-Control:
+              schema: { type: string, enum: ["private, no-store"] }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeploymentProfileView" }
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: Node not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      tags: [deployment]
+      operationId: saveDeploymentProfile
+      summary: Save a structured deployment profile without a token or command
+      security:
+        - sessionAuth: []
+      parameters:
+        - { $ref: "#/components/parameters/IfMatchHeader" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeploymentProfileRequest" }
+      responses:
+        "200":
+          description: Profile saved with the next revision
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeploymentProfileView" }
+        "400":
+          description: Malformed or unknown-field request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "412":
+          description: ETag/revision mismatch
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: Semantically invalid profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "428":
+          description: ETag/If-Match required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/v1/nodes/{id}/traversal-detection:
     post:
       tags: [nodes]
@@ -1090,6 +1161,35 @@ components:
       properties:
         token: { type: string, description: Single-use; shown once }
         expires_at: { type: string, format: date-time }
+    DeploymentProfile:
+      type: object
+      additionalProperties: false
+      required: [platform, controller_endpoint, detection_scheduler, log_level, auto_update]
+      properties:
+        platform: { type: string, enum: [linux, windows, docker] }
+        controller_endpoint: { type: string, format: uri, description: HTTP(S) endpoint without credentials/query/fragment }
+        bind_interface: { type: string }
+        detection_scheduler: { type: string, enum: [sequential, parallel] }
+        github_proxy: { type: string, format: uri }
+        install_dir: { type: string }
+        service_name: { type: string }
+        log_level: { type: string, enum: [debug, info, warn, error] }
+        auto_update: { type: string, enum: [disabled, manual, stable, enabled] }
+    DeploymentProfileRequest:
+      type: object
+      additionalProperties: false
+      required: [profile]
+      properties:
+        profile: { $ref: "#/components/schemas/DeploymentProfile" }
+    DeploymentProfileView:
+      type: object
+      additionalProperties: false
+      required: [node_id, profile, revision, etag]
+      properties:
+        node_id: { type: string }
+        profile: { $ref: "#/components/schemas/DeploymentProfile" }
+        revision: { type: integer, format: int64, minimum: 0 }
+        etag: { type: string }
     TraversalDefaults:
       type: object
       properties:

@@ -240,6 +240,9 @@ func deriveHomeStatus(st *store.Store, node store.Node, fwd store.Forward) (stat
 	}
 	switch axes.PublicationState {
 	case "PUBLISHED_VERIFIED":
+		if !verifiedHomeAxes(axes) {
+			return "unverified", "warn", "publication claims verified but evidence is incomplete"
+		}
 		return "verified", "ok", "open from vantage"
 	case "PUBLISHED_UNVERIFIED":
 		return "unverified", "warn", "not vantage-verified"
@@ -263,6 +266,17 @@ func deletionPending(st *store.Store, forwardID string) bool {
 		return true
 	}
 	return false
+}
+
+func verifiedHomeAxes(axes protocol.ActivationStates) bool {
+	return axes.ControlState == "ONLINE" &&
+		axes.ListenerState == "READY" &&
+		(axes.MappingState == "PUBLIC_CANDIDATE" || axes.MappingState == "NOT_REQUIRED") &&
+		(axes.KeepaliveState == "HEALTHY" || axes.KeepaliveState == "NOT_REQUIRED") &&
+		axes.WanReachabilityState == "OPEN_FROM_VANTAGE" &&
+		axes.ReturnPathState == "VERIFIED" &&
+		axes.TargetHealthState == "PASS" &&
+		axes.DataPlaneState == "READY"
 }
 
 func axisBroken(axes protocol.ActivationStates) bool {

@@ -228,6 +228,9 @@ func TestNodeCreateAndToken(t *testing.T) {
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("token status = %d (%s)", resp.StatusCode, body)
 	}
+	if got := resp.Header.Get("Cache-Control"); got != "private, no-store" {
+		t.Fatalf("token Cache-Control = %q, want private, no-store", got)
+	}
 	var tok map[string]any
 	_ = json.Unmarshal(body, &tok)
 	plain, _ := tok["token"].(string)

@@ -22,9 +22,11 @@ cleanup() {
     kill "$CONTROLLER_PID" 2>/dev/null || true
     wait "$CONTROLLER_PID" 2>/dev/null || true
   fi
-  rm -rf "$WORK"
   if [ "$FAILED" -ne 0 ]; then
     echo "test-browser: FAILED (see logs above); work dir retained at $WORK"
+    echo "test-browser: controller log: $WORK/controller.log"
+  else
+    rm -rf "$WORK"
   fi
 }
 trap cleanup EXIT
@@ -55,7 +57,12 @@ wait_ready() {
 
 run_suite() {
   local spec="$1"
+  local auth_state=""
+  case "$spec" in
+    admin.spec.js|deployment.spec.js) auth_state="$WORK/browser-auth.json" ;;
+  esac
   ( cd "$BROWSER_DIR" && ANTINAT_BASE_URL="http://127.0.0.1:$PORT" \
+      ANTINAT_AUTH_STATE="$auth_state" \
       PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_PATH" \
       npx playwright test "$spec" )
 }
@@ -95,6 +102,14 @@ echo "== test-browser: seed public fixture =="
 ( cd "$ROOT" && go run ./test/browser/seed -store "$WORK/controller.db" -scenario public )
 
 run_suite home-public.spec.js || FAILED=1
+
+run_suite admin.spec.js || FAILED=1
+
+run_suite deployment.spec.js || FAILED=1
+
+run_suite destructive.spec.js || FAILED=1
+
+run_suite a11y.spec.js || FAILED=1
 
 echo "== test-browser: seed private-site fixture =="
 ( cd "$ROOT" && go run ./test/browser/seed -store "$WORK/controller.db" -scenario private )

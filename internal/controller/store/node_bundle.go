@@ -101,6 +101,11 @@ func (s *Store) CreateNodeBundle(ctx context.Context, n Node, rec IdempotencyRec
 		return IdempotencyRecord{}, false, fmt.Errorf("store: node bundle node insert: %w", err)
 	}
 	if _, err := conn.ExecContext(ctx,
+		`INSERT INTO admin_events (event_type, payload, created_at) VALUES (?, ?, ?)`,
+		"NODE_CREATED", fmt.Sprintf(`{"node_id":%q,"name":%q}`, n.ID, n.Name), ts); err != nil {
+		return IdempotencyRecord{}, false, fmt.Errorf("store: node bundle admin event: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx,
 		`INSERT INTO api_idempotency_keys
 		    (key, route, principal, request_hash, response_status,
 		     response_body, created_at, expires_at)

@@ -17,6 +17,10 @@ type nodePatchRequest struct {
 
 func (s *Server) handleNodeRoutes(w http.ResponseWriter, r *http.Request) {
 	parts := splitPath(strings.TrimPrefix(r.URL.Path, "/api/v1/nodes/"))
+	if len(parts) == 2 && parts[1] == "deployment-profile" {
+		s.handleDeploymentProfile(w, r, parts[0])
+		return
+	}
 	if len(parts) == 2 && parts[1] == "enrollment-token" {
 		s.handleNodeByID(w, r)
 		return

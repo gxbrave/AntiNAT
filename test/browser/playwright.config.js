@@ -12,8 +12,10 @@ module.exports = defineConfig({
   workers: 1,
   retries: 0,
   reporter: process.env.ANTINAT_BROWSER_REPORTER || [['list']],
+  globalSetup: require.resolve('./global-setup.js'),
   use: {
     baseURL: process.env.ANTINAT_BASE_URL || 'http://127.0.0.1:3111',
+    storageState: process.env.ANTINAT_AUTH_STATE || undefined,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },

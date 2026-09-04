@@ -1047,36 +1047,12 @@ func (s *Store) GetDeploymentProfile(nodeID string) (DeploymentProfile, error) {
 	}
 	return p, nil
 }
+
+// PutDeploymentProfile is retained as the public P15 store seam; P17 owns
+// the strict structured validation and atomic CAS implementation it delegates
+// to. A profile is never accepted as arbitrary JSON.
 func (s *Store) PutDeploymentProfile(nodeID string, expected uint64, raw string) (DeploymentProfile, error) {
-	if _, err := s.GetNode(nodeID); err != nil {
-		return DeploymentProfile{}, err
-	}
-	if !json.Valid([]byte(raw)) {
-		return DeploymentProfile{}, ErrTrafficInvalid
-	}
-	current, err := s.GetDeploymentProfile(nodeID)
-	if errors.Is(err, ErrNotFound) {
-		if expected != 0 {
-			return DeploymentProfile{}, ErrCASConflict
-		}
-		current.Revision = 0
-	} else if err != nil {
-		return DeploymentProfile{}, err
-	}
-	if current.Revision != expected {
-		return DeploymentProfile{}, ErrCASConflict
-	}
-	now := s.currentUnix()
-	_, err = s.db.Exec(`INSERT INTO node_deployment_profiles(node_id,profile_json,revision,created_at,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(node_id) DO UPDATE SET profile_json=excluded.profile_json,revision=excluded.revision,updated_at=excluded.updated_at`, nodeID, raw, expected+1, func() int64 {
-		if current.CreatedAt != 0 {
-			return current.CreatedAt
-		}
-		return now
-	}(), now)
-	if err != nil {
-		return DeploymentProfile{}, err
-	}
-	return s.GetDeploymentProfile(nodeID)
+	return s.putDeploymentProfileCAS(nodeID, expected, raw)
 }
 
 // AuditEntry is the safe API-facing audit projection.

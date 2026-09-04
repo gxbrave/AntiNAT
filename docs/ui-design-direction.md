@@ -260,8 +260,9 @@ phase) fixes it**:
 - **Framework: Playwright**
 - **Pin: `playwright@1.62.1` exactly** (npm package), under
   `/root/Claude/AntiNAT/p17-web-ui/test/browser/package.json`.
-- **Browsers:** the 1.62.x Chromium/headless-shell build (`chromium-1228`,
-  `chromium_headless_shell-1228`) is provisioned at `/root/.cache/ms-playwright`;
+- **Browsers:** the 1.62.x Chromium/headless-shell build
+  (`chromium_headless_shell-1234`) is provisioned by the browser harness at
+  `/root/.cache/ms-playwright`;
   tests set `PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright`.
 - **Single entry command: `./scripts/test-browser.sh`** (build + start
   `cmd/antinat-controller` on an ephemeral port against a temp data dir,

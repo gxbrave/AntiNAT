@@ -10,7 +10,7 @@
   </script>
 </head>
 <body class="admin-body">
-  <a class="skip-link" href="#admin-main">{{t "home.retry"}}</a>
+  <a class="skip-link" href="#admin-main">{{t "home.skip"}}</a>
 
   {{if .LoggedIn}}
   <div class="admin-shell" data-admin-shell>
@@ -19,9 +19,18 @@
         <span class="brand-mark" aria-hidden="true"></span>
         <span class="brand-name">{{.AppName}}</span>
       </div>
-      <div class="topbar-user">
-        <span data-username>{{.Welcome}}, {{.Username}}</span>
-        <button type="button" class="btn btn-quiet btn-small" data-logout>{{.Logout}}</button>
+      <div class="topbar-right">
+        <details class="sse-panel" data-sse-panel>
+          <summary>
+            <span class="sse-dot" data-sse role="status" aria-live="polite" data-sse-state="disconnected"></span>
+            <span class="sse-label">SSE</span>
+          </summary>
+          <ol class="sse-log" data-sse-log></ol>
+        </details>
+        <div class="topbar-user">
+          <span data-username>{{.Welcome}}, {{.Username}}</span>
+          <button type="button" class="btn btn-quiet btn-small" data-logout>{{.Logout}}</button>
+        </div>
       </div>
     </header>
     <nav class="admin-tabs" role="tablist" aria-label="{{.Title}}" data-tabs>
@@ -60,6 +69,9 @@
   </main>
   {{end}}
 
+  <script src="/static/js/ui.js"></script>
+  <script src="/static/js/deployment.js"></script>
+  <script src="/static/js/panes.js"></script>
   <script src="/static/js/admin.js"></script>
 </body>
 </html>

@@ -8,8 +8,9 @@ P17 fixes it here.
 
 - **Framework:** Playwright
 - **Pin:** `playwright@1.62.1` exactly (`test/browser/package.json`)
-- **Browsers:** the provisioned 1.62.x build is already at
-  `/root/.cache/ms-playwright` (`chromium-1228`). Tests run
+- **Browsers:** the harness provisions the exact 1.62.x headless-shell build
+  `chromium_headless_shell-1234` under `/root/.cache/ms-playwright` when it is
+  missing. Tests run
   headless against the **Chromium desktop project** (`chromium-desktop`,
   1280x800); individual specs narrow the viewport to mobile widths when the
   behavior under test is mobile-specific.
@@ -31,7 +32,11 @@ P17 fixes it here.
 5. Runs the Playwright suite headless with
    `PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright` and
    `ANTINAT_BASE_URL=http://127.0.0.1:<port>`.
-6. Tears the controller down and **exits non-zero on any failure**.
+6. Uses one authenticated storage state per admin/deployment suite so the
+   product login limiter is not exhausted by test setup.
+7. Tears the controller down and **exits non-zero on any failure**. On failure
+   the temporary work directory and controller log are retained for diagnosis;
+   successful runs remove them.
 
 ## Environment facts (recorded, not claimed)
 
@@ -46,4 +51,5 @@ P17 fixes it here.
 New specs: `test/browser/<name>.spec.js`. Register them in
 `scripts/test-browser.sh` after the seeding step they need. Keep the suite
 bounded: prefer narrow assertions over full-page screenshots, and keep the
-total run under two minutes.
+total run under two minutes. Story 7 review screenshots live under
+`test/browser/evidence/`.
