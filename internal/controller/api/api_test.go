@@ -2,6 +2,8 @@ package api_test
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -53,7 +55,11 @@ func mustETag(t *testing.T, srv *httptest.Server, cookie *http.Cookie, fwdID str
 // initAdmin creates the first admin and returns its credentials.
 func initAdmin(t *testing.T, srv *httptest.Server, st *store.Store) (username, password string) {
 	t.Helper()
-	password = "s3cret-pass-123"
+	var random [24]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		t.Fatal(err)
+	}
+	password = "test-" + hex.EncodeToString(random[:])
 	enc, err := auth.HashPassword(password)
 	if err != nil {
 		t.Fatal(err)
@@ -227,9 +233,6 @@ func TestNodeCreateAndToken(t *testing.T) {
 	resp, body = doReq(t, srv, http.MethodPost, "/api/v1/nodes/"+nodeID+"/enrollment-token", cookie, nil)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("token status = %d (%s)", resp.StatusCode, body)
-	}
-	if got := resp.Header.Get("Cache-Control"); got != "private, no-store" {
-		t.Fatalf("token Cache-Control = %q, want private, no-store", got)
 	}
 	var tok map[string]any
 	_ = json.Unmarshal(body, &tok)

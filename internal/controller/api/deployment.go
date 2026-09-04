@@ -57,7 +57,7 @@ func (s *Server) handleDeploymentProfile(w http.ResponseWriter, r *http.Request,
 			return
 		}
 		profile := body.Profile
-		if err := profile.Validate(); err != nil {
+		if err := profile.ValidateComplete(); err != nil {
 			writeError(w, http.StatusUnprocessableEntity, "UNPROCESSABLE_ENTITY", err.Error())
 			return
 		}

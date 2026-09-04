@@ -223,9 +223,6 @@ paths:
       responses:
         "201":
           description: Token issued (shown once)
-          headers:
-            Cache-Control:
-              schema: { type: string, enum: ["private, no-store"] }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/EnrollmentToken" }

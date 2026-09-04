@@ -185,7 +185,7 @@ func redactEventPayload(raw string) string {
 	if json.Unmarshal([]byte(raw), &value) != nil {
 		return "{}"
 	}
-	redactJSON(value)
+	value = redactJSON(value)
 	encoded, err := json.Marshal(value)
 	if err != nil {
 		return "{}"
@@ -193,7 +193,7 @@ func redactEventPayload(raw string) string {
 	return string(encoded)
 }
 
-func redactJSON(value any) {
+func redactJSON(value any) any {
 	switch v := value.(type) {
 	case map[string]any:
 		for key, child := range v {
@@ -202,23 +202,22 @@ func redactJSON(value any) {
 				delete(v, key)
 				continue
 			}
-			if lower == "value" {
-				// A literal "value" key is legitimate event data, not a secret
-				// family by name. Only a credential-SHAPED string value is
-				// redacted (repair-2 P2-D); short labels, timestamps, numbers,
-				// prose and structured identifiers under "value" are preserved.
-				if s, ok := child.(string); ok && credentialLikeValue(s) {
-					delete(v, key)
-					continue
-				}
+			if s, ok := child.(string); ok && credentialLikeValue(s) {
+				delete(v, key)
+				continue
 			}
-			redactJSON(child)
+			v[key] = redactJSON(child)
 		}
 	case []any:
-		for _, child := range v {
-			redactJSON(child)
+		for i, child := range v {
+			v[i] = redactJSON(child)
+		}
+	case string:
+		if credentialLikeValue(v) {
+			return "[REDACTED]"
 		}
 	}
+	return value
 }
 
 // secretFieldName reports whether a lowercased object key belongs to a secret
@@ -226,11 +225,12 @@ func redactJSON(value any) {
 // authorization/api_key keys. This is the name-based security line and is kept
 // conservative (it may over-redact, never under-redact).
 func secretFieldName(lower string) bool {
-	if strings.Contains(lower, "token") || strings.Contains(lower, "secret") ||
-		strings.Contains(lower, "password") || strings.Contains(lower, "private_key") {
-		return true
-	}
-	return lower == "authorization" || lower == "api_key"
+	compact := strings.NewReplacer("_", "", "-", "", ".", "").Replace(lower)
+	return strings.Contains(compact, "token") || strings.Contains(compact, "secret") ||
+		strings.Contains(compact, "password") || strings.Contains(compact, "passwd") ||
+		strings.Contains(compact, "privatekey") || strings.Contains(compact, "apikey") ||
+		strings.Contains(compact, "credential") || strings.Contains(compact, "authorization") ||
+		strings.Contains(compact, "cookie")
 }
 
 // credentialLikeValue reports whether a string under a generic key (for example

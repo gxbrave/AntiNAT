@@ -138,6 +138,15 @@ func TestDeploymentProfileRequiresAuthAndRejectsInvalidProfile(t *testing.T) {
 	if resp.StatusCode != http.StatusUnprocessableEntity {
 		t.Fatalf("invalid deployment profile = %d (%s), want 422", resp.StatusCode, body)
 	}
+	resp, body = doReqIfMatch(t, srv, http.MethodPut, path, cookie, map[string]any{
+		"profile": map[string]any{
+			"platform":            "linux",
+			"controller_endpoint": "https://ctl.example.test",
+		},
+	}, `"rev-0"`)
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("profile missing required fields = %d (%s), want 422", resp.StatusCode, body)
+	}
 }
 
 func stProfileJSON(t *testing.T, st *store.Store, nodeID string) string {

@@ -1,6 +1,6 @@
 # P17 paused handoff — resume point for the next developer agent
 
-> **Historical checkpoint.** This pause record is retained for provenance and is superseded by `.hermes/handoffs/P17.json` and `.hermes/handoffs/P17-contract-change.md` after the candidate implementation is integrated. The pending list below describes the state at the user-requested pause, not the current state.
+> **Current pointer (authoritative):** implementation candidate `0e2d47bd68d163b0b6bd466ea9403188c595e56e`; handoff metadata is being regenerated after final review fixes. The historical fields below describe the original pause only.
 
 **Status:** `SUPERSEDED_BY_P17_CANDIDATE`
 

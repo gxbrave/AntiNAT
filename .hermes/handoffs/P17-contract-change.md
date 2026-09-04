@@ -39,8 +39,10 @@ PUT accepts `{ "profile": { ... } }`, requires `If-Match`, and returns the
 updated view. Missing `If-Match` is `428 PRECONDITION_REQUIRED`; a stale ETag
 is `412 PRECONDITION_FAILED`; malformed/unknown-field/trailing/duplicate JSON
 is rejected; semantically invalid profile data is `422 UNPROCESSABLE_ENTITY`.
-Profile and one-time enrollment-token responses use `Cache-Control: private,
-no-store`.
+Profile responses use `Cache-Control: private, no-store`. The pre-existing
+enrollment-token endpoint retains its frozen P15 response contract; P17 fetches
+the profile before issuing a token and the browser harness retains no token,
+session state, or trace on failure.
 
 The allowed profile fields are:
 
@@ -73,6 +75,23 @@ the same ETag produce exactly one success and one CAS conflict.
 
 This is an explicit ownership transfer for the deployment-profile storage
 seam; it is not a silent change to unrelated P15 traffic semantics.
+
+The following narrow cross-phase edits are also explicitly transferred for P17
+acceptance and are limited to the corresponding durable behavior:
+
+| Existing owner file | P17 transfer reason | Boundary |
+|---|---|---|
+| `internal/controller/api/node_ops.go` | mount the approved deployment-profile subresource in the existing node dispatcher | no new legacy route or lifecycle API |
+| `internal/controller/store/traffic.go` | make the existing profile seam strict and atomic | profile rows only; no traffic semantics |
+| `internal/controller/store/node_bundle.go` | append `NODE_CREATED` in the node-create transaction | one durable event; no node lifecycle changes |
+| `internal/controller/api/auth.go`, `observability.go` | bound/redact the minimal fallback SSE path | fallback stream only; canonical route remains bounded |
+| `internal/controller/web/sse.go` | close remaining canonical redaction gaps | SSE payload redaction only |
+| migration/version tests | register and verify `0011_deployment.sql` | one additive index only |
+
+No P19 lifecycle wiring, agent delivery, or unrelated P15/P16 endpoint is
+transferred by this record. The user-requested acceptance/integration task is
+the authorization to complete these narrow transfers serially in this
+worktree; the next agent must not broaden them.
 
 ## Command and credential boundary
 

@@ -121,7 +121,8 @@ func TestBuildInstallCommandSeparatesTokenAndFiltersDockerInstallerFlags(t *test
 	if err != nil {
 		t.Fatalf("BuildInstallCommand: %v", err)
 	}
-	for _, forbidden := range []string{"--install-dir", "--service-name", "--github-proxy", "--token", "token-value"} {
+	forbiddenWords := []string{"--install-dir", "--service-name", "--github-proxy", "--token", "token-value", "--rm"}
+	for _, forbidden := range forbiddenWords {
 		if strings.Contains(command, forbidden) {
 			t.Errorf("Docker command %q contains forbidden %q", command, forbidden)
 		}

@@ -2,7 +2,10 @@
 // P17 Story 7: accessibility floor, responsive proof, and review screenshots.
 const { test, expect } = require('playwright/test');
 
-const ADMIN = { username: 'admin', password: 's3cret-pass-123' };
+const ADMIN = {
+  username: process.env.ANTINAT_TEST_USER || 'admin',
+  password: process.env.ANTINAT_TEST_PASSWORD || ''
+};
 
 async function login(page) {
   await page.goto('/admin');

@@ -5,7 +5,7 @@
   "artifacts": [
     {
       "path": "api/openapi.yaml",
-      "sha256": "a6bb8336c8f5642f9b9966cfe094b2107316afd5307fd53ac911c82b2c9cda9b"
+      "sha256": "46da443e52a3a5520ca9fd0a97231d49b0bbff16c6fa65e300000457f71d6052"
     },
     {
       "path": "docs/error-codes.md",

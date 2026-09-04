@@ -15,6 +15,14 @@ CONTROLLER_PID=""
 PORT=""
 FAILED=0
 
+TEST_USER="${ANTINAT_TEST_USER:-admin}"
+if [ -n "${ANTINAT_TEST_PASSWORD:-}" ]; then
+  TEST_PASSWORD="$ANTINAT_TEST_PASSWORD"
+else
+  TEST_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+fi
+export ANTINAT_TEST_USER="$TEST_USER" ANTINAT_TEST_PASSWORD="$TEST_PASSWORD"
+
 PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/root/.cache/ms-playwright}"
 
 cleanup() {
@@ -23,6 +31,8 @@ cleanup() {
     wait "$CONTROLLER_PID" 2>/dev/null || true
   fi
   if [ "$FAILED" -ne 0 ]; then
+    rm -f "$WORK/browser-auth.json"
+    rm -rf "$WORK/keys" "$WORK/controller.db" "$BROWSER_DIR/test-results" "$BROWSER_DIR/playwright-report"
     echo "test-browser: FAILED (see logs above); work dir retained at $WORK"
     echo "test-browser: controller log: $WORK/controller.log"
   else

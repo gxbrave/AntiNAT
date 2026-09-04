@@ -5,7 +5,10 @@
 // horizontal overflow.
 const { test, expect } = require('playwright/test');
 
-const ADMIN = { username: 'admin', password: 's3cret-pass-123' };
+const ADMIN = {
+  username: process.env.ANTINAT_TEST_USER || 'admin',
+  password: process.env.ANTINAT_TEST_PASSWORD || ''
+};
 
 async function login(page) {
   await page.goto('/admin');
@@ -50,6 +53,7 @@ test.describe('admin shell', () => {
     await expect(rail.locator('[data-ring]')).toHaveCount(6);
     await expect(rail.locator('[data-ring="control_state"]')).toHaveAttribute('data-value', 'ONLINE');
     await expect(rail.locator('[data-ring="wan_reachability_state"]')).toHaveAttribute('data-value', 'OPEN_FROM_VANTAGE');
+    await expect(rail.locator('.ring-evidence').first()).toContainText(/证据来源|Evidence source/);
   });
 
   test('nodes tab distinguishes offline/online durably in text + shape', async ({ page }) => {
@@ -122,6 +126,17 @@ test.describe('admin shell', () => {
     await expect(page.locator('[data-field="language"]')).toHaveValue('zh');
     await expect(page.locator('[data-field="controller_endpoint"]')).toHaveValue('https://ctl.example.com:3111');
     await expect(page.locator('[data-field="private_site"]')).not.toBeChecked();
+  });
+
+  test('global settings tab keeps the returned ETag for a second save', async ({ page }) => {
+    await login(page);
+    await page.locator('[data-tab="global"]').click();
+    await expect(page.locator('[data-field-group="language"]')).toBeVisible();
+    const save = page.locator('[data-settings-status]').locator('xpath=..').getByRole('button', { name: /保存|Save/ });
+    await save.click();
+    await expect(page.locator('[data-settings-status]')).toContainText(/已保存|Saved/);
+    await save.click();
+    await expect(page.locator('[data-settings-status]')).toContainText(/已保存|Saved/);
   });
 
   test('long bilingual strings do not overflow the page', async ({ page }) => {

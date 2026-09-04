@@ -123,6 +123,9 @@ type Server struct {
 	// idempotencyMu closes the create-side effect window within one API
 	// process; the durable store still owns replay/conflict decisions.
 	idempotencyMu sync.Mutex
+	// eventSlots bounds the fallback SSE implementation used by minimal
+	// compositions that do not inject the canonical web.SSEHandler.
+	eventSlots chan struct{}
 }
 
 // NewServer validates config and builds the minimal API server.
@@ -133,7 +136,7 @@ func NewServer(cfg RouterConfig) (*Server, error) {
 	if cfg.Auth == nil {
 		return nil, errors.New("api: auth service is required")
 	}
-	s := &Server{store: cfg.Store, auth: cfg.Auth, health: newHealthState(), sse: cfg.SSE, login: newLoginLimiter(), closeSession: cfg.CloseNodeSession, hooks: cfg.Hooks}
+	s := &Server{store: cfg.Store, auth: cfg.Auth, health: newHealthState(), sse: cfg.SSE, login: newLoginLimiter(), closeSession: cfg.CloseNodeSession, hooks: cfg.Hooks, eventSlots: make(chan struct{}, 64)}
 	s.health.setStoreReady(true)
 	s.health.setAuthReady(true)
 	return s, nil

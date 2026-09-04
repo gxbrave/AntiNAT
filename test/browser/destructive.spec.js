@@ -2,7 +2,10 @@
 // P17 Story 6: consequence-exact destructive dialogs and focus behavior.
 const { test, expect } = require('playwright/test');
 
-const ADMIN = { username: 'admin', password: 's3cret-pass-123' };
+const ADMIN = {
+  username: process.env.ANTINAT_TEST_USER || 'admin',
+  password: process.env.ANTINAT_TEST_PASSWORD || ''
+};
 
 async function login(page) {
   await page.goto('/admin');
@@ -48,7 +51,7 @@ test.describe('destructive dialogs', () => {
     const onlineDelete = page.locator('[data-node="node-online"] [data-action="delete"]');
     await onlineDelete.click();
     const bodyText = await dialog.textContent();
-    expect(bodyText).not.toContain('remote cleanup is not confirmed');
+    expect(bodyText).toMatch(/remote cleanup is not confirmed|remote_cleanup_confirmed=false|远端残留需手动清理/);
     await expect(page.locator('[data-delete-mode="force"]')).toContainText(/强制删除|Force delete/);
     await page.keyboard.press('Escape');
   });

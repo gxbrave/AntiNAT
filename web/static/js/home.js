@@ -90,15 +90,25 @@
       ta.style.left = '-9999px';
       document.body.appendChild(ta);
       ta.select();
-      document.execCommand('copy');
+      var copied = false;
+      try {
+        copied = !!document.execCommand('copy');
+      } catch (e) {
+        copied = false;
+      }
       document.body.removeChild(ta);
-      done();
+      if (copied) done();
+      else showManualCopyNotice(btn);
     } catch (e) {
-      var note = document.createElement('span');
-      note.className = 'risk-note';
-      note.textContent = t('home.copyConfirm');
-      btn.parentNode.insertBefore(note, btn.nextSibling);
+      showManualCopyNotice(btn);
     }
+  }
+
+  function showManualCopyNotice(btn) {
+    var note = document.createElement('span');
+    note.className = 'risk-note';
+    note.textContent = t('home.copyFailNotice');
+    btn.parentNode.insertBefore(note, btn.nextSibling);
   }
 
   document.addEventListener('DOMContentLoaded', function () {

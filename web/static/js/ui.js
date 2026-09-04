@@ -100,8 +100,8 @@
      with a shape glyph + translated label + optional detail. */
   function statusLine(status, detail) {
     var meta = stateMeta(status);
-    return h('span', { class: 'status-line status-' + meta.shape, 'data-status': status },
-      [h('span', { class: 'status-shape shape-' + meta.shape, 'aria-hidden': 'true' }),
+    return h('span', { class: 'status-line status-' + meta.shape + ' status-state-' + status, 'data-status': status },
+      [h('span', { class: 'status-shape shape-' + meta.shape + ' shape-state-' + status, 'aria-hidden': 'true' }),
        h('span', { class: 'status-label' }, t(meta.key)),
        detail ? h('span', { class: 'status-detail' }, detail) : null]);
   }
@@ -123,9 +123,18 @@
       var tone = axisTone(step[1], axisValue);
       rail.appendChild(h('li', { class: 'rail-ring ring-' + tone, 'data-ring': step[1], 'data-value': axisValue || '' },
         [h('span', { class: 'ring-axis' }, t(step[0])),
-         h('span', { class: 'ring-value' }, [h('span', { class: 'status-shape shape-' + tone, 'aria-hidden': 'true' }), axisValue || t('state.unknown')])]));
+         h('span', { class: 'ring-value' }, [h('span', { class: 'status-shape shape-' + tone, 'aria-hidden': 'true' }), axisValue || t('state.unknown')]),
+         h('div', { class: 'ring-evidence' }, evidenceSource(states, step[1]))]));
     });
     return rail;
+  }
+
+  function evidenceSource(states, axis) {
+    var source = states[axis + '_source'] || states.evidence_source || t('admin.detail.runtimeSnapshot');
+    var at = states[axis + '_at'] || states.evidence_at || states.updated_at || '';
+    var text = t('admin.detail.evidenceSource') + ': ' + source;
+    if (at) text += ' · ' + t('admin.detail.evidenceAt') + ': ' + at;
+    return text;
   }
 
   function axisTone(axis, value) {

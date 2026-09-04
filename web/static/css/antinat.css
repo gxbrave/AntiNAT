@@ -342,6 +342,12 @@ a {
 .shape-warn { color: var(--ac-signal-warn); border-radius: 0; }
 .shape-bad { color: var(--ac-signal-bad); border-radius: 2px; }
 .shape-neutral { color: var(--ac-ink-muted); border-radius: 50%; background: transparent; }
+.shape-state-unknown { width: 10px; height: 10px; border-radius: 50%; background: transparent; }
+.shape-state-failed { width: 10px; height: 10px; border-radius: 1px; background: currentColor; }
+.shape-state-offline { width: 10px; height: 10px; border-radius: 1px; background: transparent; }
+.shape-state-stale, .shape-state-unverified { width: 0; height: 0; border: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 11px solid currentColor; border-radius: 0; }
+.shape-state-delete_pending_offline { width: 11px; height: 11px; border-radius: 1px; background: transparent; position: relative; }
+.shape-state-delete_pending_offline::after { content: ""; position: absolute; left: -1px; top: 4px; width: 13px; border-top: 2px solid currentColor; transform: rotate(-45deg); }
 
 /* Risk actions */
 .risk-actions { display: flex; flex-direction: column; gap: var(--ac-space-2); }

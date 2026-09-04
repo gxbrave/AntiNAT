@@ -233,7 +233,7 @@ func deriveHomeStatus(st *store.Store, node store.Node, fwd store.Forward) (stat
 		return "unknown", "neutral", "undecodable runtime evidence"
 	}
 	if pending {
-		return "delete_pending_offline", "bad", "deletion queued"
+		return "unverified", "warn", "deletion queued"
 	}
 	if axisBroken(axes) {
 		return "failed", "bad", "an axis is broken"

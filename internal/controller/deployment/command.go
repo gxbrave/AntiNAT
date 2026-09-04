@@ -86,6 +86,11 @@ func (p Profile) Validate() error {
 			return err
 		}
 	}
+	if p.GitHubProxy != "" {
+		if _, err := NormalizeOptionalServiceURL(p.GitHubProxy); err != nil {
+			return fmt.Errorf("deployment: github proxy: %w", err)
+		}
+	}
 	if p.DetectionScheduler != "" && p.DetectionScheduler != "sequential" && p.DetectionScheduler != "parallel" {
 		return fmt.Errorf("deployment: detection_scheduler must be sequential or parallel, got %q", p.DetectionScheduler)
 	}
@@ -103,10 +108,21 @@ func (p Profile) Validate() error {
 			return fmt.Errorf("deployment: unsupported auto_update policy %q", p.AutoUpdate)
 		}
 	}
-	if p.GitHubProxy != "" {
-		if _, err := NormalizeOptionalServiceURL(p.GitHubProxy); err != nil {
-			return fmt.Errorf("deployment: github proxy: %w", err)
-		}
+	return nil
+}
+
+func (p Profile) ValidateComplete() error {
+	if err := p.Validate(); err != nil {
+		return err
+	}
+	if p.DetectionScheduler == "" {
+		return errors.New("deployment: detection_scheduler is required")
+	}
+	if p.LogLevel == "" {
+		return errors.New("deployment: log_level is required")
+	}
+	if p.AutoUpdate == "" {
+		return errors.New("deployment: auto_update is required")
 	}
 	return nil
 }
@@ -307,7 +323,7 @@ func buildDockerCommand(args []string) string {
 		}
 		rendered = append(rendered, QuoteShellArg(args[i]))
 	}
-	return "docker run --rm --network host --restart=always " +
+	return "docker run --network host --restart=always " +
 		"--volume /var/lib/antinat:/var/lib/antinat " + containerImage + " " + strings.Join(rendered, " ")
 }
 

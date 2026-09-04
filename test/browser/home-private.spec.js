@@ -4,6 +4,10 @@
 // /admin (the login form), and after sign-in / renders the public directory.
 const { test, expect } = require('playwright/test');
 
+const ADMIN_USER = process.env.ANTINAT_TEST_USER || 'admin';
+const ADMIN_PASSWORD = process.env.ANTINAT_TEST_PASSWORD || '';
+const WRONG_PASSWORD = (ADMIN_PASSWORD || 'test') + '-wrong';
+
 test.describe('private home', () => {
   test('unauthenticated / redirects to the sign-in page', async ({ page }) => {
     await page.goto('/');
@@ -13,8 +17,8 @@ test.describe('private home', () => {
 
   test('sign-in succeeds and then / renders the public directory', async ({ page }) => {
     await page.goto('/admin');
-    await page.fill('[data-login-user]', 'admin');
-    await page.fill('[data-login-pass]', 's3cret-pass-123');
+    await page.fill('[data-login-user]', ADMIN_USER);
+    await page.fill('[data-login-pass]', ADMIN_PASSWORD);
     await page.click('[data-login-submit]');
     // After login the shell reloads; expect the tab bar to appear.
     await expect(page.locator('[data-tabs]')).toBeVisible();
@@ -26,8 +30,8 @@ test.describe('private home', () => {
 
   test('wrong credentials stay on the sign-in form and show an error', async ({ page }) => {
     await page.goto('/admin');
-    await page.fill('[data-login-user]', 'admin');
-    await page.fill('[data-login-pass]', 'wrong-password');
+    await page.fill('[data-login-user]', ADMIN_USER);
+    await page.fill('[data-login-pass]', WRONG_PASSWORD);
     await page.click('[data-login-submit]');
     await expect(page.locator('[data-login-form]')).toBeVisible();
     await expect(page.locator('[data-login-error]')).not.toBeHidden();

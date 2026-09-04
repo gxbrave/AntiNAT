@@ -47,13 +47,16 @@ func (s *Store) putDeploymentProfileCAS(nodeID string, expected uint64, raw stri
 
 	var currentRevision uint64
 	var createdAt int64
+	now := s.currentUnix()
+	nextRevision := expected + 1
+	updatedAt := now
 	err = conn.QueryRowContext(ctx, `SELECT revision,created_at FROM node_deployment_profiles WHERE node_id=?`, nodeID).Scan(&currentRevision, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		if expected != 0 {
 			return DeploymentProfile{}, ErrCASConflict
 		}
-		createdAt = s.currentUnix()
-		if _, err := conn.ExecContext(ctx, `INSERT INTO node_deployment_profiles(node_id,profile_json,revision,created_at,updated_at) VALUES(?,?,?,?,?)`, nodeID, canonical, 1, createdAt, createdAt); err != nil {
+		createdAt = now
+		if _, err := conn.ExecContext(ctx, `INSERT INTO node_deployment_profiles(node_id,profile_json,revision,created_at,updated_at) VALUES(?,?,?,?,?)`, nodeID, canonical, nextRevision, createdAt, updatedAt); err != nil {
 			return DeploymentProfile{}, fmt.Errorf("store: insert deployment profile: %w", err)
 		}
 	} else if err != nil {
@@ -62,8 +65,7 @@ func (s *Store) putDeploymentProfileCAS(nodeID string, expected uint64, raw stri
 		if currentRevision != expected {
 			return DeploymentProfile{}, ErrCASConflict
 		}
-		now := s.currentUnix()
-		result, err := conn.ExecContext(ctx, `UPDATE node_deployment_profiles SET profile_json=?,revision=?,updated_at=? WHERE node_id=? AND revision=?`, canonical, expected+1, now, nodeID, expected)
+		result, err := conn.ExecContext(ctx, `UPDATE node_deployment_profiles SET profile_json=?,revision=?,updated_at=? WHERE node_id=? AND revision=?`, canonical, nextRevision, updatedAt, nodeID, expected)
 		if err != nil {
 			return DeploymentProfile{}, fmt.Errorf("store: update deployment profile: %w", err)
 		}
@@ -71,9 +73,10 @@ func (s *Store) putDeploymentProfileCAS(nodeID string, expected uint64, raw stri
 			return DeploymentProfile{}, ErrCASConflict
 		}
 	}
+	updated := DeploymentProfile{NodeID: nodeID, JSON: canonical, Revision: nextRevision, CreatedAt: createdAt, UpdatedAt: updatedAt}
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return DeploymentProfile{}, fmt.Errorf("store: commit deployment profile: %w", err)
 	}
 	committed = true
-	return s.GetDeploymentProfile(nodeID)
+	return updated, nil
 }

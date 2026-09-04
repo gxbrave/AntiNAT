@@ -58,6 +58,11 @@
       if (!focusable.length) return;
       var first = focusable[0];
       var last = focusable[focusable.length - 1];
+      if (!dialogEl || !dialogEl.contains(document.activeElement)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+        return;
+      }
       if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     }
@@ -120,6 +125,8 @@
       var body = h('div', { class: 'confirm-body' }, [
         h('p', { text: t('dlg.nodeDelete.body') }),
         h('p', { class: 'dialog-target', text: node && node.name ? String(node.name) : '' }),
+        h('p', { class: 'dialog-consequence', 'data-delete-consequence': 'force', text: t('dlg.forceDelete.body') }),
+        node && node.control_state === 'OFFLINE' ? h('p', { class: 'dialog-consequence dialog-warning', 'data-delete-consequence': 'offline', text: t('dlg.offlinePending.note') }) : null,
         error
       ]);
       function deleteNode(mode, button) {
@@ -303,6 +310,19 @@
       });
     }
 
+    var refreshTimer = null;
+    window.antinat.refreshActivePane = function () {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(function () {
+        refreshTimer = null;
+        var activePane = panes.find(function (pane) { return !pane.hidden; });
+        if (!activePane) return;
+        var activeName = activePane.getAttribute('data-pane');
+        var refresh = window.antinat.panes[activeName];
+        if (refresh) refresh(activePane);
+      }, 100);
+    };
+
     tabs.forEach(function (tab, idx) {
       tab.addEventListener('click', function () { activate(tab.getAttribute('data-tab')); });
       tab.addEventListener('keydown', function (e) {
@@ -352,6 +372,7 @@
       }
       setState('connected');
       if (typeof window.antinat.events.emit === 'function') window.antinat.events.emit('message', e);
+      if (typeof window.antinat.refreshActivePane === 'function') window.antinat.refreshActivePane();
     }
     es.onopen = function () { setState('connected'); };
     es.onmessage = appendEvent;
@@ -361,11 +382,14 @@
     [
       'NODE_CREATED', 'NODE_UPDATED', 'NODE_DELETED',
       'IDEMPOTENCY_KEY_EXPIRED',
-      'ENROLLMENT_BOUND', 'ENROLLMENT_REJECTED', 'ENROLLMENT_REPLAYED',
+      'ENROLLMENT_BOUND', 'ENROLLMENT_REJECTED', 'ENROLLMENT_REPLAYED', 'ENROLLMENT_REBIND_REJECTED',
       'CONTROL_SESSION_ACTIVE', 'CONTROL_SESSION_CLOSED', 'CONTROL_HANDSHAKE_REJECTED',
       'CONTROL_FRAME_REJECTED', 'CONTROL_STATE_FAILED', 'CONTROL_STATUS_STALE',
+      'CONTROL_RESULT_CORRELATION_ERROR', 'CONTROL_RESULT_INBOX_STATE_ERROR',
       'PROBE_RECEIPT_REJECTED', 'PROBE_SINK_ERROR', 'PROBE_STATE_ERROR',
       'PROBE_INBOX_STATE_ERROR', 'PROBE_ARM_CORRELATION_ERROR',
+      'PROBE_RECEIPT_INBOX_ERROR', 'PROBE_RECEIPT_STATE_ERROR',
+      'PROBE_RECEIPT_REJECTION_STATE_ERROR', 'PROBE_ARMED_STATE_ERROR',
       'HOOK_DELIVERY_RETRY', 'HOOK_DELIVERY_DROPPED', 'HOOK_DELIVERY_DLQED',
       'HOOK_DELIVERY_COALESCED', 'HOOK_DELIVERY_DROPPED_DUE_TO_DECOMMISSION',
       'HOOK_DECOMMISSION_MARKED'

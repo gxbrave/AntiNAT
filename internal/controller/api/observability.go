@@ -12,6 +12,17 @@ import (
 )
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	if s.eventSlots == nil {
+		writeError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "event stream is unavailable")
+		return
+	}
+	select {
+	case s.eventSlots <- struct{}{}:
+		defer func() { <-s.eventSlots }()
+	default:
+		writeError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "too many event stream subscribers")
+		return
+	}
 	cursor := int64(0)
 	if raw := strings.TrimSpace(r.Header.Get("Last-Event-ID")); raw != "" {
 		parsed, err := strconv.ParseInt(raw, 10, 64)
@@ -29,6 +40,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "event stream does not support flushing")
 		return
 	}
+	controller := http.NewResponseController(w)
 	for {
 		events, err := s.store.AdminEventsAfter(cursor, 100)
 		if err != nil {
@@ -39,11 +51,13 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			payload := redactEventPayload(event.Payload)
+			_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", event.ID, sanitizeEventType(event.EventType), payload); err != nil {
 				return
 			}
 			cursor = event.ID
 		}
+		_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		flusher.Flush()
 		if len(events) > 0 {
 			continue
@@ -76,7 +90,7 @@ func redactEventPayload(raw string) string {
 	if json.Unmarshal([]byte(raw), &value) != nil {
 		return "{}"
 	}
-	redactEventValue(value)
+	value = redactEventValue(value)
 	encoded, err := json.Marshal(value)
 	if err != nil {
 		return "{}"
@@ -84,7 +98,7 @@ func redactEventPayload(raw string) string {
 	return string(encoded)
 }
 
-func redactEventValue(value any) {
+func redactEventValue(value any) any {
 	switch v := value.(type) {
 	case map[string]any:
 		for key, child := range v {
@@ -93,34 +107,33 @@ func redactEventValue(value any) {
 				delete(v, key)
 				continue
 			}
-			if lower == "value" {
-				// A literal "value" key is legitimate event data. Only a
-				// credential-SHAPED string value is redacted (repair-2 P2-D),
-				// so a hook/hook-secret payload's {"id","name","value":
-				// "<credential>"} still loses its credential while legitimate
-				// value data is preserved.
-				if s, ok := child.(string); ok && credentialLikeValue(s) {
-					delete(v, key)
-					continue
-				}
+			if s, ok := child.(string); ok && credentialLikeValue(s) {
+				delete(v, key)
+				continue
 			}
-			redactEventValue(child)
+			v[key] = redactEventValue(child)
 		}
 	case []any:
-		for _, child := range v {
-			redactEventValue(child)
+		for i, child := range v {
+			v[i] = redactEventValue(child)
+		}
+	case string:
+		if credentialLikeValue(v) {
+			return "[REDACTED]"
 		}
 	}
+	return value
 }
 
 // secretFieldName reports whether a lowercased object key belongs to a secret
 // family by name (mirror of internal/controller/web/sse.go; kept in sync).
 func secretFieldName(lower string) bool {
-	if strings.Contains(lower, "token") || strings.Contains(lower, "secret") ||
-		strings.Contains(lower, "password") || strings.Contains(lower, "private_key") {
-		return true
-	}
-	return lower == "authorization" || lower == "api_key"
+	compact := strings.NewReplacer("_", "", "-", "", ".", "").Replace(lower)
+	return strings.Contains(compact, "token") || strings.Contains(compact, "secret") ||
+		strings.Contains(compact, "password") || strings.Contains(compact, "passwd") ||
+		strings.Contains(compact, "privatekey") || strings.Contains(compact, "apikey") ||
+		strings.Contains(compact, "credential") || strings.Contains(compact, "authorization") ||
+		strings.Contains(compact, "cookie")
 }
 
 // credentialLikeValue reports whether a string under a generic key is

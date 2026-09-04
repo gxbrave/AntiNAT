@@ -141,7 +141,7 @@
           dockerArgs.push(quoteShellArg(args[i]));
         }
       }
-      return 'docker run --rm --network host --restart=always --volume /var/lib/antinat:/var/lib/antinat ghcr.io/gxbrave/antinat-agent:latest ' + dockerArgs.join(' ');
+      return 'docker run --network host --restart=always --volume /var/lib/antinat:/var/lib/antinat ghcr.io/gxbrave/antinat-agent:latest ' + dockerArgs.join(' ');
     }
     if (profile.platform === PLATFORM_WINDOWS) {
       var psArgs = ['install'].concat(args.map(quotePowerShellArg));
@@ -227,18 +227,17 @@
   function open(node) {
     var nodeID = node && (node.id || node.ID);
     if (!nodeID) return Promise.resolve();
-    return Promise.all([
-      api('/api/v1/nodes/' + encodeURIComponent(nodeID) + '/enrollment-token', { method: 'POST' }),
-      api('/api/v1/nodes/' + encodeURIComponent(nodeID) + '/deployment-profile')
-    ]).then(function (responses) {
-      var tokenResp = responses[0], profileResp = responses[1];
-      if (!tokenResp.ok || !tokenResp.data || !tokenResp.data.token) throw new Error(errorMessage(tokenResp, t('node.deploy.tokenError')));
-      if (!profileResp.ok || !profileResp.data) throw new Error(errorMessage(profileResp, t('node.deploy.profileError')));
-      var token = String(tokenResp.data.token);
-      var profile = cloneProfile(profileResp.data.profile);
-      var etag = profileResp.data.etag || '"rev-0"';
-      renderDeployment(node, token, profile, etag);
-    }).catch(function (err) {
+    return api('/api/v1/nodes/' + encodeURIComponent(nodeID) + '/deployment-profile')
+      .then(function (profileResp) {
+        if (!profileResp.ok || !profileResp.data) throw new Error(errorMessage(profileResp, t('node.deploy.profileError')));
+        var profile = cloneProfile(profileResp.data.profile);
+        var etag = profileResp.data.etag || '"rev-0"';
+        return api('/api/v1/nodes/' + encodeURIComponent(nodeID) + '/enrollment-token', { method: 'POST' })
+          .then(function (tokenResp) {
+            if (!tokenResp.ok || !tokenResp.data || !tokenResp.data.token) throw new Error(errorMessage(tokenResp, t('node.deploy.tokenError')));
+            renderTokenStep(node, String(tokenResp.data.token), profile, etag);
+          });
+      }).catch(function (err) {
       var message = err && err.message ? err.message : t('node.deploy.profileError');
       if (dialogs()) {
         var body = h('div', { class: 'pane-error', 'data-deployment-error': '' }, h('p', { text: message }));
@@ -249,10 +248,30 @@
     });
   }
 
-  function renderDeployment(node, oneTimeToken, sourceProfile, sourceETag) {
+  function renderTokenStep(node, oneTimeToken, sourceProfile, sourceETag) {
+    var wrap = h('div', { class: 'deployment-dialog-content deployment-token-surface', 'data-deployment-dialog': '', 'data-deployment-token-dialog': '' });
+    wrap.appendChild(h('p', { class: 'dialog-copy', text: node.name || node.id || '' }));
+    wrap.appendChild(h('section', { class: 'token-panel', 'data-deployment-token-panel': '' }, [
+      h('h3', { text: t('node.deploy.token') }),
+      h('p', { class: 'field-hint', 'data-deployment-token-notice': '', text: t('node.deploy.tokenNotice') }),
+      h('code', { class: 'secret-value', 'data-deployment-token': '', text: oneTimeToken })
+    ]));
+    wrap.appendChild(h('p', { class: 'field-hint', text: t('node.deploy.tokenStepHint') }));
+    var next = h('button', { class: 'btn btn-primary', type: 'button', 'data-deployment-continue': '' }, t('node.deploy.continue'));
+    var close = h('button', { class: 'btn btn-quiet', type: 'button', 'data-deployment-close': '' }, t('admin.close'));
+    next.addEventListener('click', function () {
+      // The token panel is removed before the command surface is constructed.
+      oneTimeToken = null;
+      renderCommandStep(node, sourceProfile, sourceETag);
+    });
+    close.addEventListener('click', function () { dialogs().close(); });
+    dialogs().open({ title: t('node.deploy.title'), body: wrap, actions: [next, close] });
+  }
+
+  function renderCommandStep(node, sourceProfile, sourceETag) {
     var nodeID = node && (node.id || node.ID);
     var state = { profile: cloneProfile(sourceProfile), etag: sourceETag, detection: 'not_tested' };
-    var wrap = h('div', { class: 'deployment-dialog-content', 'data-deployment-dialog': '' });
+    var wrap = h('div', { class: 'deployment-dialog-content deployment-command-surface', 'data-deployment-dialog': '', 'data-deployment-command-dialog': '' });
     var nodeLabel = node.name || node.id || '';
     wrap.appendChild(h('p', { class: 'dialog-copy', text: nodeLabel }));
 
@@ -307,13 +326,6 @@
     setHidden(formError, true);
     var saveStatus = h('p', { class: 'form-success', 'data-deployment-save-status': '' });
     setHidden(saveStatus, true);
-
-    var tokenPanel = h('section', { class: 'token-panel', 'data-deployment-token-panel': '' }, [
-      h('h3', { text: t('node.deploy.token') }),
-      h('p', { class: 'field-hint', 'data-deployment-token-notice': '', text: t('node.deploy.tokenNotice') }),
-      h('code', { class: 'secret-value', 'data-deployment-token': '', text: oneTimeToken })
-    ]);
-    wrap.appendChild(tokenPanel);
 
     var commandPanel = h('section', { class: 'command-panel' }, [
       h('h3', { text: t('node.deploy.step.command') }),

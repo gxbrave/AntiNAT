@@ -12,7 +12,10 @@ module.exports = async function globalSetup() {
   });
   try {
     const response = await api.post('/api/v1/auth/login', {
-      data: { username: 'admin', password: 's3cret-pass-123' },
+      data: {
+        username: process.env.ANTINAT_TEST_USER || 'admin',
+        password: process.env.ANTINAT_TEST_PASSWORD || ''
+      },
     });
     if (!response.ok()) {
       throw new Error(`browser auth setup failed: HTTP ${response.status()}`);

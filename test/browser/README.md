@@ -25,7 +25,8 @@ P17 fixes it here.
    temporary data directory (`mktemp -d`), never the real store.
 3. Waits for `/readyz`.
 4. Runs the store-backed seeder (`go run ./test/browser/seed`) to create the
-   deterministic fixture: an admin (`admin` / `s3cret-pass-123`), online and
+   deterministic fixture: an admin whose password is generated per harness
+   invocation (or supplied only through `ANTINAT_TEST_PASSWORD`), online and
    offline nodes, forwards with real orthogonal activation snapshots, and
    navigation categories/items covering verified / unverified / stale / offline
    statuses. The `private` scenario flips `private_site=true`.
@@ -34,9 +35,10 @@ P17 fixes it here.
    `ANTINAT_BASE_URL=http://127.0.0.1:<port>`.
 6. Uses one authenticated storage state per admin/deployment suite so the
    product login limiter is not exhausted by test setup.
-7. Tears the controller down and **exits non-zero on any failure**. On failure
-   the temporary work directory and controller log are retained for diagnosis;
-   successful runs remove them.
+7. Tears the controller down and **exits non-zero on any failure**. Failure
+   cleanup removes the temporary DB, key directory, browser storage state and
+   Playwright reports; only the controller log remains in the retained temp
+   directory for diagnosis. Successful runs remove the whole directory.
 
 ## Environment facts (recorded, not claimed)
 

@@ -19,8 +19,7 @@ import (
 )
 
 const (
-	adminUser     = "admin"
-	adminPassword = "s3cret-pass-123"
+	adminUser = "admin"
 )
 
 func main() {
@@ -58,7 +57,11 @@ func seedAdmin(st *store.Store) error {
 	if count, err := st.CountUsers(); err == nil && count > 0 {
 		return nil
 	}
-	enc, err := auth.HashPassword(adminPassword)
+	password := os.Getenv("ANTINAT_TEST_PASSWORD")
+	if password == "" {
+		return fmt.Errorf("ANTINAT_TEST_PASSWORD is required")
+	}
+	enc, err := auth.HashPassword(password)
 	if err != nil {
 		return err
 	}

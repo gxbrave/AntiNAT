@@ -74,25 +74,34 @@ func TestP17DeploymentProfileStrictCAS(t *testing.T) {
 	}
 
 	const next = `{"platform":"linux","controller_endpoint":"https://ctl.example.test:3111/next","detection_scheduler":"parallel","log_level":"warn","auto_update":"stable"}`
-	results := make(chan error, 2)
+	results := make(chan struct {
+		profile DeploymentProfile
+		err     error
+	}, 2)
 	for i := 0; i < 2; i++ {
 		go func() {
-			_, putErr := s.PutDeploymentProfile("deployment-node", 1, next)
-			results <- putErr
+			profile, putErr := s.PutDeploymentProfile("deployment-node", 1, next)
+			results <- struct {
+				profile DeploymentProfile
+				err     error
+			}{profile: profile, err: putErr}
 		}()
 	}
 	var successes, conflicts int
 	for i := 0; i < 2; i++ {
-		putErr := <-results
-		if putErr == nil {
+		result := <-results
+		if result.err == nil {
 			successes++
+			if result.profile.Revision != 2 || !strings.Contains(result.profile.JSON, "/next") {
+				t.Errorf("successful concurrent writer returned mismatched profile: %+v", result.profile)
+			}
 			continue
 		}
-		if errors.Is(putErr, ErrCASConflict) {
+		if errors.Is(result.err, ErrCASConflict) {
 			conflicts++
 			continue
 		}
-		t.Fatalf("concurrent profile write error = %v", putErr)
+		t.Fatalf("concurrent profile write error = %v", result.err)
 	}
 	if successes != 1 || conflicts != 1 {
 		t.Fatalf("concurrent same-ETag writes: successes=%d conflicts=%d, want 1/1", successes, conflicts)

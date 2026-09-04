@@ -372,14 +372,31 @@
       var target = h('input', { type: 'text', value: fwd.target || '', 'data-edit-target': '', 'aria-label': t('admin.detail.target') });
       var save = h('button', { class: 'btn btn-primary', type: 'button' }, t('admin.save'));
       var cancel = h('button', { class: 'btn btn-quiet', type: 'button' }, t('admin.cancel'));
+      var bodyError = h('p', { class: 'form-error', 'data-edit-forward-error': '' });
+      setHidden(bodyError, true);
       var body = h('div', { class: 'field' }, [h('label', { text: t('admin.name') }), name,
-        h('label', { text: t('admin.detail.target') }), target]);
+        h('label', { text: t('admin.detail.target') }), target, bodyError]);
       save.addEventListener('click', async function () {
+        if (save.disabled) return;
         var payload = {};
         if (name.value.trim() && name.value.trim() !== fwd.name) payload.name = name.value.trim();
         if (target.value.trim() && target.value.trim() !== (fwd.target || '')) payload.target = target.value.trim();
         if (Object.keys(payload).length) {
-          await api('/api/v1/forwards/' + fwd.id, { method: 'PATCH', body: payload, headers: { 'If-Match': fwd.etag } });
+          save.disabled = true;
+          try {
+            var response = await api('/api/v1/forwards/' + encodeURIComponent(fwd.id), { method: 'PATCH', body: payload, headers: { 'If-Match': fwd.etag } });
+            if (!response.ok) {
+              bodyError.textContent = errorMessage(response, t('admin.saveError'));
+              setHidden(bodyError, false);
+              return;
+            }
+          } catch (e) {
+            bodyError.textContent = e.message || t('admin.saveError');
+            setHidden(bodyError, false);
+            return;
+          } finally {
+            save.disabled = false;
+          }
         }
         window.antinat.dialogs.close();
         resolve();
@@ -562,9 +579,12 @@
         });
         var out = await api('/api/v1/settings', { method: 'PUT', body: payload, headers: { 'If-Match': etag } });
         if (out.ok) {
+          var previousLanguage = s.language || 'zh';
+          etag = out.etag || (out.data && out.data.etag) || etag;
+          s = Object.assign({}, s, payload, { etag: etag });
           statusEl.textContent = t('admin.saved');
           setHidden(statusEl, false);
-          if (payload.language && payload.language !== (s.language || 'zh')) {
+          if (payload.language && payload.language !== previousLanguage) {
             setTimeout(function () { window.location.reload(); }, 350);
           }
         } else {

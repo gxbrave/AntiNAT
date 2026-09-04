@@ -16,8 +16,8 @@ module.exports = defineConfig({
   use: {
     baseURL: process.env.ANTINAT_BASE_URL || 'http://127.0.0.1:3111',
     storageState: process.env.ANTINAT_AUTH_STATE || undefined,
-    trace: 'retain-on-failure',
-    screenshot: 'only-on-failure',
+    trace: 'off',
+    screenshot: 'off',
   },
   projects: [
     { name: 'chromium-desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } } },

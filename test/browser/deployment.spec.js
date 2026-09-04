@@ -2,7 +2,13 @@
 // P17 Stories 4-5: node creation/deployment profile and safe command builder.
 const { test, expect } = require('playwright/test');
 
-const ADMIN = { username: 'admin', password: 's3cret-pass-123' };
+const ADMIN = {
+  username: process.env.ANTINAT_TEST_USER || 'admin',
+  password: process.env.ANTINAT_TEST_PASSWORD || ''
+};
+// The deployment surface contains a one-time credential. Do not retain
+// Playwright traces/screenshots for this suite if a test fails.
+test.use({ trace: 'off', screenshot: 'off', video: 'off' });
 
 async function login(page) {
   await page.goto('/admin');
@@ -32,12 +38,14 @@ test.describe('node deployment flow', () => {
 
     await expect(page.locator('[data-deployment-dialog]')).toBeVisible({ timeout: 5000 });
     const token = await page.locator('[data-deployment-token]').textContent();
-    const command = await page.locator('[data-deployment-command]').textContent();
     expect(token).toBeTruthy();
+    expect(await page.locator('[data-deployment-command]').count()).toBe(0);
+    await page.locator('[data-deployment-continue]').click();
+    const command = await page.locator('[data-deployment-command]').textContent();
     expect(command).toContain('--controller-endpoint');
     expect(command).not.toContain(token);
     expect(command).not.toContain('--token');
-    await expect(page.locator('[data-deployment-token-notice]')).toContainText(/显示一次|once|never part/i);
+    expect(await page.locator('[data-deployment-token]').count()).toBe(0);
   });
 
   test('renders platform-specific commands and removes installer-only Docker options', async ({ page }) => {
@@ -45,6 +53,7 @@ test.describe('node deployment flow', () => {
     await nodes(page);
     await page.locator('[data-node="node-online"] [data-action="deploy"]').click();
     await expect(page.locator('[data-deployment-dialog]')).toBeVisible();
+    await page.locator('[data-deployment-continue]').click();
 
     const platform = page.locator('[data-deploy-field="platform"]');
     await platform.selectOption('docker');
@@ -71,6 +80,7 @@ test.describe('node deployment flow', () => {
     await nodes(page);
     await page.locator('[data-node="node-online"] [data-action="deploy"]').click();
     await expect(page.locator('[data-deployment-dialog]')).toBeVisible();
+    await page.locator('[data-deployment-continue]').click();
 
     await page.fill('[data-deploy-field="controller_endpoint"]', 'https://ctl.example.test:3111/base/');
     await page.check('[data-deploy-enable="github_proxy"]');
@@ -81,6 +91,7 @@ test.describe('node deployment flow', () => {
 
     await page.locator('[data-deployment-close]').click();
     await page.locator('[data-node="node-online"] [data-action="deploy"]').click();
+    await page.locator('[data-deployment-continue]').click();
     await expect(page.locator('[data-deploy-field="controller_endpoint"]')).toHaveValue('https://ctl.example.test:3111/base');
     await expect(page.locator('[data-deploy-field="github_proxy"]')).toHaveValue('https://ghfast.top');
     await expect(page.locator('[data-deploy-field="detection_scheduler"]')).toHaveValue('parallel');
@@ -96,6 +107,7 @@ test.describe('node deployment flow', () => {
     });
     await page.locator('[data-node="node-online"] [data-action="deploy"]').click();
     await expect(page.locator('[data-deployment-dialog]')).toBeVisible();
+    await page.locator('[data-deployment-continue]').click();
     await page.locator('[data-deployment-save]').evaluate((button) => { button.click(); button.click(); });
     await expect(page.locator('[data-deployment-save-status]')).toContainText(/已保存|Saved/);
     expect(saves).toBe(1);
@@ -110,6 +122,7 @@ test.describe('node deployment flow', () => {
     await nodes(page);
     await page.locator('[data-node="node-online"] [data-action="deploy"]').click();
     await expect(page.locator('[data-deployment-dialog]')).toBeVisible();
+    await page.locator('[data-deployment-continue]').click();
     await page.click('[data-deployment-copy]');
     await expect(page.locator('[data-deployment-copy-notice]')).toContainText(/手动|manually|select/i);
     await expect(page.locator('[data-deployment-command]')).toBeVisible();
@@ -135,6 +148,7 @@ test.describe('node deployment flow', () => {
     await page.route('**/api/v1/nodes/node-online/traversal-detection', (route) => route.abort());
     await page.locator('[data-node="node-online"] [data-action="deploy"]').click();
     await expect(page.locator('[data-deployment-dialog]')).toBeVisible();
+    await page.locator('[data-deployment-continue]').click();
     await page.click('[data-deployment-detect]');
     await expect(page.locator('[data-detection-state="error"]')).toBeVisible();
     await expect(page.locator('[data-deployment-save]')).toBeEnabled();

@@ -30,7 +30,7 @@ func DecodeProfileJSON(raw []byte) (Profile, error) {
 		}
 		return Profile{}, fmt.Errorf("deployment: trailing JSON is not allowed: %w", err)
 	}
-	if err := profile.Validate(); err != nil {
+	if err := profile.ValidateComplete(); err != nil {
 		return Profile{}, err
 	}
 	profile.ControllerEndpoint, _ = NormalizeOptionalServiceURL(profile.ControllerEndpoint)
@@ -43,7 +43,7 @@ func DecodeProfileJSON(raw []byte) (Profile, error) {
 // EncodeProfileJSON emits the only representation allowed in the database.
 // Marshaling the typed profile drops every field outside the approved shape.
 func EncodeProfileJSON(profile Profile) (string, error) {
-	if err := profile.Validate(); err != nil {
+	if err := profile.ValidateComplete(); err != nil {
 		return "", err
 	}
 	var err error
@@ -66,7 +66,7 @@ func EncodeProfileJSON(profile Profile) (string, error) {
 
 func rejectDuplicateKeys(raw []byte) error {
 	dec := json.NewDecoder(bytes.NewReader(raw))
-	if err := walkJSONValue(dec); err != nil {
+	if err := walkJSONValue(dec, 0); err != nil {
 		return err
 	}
 	if _, err := dec.Token(); err != io.EOF {
@@ -78,7 +78,12 @@ func rejectDuplicateKeys(raw []byte) error {
 	return nil
 }
 
-func walkJSONValue(dec *json.Decoder) error {
+const maxProfileJSONDepth = 32
+
+func walkJSONValue(dec *json.Decoder, depth int) error {
+	if depth > maxProfileJSONDepth {
+		return fmt.Errorf("deployment: profile JSON is too deeply nested")
+	}
 	tok, err := dec.Token()
 	if err != nil {
 		return fmt.Errorf("deployment: invalid profile JSON: %w", err)
@@ -101,7 +106,7 @@ func walkJSONValue(dec *json.Decoder) error {
 					return fmt.Errorf("deployment: duplicate object key %q", name)
 				}
 				seen[name] = struct{}{}
-				if err := walkJSONValue(dec); err != nil {
+				if err := walkJSONValue(dec, depth+1); err != nil {
 					return err
 				}
 			}
@@ -110,7 +115,7 @@ func walkJSONValue(dec *json.Decoder) error {
 			}
 		case '[':
 			for dec.More() {
-				if err := walkJSONValue(dec); err != nil {
+				if err := walkJSONValue(dec, depth+1); err != nil {
 					return err
 				}
 			}
