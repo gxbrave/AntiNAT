@@ -132,4 +132,5 @@ artifact evidence.
 
 The machine-readable P17 handoff lists exact commands and exit codes. The
 OpenAPI manifest was updated to the P17 OpenAPI hash above. Browser review
-screenshots are under `test/browser/evidence/`.
+screenshots and the raw final gate output are under `.hermes/handoffs/` and
+`test/browser/evidence/`.

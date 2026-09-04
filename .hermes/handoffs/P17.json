@@ -3,7 +3,7 @@
   "schema_version": "antinat.handoff/v1",
   "branch": "ai/P17-web-ui",
   "base_sha": "329fdf5039e4e55350d923462f78c2d4ee2e3588",
-  "head_sha": "7cc4e4f644f43e36dea2665cad062ff49b86f3b8",
+  "head_sha": "f4df0ff8d3e69d0ecfc03822ecf8b7aeeb562d51",
   "commits": [
     "1a01ab7edd58a481905859c181832d33d2604e02",
     "f6f05924a110835780692a8115b381f338d1a5d7",
@@ -18,13 +18,16 @@
     "afbab12458be5450b4205c2b305f410e3694bab5",
     "90bf774a4dc3045caaab451e6c40640a5e1e2388",
     "8916bdb0fdbd22dbf26fe7aaaa8ed7ae3962acfb",
-    "7cc4e4f644f43e36dea2665cad062ff49b86f3b8"
+    "7cc4e4f644f43e36dea2665cad062ff49b86f3b8",
+    "be3692cd07875259450ec1210d902f8dc17ffbca",
+    "f4df0ff8d3e69d0ecfc03822ecf8b7aeeb562d51"
   ],
-  "files_changed_count": 67,
+  "files_changed_count": 68,
   "files_changed": [
     ".gitignore",
     ".hermes/handoffs/P17-contract-change.md",
     ".hermes/handoffs/P17-paused-handoff.md",
+    ".hermes/handoffs/P17-validation.log",
     ".hermes/handoffs/P17.json",
     "api/openapi.yaml",
     "docs/ui-design-direction.md",
@@ -155,16 +158,18 @@
     "test/browser/evidence/p17-home-en.png",
     "test/browser/evidence/p17-home-mobile.png",
     ".hermes/handoffs/P17-contract-change.md",
+    ".hermes/handoffs/P17-validation.log",
     "api/openapi.yaml"
   ],
   "evidence_sha256": {
     "test/browser/evidence/p17-admin-desktop.png": "332960277b00776658cace79e054a5e4b273a50a52034bbf24ea41118d75a485",
-    "test/browser/evidence/p17-admin-mobile.png": "650b556ab6e147a795a2921fa7ead4b41b14f69bb5956a18e37c88c91c7196bd",
+    "test/browser/evidence/p17-admin-mobile.png": "4f7dbd82e0e606b8ac00ac8f77b1794e6abe1369a80579f09e57ab4cdf959411",
     "test/browser/evidence/p17-admin-en.png": "3ba2f1c6f76a60a3c554ad6a48aa5725b64b3edc33712bc89c9a0aed57357d78",
-    "test/browser/evidence/p17-home-zh.png": "97110357129f438025c1d4bb3a744d4e97913d4eb5cbc373b06e36519a995452",
-    "test/browser/evidence/p17-home-en.png": "fe8598a288f5b361517bbc97bb652076b141a67911aa0b12bbda4539c23b589b",
-    "test/browser/evidence/p17-home-mobile.png": "6f9de443fd790e2aae8bb388360e9e4e7a27baf678fc1fbaa24a2cd2287ea516",
-    ".hermes/handoffs/P17-contract-change.md": "32fce7783c540b5f51894ea04406524c9ad2ca667d65df290a85491b089555a8"
+    "test/browser/evidence/p17-home-zh.png": "f5fc3e7cbc370e5a396b446e2d5c7e56fef5a272acb860f0658c620614c34e54",
+    "test/browser/evidence/p17-home-en.png": "926e0df8d84bb12b6c68b08f282c8b70aada5107c3e547323241ac77a86de2b0",
+    "test/browser/evidence/p17-home-mobile.png": "160feb6e2164f98819ff952b2aa0632d2c287b75de496870eddac54d9ae4af35",
+    ".hermes/handoffs/P17-contract-change.md": "80b5937c8d39befe0a0055413c8852baafd9f6981d22720bd4d8ef2c25554d43",
+    ".hermes/handoffs/P17-validation.log": "bac8e09f11bc2a35f4e46b42ce66a8f5b1c573a07efb1319e2e51d5485e473ac"
   },
   "contracts_consumed": [
     {
