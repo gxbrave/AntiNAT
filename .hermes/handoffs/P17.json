@@ -137,7 +137,7 @@
   ],
   "evidence_sha256": {
     "test/browser/evidence/p17-admin-desktop.png": "332960277b00776658cace79e054a5e4b273a50a52034bbf24ea41118d75a485",
-    "test/browser/evidence/p17-admin-mobile.png": "6e0874184029cd200587cdc6f9cba463e9d22dfd99a61423f183872613cd0315",
+    "test/browser/evidence/p17-admin-mobile.png": "ebc01ce7288e0ea2b228a9e04cd832c3c54b4d7e096bad33099cf5280f440695",
     ".hermes/handoffs/P17-contract-change.md": "d180bd6e75cdbcc4453334bf869aff50908d725a7582a756482980c13e253430"
   },
   "contracts_consumed": [
