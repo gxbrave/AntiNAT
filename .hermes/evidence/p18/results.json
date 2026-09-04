@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "plan": "P18",
-  "implementation_head_sha": "e7a6dff0717c67b0553ffdea2df0a0b1a8d4dc50",
-  "implementation_head_tree_sha": "04d6e69961a829f4a49021b9e0691d8a74772b2f",
+  "implementation_head_sha": "8749a34384fd3a861477f911279ed59965676dca",
+  "implementation_head_tree_sha": "564e5027e2378a7ccbf1a7863dde2394720e2eb2",
   "checks": [
     {
       "name": "shell syntax",
-      "command": "bash -n scripts/*.sh",
+      "command": "bash -n scripts/*.sh && sh -n docker/*.sh",
       "exit_code": 0,
       "status": "PASS",
       "evidence": "shell-syntax.log"
@@ -17,6 +17,13 @@
       "exit_code": 0,
       "status": "PASS",
       "evidence": "installer-smoke.log"
+    },
+    {
+      "name": "Docker enrollment staging smoke",
+      "command": "bash docker/test-stage-enrollment.sh",
+      "exit_code": 0,
+      "status": "PASS",
+      "evidence": "docker-stage-smoke.log"
     },
     {
       "name": "installer package tests",
@@ -75,8 +82,43 @@
       "evidence": "platform-workflow-yaml.log"
     },
     {
+      "name": "Docker agent local build",
+      "command": "docker buildx build --platform linux/amd64 --target agent --tag antinat:p18-agent --load .",
+      "exit_code": 0,
+      "status": "LOCAL_BUILD_PASS",
+      "evidence": "docker-build-agent.log"
+    },
+    {
+      "name": "Docker controller local build",
+      "command": "docker buildx build --platform linux/amd64 --target controller --tag antinat:p18-controller --load .",
+      "exit_code": 0,
+      "status": "LOCAL_BUILD_PASS",
+      "evidence": "docker-build-controller.log"
+    },
+    {
+      "name": "Docker daemon and local image availability",
+      "command": "docker info and docker image inspect antinat:p18-agent antinat:p18-controller",
+      "exit_code": 0,
+      "status": "STATIC_PASS",
+      "evidence": "docker-runtime.log"
+    },
+    {
+      "name": "OCI image static contract",
+      "command": "docker image inspect antinat:p18-agent antinat:p18-controller with non-root, volumes, entrypoints, and health checks",
+      "exit_code": 0,
+      "status": "STATIC_PASS",
+      "evidence": "docker-static-inspection.log"
+    },
+    {
+      "name": "OCI release capability contract",
+      "command": "docker/verify-oci-contract.sh antinat:p18-agent antinat:p18-controller",
+      "exit_code": 0,
+      "status": "SUPPORTED_WITH_LIMITS",
+      "evidence": "oci-contract.log"
+    },
+    {
       "name": "Compose contract",
-      "command": "ANTINAT_ENDPOINT=https://controller.example ANTINAT_NODE=ci-node ANTINAT_PIN=0000000000000000000000000000000000000000000000000000000000000000 docker compose -f docker/compose.yaml config --quiet",
+      "command": "token_file=$(mktemp); chmod 600 \"$token_file\"; ANTINAT_ENDPOINT=https://controller.example ANTINAT_NODE=ci-node ANTINAT_PIN=0000000000000000000000000000000000000000000000000000000000000000 ANTINAT_ENROLLMENT_TOKEN_FILE=\"$token_file\" docker compose -f docker/compose.yaml config --quiet",
       "exit_code": 0,
       "status": "STATIC_PASS",
       "evidence": "compose-config.log"
@@ -87,6 +129,13 @@
       "exit_code": 0,
       "status": "PASS_WITH_CAP_NET_ADMIN",
       "evidence": "linux-direct-v4-escalated.log"
+    },
+    {
+      "name": "cumulative repository tests",
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./... -count=1",
+      "exit_code": 0,
+      "status": "PASS",
+      "evidence": "full-repository.log"
     },
     {
       "name": "Go formatting",
@@ -108,34 +157,27 @@
       "exit_code": 0,
       "status": "PASS_NO_MATCHES",
       "evidence": "secret-scan.log"
+    },
+    {
+      "name": "result table validation",
+      "command": "python3 -m json.tool .hermes/evidence/p18/results.json",
+      "exit_code": 0,
+      "status": "PASS",
+      "evidence": "results-validation.log"
     }
   ],
   "observed_limits": [
     {
       "name": "restricted direct-v4 attempt",
-      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./test/e2e -run '^TestLinuxDirectV4WalkingSkeleton$' -count=1 -v",
+      "command": "capsh --drop=cap_net_admin -- -c direct-v4 E2E",
       "exit_code": 1,
-      "reason": "The sandbox denied CAP_NET_ADMIN while adding the loopback alias; the same test passed with the required capability.",
+      "reason": "The no-CAP_NET_ADMIN run failed while adding the loopback alias; the same dependency regression passed with the capability available.",
       "evidence": "linux-direct-v4.log"
-    },
-    {
-      "name": "cumulative repository test",
-      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./... -count=1",
-      "exit_code": 1,
-      "reason": "The restricted environment denied ordinary loopback sockets and several subprocess VCS probes; this is pre-existing repository infrastructure behavior, not an internal/install assertion failure.",
-      "evidence": "full-repository.log"
-    },
-    {
-      "name": "Docker runtime",
-      "command": "docker info",
-      "exit_code": 1,
-      "reason": "Docker client is installed but the daemon socket is inaccessible; image build/runtime evidence was not claimed.",
-      "evidence": "docker-runtime.log"
     },
     {
       "name": "native platform hosts",
       "status": "NOT_RUN",
-      "reason": "No native Windows, OpenRC, or arm64 host was available in this workspace; the workflow records those checks without promoting runtime support."
+      "reason": "No native Windows, OpenRC, or arm64 host was available in this workspace; Windows and arm64 checks remain build-only and the Docker checks remain local/static."
     }
   ]
 }

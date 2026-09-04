@@ -6,20 +6,50 @@
   "branch": "ai/P18-installers-platforms",
   "base_sha": "28aeaab5bb9c788da9c0068b8314b4f48c5a423d",
   "base_tree_sha": "0e65ed6cc4ac2fccb37d54c5615a14bea38e7915",
-  "head_sha": "e7a6dff0717c67b0553ffdea2df0a0b1a8d4dc50",
-  "head_tree_sha": "04d6e69961a829f4a49021b9e0691d8a74772b2f",
-  "candidate_record_tip_sha": "e7a6dff0717c67b0553ffdea2df0a0b1a8d4dc50",
-  "candidate_record_tip_tree_sha": "04d6e69961a829f4a49021b9e0691d8a74772b2f",
-  "canonical_head_sha": "e7a6dff0717c67b0553ffdea2df0a0b1a8d4dc50",
-  "canonical_head_tree_sha": "04d6e69961a829f4a49021b9e0691d8a74772b2f",
-  "implementation_head_sha": "e7a6dff0717c67b0553ffdea2df0a0b1a8d4dc50",
-  "implementation_head_tree_sha": "04d6e69961a829f4a49021b9e0691d8a74772b2f",
+  "head_sha": "8749a34384fd3a861477f911279ed59965676dca",
+  "head_tree_sha": "564e5027e2378a7ccbf1a7863dde2394720e2eb2",
+  "candidate_record_tip_sha": "8749a34384fd3a861477f911279ed59965676dca",
+  "candidate_record_tip_tree_sha": "564e5027e2378a7ccbf1a7863dde2394720e2eb2",
+  "canonical_head_sha": "8749a34384fd3a861477f911279ed59965676dca",
+  "canonical_head_tree_sha": "564e5027e2378a7ccbf1a7863dde2394720e2eb2",
+  "implementation_head_sha": "8749a34384fd3a861477f911279ed59965676dca",
+  "implementation_head_tree_sha": "564e5027e2378a7ccbf1a7863dde2394720e2eb2",
   "commits": [
+    "8749a34384fd3a861477f911279ed59965676dca",
+    "fdb449c209e23b3bd7861cf1295ad55e20750128",
     "e7a6dff0717c67b0553ffdea2df0a0b1a8d4dc50"
   ],
-  "files_changed_count": 56,
+  "files_changed_count": 64,
   "files_changed": [
     ".github/workflows/platform.yml",
+    ".hermes/evidence/p18/SHA256SUMS",
+    ".hermes/evidence/p18/compose-config.log",
+    ".hermes/evidence/p18/contracts-sha256.txt",
+    ".hermes/evidence/p18/contracts.log",
+    ".hermes/evidence/p18/diff-check.log",
+    ".hermes/evidence/p18/docker-build-agent.log",
+    ".hermes/evidence/p18/docker-build-controller.log",
+    ".hermes/evidence/p18/docker-runtime.log",
+    ".hermes/evidence/p18/docker-stage-smoke.log",
+    ".hermes/evidence/p18/docker-static-inspection.log",
+    ".hermes/evidence/p18/full-repository.log",
+    ".hermes/evidence/p18/go-vet.log",
+    ".hermes/evidence/p18/gofmt.log",
+    ".hermes/evidence/p18/install-go-race.log",
+    ".hermes/evidence/p18/install-go-test.log",
+    ".hermes/evidence/p18/installer-smoke.log",
+    ".hermes/evidence/p18/linux-arm64-subset-build.log",
+    ".hermes/evidence/p18/linux-direct-v4-escalated.log",
+    ".hermes/evidence/p18/linux-direct-v4.log",
+    ".hermes/evidence/p18/oci-contract.log",
+    ".hermes/evidence/p18/platform-workflow-yaml.log",
+    ".hermes/evidence/p18/results-validation.log",
+    ".hermes/evidence/p18/results.json",
+    ".hermes/evidence/p18/secret-scan.log",
+    ".hermes/evidence/p18/shell-syntax.log",
+    ".hermes/evidence/p18/windows-amd64-build.log",
+    ".hermes/evidence/p18/windows-install-test-compile.log",
+    ".hermes/handoffs/P18.json",
     "Dockerfile",
     "Dockerfile.agent",
     "Dockerfile.controller",
@@ -33,6 +63,9 @@
     "docker/README.md",
     "docker/compose.yaml",
     "docker/healthcheck-agent.sh",
+    "docker/stage-enrollment.sh",
+    "docker/test-stage-enrollment.sh",
+    "docker/verify-oci-contract.sh",
     "internal/install/artifact.go",
     "internal/install/compat.go",
     "internal/install/contract.go",
@@ -51,41 +84,23 @@
     "scripts/libinstall.sh",
     "scripts/test-installers.sh",
     "scripts/uninstall.ps1",
-    "scripts/uninstall.sh",
-    ".hermes/evidence/p18/SHA256SUMS",
-    ".hermes/evidence/p18/compose-config.log",
-    ".hermes/evidence/p18/contracts-sha256.txt",
-    ".hermes/evidence/p18/contracts.log",
-    ".hermes/evidence/p18/diff-check.log",
-    ".hermes/evidence/p18/docker-runtime.log",
-    ".hermes/evidence/p18/full-repository.log",
-    ".hermes/evidence/p18/go-vet.log",
-    ".hermes/evidence/p18/gofmt.log",
-    ".hermes/evidence/p18/install-go-race.log",
-    ".hermes/evidence/p18/install-go-test.log",
-    ".hermes/evidence/p18/installer-smoke.log",
-    ".hermes/evidence/p18/linux-arm64-subset-build.log",
-    ".hermes/evidence/p18/linux-direct-v4-escalated.log",
-    ".hermes/evidence/p18/linux-direct-v4.log",
-    ".hermes/evidence/p18/platform-workflow-yaml.log",
-    ".hermes/evidence/p18/results-validation.log",
-    ".hermes/evidence/p18/results.json",
-    ".hermes/evidence/p18/secret-scan.log",
-    ".hermes/evidence/p18/shell-syntax.log",
-    ".hermes/evidence/p18/windows-amd64-build.log",
-    ".hermes/evidence/p18/windows-install-test-compile.log",
-    ".hermes/handoffs/P18.json"
+    "scripts/uninstall.sh"
   ],
   "tests": [
     {
-      "command": "bash -n scripts/*.sh",
+      "command": "bash -n scripts/*.sh && sh -n docker/*.sh",
       "exit_code": 0,
       "summary": "PASS; all shell entry points parse."
     },
     {
       "command": "bash scripts/test-installers.sh",
       "exit_code": 0,
-      "summary": "PASS; isolated installer smoke covers fresh install, repeated-install conflict, token consumption and non-leakage, failed health-gated upgrade rollback, successful upgrade, bad token mode, bad signature, and purge residue."
+      "summary": "PASS; isolated installer smoke covers fresh install, repeated-install conflict, token consumption and non-leakage, failed health-gated upgrade rollback, successful upgrade, ambiguous artifact rejection, role isolation, bad token mode, bad signature, and purge residue."
+    },
+    {
+      "command": "bash docker/test-stage-enrollment.sh",
+      "exit_code": 0,
+      "summary": "PASS; Docker read-only secret staging, one-time consumption, durable completion marker, failed-agent retry behavior, and symlink rejection."
     },
     {
       "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off go test ./internal/install -count=1",
@@ -128,29 +143,49 @@
       "summary": "PASS; platform workflow YAML parses."
     },
     {
-      "command": "ANTINAT_ENDPOINT=https://controller.example ANTINAT_NODE=ci-node ANTINAT_PIN=0000000000000000000000000000000000000000000000000000000000000000 docker compose -f docker/compose.yaml config --quiet",
+      "command": "docker buildx build --platform linux/amd64 --target agent --tag antinat:p18-agent --load .",
       "exit_code": 0,
-      "summary": "STATIC PASS; host-network Compose contract parses with required variables."
+      "summary": "LOCAL_BUILD_PASS; local amd64 Agent image built and loaded. This is not registry digest evidence."
+    },
+    {
+      "command": "docker buildx build --platform linux/amd64 --target controller --tag antinat:p18-controller --load .",
+      "exit_code": 0,
+      "summary": "LOCAL_BUILD_PASS; local amd64 Controller image built and loaded. This is not registry digest evidence."
+    },
+    {
+      "command": "docker info and docker image inspect antinat:p18-agent antinat:p18-controller",
+      "exit_code": 0,
+      "summary": "STATIC PASS; local Docker daemon reachable and both local image IDs available."
+    },
+    {
+      "command": "docker image inspect antinat:p18-agent antinat:p18-controller with non-root, volumes, entrypoints, and health checks",
+      "exit_code": 0,
+      "summary": "STATIC PASS; both images use UID/GID 65532, declare state/log volumes, and expose role-specific entrypoints and health checks."
+    },
+    {
+      "command": "docker/verify-oci-contract.sh antinat:p18-agent antinat:p18-controller",
+      "exit_code": 0,
+      "summary": "SUPPORTED_WITH_LIMITS; local image IDs recorded, but no registry manifest digest, SBOM, or cosign signature evidence is available."
+    },
+    {
+      "command": "token_file=$(mktemp); chmod 600 \"$token_file\"; ANTINAT_ENDPOINT=https://controller.example ANTINAT_NODE=ci-node ANTINAT_PIN=0000000000000000000000000000000000000000000000000000000000000000 ANTINAT_ENROLLMENT_TOKEN_FILE=\"$token_file\" docker compose -f docker/compose.yaml config --quiet",
+      "exit_code": 0,
+      "summary": "STATIC PASS; host-network Compose contract parses with the required protected enrollment-token file variable."
+    },
+    {
+      "command": "capsh --drop=cap_net_admin -- -c direct-v4 E2E",
+      "exit_code": 1,
+      "summary": "LIMITED FAILURE; the deliberately capability-bounded run cannot add the loopback alias."
     },
     {
       "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./test/e2e -run '^TestLinuxDirectV4WalkingSkeleton$' -count=1 -v",
-      "exit_code": 1,
-      "summary": "LIMITED FAILURE in the restricted sandbox; CAP_NET_ADMIN was denied while adding the test loopback alias."
-    },
-    {
-      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./test/e2e -run '^TestLinuxDirectV4WalkingSkeleton$' -count=1 -v (with CAP_NET_ADMIN)",
       "exit_code": 0,
-      "summary": "PASS; the same dependency regression completed with the required network-admin capability."
+      "summary": "PASS_WITH_CAP_NET_ADMIN; direct-v4 dependency regression passes when the required network-admin capability is available."
     },
     {
       "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./... -count=1",
-      "exit_code": 1,
-      "summary": "LIMITED FAILURE in the restricted sandbox; ordinary loopback sockets, CAP_NET_ADMIN-backed tests, and subprocess VCS probes were denied. P18 focused tests, contracts, vet, and privileged direct-v4 regression remain separately recorded."
-    },
-    {
-      "command": "docker info",
-      "exit_code": 1,
-      "summary": "LIMITED; Docker client is installed but the daemon socket is inaccessible, so OCI image build/runtime evidence is not claimed."
+      "exit_code": 0,
+      "summary": "PASS; full repository suite passes with the provisioned dedicated UID/GID environment."
     },
     {
       "command": "gofmt -l internal/install",
@@ -179,7 +214,11 @@
     ".hermes/evidence/p18/contracts-sha256.txt",
     ".hermes/evidence/p18/contracts.log",
     ".hermes/evidence/p18/diff-check.log",
+    ".hermes/evidence/p18/docker-build-agent.log",
+    ".hermes/evidence/p18/docker-build-controller.log",
     ".hermes/evidence/p18/docker-runtime.log",
+    ".hermes/evidence/p18/docker-stage-smoke.log",
+    ".hermes/evidence/p18/docker-static-inspection.log",
     ".hermes/evidence/p18/full-repository.log",
     ".hermes/evidence/p18/go-vet.log",
     ".hermes/evidence/p18/gofmt.log",
@@ -189,6 +228,7 @@
     ".hermes/evidence/p18/linux-arm64-subset-build.log",
     ".hermes/evidence/p18/linux-direct-v4-escalated.log",
     ".hermes/evidence/p18/linux-direct-v4.log",
+    ".hermes/evidence/p18/oci-contract.log",
     ".hermes/evidence/p18/platform-workflow-yaml.log",
     ".hermes/evidence/p18/results-validation.log",
     ".hermes/evidence/p18/results.json",
@@ -198,28 +238,33 @@
     ".hermes/evidence/p18/windows-install-test-compile.log"
   ],
   "evidence_sha256": {
-    ".hermes/evidence/p18/SHA256SUMS": "1428a28c0f6d38c99ce900a19530c03e3ac30b5d15899eac86589feef97fb14e",
-    ".hermes/evidence/p18/compose-config.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".hermes/evidence/p18/SHA256SUMS": "71dcc51cf39ea02ea9c9570a251913937f506b1162426d3801e8a08240f4d31b",
+    ".hermes/evidence/p18/compose-config.log": "aded2f3f0eafbc888e02286a97357eada50fbd005c87f8c1436f7eebce4a3fe6",
     ".hermes/evidence/p18/contracts-sha256.txt": "f3210db03f565342782e74354188c1e97290963ee2dec7256fa85c23ed2316a6",
-    ".hermes/evidence/p18/contracts.log": "6aa19ab1196095dd48dca8fc720f8be68f8b522eceb41e227054a5d0673641c3",
-    ".hermes/evidence/p18/diff-check.log": "bde294368bfed77c2cddf8cec271d398aee9cdbab3b26e1059281bd33adb0120",
-    ".hermes/evidence/p18/docker-runtime.log": "0dc04a19982742d1645aad540100cae1f63dedc27405f8ec65e317599e30ac4d",
-    ".hermes/evidence/p18/full-repository.log": "0ba9fc1aea657dc1ce425f4149a8f1fc6f9861b45446751412defc090cba3630",
-    ".hermes/evidence/p18/go-vet.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    ".hermes/evidence/p18/gofmt.log": "bde294368bfed77c2cddf8cec271d398aee9cdbab3b26e1059281bd33adb0120",
-    ".hermes/evidence/p18/install-go-race.log": "77b5e36f57daecf4085a62f57ac87f7022e7b0bc1dd9699d10ffa9d35fd16256",
-    ".hermes/evidence/p18/install-go-test.log": "97aba35e2f52029271e9ab9885ded7e50d9f35452e01c1e08bfd764a31110a10",
-    ".hermes/evidence/p18/installer-smoke.log": "e63ecba4438bbead2ae4038e1b3cf75ea9add71fef0477f650ce9fe50b1f5c17",
-    ".hermes/evidence/p18/linux-arm64-subset-build.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    ".hermes/evidence/p18/linux-direct-v4-escalated.log": "b032725392832cff147fd77821ead407cbfd45c99978a1ffdbedb71e54450997",
-    ".hermes/evidence/p18/linux-direct-v4.log": "b723551b6a17882947489ac1fb76180e160d2bbec8adc2fcd132b60ab48e2fdb",
-    ".hermes/evidence/p18/platform-workflow-yaml.log": "bf9ce166166142401e3f158569e0e577ff96b5c0e4c338de0e6e4096ffd7949a",
-    ".hermes/evidence/p18/results-validation.log": "86563d62ce901cd262acd07ad8025d818616d7e83a1cad41ddfe6a05f5697e3b",
-    ".hermes/evidence/p18/results.json": "bd7d87fd61c35ea70b3a5aa67d7b5eb9788f112ceb5a0aa765bd2b60b11bb74c",
-    ".hermes/evidence/p18/secret-scan.log": "d91b1f59a660ba6b5f849c6f284c5f354d396072117a8a199d7cabbaa999892a",
-    ".hermes/evidence/p18/shell-syntax.log": "bde294368bfed77c2cddf8cec271d398aee9cdbab3b26e1059281bd33adb0120",
-    ".hermes/evidence/p18/windows-amd64-build.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    ".hermes/evidence/p18/windows-install-test-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    ".hermes/evidence/p18/contracts.log": "838bca0154615d403022796e2a915f9e4e4d1f41e340e758d63c102aabc14d79",
+    ".hermes/evidence/p18/diff-check.log": "ea27f2c2e4335a38f884e0025f5bc6dcf72015dff9d592811e383f5a7f307131",
+    ".hermes/evidence/p18/docker-build-agent.log": "b4dfeb876767a04062c3e1a23bd1be17242171866f627186482b0267ea9de8f4",
+    ".hermes/evidence/p18/docker-build-controller.log": "67ae5cf4711e1a98b02da810a10727f959e3b96120553e3e41e523848500a4bc",
+    ".hermes/evidence/p18/docker-runtime.log": "1809442086c2a2e4d9df828195774025960a86a142fd264c5765e176f796ad5b",
+    ".hermes/evidence/p18/docker-stage-smoke.log": "4439a5217421c4722600713ba50c0ec78561daf4d6b0d1f310de5a0a582a0e85",
+    ".hermes/evidence/p18/docker-static-inspection.log": "7cee51c562a8d5a7ae5f4dc74cf447bb22ece591913cab1d91551a5971aecaaf",
+    ".hermes/evidence/p18/full-repository.log": "3e2f1a5be676a249e55a7aab60be3bbdff1c98bce3c64eed1a0379924987c775",
+    ".hermes/evidence/p18/go-vet.log": "88f1c57366f75a6568f69c398dc2c7873e9c3a3763adb535fe73f0661c86fe63",
+    ".hermes/evidence/p18/gofmt.log": "e1229846d23f776e4cc0c364fc6b22a437916c14a49ff9c0396f884e8b504208",
+    ".hermes/evidence/p18/install-go-race.log": "44ea2a4587f30a7bcf800f6bab0c5a7495d87c708b9e2ee8bf8492302979716c",
+    ".hermes/evidence/p18/install-go-test.log": "63283fd47f139c7d3ca9ae2dac96764dceb4e02e16d0f5f823f0aa2e18139832",
+    ".hermes/evidence/p18/installer-smoke.log": "a4cf2a6f61e9afd212cf011cb1dd940fd69a2666cbeffd76cabf5aed53f1c807",
+    ".hermes/evidence/p18/linux-arm64-subset-build.log": "2bf029fed3cb0314f957ca1600c50282e4cdd415956a1341ca872a7bdff85ca3",
+    ".hermes/evidence/p18/linux-direct-v4-escalated.log": "11522db94e210fb7ae03a75b20d6ce39dd78fb9e8eecbd502e7398bf5469cedc",
+    ".hermes/evidence/p18/linux-direct-v4.log": "b6036cb4024420e4a4e92f34a868246b2345223dfd040049d83b73459681cf73",
+    ".hermes/evidence/p18/oci-contract.log": "eb99c879f9396832c216ce8946e3da0f5d3e4be7f039761d5490a7e14087e76d",
+    ".hermes/evidence/p18/platform-workflow-yaml.log": "bb00a14addf9a9e1ac21069d1b0594d8104c0f9a7724250ec264bff64248e3c2",
+    ".hermes/evidence/p18/results-validation.log": "86c953e11187b3818f316f4c29155c85510b7599e81a6620cd8f902615a3116f",
+    ".hermes/evidence/p18/results.json": "722c1f295ff05b12a65af131225c5e4709d75a62bac29a807b2d04d42e06bdda",
+    ".hermes/evidence/p18/secret-scan.log": "c136158be493e4ee84f18454b50c9192a12ce408e028ab0ae7d3d4cbf990a38f",
+    ".hermes/evidence/p18/shell-syntax.log": "252b1df57930d3ad985ebb4e9843576b0c6b5953c9dbf2087477205b8f4978a3",
+    ".hermes/evidence/p18/windows-amd64-build.log": "9ac38c2d73c9645a0b59590fd0c1cdb0bf5a12e550b71f194915034b46436700",
+    ".hermes/evidence/p18/windows-install-test-compile.log": "08fce5c81afa40bb7a14a90b3a6be7db8a42ed614ac489c22bedab81ad2c7b57"
   },
   "contracts_consumed": [
     { "path": ".hermes/plans/v1-beta/00-master-orchestration.md", "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4" },
@@ -298,9 +343,9 @@
     "Linux installer validation is isolated test-root evidence; no native systemd fresh-install/restart/upgrade/purge run was possible in this workspace.",
     "No native Windows PowerShell, Windows Service, ACL/Defender, or router/data-path runtime evidence; Windows remains build-only.",
     "No native arm64 or OpenRC host evidence. arm64 verification is limited to Agent, CLI, and installer package compilation; full arm64 command builds remain blocked by the pre-existing internal/hook/sandbox_linux.go SYS_FORK/SYS_VFORK architecture issue.",
-    "Docker client and Compose parser are available, but the Docker daemon socket is inaccessible. No image build, non-root runtime, SBOM, signature, immutable digest, or host-network runtime claim is made.",
-    "The cumulative go test ./... attempt failed in the restricted sandbox because ordinary loopback sockets, CAP_NET_ADMIN, and subprocess VCS probes were denied. No P18 focused package failure was observed; the privileged direct-v4 dependency regression passed.",
+    "Docker evidence is limited to local amd64 image builds and static inspection. Local image IDs are not registry manifest digests; no SBOM, signature, or production host-network runtime evidence is claimed. syft and cosign are unavailable.",
     "The smoke release uses a generated test Ed25519 key and local artifacts. Production release artifact pinning, SBOM/signature, and exact image/artifact digest approval remain P19 work.",
+    "The full repository suite requires the provisioned ANTINAT_DEDICATED_UID=12001 and ANTINAT_DEDICATED_GID=12001 environment; no native platform support promotion is claimed.",
     "govulncheck was unavailable and was not recorded as PASS.",
     "No public-WAN, real-router, or native platform support promotion is claimed."
   ],

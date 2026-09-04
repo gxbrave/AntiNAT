@@ -1,0 +1,9 @@
+implementation_sha=8749a34384fd3a861477f911279ed59965676dca
+implementation_tree_sha=564e5027e2378a7ccbf1a7863dde2394720e2eb2
+command=docker image inspect antinat:p18-agent antinat:p18-controller with non-root, volumes, entrypoints, and health checks
+
+image=[antinat:p18-agent] id=sha256:c6e72c038e98be2e7279f3e059a9bf6c35cc6cf4adff9adaf17787aecf8fb675 user=65532:65532 entrypoint=["/opt/antinat/bin/stage-enrollment"] health=["CMD","/opt/antinat/bin/healthcheck-agent"] volumes={"/var/lib/antinat":{},"/var/log/antinat":{}}
+image=[antinat:p18-controller] id=sha256:042b7329c4e6076978eaec40152624130735dd15ed2e3e2276bf71bc9903320e user=65532:65532 entrypoint=["/opt/antinat/bin/antinat-controller","-listen","0.0.0.0:3111","-store","/var/lib/antinat/controller.db","-keydir","/var/lib/antinat/controller-keys"] health=["CMD-SHELL","wget -q -O - http://127.0.0.1:3111/readyz >/dev/null || exit 1"] volumes={"/var/lib/antinat":{},"/var/log/antinat":{}}
+static-runtime-inspection: PASS
+
+exit_code=0

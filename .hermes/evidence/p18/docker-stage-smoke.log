@@ -1,0 +1,8 @@
+implementation_sha=8749a34384fd3a861477f911279ed59965676dca
+implementation_tree_sha=564e5027e2378a7ccbf1a7863dde2394720e2eb2
+command=bash docker/test-stage-enrollment.sh
+
+antinat docker entrypoint: a Docker enrollment secret is required for the first start
+docker/test-stage-enrollment.sh: PASS
+
+exit_code=0

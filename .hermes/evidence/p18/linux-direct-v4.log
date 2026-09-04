@@ -1,7 +1,13 @@
+implementation_sha=8749a34384fd3a861477f911279ed59965676dca
+implementation_tree_sha=564e5027e2378a7ccbf1a7863dde2394720e2eb2
+command=capsh --drop=cap_net_admin -- -c direct-v4 E2E
+
 === RUN   TestLinuxDirectV4WalkingSkeleton
-    walking_skeleton_test.go:31: add loopback alias 8.8.8.8/32: exit status 1 (Cannot open netlink socket: Operation not permitted
+    walking_skeleton_test.go:31: add loopback alias 8.8.8.8/32: exit status 2 (RTNETLINK answers: Operation not permitted
         ) — the walking skeleton needs CAP_NET_ADMIN
 --- FAIL: TestLinuxDirectV4WalkingSkeleton (0.00s)
 FAIL
 FAIL	github.com/gxbrave/AntiNAT/test/e2e	0.003s
 FAIL
+
+exit_code=1
