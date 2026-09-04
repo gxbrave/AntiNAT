@@ -47,7 +47,10 @@ The stopped agent's last report was: **the hidden-overlay CSS rule is present, S
 3. Inspect the pending diff. Preserve the hidden-overlay fix; do not rewrite Story 1/2.
 4. Run `./scripts/test-browser.sh` first to establish the actual Story 3 baseline. Record the real exit code/output; no skipped test is a pass.
 5. Finish Story 3 (four-tab admin shell) with RED → GREEN → REFACTOR, including keyboard/focus, mobile, long bilingual strings, loading/error/empty states, SSE reconnect, and text+shape durable statuses. Commit Story 3 as one coherent commit.
-6. Continue Stories 4–7 in order. Keep the additive contract restriction: only the two approved deployment-profile OpenAPI paths and migration `0011_deployment.sql` may change the frozen contract surface.
+6. Continue Stories 4–7 in order. Keep the additive contract restriction: the
+   final candidate adds only the two approved deployment-profile OpenAPI
+   methods; the earlier unapproved `0011` migration proposal was removed after
+   ownership review.
 7. Complete the safe command builder and deployment flow without ever putting a token/secret in a generated command. Do not add unapproved routes or modify lifecycle production wiring owned by P19.
 8. Write the final `.hermes/handoffs/P17.json` and `.hermes/handoffs/P17-contract-change.md`; do not write any `*-integrated.json`.
 9. Run every required gate from the P17 brief and record honest exit codes/evidence before handing off for independent review. Do not self-approve or integrate.
