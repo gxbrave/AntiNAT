@@ -88,6 +88,7 @@
     }
     profile.controller_endpoint = normalizeOptionalServiceURL(profile.controller_endpoint);
     if (!profile.controller_endpoint) throw new Error(t('node.deploy.endpointRequired'));
+    requireRemoteHTTPS('controller_endpoint', profile.controller_endpoint);
     ['bind_interface', 'github_proxy', 'install_dir', 'service_name', 'detection_scheduler', 'log_level', 'auto_update'].forEach(function (key) {
       validateText(key, profile[key]);
     });
@@ -100,8 +101,19 @@
     if (['disabled', 'manual', 'stable', 'enabled'].indexOf(profile.auto_update) < 0) {
       throw new Error(t('node.deploy.invalidProfile') + ': auto_update');
     }
-    if (profile.github_proxy) profile.github_proxy = normalizeOptionalServiceURL(profile.github_proxy);
+    if (profile.github_proxy) {
+      profile.github_proxy = normalizeOptionalServiceURL(profile.github_proxy);
+      requireRemoteHTTPS('github_proxy', profile.github_proxy);
+    }
     return profile;
+  }
+
+  function requireRemoteHTTPS(name, normalized) {
+    var parsed = new URL(normalized);
+    var loopback = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '[::1]' || parsed.hostname === '::1';
+    if (parsed.protocol === 'http:' && !loopback) {
+      throw new Error(t('node.deploy.invalidProfile') + ': ' + name + ' must use https');
+    }
   }
 
   function buildAgentArguments(profile) {

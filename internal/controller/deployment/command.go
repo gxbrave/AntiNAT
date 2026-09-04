@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 	"unicode"
@@ -67,11 +68,15 @@ func (p Profile) Validate() error {
 	default:
 		return fmt.Errorf("deployment: unsupported platform %q", p.Platform)
 	}
-	if _, err := NormalizeOptionalServiceURL(p.ControllerEndpoint); err != nil {
+	endpoint, err := NormalizeOptionalServiceURL(p.ControllerEndpoint)
+	if err != nil {
 		return fmt.Errorf("deployment: controller endpoint: %w", err)
 	}
 	if strings.TrimSpace(p.ControllerEndpoint) == "" {
 		return errors.New("deployment: controller endpoint is required")
+	}
+	if err := requireRemoteHTTPS("controller_endpoint", endpoint); err != nil {
+		return err
 	}
 	for name, value := range map[string]string{
 		"bind_interface":      p.BindInterface,
@@ -87,8 +92,12 @@ func (p Profile) Validate() error {
 		}
 	}
 	if p.GitHubProxy != "" {
-		if _, err := NormalizeOptionalServiceURL(p.GitHubProxy); err != nil {
+		proxy, err := NormalizeOptionalServiceURL(p.GitHubProxy)
+		if err != nil {
 			return fmt.Errorf("deployment: github proxy: %w", err)
+		}
+		if err := requireRemoteHTTPS("github_proxy", proxy); err != nil {
+			return err
 		}
 	}
 	if p.DetectionScheduler != "" && p.DetectionScheduler != "sequential" && p.DetectionScheduler != "parallel" {
@@ -125,6 +134,25 @@ func (p Profile) ValidateComplete() error {
 		return errors.New("deployment: auto_update is required")
 	}
 	return nil
+}
+
+func requireRemoteHTTPS(name, normalized string) error {
+	u, err := url.Parse(normalized)
+	if err != nil {
+		return fmt.Errorf("deployment: invalid %s: %w", name, err)
+	}
+	if u.Scheme == "http" && !isLoopbackHost(u.Hostname()) {
+		return fmt.Errorf("deployment: %s must use https for non-loopback hosts", name)
+	}
+	return nil
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func validateText(name, value string) error {

@@ -62,6 +62,9 @@ func (s *Server) updateNodeName(w http.ResponseWriter, r *http.Request, nodeID s
 		writeError(w, 500, "INTERNAL_ERROR", "node lookup failed")
 		return
 	}
+	if s.rejectCleanupOnly(w, nodeID) {
+		return
+	}
 	if err := requireIfMatch(w, r, etagFor(node.Revision)); err != nil {
 		return
 	}

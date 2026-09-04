@@ -273,16 +273,8 @@ func structuredNonSecret(v string) bool {
 		// credential-looking query or fragment. Never let URL syntax bypass
 		// token/secret redaction.
 		lower := strings.ToLower(v)
-		if strings.Contains(lower, "@") {
+		if strings.Contains(lower, "@") || strings.ContainsAny(lower, "?#") {
 			return false
-		}
-		if start := strings.IndexAny(lower, "?#"); start >= 0 {
-			tail := lower[start+1:]
-			if strings.Contains(tail, "token") || strings.Contains(tail, "secret") ||
-				strings.Contains(tail, "password") || strings.Contains(tail, "apikey") ||
-				strings.Contains(tail, "credential") {
-				return false
-			}
 		}
 		return true // URL without credential-bearing userinfo/query
 	}
@@ -296,7 +288,7 @@ func structuredNonSecret(v string) bool {
 			letters++
 		}
 	}
-	if letters <= 2 && digits*2 >= len(v) {
+	if letters <= 2 && digits*2 >= len(v) && strings.ContainsAny(v, "-:T") {
 		return true
 	}
 	// UUID / MAC / hex-with-separators are public identifiers, not secrets.

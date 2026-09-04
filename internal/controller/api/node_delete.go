@@ -83,8 +83,22 @@ func (s *Server) createNodeDeletion(w http.ResponseWriter, r *http.Request, node
 		// outbox phase leaves a POLLABLE PENDING operation — never a tombstone
 		// or outbox without a pollable operation. (The old order wrote the
 		// tombstone first and could strand a tombstone with no operation row.)
-		if err := s.store.CreateNodeDeletionOperation(op); err != nil {
-			writeError(w, 500, "INTERNAL_ERROR", "node deletion operation failed")
+		if err := s.store.CreateNodeDeletionOperationCAS(op, node.Revision); err != nil {
+			if errors.Is(err, store.ErrCASConflict) {
+				writeError(w, http.StatusPreconditionFailed, "PRECONDITION_FAILED", "node revision changed")
+				return
+			}
+			if errors.Is(err, store.ErrCleanupTombstoneConflict) {
+				if tombstone, tsErr := s.store.NodeCleanupTombstone(nodeID); tsErr == nil {
+					if existingOp, opErr := s.store.GetNodeDeletionOperation(tombstone.OperationID); opErr == nil {
+						writeJSON(w, http.StatusAccepted, s.nodeDeletionView(existingOp))
+						return
+					}
+				}
+				writeError(w, http.StatusConflict, "CONFLICT", "node is already being force-deleted")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "node deletion operation failed")
 			return
 		}
 		if _, err := lifecycle.ForceDeleteNode(context.Background(), s.store, lifecycle.DecommissionRequest{
@@ -112,8 +126,20 @@ func (s *Server) createNodeDeletion(w http.ResponseWriter, r *http.Request, node
 		}
 	} else {
 		payload, _ := json.Marshal(map[string]any{"node_id": nodeID, "deletion_operation_id": opID, "force": false})
-		if err := s.store.ApplyNodeDelete(op, store.ControlOutboxItem{OperationID: opID, MessageType: "node_decommission", NodeID: nodeID, SemanticPayload: string(payload), State: "PENDING"}); err != nil {
-			writeError(w, 500, "INTERNAL_ERROR", "node deletion failed")
+		if err := s.store.ApplyNodeDeleteCAS(op, store.ControlOutboxItem{OperationID: opID, MessageType: "node_decommission", NodeID: nodeID, SemanticPayload: string(payload), State: "PENDING"}, node.Revision); err != nil {
+			if errors.Is(err, store.ErrCASConflict) {
+				writeError(w, http.StatusPreconditionFailed, "PRECONDITION_FAILED", "node revision or deletion intent changed")
+				return
+			}
+			if errors.Is(err, store.ErrCleanupTombstoneConflict) {
+				writeError(w, http.StatusConflict, "CONFLICT", "node is cleanup-only after force deletion")
+				return
+			}
+			if errors.Is(err, store.ErrNodeNotFound) {
+				writeError(w, http.StatusNotFound, "NOT_FOUND", "node not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "node deletion failed")
 			return
 		}
 	}

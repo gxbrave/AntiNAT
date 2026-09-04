@@ -190,7 +190,7 @@ func structuredNonSecret(v string) bool {
 			letters++
 		}
 	}
-	if letters <= 2 && digits*2 >= len(v) {
+	if letters <= 2 && digits*2 >= len(v) && strings.ContainsAny(v, "-:T") {
 		return true
 	}
 	hexCount, sepCount := 0, 0

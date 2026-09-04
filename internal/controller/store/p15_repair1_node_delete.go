@@ -189,10 +189,16 @@ func (s *Store) CompleteNodeDeletionResult(messageID string) (NodeDeletionOperat
 	if op.Mode == "force" && ack.Status == "DECOMMISSIONED" {
 		// A successful remote decommission is the only ACK that confirms the
 		// force tombstone. DROPPED_DUE_TO_DECOMMISSION remains unconfirmed.
-		if _, err := conn.ExecContext(context.Background(),
+		res, err := conn.ExecContext(context.Background(),
 			`UPDATE node_cleanup_tombstones SET remote_cleanup_confirmed = 1, updated_at = ?
-			  WHERE node_id = ?`, s.currentUnix(), op.NodeID); err != nil {
+			  WHERE node_id = ? AND operation_id = ? AND force = 1`, s.currentUnix(), op.NodeID, op.ID)
+		if err != nil {
 			return NodeDeletionOperation{}, false, fmt.Errorf("store: confirm node cleanup after delete: %w", err)
+		}
+		if affected, err := res.RowsAffected(); err != nil {
+			return NodeDeletionOperation{}, false, err
+		} else if affected != 1 {
+			return NodeDeletionOperation{}, false, fmt.Errorf("%w: force cleanup tombstone is missing or mismatched", ErrCASConflict)
 		}
 	}
 
