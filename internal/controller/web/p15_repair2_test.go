@@ -108,6 +108,7 @@ func TestP15Repair2SSEHandlerZeroValueFailsClosed(t *testing.T) {
 func TestP15Repair2SSERedactsCredentialValue(t *testing.T) {
 	stub := &eventStoreStub{events: []store.AdminEvent{
 		{ID: 1, EventType: "hook-secret", Payload: `{"id":"h1","name":"hook-a","value":"dG9wLXNlY3JldA==","safe":"keep"}`},
+		{ID: 2, EventType: "url-secret", Payload: `{"value":"https://example.test/?token=TOPSECRET","array":["abcdefghijklmnop"],"safe":"keep-url"}`},
 	}}
 	handler := web.NewSSEHandler(stub, 5*time.Millisecond, 10, 0, 0)
 	ts := httptest.NewServer(handler)

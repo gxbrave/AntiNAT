@@ -776,6 +776,16 @@ a {
 
 /* ============ Responsive: mobile category strip ============ */
 @media (max-width: 767px) {
+  .btn, .btn-small, .cat, .admin-tabs [role="tab"],
+  .field input, .field select, .field textarea,
+  .settings-form input, .settings-form select,
+  .deploy-field input, .deploy-field select, .deploy-control,
+  .dialog-body .field input, .dialog-body .field select,
+  .dialog-actions .btn, .toggle-label {
+    min-height: 44px;
+  }
+  .btn-small { min-width: 44px; }
+
   .home-cats {
     flex-direction: row;
     overflow-x: auto;

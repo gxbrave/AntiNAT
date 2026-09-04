@@ -7,7 +7,42 @@ import (
 	"io"
 )
 
-// DecodeProfileJSON parses the persisted profile representation with a strict
+// UnmarshalJSON keeps the non-nullable OpenAPI string fields distinct from
+// omitted optional fields. encoding/json otherwise turns null into the zero
+// string, which would silently change a caller's payload during canonical
+// persistence.
+func (p *Profile) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return fmt.Errorf("deployment: profile must be a JSON object")
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(trimmed, &fields); err != nil {
+		return fmt.Errorf("deployment: invalid profile JSON: %w", err)
+	}
+	for key, raw := range fields {
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			switch key {
+			case "platform", "controller_endpoint", "bind_interface", "detection_scheduler", "github_proxy", "install_dir", "service_name", "log_level", "auto_update":
+				return fmt.Errorf("deployment: profile field %q cannot be null", key)
+			}
+		}
+	}
+	type plainProfile Profile
+	dec := json.NewDecoder(bytes.NewReader(trimmed))
+	dec.DisallowUnknownFields()
+	var decoded plainProfile
+	if err := dec.Decode(&decoded); err != nil {
+		return fmt.Errorf("deployment: invalid profile JSON: %w", err)
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		return fmt.Errorf("deployment: trailing JSON is not allowed")
+	}
+	*p = Profile(decoded)
+	return nil
+}
+
 // object shape. It rejects duplicate keys, unknown fields, trailing JSON and
 // semantically invalid values before a profile can be written back.
 func DecodeProfileJSON(raw []byte) (Profile, error) {

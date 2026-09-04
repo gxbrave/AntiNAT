@@ -30,8 +30,12 @@ func (s *Server) createNodeDeletion(w http.ResponseWriter, r *http.Request, node
 		writeError(w, 422, "UNPROCESSABLE_ENTITY", "mode must be normal or force")
 		return
 	}
-	if _, err := s.store.GetNode(nodeID); err != nil {
+	node, err := s.store.GetNode(nodeID)
+	if err != nil {
 		writeError(w, 404, "NOT_FOUND", "node not found")
+		return
+	}
+	if err := requireIfMatch(w, r, etagFor(node.Revision)); err != nil {
 		return
 	}
 	// repair-2 P2-B: an already-tombstoned node's force delete is an idempotent
@@ -91,8 +95,16 @@ func (s *Server) createNodeDeletion(w http.ResponseWriter, r *http.Request, node
 			// PENDING operation and the correlated tombstone.
 			if errors.Is(err, store.ErrCleanupTombstoneConflict) {
 				_ = s.store.DeleteNodeDeletionOperation(opID)
+				if tombstone, tsErr := s.store.NodeCleanupTombstone(nodeID); tsErr == nil {
+					if existingOp, opErr := s.store.GetNodeDeletionOperation(tombstone.OperationID); opErr == nil {
+						writeJSON(w, http.StatusAccepted, nodeDeletionView(existingOp))
+						return
+					}
+				}
+				writeError(w, http.StatusConflict, "CONFLICT", "node is already being force-deleted")
+				return
 			}
-			writeError(w, 500, "INTERNAL_ERROR", "force node deletion failed")
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "force node deletion failed")
 			return
 		}
 	} else {

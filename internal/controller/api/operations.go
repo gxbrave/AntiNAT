@@ -24,7 +24,7 @@ func operationTime(unix int64) string {
 }
 
 func nodeDeletionView(op store.NodeDeletionOperation) operationView {
-	return operationView{OperationID: op.ID, State: op.Status, RemoteCleanupConfirmed: false,
+	return operationView{OperationID: op.ID, State: op.Status, RemoteCleanupConfirmed: op.Status == "COMPLETED",
 		CreatedAt: operationTime(op.CreatedAt), UpdatedAt: operationTime(maxInt64(op.CreatedAt, op.CompletedAt))}
 }
 

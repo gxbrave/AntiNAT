@@ -94,9 +94,9 @@ func TestP15Repair2ForceDeleteOperationAndTombstoneCorrelated(t *testing.T) {
 	srv, st := newTestServer(t)
 	user, pass := initAdmin(t, srv, st)
 	cookie := login(t, srv, user, pass)
-	nodeID, _ := createNodeAPI(t, srv, cookie)
+	nodeID, nodeETag := createNodeAPI(t, srv, cookie)
 
-	resp, body := doReq(t, srv, http.MethodPost, "/api/v1/nodes/"+nodeID+"/delete", cookie, map[string]any{"mode": "force"})
+	resp, body := doReqIfMatch(t, srv, http.MethodPost, "/api/v1/nodes/"+nodeID+"/delete", cookie, map[string]any{"mode": "force"}, nodeETag)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("force delete = %d (%s)", resp.StatusCode, body)
 	}
@@ -128,8 +128,8 @@ func TestP15Repair2ForceDeleteOperationAndTombstoneCorrelated(t *testing.T) {
 	}
 	var n2 map[string]any
 	_ = json.Unmarshal(body, &n2)
-	node2, _ := n2["id"].(string)
-	resp, body = doReq(t, srv, http.MethodPost, "/api/v1/nodes/"+node2+"/delete", cookie, map[string]any{"mode": "normal"})
+	node2, node2ETag := n2["id"].(string), n2["etag"].(string)
+	resp, body = doReqIfMatch(t, srv, http.MethodPost, "/api/v1/nodes/"+node2+"/delete", cookie, map[string]any{"mode": "normal"}, node2ETag)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("normal delete = %d (%s)", resp.StatusCode, body)
 	}

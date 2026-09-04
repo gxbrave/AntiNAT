@@ -14,7 +14,7 @@ waive the frozen P04/P15/P16 contracts and does not authorize any old
 - Required implementation base: `329fdf5039e4e55350d923462f78c2d4ee2e3588`
 - P17 candidate implementation commit: `5af5431`
 - Pre-P17 OpenAPI manifest SHA-256: `aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32`
-- P17 OpenAPI SHA-256: `46da443e52a3a5520ca9fd0a97231d49b0bbff16c6fa65e300000457f71d6052`
+- P17 OpenAPI SHA-256: `43785c94abf6f158f52f0059d38a260d4d68f052a5ca1aed26539e48bc06c1eb`
 
 ## Approved additive API surface
 
@@ -40,10 +40,9 @@ PUT accepts `{ "profile": { ... } }`, requires `If-Match`, and returns the
 updated view. Missing `If-Match` is `428 PRECONDITION_REQUIRED`; a stale ETag
 is `412 PRECONDITION_FAILED`; malformed/unknown-field/trailing/duplicate JSON
 is rejected; semantically invalid profile data is `422 UNPROCESSABLE_ENTITY`.
-Profile responses use `Cache-Control: private, no-store`. The pre-existing
-enrollment-token endpoint retains its frozen P15 response contract; P17 fetches
-the profile before issuing a token and the browser harness retains no token,
-session state, or trace on failure.
+Profile and one-time enrollment-token responses use `Cache-Control: private,
+no-store`. This is a security-only header hardening on the pre-existing token
+route, not a new route or method.
 
 The allowed profile fields are:
 
@@ -82,10 +81,17 @@ acceptance and are limited to the corresponding durable behavior:
 |---|---|---|
 | `internal/controller/api/node_ops.go` | mount the approved deployment-profile subresource in the existing node dispatcher | no new legacy route or lifecycle API |
 | `internal/controller/store/traffic.go` | make the existing profile seam strict and atomic | profile rows only; no traffic semantics |
-| `internal/controller/store/node_bundle.go` | append `NODE_CREATED` in the node-create transaction | one durable event; no node lifecycle changes |
+| `internal/controller/store/node_bundle.go` | append `NODE_CREATED` in the node-create transaction | no node lifecycle changes |
+| `internal/controller/api/node_delete.go` | require the current node ETag before normal/force deletion | existing route only; 412/428 safety responses |
+| `internal/controller/api/operations.go` | report completed node cleanup ACK as `remote_cleanup_confirmed` | operation projection only |
+| `internal/controller/api/forwards_min.go` | project existing runtime UpdatedAt/ActivationID as evidence metadata | additive response fields; no new route |
+| `internal/controller/store/p15_repair1_page.go` | hide force-tombstoned nodes from regular navigation | durable node row retained; no lifecycle deletion |
+| `internal/controller/api/nodes_min.go` | prevent caching of the pre-existing one-time enrollment response | response header only; no new token field or route |
 | `internal/controller/api/auth.go`, `observability.go` | bound/redact the minimal fallback SSE path | fallback stream only; canonical route remains bounded |
 | `internal/controller/web/sse.go` | close remaining canonical redaction gaps | SSE payload redaction only |
-
+| `internal/controller/api/api_test.go`, `deployment_test.go`, `p15_repair1_h3_test.go`, `p15_repair2_test.go` | regression coverage for token cache, profile, delete CAS and fallback SSE | tests only |
+| `internal/controller/store/deployment_p17_test.go`, `internal/controller/deployment/profile_test.go` | strict profile/CAS and JSON boundary coverage | tests only |
+| `internal/controller/web/admin.go`, `home.go`, `home_test.go`, `router_min.go`, `ui.go`, `ui18n.go`, `web/embed.go` | P17 UI handler/template/embed wiring and browser-facing status projection | no protocol or lifecycle wiring |
 No P19 lifecycle wiring, agent delivery, or unrelated P15/P16 endpoint is
 transferred by this record. The user-requested acceptance/integration task is
 the authorization to complete these narrow transfers serially in this
@@ -117,10 +123,10 @@ artifact evidence.
   for non-loopback endpoints; deployment operators must use the confirmed
   HTTPS endpoint for production.
 - P17 does not wire node lifecycle/deployment delivery owned by P19/P18.
-- The evidence rail displays the real durable runtime-snapshot source. The
-  current frozen Forward response does not expose per-axis update timestamps or
-  probe-round identifiers, so the UI does not fabricate them; P18/P19 must add
-  an approved additive evidence metadata field before claiming that detail.
+- The evidence rail projects the real durable runtime source, RFC3339
+  `ForwardRuntimeStatus.UpdatedAt`, and activation ID for each current snapshot.
+  It does not invent a probe-round ID when the existing frozen runtime row has
+  none; a future approved contract may add per-axis/probe metadata.
 
 ## Verification references
 

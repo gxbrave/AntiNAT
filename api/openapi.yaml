@@ -223,6 +223,9 @@ paths:
       responses:
         "201":
           description: Token issued (shown once)
+          headers:
+            Cache-Control:
+              schema: { type: string, enum: ["private, no-store"] }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/EnrollmentToken" }
@@ -348,6 +351,7 @@ paths:
         - sessionAuth: []
       parameters:
         - { $ref: "#/components/parameters/NodeIdParam" }
+        - { $ref: "#/components/parameters/IfMatchHeader" }
       requestBody:
         required: true
         content:
@@ -359,6 +363,16 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Operation" }
+        "412":
+          description: ETag/revision mismatch
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "428":
+          description: ETag/If-Match required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/v1/node-deletions/{operation_id}:
     get:
       tags: [nodes]
@@ -1213,6 +1227,9 @@ components:
         custom_uri_template: { type: string }
         desired_revision: { type: integer }
         etag: { type: string }
+        evidence_source: { type: string, description: Durable source of the runtime snapshot }
+        evidence_updated_at: { type: string, format: date-time }
+        evidence_activation_id: { type: string }
         states:
           $ref: "#/components/schemas/ActivationStates"
     ActivationStates:

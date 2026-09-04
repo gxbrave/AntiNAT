@@ -32,7 +32,7 @@
     var dialogEl = null;
 
     function open(opts) {
-      lastFocus = document.activeElement;
+      lastFocus = opts.returnFocus || document.activeElement;
       root.hidden = false;
       root.textContent = '';
       var body = h('div', { class: 'dialog', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'dlg-title', 'data-dialog': '' });
@@ -72,7 +72,11 @@
       root.hidden = true;
       root.textContent = '';
       dialogEl = null;
-      if (lastFocus && lastFocus.focus) lastFocus.focus();
+      if (lastFocus && lastFocus.focus && document.contains(lastFocus)) lastFocus.focus();
+      else {
+        var fallbackFocus = document.querySelector('[data-tab="nodes"]') || document.querySelector('[data-tabs] [role="tab"]') || document.body;
+        if (fallbackFocus && fallbackFocus.focus) fallbackFocus.focus();
+      }
       lastFocus = null;
     }
 
@@ -122,13 +126,17 @@
       var normal = h('button', { class: 'btn btn-danger', type: 'button', 'data-delete-mode': 'normal' }, t('dlg.normalDelete'));
       var force = h('button', { class: 'btn btn-danger', type: 'button', 'data-delete-mode': 'force' }, t('dlg.forceDeleteAction'));
       var cancel = h('button', { class: 'btn btn-quiet', type: 'button' }, t('dlg.cancel'));
+      var consequence = h('p', { class: 'dialog-consequence', 'data-delete-consequence': 'normal', text: t('dlg.nodeDelete.body') });
       var body = h('div', { class: 'confirm-body' }, [
-        h('p', { text: t('dlg.nodeDelete.body') }),
+        consequence,
         h('p', { class: 'dialog-target', text: node && node.name ? String(node.name) : '' }),
-        h('p', { class: 'dialog-consequence', 'data-delete-consequence': 'force', text: t('dlg.forceDelete.body') }),
         node && node.control_state === 'OFFLINE' ? h('p', { class: 'dialog-consequence dialog-warning', 'data-delete-consequence': 'offline', text: t('dlg.offlinePending.note') }) : null,
         error
       ]);
+      function showConsequence(mode) {
+        consequence.setAttribute('data-delete-consequence', mode);
+        consequence.textContent = mode === 'force' ? t('dlg.forceDelete.body') : t('dlg.nodeDelete.body');
+      }
       function deleteNode(mode, button) {
         return async function () {
           if (button.disabled) return;
@@ -136,7 +144,7 @@
           force.disabled = true;
           try {
             var response = await api('/api/v1/nodes/' + encodeURIComponent(node.id) + '/delete', {
-              method: 'POST', body: { mode: mode }
+              method: 'POST', body: { mode: mode }, headers: { 'If-Match': node.etag || '' }
             });
             if (!response.ok) {
               showActionError(error, response, t('admin.saveError'));
@@ -154,6 +162,10 @@
           }
         };
       }
+      normal.addEventListener('focus', function () { showConsequence('normal'); });
+      force.addEventListener('focus', function () { showConsequence('force'); });
+      normal.addEventListener('mouseenter', function () { showConsequence('normal'); });
+      force.addEventListener('mouseenter', function () { showConsequence('force'); });
       normal.addEventListener('click', deleteNode('normal', normal));
       force.addEventListener('click', deleteNode('force', force));
       cancel.addEventListener('click', close);
@@ -386,6 +398,9 @@
       'CONTROL_SESSION_ACTIVE', 'CONTROL_SESSION_CLOSED', 'CONTROL_HANDSHAKE_REJECTED',
       'CONTROL_FRAME_REJECTED', 'CONTROL_STATE_FAILED', 'CONTROL_STATUS_STALE',
       'CONTROL_RESULT_CORRELATION_ERROR', 'CONTROL_RESULT_INBOX_STATE_ERROR',
+      'CONTROL_OUTBOX_CLAIM_FAILED', 'CONTROL_OUTBOX_DELIVERY_GATE_FAILED',
+      'CONTROL_OUTBOX_MARK_SENT_FAILED', 'CONTROL_OUTBOX_REQUEUE_FAILED',
+      'CONTROL_OUTBOX_REQUEUE_ITEM_FAILED', 'CONTROL_OUTBOX_WRITE_FAILED',
       'PROBE_RECEIPT_REJECTED', 'PROBE_SINK_ERROR', 'PROBE_STATE_ERROR',
       'PROBE_INBOX_STATE_ERROR', 'PROBE_ARM_CORRELATION_ERROR',
       'PROBE_RECEIPT_INBOX_ERROR', 'PROBE_RECEIPT_STATE_ERROR',

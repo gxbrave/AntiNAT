@@ -26,11 +26,12 @@ export ANTINAT_TEST_USER="$TEST_USER" ANTINAT_TEST_PASSWORD="$TEST_PASSWORD"
 PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/root/.cache/ms-playwright}"
 
 cleanup() {
+  local rc=$?
   if [ -n "$CONTROLLER_PID" ] && kill -0 "$CONTROLLER_PID" 2>/dev/null; then
     kill "$CONTROLLER_PID" 2>/dev/null || true
     wait "$CONTROLLER_PID" 2>/dev/null || true
   fi
-  if [ "$FAILED" -ne 0 ]; then
+  if [ "$FAILED" -ne 0 ] || [ "$rc" -ne 0 ]; then
     rm -f "$WORK/browser-auth.json"
     rm -rf "$WORK/keys" "$WORK/controller.db" "$BROWSER_DIR/test-results" "$BROWSER_DIR/playwright-report"
     echo "test-browser: FAILED (see logs above); work dir retained at $WORK"
@@ -38,6 +39,7 @@ cleanup() {
   else
     rm -rf "$WORK"
   fi
+  return "$rc"
 }
 trap cleanup EXIT
 

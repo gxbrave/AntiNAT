@@ -347,7 +347,7 @@
       detail.appendChild(h('p', { class: 'pane-empty' }, t('admin.empty')));
     } else {
       detail.appendChild(h('div', { class: 'evidence-summary' }, [h('span', { 'aria-hidden': 'true' }), t('admin.detail.derived')]));
-      detail.appendChild(U.evidenceChain(states));
+      detail.appendChild(U.evidenceChain(states, fwd));
       detail.appendChild(h('div', { class: 'advanced', 'data-advanced': '' },
         [h('details', null, [h('summary', { text: t('admin.detail.advanced') }),
           h('div', { class: 'advanced-body' }, advancedRows(states))])]));

@@ -75,6 +75,10 @@ func NewSSEHandler(store EventStore, pollInterval time.Duration, batch, maxSubsc
 }
 
 func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeSSEError(w, http.StatusMethodNotAllowed, "BAD_REQUEST", "method not allowed")
+		return
+	}
 	if h.Store == nil {
 		writeSSEError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "event stream is unavailable")
 		return
@@ -117,10 +121,11 @@ func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	controller := http.NewResponseController(w)
-	setWriteDeadline := func() {
-		if writeTimeout > 0 {
-			_ = controller.SetWriteDeadline(time.Now().Add(writeTimeout))
+	setWriteDeadline := func() bool {
+		if writeTimeout <= 0 {
+			return true
 		}
+		return controller.SetWriteDeadline(time.Now().Add(writeTimeout)) == nil
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -134,13 +139,17 @@ func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			payload := redactEventPayload(event.Payload)
-			setWriteDeadline()
+			if !setWriteDeadline() {
+				return
+			}
 			if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", event.ID, sanitizeEventType(event.EventType), payload); err != nil {
 				return
 			}
 			cursor = event.ID
 		}
-		setWriteDeadline()
+		if !setWriteDeadline() {
+			return
+		}
 		flusher.Flush()
 		if len(events) > 0 {
 			continue
@@ -246,7 +255,10 @@ func credentialLikeValue(v string) bool {
 	if structuredNonSecret(v) {
 		return false
 	}
-	if len(v) >= 24 && !strings.ContainsAny(v, " \t") {
+	if !strings.ContainsAny(v, " 	\r\n") {
+		return true
+	}
+	if len(v) >= 24 && !strings.ContainsAny(v, " 	") {
 		return true
 	}
 	if hexTokenShape(v) || base64TokenShape(v) {
@@ -257,7 +269,22 @@ func credentialLikeValue(v string) bool {
 
 func structuredNonSecret(v string) bool {
 	if strings.Contains(v, "://") {
-		return true // URL, never a credential
+		// A URL is only structured/non-secret when it has no userinfo and no
+		// credential-looking query or fragment. Never let URL syntax bypass
+		// token/secret redaction.
+		lower := strings.ToLower(v)
+		if strings.Contains(lower, "@") {
+			return false
+		}
+		if start := strings.IndexAny(lower, "?#"); start >= 0 {
+			tail := lower[start+1:]
+			if strings.Contains(tail, "token") || strings.Contains(tail, "secret") ||
+				strings.Contains(tail, "password") || strings.Contains(tail, "apikey") ||
+				strings.Contains(tail, "credential") {
+				return false
+			}
+		}
+		return true // URL without credential-bearing userinfo/query
 	}
 	// Digit-dominated timestamp / datetime / IP / port / serial shapes.
 	digits, letters := 0, 0
@@ -284,7 +311,12 @@ func structuredNonSecret(v string) bool {
 			return false
 		}
 	}
-	return hexCount >= 12 && sepCount >= 2
+	if hexCount >= 12 && sepCount >= 2 {
+		return true
+	}
+	// Ambiguous opaque strings are safer to redact than to expose. The caller
+	// already excludes short values; prose with whitespace remains structured.
+	return strings.ContainsAny(v, " 	\r\n")
 }
 
 func hexTokenShape(v string) bool {

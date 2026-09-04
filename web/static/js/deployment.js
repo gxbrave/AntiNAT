@@ -141,14 +141,15 @@
           dockerArgs.push(quoteShellArg(args[i]));
         }
       }
-      return 'docker run --network host --restart=always --volume /var/lib/antinat:/var/lib/antinat ghcr.io/gxbrave/antinat-agent:latest ' + dockerArgs.join(' ');
+      return 'docker run --interactive --tty --network host --restart=always --volume /var/lib/antinat:/var/lib/antinat ghcr.io/gxbrave/antinat-agent:latest ' + dockerArgs.join(' ');
     }
     if (profile.platform === PLATFORM_WINDOWS) {
       var psArgs = ['install'].concat(args.map(quotePowerShellArg));
       var body = '$script = (Invoke-WebRequest -UseBasicParsing -Uri ' + quotePowerShellArg(installerURL(profile)) + ').Content; & ([scriptblock]::Create($script)) ' + psArgs.join(' ');
       return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ' + encodePowerShellCommand(body);
     }
-    return 'curl --fail --silent --show-error --location ' + quoteShellArg(installerURL(profile)) + ' | sudo bash -s -- install ' + quoteShellArgs(args);
+    var inner = 'curl --fail --silent --show-error --location ' + quoteShellArg(installerURL(profile)) + ' | sudo bash -s -- install ' + quoteShellArgs(args);
+    return 'bash -o pipefail -c ' + quoteShellArg(inner);
   }
 
   function formControl(labelKey, key, type, value) {
@@ -227,6 +228,7 @@
   function open(node) {
     var nodeID = node && (node.id || node.ID);
     if (!nodeID) return Promise.resolve();
+    var opener = document.activeElement;
     return api('/api/v1/nodes/' + encodeURIComponent(nodeID) + '/deployment-profile')
       .then(function (profileResp) {
         if (!profileResp.ok || !profileResp.data) throw new Error(errorMessage(profileResp, t('node.deploy.profileError')));
@@ -235,7 +237,7 @@
         return api('/api/v1/nodes/' + encodeURIComponent(nodeID) + '/enrollment-token', { method: 'POST' })
           .then(function (tokenResp) {
             if (!tokenResp.ok || !tokenResp.data || !tokenResp.data.token) throw new Error(errorMessage(tokenResp, t('node.deploy.tokenError')));
-            renderTokenStep(node, String(tokenResp.data.token), profile, etag);
+            renderTokenStep(node, String(tokenResp.data.token), profile, etag, opener);
           });
       }).catch(function (err) {
       var message = err && err.message ? err.message : t('node.deploy.profileError');
@@ -248,7 +250,7 @@
     });
   }
 
-  function renderTokenStep(node, oneTimeToken, sourceProfile, sourceETag) {
+  function renderTokenStep(node, oneTimeToken, sourceProfile, sourceETag, opener) {
     var wrap = h('div', { class: 'deployment-dialog-content deployment-token-surface', 'data-deployment-dialog': '', 'data-deployment-token-dialog': '' });
     wrap.appendChild(h('p', { class: 'dialog-copy', text: node.name || node.id || '' }));
     wrap.appendChild(h('section', { class: 'token-panel', 'data-deployment-token-panel': '' }, [
@@ -262,13 +264,13 @@
     next.addEventListener('click', function () {
       // The token panel is removed before the command surface is constructed.
       oneTimeToken = null;
-      renderCommandStep(node, sourceProfile, sourceETag);
+      renderCommandStep(node, sourceProfile, sourceETag, opener);
     });
     close.addEventListener('click', function () { dialogs().close(); });
-    dialogs().open({ title: t('node.deploy.title'), body: wrap, actions: [next, close] });
+    dialogs().open({ title: t('node.deploy.title'), body: wrap, actions: [next, close], returnFocus: opener });
   }
 
-  function renderCommandStep(node, sourceProfile, sourceETag) {
+  function renderCommandStep(node, sourceProfile, sourceETag, opener) {
     var nodeID = node && (node.id || node.ID);
     var state = { profile: cloneProfile(sourceProfile), etag: sourceETag, detection: 'not_tested' };
     var wrap = h('div', { class: 'deployment-dialog-content deployment-command-surface', 'data-deployment-dialog': '', 'data-deployment-command-dialog': '' });
@@ -330,6 +332,7 @@
     var commandPanel = h('section', { class: 'command-panel' }, [
       h('h3', { text: t('node.deploy.step.command') }),
       h('pre', { class: 'cmd deployment-command', tabindex: '0', 'data-deployment-command': '' }),
+      h('p', { class: 'field-hint dialog-warning', 'data-artifact-trust-notice': '', text: t('node.deploy.artifactNotice') }),
       h('p', { class: 'field-hint', 'data-deployment-copy-notice': '', text: t('node.deploy.fdNotice') })
     ]);
     wrap.appendChild(commandPanel);
@@ -355,7 +358,7 @@
     installDirEnable.addEventListener('change', function () { if (!installDirEnable.checked) installDir.value = ''; updateCommand(); });
     serviceEnable.addEventListener('change', function () { if (!serviceEnable.checked) serviceName.value = ''; updateCommand(); });
 
-    dialogs().open({ title: t('node.deploy.title'), body: wrap, actions: actions });
+    dialogs().open({ title: t('node.deploy.title'), body: wrap, actions: actions, returnFocus: opener });
     updateCommand();
     updatePlatformFields();
 

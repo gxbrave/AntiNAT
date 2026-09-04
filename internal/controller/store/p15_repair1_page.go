@@ -131,9 +131,9 @@ func (s *Store) ListNodePage(q ListQuery) ([]Node, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	whereClause := ""
+	whereClause := " WHERE NOT EXISTS (SELECT 1 FROM node_cleanup_tombstones t WHERE t.node_id = nodes.id)"
 	if p.where != "" {
-		whereClause = " WHERE " + p.where
+		whereClause += " AND " + p.where
 	}
 
 	var total int

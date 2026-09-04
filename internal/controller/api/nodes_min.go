@@ -121,6 +121,7 @@ func (s *Server) handleNodeByID(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "token issuance failed")
 		return
 	}
+	w.Header().Set("Cache-Control", "private, no-store")
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"token":      plain,
 		"expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),

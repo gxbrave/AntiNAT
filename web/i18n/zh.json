@@ -187,6 +187,7 @@
   "node.deploy.copied": "已复制",
   "node.deploy.copyFailNotice": "复制失败，请手动选择命令文本。",
   "node.deploy.fdNotice": "非交互安装请用 --token-fd 或 0600 令牌文件；不要在命令行直接传令牌。",
+  "node.deploy.artifactNotice": "当前安装器 URL/镜像为可变引用；生产使用前请验证签名制品和 digest。",
   "node.deploy.save": "保存部署配置",
   "node.deploy.saved": "已保存",
   "node.deploy.allFailed": "探测全部失败，仍可保存现状。",

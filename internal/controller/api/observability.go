@@ -12,6 +12,10 @@ import (
 )
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "BAD_REQUEST", "method not allowed")
+		return
+	}
 	if s.eventSlots == nil {
 		writeError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "event stream is unavailable")
 		return
@@ -51,13 +55,17 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			payload := redactEventPayload(event.Payload)
-			_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			if err := controller.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+				return
+			}
 			if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", event.ID, sanitizeEventType(event.EventType), payload); err != nil {
 				return
 			}
 			cursor = event.ID
 		}
-		_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if err := controller.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			return
+		}
 		flusher.Flush()
 		if len(events) > 0 {
 			continue
@@ -145,7 +153,10 @@ func credentialLikeValue(v string) bool {
 	if structuredNonSecret(v) {
 		return false
 	}
-	if len(v) >= 24 && !strings.ContainsAny(v, " \t") {
+	if !strings.ContainsAny(v, " 	\r\n") {
+		return true
+	}
+	if len(v) >= 24 && !strings.ContainsAny(v, " 	") {
 		return true
 	}
 	if hexTokenShape(v) || base64TokenShape(v) {
@@ -156,7 +167,19 @@ func credentialLikeValue(v string) bool {
 
 func structuredNonSecret(v string) bool {
 	if strings.Contains(v, "://") {
-		return true // URL, never a credential
+		lower := strings.ToLower(v)
+		if strings.Contains(lower, "@") {
+			return false
+		}
+		if start := strings.IndexAny(lower, "?#"); start >= 0 {
+			tail := lower[start+1:]
+			if strings.Contains(tail, "token") || strings.Contains(tail, "secret") ||
+				strings.Contains(tail, "password") || strings.Contains(tail, "apikey") ||
+				strings.Contains(tail, "credential") {
+				return false
+			}
+		}
+		return true
 	}
 	digits, letters := 0, 0
 	for _, r := range v {

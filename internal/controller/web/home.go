@@ -281,7 +281,7 @@ func verifiedHomeAxes(axes protocol.ActivationStates) bool {
 
 func axisBroken(axes protocol.ActivationStates) bool {
 	switch axes.ListenerState {
-	case "ERROR":
+	case "ERROR", "STOPPED":
 		return true
 	}
 	switch axes.MappingState {
@@ -301,7 +301,7 @@ func axisBroken(axes protocol.ActivationStates) bool {
 		return true
 	}
 	switch axes.TargetHealthState {
-	case "FAIL":
+	case "FAIL", "UNSUPPORTED":
 		return true
 	}
 	switch axes.DataPlaneState {

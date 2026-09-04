@@ -12,6 +12,7 @@ func TestDecodeProfileJSONRejectsDuplicateTrailingAndDeepInput(t *testing.T) {
 		"trailing value": `{` + base + `} {"extra":true}`,
 		"trailing bytes": `{` + base + `} trailing`,
 	}
+	cases["nullable field"] = `{` + base + `,"bind_interface":null}`
 	deep := `{` + base + `,"bind_interface":` + strings.Repeat("[", 40) + `null` + strings.Repeat("]", 40) + `}`
 	cases["deep nesting"] = deep
 

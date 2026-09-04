@@ -107,7 +107,7 @@
   }
 
   /* evidenceChain renders the six-ring evidence rail from real states. */
-  function evidenceChain(states) {
+  function evidenceChain(states, evidence) {
     var rail = h('ol', { class: 'evidence-rail', 'data-evidence-rail': '' });
     if (!states) return rail;
     var steps = [
@@ -124,16 +124,18 @@
       rail.appendChild(h('li', { class: 'rail-ring ring-' + tone, 'data-ring': step[1], 'data-value': axisValue || '' },
         [h('span', { class: 'ring-axis' }, t(step[0])),
          h('span', { class: 'ring-value' }, [h('span', { class: 'status-shape shape-' + tone, 'aria-hidden': 'true' }), axisValue || t('state.unknown')]),
-         h('div', { class: 'ring-evidence' }, evidenceSource(states, step[1]))]));
+         h('div', { class: 'ring-evidence' }, evidenceSource(states, step[1], evidence))]));
     });
     return rail;
   }
 
-  function evidenceSource(states, axis) {
-    var source = states[axis + '_source'] || states.evidence_source || t('admin.detail.runtimeSnapshot');
-    var at = states[axis + '_at'] || states.evidence_at || states.updated_at || '';
+  function evidenceSource(states, axis, evidence) {
+    evidence = evidence || {};
+    var source = states[axis + '_source'] || evidence.evidence_source || states.evidence_source || t('admin.detail.runtimeSnapshot');
+    var at = states[axis + '_at'] || evidence.evidence_updated_at || states.evidence_at || states.updated_at || '';
     var text = t('admin.detail.evidenceSource') + ': ' + source;
     if (at) text += ' · ' + t('admin.detail.evidenceAt') + ': ' + at;
+    if (evidence.evidence_activation_id) text += ' · ' + evidence.evidence_activation_id;
     return text;
   }
 
@@ -141,7 +143,7 @@
     if (!value) return 'neutral';
     var badVals = { listener_state: ['ERROR', 'STOPPED'], mapping_state: ['LOST', 'ERROR'], keepalive_state: ['LOST'], wan_reachability_state: ['REJECTED', 'TIMEOUT'], return_path_state: ['FAILED'], target_health_state: ['FAIL', 'UNSUPPORTED'], data_plane_state: ['ERROR'], control_state: ['OFFLINE'] };
     var warnVals = { listener_state: ['STARTING'], mapping_state: ['ACQUIRING', 'FIRST_HOP_MAPPED'], keepalive_state: ['DEGRADED'], wan_reachability_state: ['PROBING', 'NO_INDEPENDENT_VANTAGE', 'PROBE_INFRA_UNAVAILABLE', 'UNKNOWN'], target_health_state: ['SKIPPED'], data_plane_state: ['DEGRADED'], publication_state: ['PUBLISHED_UNVERIFIED', 'STALE'] };
-    var okVals = { control_state: ['ONLINE'], listener_state: ['READY'], mapping_state: ['PUBLIC_CANDIDATE', 'NOT_REQUIRED'], keepalive_state: ['HEALTHY', 'NOT_REQUIRED'], wan_reachability_state: ['OPEN_FROM_VANTAGE'], return_path_state: ['VERIFIED', 'NOT_TESTED', 'UNKNOWN'], target_health_state: ['PASS'], data_plane_state: ['READY'], publication_state: ['PUBLISHED_VERIFIED', 'NONE'] };
+    var okVals = { control_state: ['ONLINE'], listener_state: ['READY'], mapping_state: ['PUBLIC_CANDIDATE', 'NOT_REQUIRED'], keepalive_state: ['HEALTHY', 'NOT_REQUIRED'], wan_reachability_state: ['OPEN_FROM_VANTAGE'], return_path_state: ['VERIFIED'], target_health_state: ['PASS'], data_plane_state: ['READY'], publication_state: ['PUBLISHED_VERIFIED', 'NONE'] };
     if (badVals[axis] && badVals[axis].indexOf(value) !== -1) return 'bad';
     if (warnVals[axis] && warnVals[axis].indexOf(value) !== -1) return 'warn';
     if (okVals[axis] && okVals[axis].indexOf(value) !== -1) return 'ok';
@@ -164,12 +166,12 @@
   }
 
   function brokenAxis(states) {
-    return states.listener_state === 'ERROR' ||
+    return states.listener_state === 'ERROR' || states.listener_state === 'STOPPED' ||
       states.mapping_state === 'LOST' || states.mapping_state === 'ERROR' ||
       states.keepalive_state === 'LOST' ||
       states.wan_reachability_state === 'REJECTED' || states.wan_reachability_state === 'TIMEOUT' ||
       states.return_path_state === 'FAILED' ||
-      states.target_health_state === 'FAIL' ||
+      states.target_health_state === 'FAIL' || states.target_health_state === 'UNSUPPORTED' ||
       states.data_plane_state === 'ERROR';
   }
 

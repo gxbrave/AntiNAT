@@ -40,6 +40,9 @@ type forwardView struct {
 	DesiredRevision        uint64                    `json:"desired_revision"`
 	ETag                   string                    `json:"etag"`
 	States                 protocol.ActivationStates `json:"states,omitempty"`
+	EvidenceSource         string                    `json:"evidence_source,omitempty"`
+	EvidenceUpdatedAt      string                    `json:"evidence_updated_at,omitempty"`
+	EvidenceActivationID   string                    `json:"evidence_activation_id,omitempty"`
 }
 
 func (s *Server) forwardView(f store.Forward, spec protocol.ForwardSpec, states *store.ForwardRuntimeStatus) forwardView {
@@ -57,6 +60,9 @@ func (s *Server) forwardView(f store.Forward, spec protocol.ForwardSpec, states 
 		var st protocol.ActivationStates
 		if json.Unmarshal([]byte(states.SnapshotJSON), &st) == nil {
 			view.States = st
+			view.EvidenceSource = "forward_runtime_status"
+			view.EvidenceUpdatedAt = operationTime(states.UpdatedAt)
+			view.EvidenceActivationID = states.ActivationID
 		}
 	}
 	return view

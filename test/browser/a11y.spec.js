@@ -52,7 +52,55 @@ test.describe('accessibility and review evidence', () => {
     await assertAccessibleControls(page);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);
+    const touchTargets = await page.locator('button:visible, [role="tab"]:visible, .cat:visible').evaluateAll((nodes) => nodes
+      .map((node) => {
+        const rect = node.getBoundingClientRect();
+        return { label: node.textContent?.trim() || node.getAttribute('aria-label') || node.tagName, width: rect.width, height: rect.height };
+      })
+      .filter((item) => item.width < 44 || item.height < 44));
+    expect(touchTargets, 'visible mobile controls must be at least 44x44').toEqual([]);
     await page.screenshot({ path: 'evidence/p17-admin-mobile.png', fullPage: true });
+  });
+
+  test('captures public and admin language evidence without retaining a token', async ({ page }) => {
+    async function setLanguage(language) {
+      const get = await page.evaluate(async () => {
+        const response = await fetch('/api/v1/settings', { credentials: 'same-origin' });
+        return { ok: response.ok, body: await response.json() };
+      });
+      expect(get.ok).toBeTruthy();
+      const body = get.body;
+      const etag = body.etag;
+      delete body.etag;
+      body.language = language;
+      const put = await page.evaluate(async ({ body, etag }) => {
+        const response = await fetch('/api/v1/settings', {
+          method: 'PUT', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'If-Match': etag },
+          body: JSON.stringify(body)
+        });
+        return response.ok;
+      }, { body, etag });
+      expect(put).toBeTruthy();
+    }
+
+    await login(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await setLanguage('zh');
+    await page.goto('/');
+    await expect(page.locator('[data-cards]')).toBeVisible();
+    await page.screenshot({ path: 'evidence/p17-home-zh.png', fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: 'evidence/p17-home-mobile.png', fullPage: true });
+
+    await setLanguage('en');
+    await page.goto('/');
+    await expect(page.locator('[data-cards]')).toBeVisible();
+    await page.screenshot({ path: 'evidence/p17-home-en.png', fullPage: true });
+    await page.goto('/admin');
+    await expect(page.locator('[data-tabs]')).toBeVisible();
+    await page.screenshot({ path: 'evidence/p17-admin-en.png', fullPage: true });
+    await setLanguage('zh');
   });
 
   test('verified publication requires every evidence axis to be ready', async ({ page }) => {

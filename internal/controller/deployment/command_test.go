@@ -127,7 +127,7 @@ func TestBuildInstallCommandSeparatesTokenAndFiltersDockerInstallerFlags(t *test
 			t.Errorf("Docker command %q contains forbidden %q", command, forbidden)
 		}
 	}
-	for _, required := range []string{"docker run", "--network host", "--restart=always", "--controller-endpoint", "--platform docker"} {
+	for _, required := range []string{"docker run", "--interactive", "--tty", "--network host", "--restart=always", "--controller-endpoint", "--platform docker"} {
 		if !strings.Contains(command, required) {
 			t.Errorf("Docker command %q does not contain %q", command, required)
 		}
@@ -147,7 +147,7 @@ func TestBuildInstallCommandUsesPlatformSpecificDownloadAndNoSecret(t *testing.T
 		if strings.Contains(command, "--token") || strings.Contains(command, "TOKEN") {
 			t.Errorf("%s command contains a token channel: %q", platform, command)
 		}
-		if platform == PlatformLinux && (!strings.Contains(command, "curl") || !strings.Contains(command, "sudo bash")) {
+		if platform == PlatformLinux && (!strings.Contains(command, "curl") || !strings.Contains(command, "sudo bash") || !strings.Contains(command, "bash -o pipefail -c")) {
 			t.Errorf("Linux command is not a curl/sudo bash flow: %q", command)
 		}
 		if platform == PlatformWindows && (!strings.Contains(command, "powershell") || !strings.Contains(command, "ExecutionPolicy Bypass")) {

@@ -51,8 +51,11 @@ test.describe('destructive dialogs', () => {
     const onlineDelete = page.locator('[data-node="node-online"] [data-action="delete"]');
     await onlineDelete.click();
     const bodyText = await dialog.textContent();
-    expect(bodyText).toMatch(/remote cleanup is not confirmed|remote_cleanup_confirmed=false|远端残留需手动清理/);
-    await expect(page.locator('[data-delete-mode="force"]')).toContainText(/强制删除|Force delete/);
+    expect(bodyText).not.toMatch(/remote cleanup is not confirmed|remote_cleanup_confirmed=false|远端残留需手动清理/);
+    const forceButton = page.locator('[data-delete-mode="force"]');
+    await forceButton.focus();
+    await expect(dialog).toContainText(/remote cleanup is not confirmed|remote_cleanup_confirmed=false|远端残留需手动清理/);
+    await expect(forceButton).toContainText(/强制删除|Force delete/);
     await page.keyboard.press('Escape');
   });
 

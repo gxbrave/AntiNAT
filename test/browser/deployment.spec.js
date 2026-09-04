@@ -26,6 +26,39 @@ async function nodes(page) {
 }
 
 test.describe('node deployment flow', () => {
+  test('create failure stays recoverable in the create dialog', async ({ page }) => {
+    await login(page);
+    await nodes(page);
+    await page.route('**/api/v1/nodes', (route) => {
+      if (route.request().method() === 'POST') return route.abort();
+      return route.continue();
+    });
+    await page.locator('[data-node-create]').click();
+    await page.fill('[data-new-node-name]', 'browser-create-failure');
+    await page.locator('[data-node-create-submit]').click();
+    await expect(page.locator('[data-node-create-error]')).toBeVisible();
+    await expect(page.locator('[data-node-create-submit]')).toBeEnabled();
+    await expect(page.locator('[data-dialog]')).toBeVisible();
+    await page.unroute('**/api/v1/nodes');
+  });
+
+  test('double-submitting node creation produces one POST', async ({ page }) => {
+    await login(page);
+    await nodes(page);
+    let creates = 0;
+    await page.route('**/api/v1/nodes', async (route) => {
+      if (route.request().method() === 'POST') creates += 1;
+      await route.continue();
+    });
+    await page.locator('[data-node-create]').click();
+    await page.fill('[data-new-node-name]', 'browser-double-create');
+    await page.locator('[data-node-create-submit]').evaluate((button) => { button.click(); button.click(); });
+    await expect(page.locator('[data-deployment-dialog]')).toBeVisible({ timeout: 5000 });
+    expect(creates).toBe(1);
+    await page.locator('[data-deployment-close]').click();
+    await page.unroute('**/api/v1/nodes');
+  });
+
   test('creates a node once and enters a secret-free deployment dialog', async ({ page }) => {
     await login(page);
     await nodes(page);
@@ -45,6 +78,7 @@ test.describe('node deployment flow', () => {
     expect(command).toContain('--controller-endpoint');
     expect(command).not.toContain(token);
     expect(command).not.toContain('--token');
+    expect(command).toContain('bash -o pipefail -c');
     expect(await page.locator('[data-deployment-token]').count()).toBe(0);
   });
 
@@ -65,6 +99,9 @@ test.describe('node deployment flow', () => {
     expect(dockerCommand).not.toContain('--service-name');
     expect(dockerCommand).not.toContain('--github-proxy');
     expect(dockerCommand).not.toContain('--token');
+    expect(dockerCommand).toContain('--interactive');
+    expect(dockerCommand).toContain('--tty');
+    expect(dockerCommand).not.toContain('--rm');
 
     await platform.selectOption('windows');
     await expect(page.locator('[data-deployment-command]')).toContainText(/powershell/i);

@@ -18,10 +18,10 @@ func TestP15Repair1H3NodeDeleteForceLifecycleAndNormal(t *testing.T) {
 	srv, st := newTestServerWithCloser(t)
 	user, pass := initAdmin(t, srv, st)
 	cookie := login(t, srv, user, pass)
-	nodeID, _ := createNodeAPI(t, srv, cookie)
+	nodeID, nodeETag := createNodeAPI(t, srv, cookie)
 
 	// normal delete: 202 + operation, no tombstone, no session close.
-	resp, body := doReq(t, srv, http.MethodPost, "/api/v1/nodes/"+nodeID+"/delete", cookie, map[string]any{"mode": "normal"})
+	resp, body := doReqIfMatch(t, srv, http.MethodPost, "/api/v1/nodes/"+nodeID+"/delete", cookie, map[string]any{"mode": "normal"}, nodeETag)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("normal delete = %d (%s)", resp.StatusCode, body)
 	}
@@ -46,7 +46,7 @@ func TestP15Repair1H3NodeDeleteForceLifecycleAndNormal(t *testing.T) {
 	}
 
 	// force delete: 202 + operation + cleanup tombstone + session close.
-	resp, body = doReq(t, srv, http.MethodPost, "/api/v1/nodes/"+nodeID+"/delete", cookie, map[string]any{"mode": "force"})
+	resp, body = doReqIfMatch(t, srv, http.MethodPost, "/api/v1/nodes/"+nodeID+"/delete", cookie, map[string]any{"mode": "force"}, nodeETag)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("force delete = %d (%s)", resp.StatusCode, body)
 	}
@@ -75,9 +75,9 @@ func TestP15Repair2NodeDeleteForceTwiceIsIdempotent202(t *testing.T) {
 	srv, st := newTestServerWithCloser(t)
 	user, pass := initAdmin(t, srv, st)
 	cookie := login(t, srv, user, pass)
-	nodeID, _ := createNodeAPI(t, srv, cookie)
+	nodeID, nodeETag := createNodeAPI(t, srv, cookie)
 
-	resp, body := doReq(t, srv, http.MethodPost, "/api/v1/nodes/"+nodeID+"/delete", cookie, map[string]any{"mode": "force"})
+	resp, body := doReqIfMatch(t, srv, http.MethodPost, "/api/v1/nodes/"+nodeID+"/delete", cookie, map[string]any{"mode": "force"}, nodeETag)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("first force delete = %d (%s)", resp.StatusCode, body)
 	}
@@ -89,7 +89,7 @@ func TestP15Repair2NodeDeleteForceTwiceIsIdempotent202(t *testing.T) {
 
 	// Second force delete must NOT be 500: it is an idempotent repeat returning
 	// the same operation id.
-	resp, body = doReq(t, srv, http.MethodPost, "/api/v1/nodes/"+nodeID+"/delete", cookie, map[string]any{"mode": "force"})
+	resp, body = doReqIfMatch(t, srv, http.MethodPost, "/api/v1/nodes/"+nodeID+"/delete", cookie, map[string]any{"mode": "force"}, nodeETag)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("second force delete = %d (%s), want 202 (RED: pre-fix 500)", resp.StatusCode, body)
 	}

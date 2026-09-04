@@ -187,6 +187,7 @@
   "node.deploy.copied": "Copied",
   "node.deploy.copyFailNotice": "Copy failed; select the command text manually.",
   "node.deploy.fdNotice": "For non-interactive installs use --token-fd or a 0600 token file; never pass a token on the command line.",
+  "node.deploy.artifactNotice": "The displayed installer URL/image is mutable; verify the signed artifact and digest before production use.",
   "node.deploy.save": "Save deployment profile",
   "node.deploy.saved": "Saved",
   "node.deploy.allFailed": "All detection steps failed; you may still save the current state.",

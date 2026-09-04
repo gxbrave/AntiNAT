@@ -147,6 +147,11 @@ func TestDeploymentProfileRequiresAuthAndRejectsInvalidProfile(t *testing.T) {
 	if resp.StatusCode != http.StatusUnprocessableEntity {
 		t.Fatalf("profile missing required fields = %d (%s), want 422", resp.StatusCode, body)
 	}
+	deletePath := "/api/v1/nodes/" + nodeID + "/delete"
+	resp, body = doReqIfMatch(t, srv, http.MethodPost, deletePath, cookie, map[string]any{"mode": "normal"}, `"rev-999"`)
+	if resp.StatusCode != http.StatusPreconditionFailed {
+		t.Fatalf("stale node delete = %d (%s), want 412", resp.StatusCode, body)
+	}
 }
 
 func stProfileJSON(t *testing.T, st *store.Store, nodeID string) string {

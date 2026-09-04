@@ -169,7 +169,7 @@ func NormalizeOptionalServiceURL(raw string) (string, error) {
 	if u.User != nil {
 		return "", errors.New("userinfo is not allowed")
 	}
-	if u.RawQuery != "" || u.Fragment != "" {
+	if u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
 		return "", errors.New("query and fragment are not allowed")
 	}
 	if strings.ContainsAny(u.Host, "\\\"'<>[]") {
@@ -285,8 +285,9 @@ func installerURL(profile Profile, base string) string {
 }
 
 func buildPOSIXInstallCommand(scriptURL string, args []string) string {
-	return "curl --fail --silent --show-error --location " + QuoteShellArg(scriptURL) +
+	inner := "curl --fail --silent --show-error --location " + QuoteShellArg(scriptURL) +
 		" | sudo bash -s -- install " + QuoteShellArgs(args)
+	return "bash -o pipefail -c " + QuoteShellArg(inner)
 }
 
 func buildPowerShellInstallCommand(scriptURL string, args []string) string {
@@ -323,7 +324,7 @@ func buildDockerCommand(args []string) string {
 		}
 		rendered = append(rendered, QuoteShellArg(args[i]))
 	}
-	return "docker run --network host --restart=always " +
+	return "docker run --interactive --tty --network host --restart=always " +
 		"--volume /var/lib/antinat:/var/lib/antinat " + containerImage + " " + strings.Join(rendered, " ")
 }
 

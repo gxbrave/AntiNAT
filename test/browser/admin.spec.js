@@ -54,6 +54,8 @@ test.describe('admin shell', () => {
     await expect(rail.locator('[data-ring="control_state"]')).toHaveAttribute('data-value', 'ONLINE');
     await expect(rail.locator('[data-ring="wan_reachability_state"]')).toHaveAttribute('data-value', 'OPEN_FROM_VANTAGE');
     await expect(rail.locator('.ring-evidence').first()).toContainText(/证据来源|Evidence source/);
+    await expect(rail.locator('.ring-evidence').first()).toContainText(/forward_runtime_status/);
+    await expect(rail.locator('.ring-evidence').first()).toContainText(/证据时间|Evidence at/);
   });
 
   test('nodes tab distinguishes offline/online durably in text + shape', async ({ page }) => {
