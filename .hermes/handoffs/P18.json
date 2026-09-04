@@ -1,0 +1,320 @@
+{
+  "schema_version": 1,
+  "plan": "P18",
+  "name": "installers, services, upgrade/rollback, purge, Windows, OpenRC, arm64, and OCI packaging",
+  "stage": "CANDIDATE",
+  "branch": "ai/P18-installers-platforms",
+  "base_sha": "28aeaab5bb9c788da9c0068b8314b4f48c5a423d",
+  "base_tree_sha": "0e65ed6cc4ac2fccb37d54c5615a14bea38e7915",
+  "head_sha": "e7a6dff0717c67b0553ffdea2df0a0b1a8d4dc50",
+  "head_tree_sha": "04d6e69961a829f4a49021b9e0691d8a74772b2f",
+  "candidate_record_tip_sha": "e7a6dff0717c67b0553ffdea2df0a0b1a8d4dc50",
+  "candidate_record_tip_tree_sha": "04d6e69961a829f4a49021b9e0691d8a74772b2f",
+  "canonical_head_sha": "e7a6dff0717c67b0553ffdea2df0a0b1a8d4dc50",
+  "canonical_head_tree_sha": "04d6e69961a829f4a49021b9e0691d8a74772b2f",
+  "implementation_head_sha": "e7a6dff0717c67b0553ffdea2df0a0b1a8d4dc50",
+  "implementation_head_tree_sha": "04d6e69961a829f4a49021b9e0691d8a74772b2f",
+  "commits": [
+    "e7a6dff0717c67b0553ffdea2df0a0b1a8d4dc50"
+  ],
+  "files_changed_count": 56,
+  "files_changed": [
+    ".github/workflows/platform.yml",
+    "Dockerfile",
+    "Dockerfile.agent",
+    "Dockerfile.controller",
+    "deploy/openrc/antinat-agent",
+    "deploy/openrc/antinat-controller",
+    "deploy/ownership-allowlist.txt",
+    "deploy/systemd/antinat-agent.service",
+    "deploy/systemd/antinat-controller.service",
+    "deploy/trust/README.md",
+    "deploy/trust/release-ed25519.pub",
+    "docker/README.md",
+    "docker/compose.yaml",
+    "docker/healthcheck-agent.sh",
+    "internal/install/artifact.go",
+    "internal/install/compat.go",
+    "internal/install/contract.go",
+    "internal/install/install_test.go",
+    "internal/install/layout.go",
+    "internal/install/purge.go",
+    "internal/install/purge_unix.go",
+    "internal/install/purge_windows.go",
+    "internal/install/runtime_config.go",
+    "internal/install/token.go",
+    "internal/install/token_unix.go",
+    "internal/install/token_windows.go",
+    "internal/install/upgrade.go",
+    "scripts/install.ps1",
+    "scripts/install.sh",
+    "scripts/libinstall.sh",
+    "scripts/test-installers.sh",
+    "scripts/uninstall.ps1",
+    "scripts/uninstall.sh",
+    ".hermes/evidence/p18/SHA256SUMS",
+    ".hermes/evidence/p18/compose-config.log",
+    ".hermes/evidence/p18/contracts-sha256.txt",
+    ".hermes/evidence/p18/contracts.log",
+    ".hermes/evidence/p18/diff-check.log",
+    ".hermes/evidence/p18/docker-runtime.log",
+    ".hermes/evidence/p18/full-repository.log",
+    ".hermes/evidence/p18/go-vet.log",
+    ".hermes/evidence/p18/gofmt.log",
+    ".hermes/evidence/p18/install-go-race.log",
+    ".hermes/evidence/p18/install-go-test.log",
+    ".hermes/evidence/p18/installer-smoke.log",
+    ".hermes/evidence/p18/linux-arm64-subset-build.log",
+    ".hermes/evidence/p18/linux-direct-v4-escalated.log",
+    ".hermes/evidence/p18/linux-direct-v4.log",
+    ".hermes/evidence/p18/platform-workflow-yaml.log",
+    ".hermes/evidence/p18/results-validation.log",
+    ".hermes/evidence/p18/results.json",
+    ".hermes/evidence/p18/secret-scan.log",
+    ".hermes/evidence/p18/shell-syntax.log",
+    ".hermes/evidence/p18/windows-amd64-build.log",
+    ".hermes/evidence/p18/windows-install-test-compile.log",
+    ".hermes/handoffs/P18.json"
+  ],
+  "tests": [
+    {
+      "command": "bash -n scripts/*.sh",
+      "exit_code": 0,
+      "summary": "PASS; all shell entry points parse."
+    },
+    {
+      "command": "bash scripts/test-installers.sh",
+      "exit_code": 0,
+      "summary": "PASS; isolated installer smoke covers fresh install, repeated-install conflict, token consumption and non-leakage, failed health-gated upgrade rollback, successful upgrade, bad token mode, bad signature, and purge residue."
+    },
+    {
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off go test ./internal/install -count=1",
+      "exit_code": 0,
+      "summary": "PASS; installer contract, token, artifact trust, ownership purge, snapshot/rollback, runtime config, and compatibility tests."
+    },
+    {
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off go test -race ./internal/install -count=10",
+      "exit_code": 0,
+      "summary": "PASS; installer package race matrix completed ten repetitions."
+    },
+    {
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off go vet ./...",
+      "exit_code": 0,
+      "summary": "PASS; repository vet is clean."
+    },
+    {
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off go test ./test/contracts -count=1 -v",
+      "exit_code": 0,
+      "summary": "PASS; frozen installer/compat fixtures and repository contract checks pass."
+    },
+    {
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off GOOS=windows GOARCH=amd64 go build -buildvcs=false ./cmd/...",
+      "exit_code": 0,
+      "summary": "BUILD_ONLY PASS; Windows amd64 command packages cross-build."
+    },
+    {
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off GOOS=windows GOARCH=amd64 go test -c -o /tmp/antinat-p18-install.test.exe ./internal/install",
+      "exit_code": 0,
+      "summary": "BUILD_ONLY PASS; Windows installer package test binary compiles."
+    },
+    {
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -buildvcs=false ./cmd/antinat-agent ./cmd/antinatctl ./internal/install",
+      "exit_code": 0,
+      "summary": "BUILD_ONLY PASS; arm64 Agent, CLI, and installer subset compiles."
+    },
+    {
+      "command": "python3 -c 'import pathlib,yaml; yaml.safe_load(pathlib.Path(\".github/workflows/platform.yml\").read_text()); print(\"platform.yml: PASS\")'",
+      "exit_code": 0,
+      "summary": "PASS; platform workflow YAML parses."
+    },
+    {
+      "command": "ANTINAT_ENDPOINT=https://controller.example ANTINAT_NODE=ci-node ANTINAT_PIN=0000000000000000000000000000000000000000000000000000000000000000 docker compose -f docker/compose.yaml config --quiet",
+      "exit_code": 0,
+      "summary": "STATIC PASS; host-network Compose contract parses with required variables."
+    },
+    {
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./test/e2e -run '^TestLinuxDirectV4WalkingSkeleton$' -count=1 -v",
+      "exit_code": 1,
+      "summary": "LIMITED FAILURE in the restricted sandbox; CAP_NET_ADMIN was denied while adding the test loopback alias."
+    },
+    {
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./test/e2e -run '^TestLinuxDirectV4WalkingSkeleton$' -count=1 -v (with CAP_NET_ADMIN)",
+      "exit_code": 0,
+      "summary": "PASS; the same dependency regression completed with the required network-admin capability."
+    },
+    {
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./... -count=1",
+      "exit_code": 1,
+      "summary": "LIMITED FAILURE in the restricted sandbox; ordinary loopback sockets, CAP_NET_ADMIN-backed tests, and subprocess VCS probes were denied. P18 focused tests, contracts, vet, and privileged direct-v4 regression remain separately recorded."
+    },
+    {
+      "command": "docker info",
+      "exit_code": 1,
+      "summary": "LIMITED; Docker client is installed but the daemon socket is inaccessible, so OCI image build/runtime evidence is not claimed."
+    },
+    {
+      "command": "gofmt -l internal/install",
+      "exit_code": 0,
+      "summary": "PASS; no unformatted installer Go files."
+    },
+    {
+      "command": "git diff --check HEAD^ HEAD",
+      "exit_code": 0,
+      "summary": "PASS; implementation commit has no whitespace errors."
+    },
+    {
+      "command": "scan generated evidence logs for known enrollment-token test literals",
+      "exit_code": 0,
+      "summary": "PASS; no test token literals were found in generated evidence logs."
+    },
+    {
+      "command": "python3 -m json.tool .hermes/evidence/p18/results.json",
+      "exit_code": 0,
+      "summary": "PASS; machine-readable P18 result table is valid JSON."
+    }
+  ],
+  "evidence": [
+    ".hermes/evidence/p18/SHA256SUMS",
+    ".hermes/evidence/p18/compose-config.log",
+    ".hermes/evidence/p18/contracts-sha256.txt",
+    ".hermes/evidence/p18/contracts.log",
+    ".hermes/evidence/p18/diff-check.log",
+    ".hermes/evidence/p18/docker-runtime.log",
+    ".hermes/evidence/p18/full-repository.log",
+    ".hermes/evidence/p18/go-vet.log",
+    ".hermes/evidence/p18/gofmt.log",
+    ".hermes/evidence/p18/install-go-race.log",
+    ".hermes/evidence/p18/install-go-test.log",
+    ".hermes/evidence/p18/installer-smoke.log",
+    ".hermes/evidence/p18/linux-arm64-subset-build.log",
+    ".hermes/evidence/p18/linux-direct-v4-escalated.log",
+    ".hermes/evidence/p18/linux-direct-v4.log",
+    ".hermes/evidence/p18/platform-workflow-yaml.log",
+    ".hermes/evidence/p18/results-validation.log",
+    ".hermes/evidence/p18/results.json",
+    ".hermes/evidence/p18/secret-scan.log",
+    ".hermes/evidence/p18/shell-syntax.log",
+    ".hermes/evidence/p18/windows-amd64-build.log",
+    ".hermes/evidence/p18/windows-install-test-compile.log"
+  ],
+  "evidence_sha256": {
+    ".hermes/evidence/p18/SHA256SUMS": "1428a28c0f6d38c99ce900a19530c03e3ac30b5d15899eac86589feef97fb14e",
+    ".hermes/evidence/p18/compose-config.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".hermes/evidence/p18/contracts-sha256.txt": "f3210db03f565342782e74354188c1e97290963ee2dec7256fa85c23ed2316a6",
+    ".hermes/evidence/p18/contracts.log": "6aa19ab1196095dd48dca8fc720f8be68f8b522eceb41e227054a5d0673641c3",
+    ".hermes/evidence/p18/diff-check.log": "bde294368bfed77c2cddf8cec271d398aee9cdbab3b26e1059281bd33adb0120",
+    ".hermes/evidence/p18/docker-runtime.log": "0dc04a19982742d1645aad540100cae1f63dedc27405f8ec65e317599e30ac4d",
+    ".hermes/evidence/p18/full-repository.log": "0ba9fc1aea657dc1ce425f4149a8f1fc6f9861b45446751412defc090cba3630",
+    ".hermes/evidence/p18/go-vet.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".hermes/evidence/p18/gofmt.log": "bde294368bfed77c2cddf8cec271d398aee9cdbab3b26e1059281bd33adb0120",
+    ".hermes/evidence/p18/install-go-race.log": "77b5e36f57daecf4085a62f57ac87f7022e7b0bc1dd9699d10ffa9d35fd16256",
+    ".hermes/evidence/p18/install-go-test.log": "97aba35e2f52029271e9ab9885ded7e50d9f35452e01c1e08bfd764a31110a10",
+    ".hermes/evidence/p18/installer-smoke.log": "e63ecba4438bbead2ae4038e1b3cf75ea9add71fef0477f650ce9fe50b1f5c17",
+    ".hermes/evidence/p18/linux-arm64-subset-build.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".hermes/evidence/p18/linux-direct-v4-escalated.log": "b032725392832cff147fd77821ead407cbfd45c99978a1ffdbedb71e54450997",
+    ".hermes/evidence/p18/linux-direct-v4.log": "b723551b6a17882947489ac1fb76180e160d2bbec8adc2fcd132b60ab48e2fdb",
+    ".hermes/evidence/p18/platform-workflow-yaml.log": "bf9ce166166142401e3f158569e0e577ff96b5c0e4c338de0e6e4096ffd7949a",
+    ".hermes/evidence/p18/results-validation.log": "86563d62ce901cd262acd07ad8025d818616d7e83a1cad41ddfe6a05f5697e3b",
+    ".hermes/evidence/p18/results.json": "bd7d87fd61c35ea70b3a5aa67d7b5eb9788f112ceb5a0aa765bd2b60b11bb74c",
+    ".hermes/evidence/p18/secret-scan.log": "d91b1f59a660ba6b5f849c6f284c5f354d396072117a8a199d7cabbaa999892a",
+    ".hermes/evidence/p18/shell-syntax.log": "bde294368bfed77c2cddf8cec271d398aee9cdbab3b26e1059281bd33adb0120",
+    ".hermes/evidence/p18/windows-amd64-build.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".hermes/evidence/p18/windows-install-test-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "contracts_consumed": [
+    { "path": ".hermes/plans/v1-beta/00-master-orchestration.md", "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4" },
+    { "path": ".hermes/plans/v1-beta/18-installers-platforms.md", "sha256": "cdb26257f3e4655f360f4bf075dcd51c5eef2829682c7bcf5d79b1d96587e1f2" },
+    { "path": ".hermes/plans/2026-08-09_055007-antinat-v1-reviewed-execution-plan.md", "sha256": "5fb4216ae41c4fb77a757596274b9f8e1df6f32a81c399971b82e60c07527226" },
+    { "path": "docs/installer-contract.md", "sha256": "c7f83ea2fedcf9b1c393dae290ff1168bcd9f495d064a2ea74d386f3d38c630a" },
+    { "path": "docs/protocol.md", "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74" },
+    { "path": "docs/state-model.md", "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03" },
+    { "path": "docs/v1-scope-contract.md", "sha256": "e016cfd0bb0e1395eb23dccf60bc283217139a81db56bf9c1f87ef5f3afe9eaf" },
+    { "path": "api/openapi.yaml", "sha256": "43785c94abf6f158f52f0059d38a260d4d68f052a5ca1aed26539e48bc06c1eb" },
+    { "path": "test/contracts/manifest.json", "sha256": "b1ca3f29b9132307fe84f8b5661696efd0857135a21ae1bcad898263a4fd050b" },
+    { "path": "test/fixtures/compat/compat-n-minus-one-valid.json", "sha256": "6e262d620ecfa973b336a9f00098b7e55739db02f0e6bcf7eb3fefbda1fa2e94" },
+    { "path": "test/fixtures/compat/compat-regression-invalid.json", "sha256": "e5a93b9311c1f92c03f1595206030c1a3fc7eeda85ba6d256f84686a8be1373a" },
+    { "path": "test/fixtures/compat/compat-same-version-valid.json", "sha256": "9f1d4901c1be7d6a04ca9ebe83fb834d8cc97cb5e13e4d1c943c16c502bd1072" },
+    { "path": "test/fixtures/compat/compat-skip-version-invalid.json", "sha256": "d3b9ffcd9e2eff945482b74004fd2cb5ba4b0cbb062bdf5c3061bb6d42cbd135" },
+    { "path": "test/fixtures/installer-contract/artifact-manifest-bad-hash-invalid.json", "sha256": "e50e6915f9e06f5ce07db6b914725386a8ec47e22ae0f115d406f55498cf2ffc" },
+    { "path": "test/fixtures/installer-contract/artifact-manifest-no-signature-invalid.json", "sha256": "ba23c4a306be129773f2c3a9e57c163c7ea1e082b1f4def29a9b7200254bfa8a" },
+    { "path": "test/fixtures/installer-contract/artifact-manifest-valid.json", "sha256": "2bb81121a9caef8a632a6ed520416e94255029523e15fff66862d3d1bf374339" },
+    { "path": "test/fixtures/installer-contract/cli-install-token-fd-valid.json", "sha256": "33ce1dca0119e79310eea87711a46862b917c3f73d20f918b68da49085acc1f4" },
+    { "path": "test/fixtures/installer-contract/cli-install-valid.json", "sha256": "ee2c28799c478e59a75ee48fca19ce657226db785fa5b5f07c5605b706e210dc" },
+    { "path": "test/fixtures/installer-contract/cli-token-fd-bare-invalid.json", "sha256": "bddf0ff9455e257e2101df8de8df175f50d072371029ec5a550d03eaafb90e46" },
+    { "path": "test/fixtures/installer-contract/cli-token-literal-forbidden.json", "sha256": "aa967e214b896b9d1759c85bdd14fd79ab33660f248cf4b8be779a934d039c04" },
+    { "path": "test/fixtures/installer-contract/cli-unknown-flag-invalid.json", "sha256": "3b15b7cb2daae509d7c252ec829eee00fd4c0ae8181146a5044a9ce360ae70cf" },
+    { "path": "test/fixtures/installer-contract/cli-unknown-short-flag-invalid.json", "sha256": "c42a080f066d51d85252c9e8f80f11e63b8167bafadbf21358287eb13197619d" },
+    { "path": "test/fixtures/installer-contract/exit-0-valid.json", "sha256": "872358ecfc4fab6021c60f36c43a5259a5069eecbf32289ca3b26f78f1acdf1b" },
+    { "path": "test/fixtures/installer-contract/exit-4-valid.json", "sha256": "1a564fd20312b68944e3d56b5b8cbdfb95ac82f61e3976966e8d988a895dc406" },
+    { "path": "test/fixtures/installer-contract/exit-42-invalid.json", "sha256": "9288e496ff90edc3e5fc705a7f76e226f2845e7ead32acba3cf086b4cd3100bb" },
+    { "path": "test/fixtures/installer-contract/exit-7-valid.json", "sha256": "c537a1106b8af951c9548a4ba8dc739a462455c76379772871847fbd604ede6b" },
+    { "path": "test/fixtures/installer-contract/path-install-dir-invalid.json", "sha256": "3457d8a990b4b77daf12d75601613ae366cfa282832205a9d0a98fdc9af18120" },
+    { "path": "test/fixtures/installer-contract/path-install-dir-valid.json", "sha256": "4a81401dd4c73ba7e3cc174929d29caa80056988b50015d43c6705ad6fb89a8d" },
+    { "path": "test/fixtures/installer-contract/path-service-valid.json", "sha256": "6bd45b66c798417e6194eac073a2549ac4d3631c7e7e3b7ceaf6f409ab0bc38f" },
+    { "path": "test/fixtures/installer-contract/path-state-marker-valid.json", "sha256": "bc36b21d058d103a447cd804024429e1c9f6fd51c1698ef305b62cc297ba3e05" },
+    { "path": "test/fixtures/installer-contract/purge-no-residue-valid.json", "sha256": "493e139905daf0a8e2ea90db2cac3814b3bc9e74f77986d41952af795fcdd5fa" },
+    { "path": "test/fixtures/installer-contract/purge-unknown-state-invalid.json", "sha256": "80b73c2695c84288122e8dc884499ea6021213a94e5327d1a0bddade2e656153" },
+    { "path": "test/fixtures/installer-contract/token-fd-valid.json", "sha256": "a4cb83a17c53cd99fbbbfefc4594c5beccc5efd60f48f11338a50a77ea7a5e1a" },
+    { "path": "test/fixtures/installer-contract/token-fd-without-flag-invalid.json", "sha256": "ac722c6925073c1fa0f8d378741932101f00b034e99fc25c168e0863592dc40e" },
+    { "path": "test/fixtures/installer-contract/token-file-0600-valid.json", "sha256": "318862d9f8d4086351b01c708841ffe4d499ce7d1a5c3224bfe95a93265d33db" },
+    { "path": "test/fixtures/installer-contract/token-file-0644-invalid.json", "sha256": "70667b107430a98d5cd7bda820517e050d402a86939caaf4414313e075948db1" },
+    { "path": "test/fixtures/installer-contract/token-multiple-inputs-invalid.json", "sha256": "f84bd3a2575fa81dc6cf0145265e7a76bf986af59028dc7309ca9303473b624e" },
+    { "path": "test/fixtures/installer-contract/token-tty-valid.json", "sha256": "784970e1ddeff3e9a8fa58bb5c81c988f6fe09832f019cc678fb40ab67b2e6b0" }
+  ],
+  "contracts_changed": [],
+  "ownership_transfers": [
+    {
+      "files": [
+        ".github/workflows/platform.yml",
+        "Dockerfile",
+        "Dockerfile.agent",
+        "Dockerfile.controller",
+        "deploy/**",
+        "docker/**",
+        "internal/install/**",
+        "scripts/install.sh",
+        "scripts/libinstall.sh",
+        "scripts/test-installers.sh",
+        "scripts/uninstall.sh",
+        "scripts/install.ps1",
+        "scripts/uninstall.ps1"
+      ],
+      "reason": "P18 installer, service, artifact trust, upgrade/rollback, purge, Windows, OpenRC, arm64, and OCI implementation",
+      "boundary": "No changes to P12 integration, frozen contract bytes, Controller/Agent production composition, or another child branch."
+    },
+    {
+      "files": ["internal/install/install_test.go"],
+      "reason": "P18 focused regression coverage",
+      "boundary": "Tests only."
+    },
+    {
+      "files": [".hermes/evidence/p18/**", ".hermes/handoffs/P18.json"],
+      "reason": "P18 evidence and candidate handoff record",
+      "boundary": "Candidate metadata only; no integration or release action."
+    }
+  ],
+  "capability_result": "SUPPORTED_WITH_LIMITS",
+  "known_limits": [
+    "Linux installer validation is isolated test-root evidence; no native systemd fresh-install/restart/upgrade/purge run was possible in this workspace.",
+    "No native Windows PowerShell, Windows Service, ACL/Defender, or router/data-path runtime evidence; Windows remains build-only.",
+    "No native arm64 or OpenRC host evidence. arm64 verification is limited to Agent, CLI, and installer package compilation; full arm64 command builds remain blocked by the pre-existing internal/hook/sandbox_linux.go SYS_FORK/SYS_VFORK architecture issue.",
+    "Docker client and Compose parser are available, but the Docker daemon socket is inaccessible. No image build, non-root runtime, SBOM, signature, immutable digest, or host-network runtime claim is made.",
+    "The cumulative go test ./... attempt failed in the restricted sandbox because ordinary loopback sockets, CAP_NET_ADMIN, and subprocess VCS probes were denied. No P18 focused package failure was observed; the privileged direct-v4 dependency regression passed.",
+    "The smoke release uses a generated test Ed25519 key and local artifacts. Production release artifact pinning, SBOM/signature, and exact image/artifact digest approval remain P19 work.",
+    "govulncheck was unavailable and was not recorded as PASS.",
+    "No public-WAN, real-router, or native platform support promotion is claimed."
+  ],
+  "red_reasons": {
+    "story_1": "RED: no shared frozen installer parser or protected TTY/FD/0600 token input path existed; literal-token argv handling and consumption semantics were absent.",
+    "story_2": "RED: no Linux installer transaction, signed artifact gate, systemd/OpenRC definitions, service-user setup, or test-root smoke harness existed.",
+    "story_3": "RED: no platform-specific OpenRC/arm64 evidence lane or capability-bounded CI matrix existed.",
+    "story_4": "RED: no Windows PowerShell installer, ACL/reparse validation, SYSTEM-only token path, service identity checks, or Windows build lane existed.",
+    "story_5": "RED: no N/N-1 compatibility guard, quiesced snapshot, atomic promotion, health-gated rollback, or complete state-file restoration primitive existed.",
+    "story_6": "RED: no HMAC ownership manifest, allowlist fallback, symlink/reparse-safe purge, or residue/no-residue result existed.",
+    "story_7": "RED: no non-root OCI targets, state/log volumes, host-network Compose contract, health checks, or static packaging lane existed."
+  },
+  "cleanup_done": true,
+  "merge_push_release": "not performed",
+  "self_approval": false,
+  "review_ready": true
+}

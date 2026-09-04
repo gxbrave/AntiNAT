@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "plan": "P18",
+  "implementation_head_sha": "e7a6dff0717c67b0553ffdea2df0a0b1a8d4dc50",
+  "implementation_head_tree_sha": "04d6e69961a829f4a49021b9e0691d8a74772b2f",
+  "checks": [
+    {
+      "name": "shell syntax",
+      "command": "bash -n scripts/*.sh",
+      "exit_code": 0,
+      "status": "PASS",
+      "evidence": "shell-syntax.log"
+    },
+    {
+      "name": "installer smoke",
+      "command": "bash scripts/test-installers.sh",
+      "exit_code": 0,
+      "status": "PASS",
+      "evidence": "installer-smoke.log"
+    },
+    {
+      "name": "installer package tests",
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off go test ./internal/install -count=1",
+      "exit_code": 0,
+      "status": "PASS",
+      "evidence": "install-go-test.log"
+    },
+    {
+      "name": "installer race tests",
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off go test -race ./internal/install -count=10",
+      "exit_code": 0,
+      "status": "PASS",
+      "evidence": "install-go-race.log"
+    },
+    {
+      "name": "repository vet",
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off go vet ./...",
+      "exit_code": 0,
+      "status": "PASS",
+      "evidence": "go-vet.log"
+    },
+    {
+      "name": "frozen contracts",
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off go test ./test/contracts -count=1 -v",
+      "exit_code": 0,
+      "status": "PASS",
+      "evidence": "contracts.log"
+    },
+    {
+      "name": "Windows amd64 build",
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off GOOS=windows GOARCH=amd64 go build -buildvcs=false ./cmd/...",
+      "exit_code": 0,
+      "status": "BUILD_ONLY_PASS",
+      "evidence": "windows-amd64-build.log"
+    },
+    {
+      "name": "Windows installer package compile",
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off GOOS=windows GOARCH=amd64 go test -c -o /tmp/antinat-p18-install.test.exe ./internal/install",
+      "exit_code": 0,
+      "status": "BUILD_ONLY_PASS",
+      "evidence": "windows-install-test-compile.log"
+    },
+    {
+      "name": "Linux arm64 subset build",
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -buildvcs=false ./cmd/antinat-agent ./cmd/antinatctl ./internal/install",
+      "exit_code": 0,
+      "status": "BUILD_ONLY_PASS",
+      "evidence": "linux-arm64-subset-build.log"
+    },
+    {
+      "name": "CI workflow YAML",
+      "command": "python3 -c 'import pathlib,yaml; yaml.safe_load(pathlib.Path(\".github/workflows/platform.yml\").read_text()); print(\"platform.yml: PASS\")'",
+      "exit_code": 0,
+      "status": "PASS",
+      "evidence": "platform-workflow-yaml.log"
+    },
+    {
+      "name": "Compose contract",
+      "command": "ANTINAT_ENDPOINT=https://controller.example ANTINAT_NODE=ci-node ANTINAT_PIN=0000000000000000000000000000000000000000000000000000000000000000 docker compose -f docker/compose.yaml config --quiet",
+      "exit_code": 0,
+      "status": "STATIC_PASS",
+      "evidence": "compose-config.log"
+    },
+    {
+      "name": "Linux direct-v4 dependency regression",
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./test/e2e -run '^TestLinuxDirectV4WalkingSkeleton$' -count=1 -v",
+      "exit_code": 0,
+      "status": "PASS_WITH_CAP_NET_ADMIN",
+      "evidence": "linux-direct-v4-escalated.log"
+    },
+    {
+      "name": "Go formatting",
+      "command": "gofmt -l internal/install (no files listed)",
+      "exit_code": 0,
+      "status": "PASS",
+      "evidence": "gofmt.log"
+    },
+    {
+      "name": "implementation diff whitespace",
+      "command": "git diff --check HEAD^ HEAD",
+      "exit_code": 0,
+      "status": "PASS",
+      "evidence": "diff-check.log"
+    },
+    {
+      "name": "evidence token literal scan",
+      "command": "scan generated evidence logs for known enrollment-token test literals",
+      "exit_code": 0,
+      "status": "PASS_NO_MATCHES",
+      "evidence": "secret-scan.log"
+    }
+  ],
+  "observed_limits": [
+    {
+      "name": "restricted direct-v4 attempt",
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./test/e2e -run '^TestLinuxDirectV4WalkingSkeleton$' -count=1 -v",
+      "exit_code": 1,
+      "reason": "The sandbox denied CAP_NET_ADMIN while adding the loopback alias; the same test passed with the required capability.",
+      "evidence": "linux-direct-v4.log"
+    },
+    {
+      "name": "cumulative repository test",
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./... -count=1",
+      "exit_code": 1,
+      "reason": "The restricted environment denied ordinary loopback sockets and several subprocess VCS probes; this is pre-existing repository infrastructure behavior, not an internal/install assertion failure.",
+      "evidence": "full-repository.log"
+    },
+    {
+      "name": "Docker runtime",
+      "command": "docker info",
+      "exit_code": 1,
+      "reason": "Docker client is installed but the daemon socket is inaccessible; image build/runtime evidence was not claimed.",
+      "evidence": "docker-runtime.log"
+    },
+    {
+      "name": "native platform hosts",
+      "status": "NOT_RUN",
+      "reason": "No native Windows, OpenRC, or arm64 host was available in this workspace; the workflow records those checks without promoting runtime support."
+    }
+  ]
+}

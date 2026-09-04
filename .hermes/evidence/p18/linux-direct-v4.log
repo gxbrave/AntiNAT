@@ -1,0 +1,7 @@
+=== RUN   TestLinuxDirectV4WalkingSkeleton
+    walking_skeleton_test.go:31: add loopback alias 8.8.8.8/32: exit status 1 (Cannot open netlink socket: Operation not permitted
+        ) — the walking skeleton needs CAP_NET_ADMIN
+--- FAIL: TestLinuxDirectV4WalkingSkeleton (0.00s)
+FAIL
+FAIL	github.com/gxbrave/AntiNAT/test/e2e	0.003s
+FAIL
