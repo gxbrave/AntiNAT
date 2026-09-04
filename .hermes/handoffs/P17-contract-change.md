@@ -1,6 +1,7 @@
 # P17 contract-change record
 
-Status: additive candidate recorded for independent review/integration.
+Status: final candidate; implementation gates passed; awaiting final independent
+review and integration.
 
 This record is the required contract-change companion for P17. It does not
 waive the frozen P04/P15/P16 contracts and does not authorize any old
@@ -11,9 +12,9 @@ waive the frozen P04/P15/P16 contracts and does not authorize any old
 - Child plan: `.hermes/plans/v1-beta/17-web-ui-deployment.md`
 - Continuation source: `.hermes/handoffs/P17-paused-handoff.md`
 - Required implementation base: `329fdf5039e4e55350d923462f78c2d4ee2e3588`
-- P17 candidate branch: `ai/P17-web-ui`
+- P17 candidate implementation commit: `5af5431`
 - Pre-P17 OpenAPI manifest SHA-256: `aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32`
-- P17 OpenAPI SHA-256: `a6bb8336c8f5642f9b9966cfe094b2107316afd5307fd53ac911c82b2c9cda9b`
+- P17 OpenAPI SHA-256: `46da443e52a3a5520ca9fd0a97231d49b0bbff16c6fa65e300000457f71d6052`
 
 ## Approved additive API surface
 
@@ -119,6 +120,10 @@ artifact evidence.
   for non-loopback endpoints; deployment operators must use the confirmed
   HTTPS endpoint for production.
 - P17 does not wire node lifecycle/deployment delivery owned by P19/P18.
+- The evidence rail displays the real durable runtime-snapshot source. The
+  current frozen Forward response does not expose per-axis update timestamps or
+  probe-round identifiers, so the UI does not fabricate them; P18/P19 must add
+  an approved additive evidence metadata field before claiming that detail.
 
 ## Verification references
 

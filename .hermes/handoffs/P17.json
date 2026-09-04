@@ -1,26 +1,35 @@
 {
   "plan": "P17",
+  "schema_version": "antinat.handoff/v1",
+  "branch": "ai/P17-web-ui",
   "base_sha": "329fdf5039e4e55350d923462f78c2d4ee2e3588",
-  "head_sha": "0e2d47bd68d163b0b6bd466ea9403188c595e56e",
+  "head_sha": "5af5431bdb67e1ac4f2e389d306311e0fce42ae6",
+  "working_tree_head_at_handoff": "5af5431bdb67e1ac4f2e389d306311e0fce42ae6",
   "commits": [
     "1a01ab7edd58a481905859c181832d33d2604e02",
     "f6f05924a110835780692a8115b381f338d1a5d7",
-    "0e2d47bd68d163b0b6bd466ea9403188c595e56e"
+    "0e2d47bd68d163b0b6bd466ea9403188c595e56e",
+    "3f5c17323afe2e45e6cde451fd861a922c280061",
+    "5af5431bdb67e1ac4f2e389d306311e0fce42ae6"
   ],
+  "files_changed_count": 62,
   "files_changed": [
     ".gitignore",
     ".hermes/handoffs/P17-contract-change.md",
     ".hermes/handoffs/P17-paused-handoff.md",
+    ".hermes/handoffs/P17.json",
     "api/openapi.yaml",
     "docs/ui-design-direction.md",
     "internal/controller/api/api_test.go",
+    "internal/controller/api/auth.go",
     "internal/controller/api/deployment.go",
     "internal/controller/api/deployment_test.go",
     "internal/controller/api/node_ops.go",
-    "internal/controller/api/nodes_min.go",
+    "internal/controller/api/observability.go",
     "internal/controller/deployment/command.go",
     "internal/controller/deployment/command_test.go",
     "internal/controller/deployment/profile.go",
+    "internal/controller/deployment/profile_test.go",
     "internal/controller/store/backup_test.go",
     "internal/controller/store/corrupt_internal_test.go",
     "internal/controller/store/deployment_p17_test.go",
@@ -35,6 +44,7 @@
     "internal/controller/web/home.go",
     "internal/controller/web/home_test.go",
     "internal/controller/web/router_min.go",
+    "internal/controller/web/sse.go",
     "internal/controller/web/ui.go",
     "internal/controller/web/ui18n.go",
     "migrations/0011_deployment.sql",
@@ -69,14 +79,19 @@
   ],
   "tests": [
     {
-      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./internal/controller/deployment ./internal/controller/web ./internal/controller/api -count=1",
+      "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./internal/controller/deployment ./internal/controller/web ./internal/controller/api ./internal/controller/store -count=1",
       "exit_code": 0,
-      "summary": "Focused P17 deployment/web/API packages passed."
+      "summary": "Affected controller/deployment/store/web packages passed after final fixes."
+    },
+    {
+      "command": "./scripts/test-browser.sh",
+      "exit_code": 0,
+      "summary": "32 loopback Chromium tests passed: home 6, admin 10, deployment 7, destructive 3, accessibility 3, private 3; runtime-generated fixture password; failure cleanup removes DB, keys, storage state and reports."
     },
     {
       "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./test/contracts/... -count=1 -v",
       "exit_code": 0,
-      "summary": "Contract vectors, manifest hash, and OpenAPI/error-code validation passed."
+      "summary": "Contract vectors, manifest and OpenAPI/error-code tests passed."
     },
     {
       "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test ./... -count=1",
@@ -86,17 +101,12 @@
     {
       "command": "ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 GOWORK=off go test -race ./... -count=1",
       "exit_code": 0,
-      "summary": "Full repository race suite passed; a prior isolated STUN timing failure passed 5/5 on focused rerun."
+      "summary": "Full repository race suite passed."
     },
     {
-      "command": "./scripts/test-browser.sh",
+      "command": "go vet ./...",
       "exit_code": 0,
-      "summary": "31 loopback Chromium tests passed: home 6, admin 9, deployment 7, destructive 3, accessibility 3, private 3."
-    },
-    {
-      "command": "python3 test/contracts/validate_openapi.py .",
-      "exit_code": 0,
-      "summary": "OpenAPI valid; 33 paths, 13 error statuses, 13 registered."
+      "summary": "Repository vet passed."
     },
     {
       "command": "gofmt -l internal/",
@@ -109,14 +119,19 @@
       "summary": "No whitespace errors."
     },
     {
-      "command": "go vet ./...",
-      "exit_code": 0,
-      "summary": "Repository vet passed."
-    },
-    {
       "command": "GOOS=windows GOARCH=amd64 GOWORK=off go build ./cmd/... ./internal/controller/deployment/...",
       "exit_code": 0,
       "summary": "Windows amd64 cross-build passed; no native Windows runtime claim."
+    },
+    {
+      "command": "python3 test/contracts/validate_openapi.py .",
+      "exit_code": 0,
+      "summary": "OpenAPI valid; 33 paths, 13 error statuses, 13 registered."
+    },
+    {
+      "command": "static credential/unsafe-command scan over tracked and new files",
+      "exit_code": 0,
+      "summary": "No fixed browser password literal, raw token command channel, or unsafe shell-eval pattern found."
     }
   ],
   "evidence": [
@@ -126,6 +141,10 @@
     "api/openapi.yaml",
     "migrations/0011_deployment.sql"
   ],
+  "evidence_sha256": {
+    "test/browser/evidence/p17-admin-desktop.png": "332960277b00776658cace79e054a5e4b273a50a52034bbf24ea41118d75a485",
+    "test/browser/evidence/p17-admin-mobile.png": "6e0874184029cd200587cdc6f9cba463e9d22dfd99a61423f183872613cd0315"
+  },
   "contracts_consumed": [
     {
       "path": "docs/installer-contract.md",
@@ -138,36 +157,74 @@
     {
       "path": "docs/state-model.md",
       "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
-    },
-    {
-      "path": "api/openapi.yaml (pre-P17)",
-      "sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32"
     }
   ],
   "contracts_changed": [
     {
       "path": "api/openapi.yaml",
       "before_sha256": "aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32",
-      "after_sha256": "a6bb8336c8f5642f9b9966cfe094b2107316afd5307fd53ac911c82b2c9cda9b",
-      "summary": "Add only GET/PUT /api/v1/nodes/{id}/deployment-profile with strict structured profile schemas."
+      "after_sha256": "46da443e52a3a5520ca9fd0a97231d49b0bbff16c6fa65e300000457f71d6052",
+      "summary": "Add only GET/PUT /api/v1/nodes/{id}/deployment-profile; no POST or legacy /api/admin route."
     },
     {
       "path": "test/contracts/manifest.json",
-      "summary": "Update the frozen artifact hash for the approved OpenAPI additive revision."
+      "sha256": "02571c9a9fe203ecd46425818ee8fe69695ed3d9a7630d4c572433155f7875b7",
+      "summary": "Manifest points at the current approved OpenAPI bytes."
     },
     {
       "path": "migrations/0011_deployment.sql",
-      "summary": "Additive recency index over the existing P15 node_deployment_profiles table."
+      "sha256": "d4b86b6ef7cacb238f3786e41050c2f74f5eda872ba71c05eb1e28a3b8b74059",
+      "summary": "One additive recency index over the existing P15 profile table."
     }
   ],
+  "ownership_transfers": [
+    {
+      "files": [
+        "internal/controller/api/node_ops.go"
+      ],
+      "reason": "approved deployment-profile subresource dispatch only",
+      "boundary": "no legacy route or lifecycle API"
+    },
+    {
+      "files": [
+        "internal/controller/store/traffic.go",
+        "internal/controller/store/deployment_profile.go"
+      ],
+      "reason": "strict atomic profile CAS",
+      "boundary": "profile rows only"
+    },
+    {
+      "files": [
+        "internal/controller/store/node_bundle.go"
+      ],
+      "reason": "NODE_CREATED durable event in node-create transaction",
+      "boundary": "no lifecycle changes"
+    },
+    {
+      "files": [
+        "internal/controller/api/auth.go",
+        "internal/controller/api/observability.go",
+        "internal/controller/web/sse.go"
+      ],
+      "reason": "bounded fallback/canonical SSE and payload redaction",
+      "boundary": "event stream safety only"
+    }
+  ],
+  "review_status": "pending_final_fresh_review",
   "capability_result": "SUPPORTED_WITH_LIMITS",
   "known_limits": [
-    "Traversal detection is queued as PENDING only; no per-strategy result or all-failed completion is fabricated.",
-    "Browser evidence is local loopback with a temporary store; no real WAN, router, native Windows, or Docker runtime evidence.",
-    "Installer artifact URL remains the frozen releases/latest placeholder; P17 does not prove signature/artifact/release readiness.",
-    "P17 validates HTTP(S) endpoint syntax but does not add a non-loopback HTTPS policy; production operators must use the confirmed HTTPS endpoint.",
-    "P17 does not wire P18 installer runtime or P19 node lifecycle/deployment delivery.",
-    "Browser fixture credentials are deterministic local test fixtures only and are not production credentials."
+    "Traversal detection queues a PENDING operation only; no per-strategy result or all-failed completion is fabricated.",
+    "The evidence rail shows real durable runtime-snapshot source, but the frozen Forward response does not expose per-axis update timestamps/probe-round IDs; the UI does not fabricate them.",
+    "Browser evidence is loopback-only with a temporary store; no real WAN, router, native Windows, Docker runtime or release artifact evidence.",
+    "Installer URL remains the frozen releases/latest placeholder; P17 does not prove artifact signatures or release readiness.",
+    "HTTP(S) endpoint syntax is validated; P17 does not add a non-loopback HTTPS enforcement policy.",
+    "P17 does not wire P18 installer runtime or P19 lifecycle/deployment delivery."
   ],
+  "next_module": {
+    "plan": "P18",
+    "path": ".hermes/plans/v1-beta/18-installers-platforms.md",
+    "requires_integrated_sha": "set after P17 integration",
+    "do_not_start_until": "P17-integrated.json exists"
+  },
   "cleanup_done": true
 }
