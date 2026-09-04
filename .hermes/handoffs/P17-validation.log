@@ -1,0 +1,506 @@
+
+=== browser ===
+== test-browser: build controller ==
+== test-browser: start controller on 127.0.0.1:43207 (temp store) ==
+== test-browser: seed public fixture ==
+seed: public fixture ready (private=false)
+
+Running 6 tests using 1 worker
+
+  ✓  1 [chromium-desktop] › home-public.spec.js:9:3 › public home › renders the four durable states with text, shape and risk (97ms)
+  ✓  2 [chromium-desktop] › home-public.spec.js:41:3 › public home › verified card is the only default-clickable link and points at the published URL (53ms)
+  ✓  3 [chromium-desktop] › home-public.spec.js:50:3 › public home › unverified card opens only after an explicit risk confirmation (87ms)
+  ✓  4 [chromium-desktop] › home-public.spec.js:62:3 › public home › offline card keeps the last address and copies it only after a risk confirm (99ms)
+  ✓  5 [chromium-desktop] › home-public.spec.js:77:3 › public home › category navigation filters cards and "all" restores them (103ms)
+  ✓  6 [chromium-desktop] › home-public.spec.js:86:3 › public home › mobile category strip becomes a horizontally scrolling rail (69ms)
+
+  6 passed (823ms)
+
+Running 10 tests using 1 worker
+
+  ✓   1 [chromium-desktop] › admin.spec.js:24:3 › admin shell › four tabs render and arrow keys switch tabs (111ms)
+  ✓   2 [chromium-desktop] › admin.spec.js:37:3 › admin shell › forwards tab shows durable text statuses and the evidence chain (164ms)
+  ✓   3 [chromium-desktop] › admin.spec.js:61:3 › admin shell › nodes tab distinguishes offline/online durably in text + shape (113ms)
+  ✓   4 [chromium-desktop] › admin.spec.js:71:3 › admin shell › loading, error, and retry states are explicit (172ms)
+  ✓   5 [chromium-desktop] › admin.spec.js:87:3 › admin shell › a group with no forwards renders the empty state (101ms)
+  ✓   6 [chromium-desktop] › admin.spec.js:97:3 › admin shell › SSE connects, reconnects after a dropped stream, and surfaces a new admin event (3.6s)
+  ✓   7 [chromium-desktop] › admin.spec.js:124:3 › admin shell › global settings tab loads the form from a real settings record (110ms)
+  ✓   8 [chromium-desktop] › admin.spec.js:133:3 › admin shell › global settings tab keeps the returned ETag for a second save (263ms)
+  ✓   9 [chromium-desktop] › admin.spec.js:144:3 › admin shell › long bilingual strings do not overflow the page (114ms)
+  ✓  10 [chromium-desktop] › admin.spec.js:161:3 › admin shell › mobile admin stays inside the viewport with scrollable tables (109ms)
+
+  10 passed (5.2s)
+
+Running 9 tests using 1 worker
+
+  ✓  1 [chromium-desktop] › deployment.spec.js:29:3 › node deployment flow › create failure stays recoverable in the create dialog (300ms)
+  ✓  2 [chromium-desktop] › deployment.spec.js:45:3 › node deployment flow › double-submitting node creation produces one POST (276ms)
+  ✓  3 [chromium-desktop] › deployment.spec.js:62:3 › node deployment flow › creates a node once and enters a secret-free deployment dialog (318ms)
+  ✓  4 [chromium-desktop] › deployment.spec.js:85:3 › node deployment flow › renders platform-specific commands and removes installer-only Docker options (309ms)
+  ✓  5 [chromium-desktop] › deployment.spec.js:115:3 › node deployment flow › saves a structured profile, reloads it, and keeps invalid values out of persistence (478ms)
+  ✓  6 [chromium-desktop] › deployment.spec.js:137:3 › node deployment flow › double-saving a profile produces one PUT (281ms)
+  ✓  7 [chromium-desktop] › deployment.spec.js:154:3 › node deployment flow › clipboard failure leaves a manually selectable command (291ms)
+  ✓  8 [chromium-desktop] › deployment.spec.js:168:3 › node deployment flow › frontend PowerShell builder does not expose raw shell syntax (46ms)
+  ✓  9 [chromium-desktop] › deployment.spec.js:182:3 › node deployment flow › allows saving when detection is unavailable and shows a recoverable error (327ms)
+
+  9 passed (3.0s)
+
+Running 3 tests using 1 worker
+
+  ✓  1 [chromium-desktop] › destructive.spec.js:21:3 › destructive dialogs › forward delete states immediate listener/connection consequences and returns focus on cancel (312ms)
+  ✓  2 [chromium-desktop] › destructive.spec.js:40:3 › destructive dialogs › normal and force node deletion have distinct consequences and offline warning (350ms)
+  ✓  3 [chromium-desktop] › destructive.spec.js:62:3 › destructive dialogs › a precondition failure keeps the dialog open with a recoverable error (374ms)
+
+  3 passed (1.3s)
+
+Running 4 tests using 1 worker
+
+  ✓  1 [chromium-desktop] › a11y.spec.js:34:3 › accessibility and review evidence › keyboard focus, labels, reduced motion, and desktop screenshot (287ms)
+  ✓  2 [chromium-desktop] › a11y.spec.js:48:3 › accessibility and review evidence › mobile admin has no horizontal overflow and keeps controls usable (252ms)
+  ✓  3 [chromium-desktop] › a11y.spec.js:65:3 › accessibility and review evidence › captures public and admin language evidence without retaining a token (420ms)
+  ✓  4 [chromium-desktop] › a11y.spec.js:106:3 › accessibility and review evidence › verified publication requires every evidence axis to be ready (168ms)
+
+  4 passed (1.4s)
+== test-browser: seed private-site fixture ==
+seed: private fixture ready (private=true)
+
+Running 3 tests using 1 worker
+
+  ✓  1 [chromium-desktop] › home-private.spec.js:12:3 › private home › unauthenticated / redirects to the sign-in page (78ms)
+  ✓  2 [chromium-desktop] › home-private.spec.js:18:3 › private home › sign-in succeeds and then / renders the public directory (209ms)
+  ✓  3 [chromium-desktop] › home-private.spec.js:31:3 › private home › wrong credentials stay on the sign-in form and show an error (105ms)
+
+  3 passed (683ms)
+== test-browser: stop controller ==
+test-browser: PASS
+EXIT[browser]=0
+
+=== contracts ===
+=== RUN   TestControlEnvelopeGoldenVectors
+=== RUN   TestControlEnvelopeGoldenVectors/a2c-operation-complete-valid.json
+=== RUN   TestControlEnvelopeGoldenVectors/a2c-probe-armed-valid.json
+=== RUN   TestControlEnvelopeGoldenVectors/c2a-desired-valid.json
+=== RUN   TestControlEnvelopeGoldenVectors/c2a-heartbeat-valid.json
+=== RUN   TestControlEnvelopeGoldenVectors/consistency-invalid-direction.json
+=== RUN   TestControlEnvelopeGoldenVectors/consistency-payload-hash-mismatch.json
+=== RUN   TestControlEnvelopeGoldenVectors/consistency-payload-length-mismatch.json
+=== RUN   TestControlEnvelopeGoldenVectors/consistency-wrong-domain.json
+=== RUN   TestControlEnvelopeGoldenVectors/consistency-zero-credential-version.json
+=== RUN   TestControlEnvelopeGoldenVectors/framing-bad-magic.json
+=== RUN   TestControlEnvelopeGoldenVectors/framing-bad-wire-version.json
+=== RUN   TestControlEnvelopeGoldenVectors/framing-header-length-oob.json
+=== RUN   TestControlEnvelopeGoldenVectors/framing-length-mismatch.json
+=== RUN   TestControlEnvelopeGoldenVectors/framing-payload-length-oob.json
+=== RUN   TestControlEnvelopeGoldenVectors/framing-truncated.json
+=== RUN   TestControlEnvelopeGoldenVectors/header-instance-id-short.json
+=== RUN   TestControlEnvelopeGoldenVectors/header-trailing-bytes.json
+=== RUN   TestControlEnvelopeGoldenVectors/signature-tampered-header.json
+=== RUN   TestControlEnvelopeGoldenVectors/signature-wrong-key.json
+--- PASS: TestControlEnvelopeGoldenVectors (0.00s)
+    --- PASS: TestControlEnvelopeGoldenVectors/a2c-operation-complete-valid.json (0.00s)
+    --- PASS: TestControlEnvelopeGoldenVectors/a2c-probe-armed-valid.json (0.00s)
+    --- PASS: TestControlEnvelopeGoldenVectors/c2a-desired-valid.json (0.00s)
+    --- PASS: TestControlEnvelopeGoldenVectors/c2a-heartbeat-valid.json (0.00s)
+    --- PASS: TestControlEnvelopeGoldenVectors/consistency-invalid-direction.json (0.00s)
+    --- PASS: TestControlEnvelopeGoldenVectors/consistency-payload-hash-mismatch.json (0.00s)
+    --- PASS: TestControlEnvelopeGoldenVectors/consistency-payload-length-mismatch.json (0.00s)
+    --- PASS: TestControlEnvelopeGoldenVectors/consistency-wrong-domain.json (0.00s)
+    --- PASS: TestControlEnvelopeGoldenVectors/consistency-zero-credential-version.json (0.00s)
+    --- PASS: TestControlEnvelopeGoldenVectors/framing-bad-magic.json (0.00s)
+    --- PASS: TestControlEnvelopeGoldenVectors/framing-bad-wire-version.json (0.00s)
+    --- PASS: TestControlEnvelopeGoldenVectors/framing-header-length-oob.json (0.00s)
+    --- PASS: TestControlEnvelopeGoldenVectors/framing-length-mismatch.json (0.00s)
+    --- PASS: TestControlEnvelopeGoldenVectors/framing-payload-length-oob.json (0.00s)
+    --- PASS: TestControlEnvelopeGoldenVectors/framing-truncated.json (0.00s)
+    --- PASS: TestControlEnvelopeGoldenVectors/header-instance-id-short.json (0.00s)
+    --- PASS: TestControlEnvelopeGoldenVectors/header-trailing-bytes.json (0.00s)
+    --- PASS: TestControlEnvelopeGoldenVectors/signature-tampered-header.json (0.00s)
+    --- PASS: TestControlEnvelopeGoldenVectors/signature-wrong-key.json (0.00s)
+=== RUN   TestControlEnvelopeBitFlipFailsBeforePayloadDecode
+--- PASS: TestControlEnvelopeBitFlipFailsBeforePayloadDecode (0.15s)
+=== RUN   TestControlEnvelopeRejectsAmbiguousJSON
+=== RUN   TestControlEnvelopeRejectsAmbiguousJSON/duplicate-key
+=== RUN   TestControlEnvelopeRejectsAmbiguousJSON/trailing-garbage
+=== RUN   TestControlEnvelopeRejectsAmbiguousJSON/deep-nesting
+=== RUN   TestControlEnvelopeRejectsAmbiguousJSON/out-of-range-number
+=== RUN   TestControlEnvelopeRejectsAmbiguousJSON/fractional-number
+=== RUN   TestControlEnvelopeRejectsAmbiguousJSON/empty
+--- PASS: TestControlEnvelopeRejectsAmbiguousJSON (0.00s)
+    --- PASS: TestControlEnvelopeRejectsAmbiguousJSON/duplicate-key (0.00s)
+    --- PASS: TestControlEnvelopeRejectsAmbiguousJSON/trailing-garbage (0.00s)
+    --- PASS: TestControlEnvelopeRejectsAmbiguousJSON/deep-nesting (0.00s)
+    --- PASS: TestControlEnvelopeRejectsAmbiguousJSON/out-of-range-number (0.00s)
+    --- PASS: TestControlEnvelopeRejectsAmbiguousJSON/fractional-number (0.00s)
+    --- PASS: TestControlEnvelopeRejectsAmbiguousJSON/empty (0.00s)
+=== RUN   TestEnrollmentGoldenVectors
+=== RUN   TestEnrollmentGoldenVectors/challenge-truncated.json
+=== RUN   TestEnrollmentGoldenVectors/challenge-unsupported-version.json
+=== RUN   TestEnrollmentGoldenVectors/challenge-valid.json
+=== RUN   TestEnrollmentGoldenVectors/challenge-wrong-key.json
+=== RUN   TestEnrollmentGoldenVectors/request-empty-token.json
+=== RUN   TestEnrollmentGoldenVectors/request-valid.json
+=== RUN   TestEnrollmentGoldenVectors/request-wrong-challenge-hash.json
+=== RUN   TestEnrollmentGoldenVectors/request-wrong-key.json
+=== RUN   TestEnrollmentGoldenVectors/result-valid.json
+=== RUN   TestEnrollmentGoldenVectors/result-wrong-key.json
+=== RUN   TestEnrollmentGoldenVectors/result-zero-credential-version.json
+--- PASS: TestEnrollmentGoldenVectors (0.00s)
+    --- PASS: TestEnrollmentGoldenVectors/challenge-truncated.json (0.00s)
+    --- PASS: TestEnrollmentGoldenVectors/challenge-unsupported-version.json (0.00s)
+    --- PASS: TestEnrollmentGoldenVectors/challenge-valid.json (0.00s)
+    --- PASS: TestEnrollmentGoldenVectors/challenge-wrong-key.json (0.00s)
+    --- PASS: TestEnrollmentGoldenVectors/request-empty-token.json (0.00s)
+    --- PASS: TestEnrollmentGoldenVectors/request-valid.json (0.00s)
+    --- PASS: TestEnrollmentGoldenVectors/request-wrong-challenge-hash.json (0.00s)
+    --- PASS: TestEnrollmentGoldenVectors/request-wrong-key.json (0.00s)
+    --- PASS: TestEnrollmentGoldenVectors/result-valid.json (0.00s)
+    --- PASS: TestEnrollmentGoldenVectors/result-wrong-key.json (0.00s)
+    --- PASS: TestEnrollmentGoldenVectors/result-zero-credential-version.json (0.00s)
+=== RUN   TestEnrollmentBitFlipFailsBeforeSemanticUse
+--- PASS: TestEnrollmentBitFlipFailsBeforeSemanticUse (0.11s)
+=== RUN   TestInstallerContractGoldenVectors
+=== RUN   TestInstallerContractGoldenVectors/artifact-manifest-bad-hash-invalid.json
+=== RUN   TestInstallerContractGoldenVectors/artifact-manifest-no-signature-invalid.json
+=== RUN   TestInstallerContractGoldenVectors/artifact-manifest-valid.json
+=== RUN   TestInstallerContractGoldenVectors/cli-install-token-fd-valid.json
+=== RUN   TestInstallerContractGoldenVectors/cli-install-valid.json
+=== RUN   TestInstallerContractGoldenVectors/cli-token-fd-bare-invalid.json
+=== RUN   TestInstallerContractGoldenVectors/cli-token-literal-forbidden.json
+=== RUN   TestInstallerContractGoldenVectors/cli-unknown-flag-invalid.json
+=== RUN   TestInstallerContractGoldenVectors/cli-unknown-short-flag-invalid.json
+=== RUN   TestInstallerContractGoldenVectors/exit-0-valid.json
+=== RUN   TestInstallerContractGoldenVectors/exit-4-valid.json
+=== RUN   TestInstallerContractGoldenVectors/exit-42-invalid.json
+=== RUN   TestInstallerContractGoldenVectors/exit-7-valid.json
+=== RUN   TestInstallerContractGoldenVectors/path-install-dir-invalid.json
+=== RUN   TestInstallerContractGoldenVectors/path-install-dir-valid.json
+=== RUN   TestInstallerContractGoldenVectors/path-service-valid.json
+=== RUN   TestInstallerContractGoldenVectors/path-state-marker-valid.json
+=== RUN   TestInstallerContractGoldenVectors/purge-no-residue-valid.json
+=== RUN   TestInstallerContractGoldenVectors/purge-unknown-state-invalid.json
+=== RUN   TestInstallerContractGoldenVectors/token-fd-valid.json
+=== RUN   TestInstallerContractGoldenVectors/token-fd-without-flag-invalid.json
+=== RUN   TestInstallerContractGoldenVectors/token-file-0600-valid.json
+=== RUN   TestInstallerContractGoldenVectors/token-file-0644-invalid.json
+=== RUN   TestInstallerContractGoldenVectors/token-multiple-inputs-invalid.json
+=== RUN   TestInstallerContractGoldenVectors/token-tty-valid.json
+=== RUN   TestInstallerContractGoldenVectors/compat-n-minus-one-valid.json
+=== RUN   TestInstallerContractGoldenVectors/compat-regression-invalid.json
+=== RUN   TestInstallerContractGoldenVectors/compat-same-version-valid.json
+=== RUN   TestInstallerContractGoldenVectors/compat-skip-version-invalid.json
+--- PASS: TestInstallerContractGoldenVectors (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/artifact-manifest-bad-hash-invalid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/artifact-manifest-no-signature-invalid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/artifact-manifest-valid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/cli-install-token-fd-valid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/cli-install-valid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/cli-token-fd-bare-invalid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/cli-token-literal-forbidden.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/cli-unknown-flag-invalid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/cli-unknown-short-flag-invalid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/exit-0-valid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/exit-4-valid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/exit-42-invalid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/exit-7-valid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/path-install-dir-invalid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/path-install-dir-valid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/path-service-valid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/path-state-marker-valid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/purge-no-residue-valid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/purge-unknown-state-invalid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/token-fd-valid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/token-fd-without-flag-invalid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/token-file-0600-valid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/token-file-0644-invalid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/token-multiple-inputs-invalid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/token-tty-valid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/compat-n-minus-one-valid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/compat-regression-invalid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/compat-same-version-valid.json (0.00s)
+    --- PASS: TestInstallerContractGoldenVectors/compat-skip-version-invalid.json (0.00s)
+=== RUN   TestContractManifest
+--- PASS: TestContractManifest (0.00s)
+=== RUN   TestOpenAPIAndErrorCodeCoverage
+    openapi_test.go:39: OK: openapi.yaml valid; 33 paths; 13 error statuses referenced; 13 registered.
+--- PASS: TestOpenAPIAndErrorCodeCoverage (0.07s)
+=== RUN   TestProbeGoldenVectors
+=== RUN   TestProbeGoldenVectors/ack-valid.json
+=== RUN   TestProbeGoldenVectors/ack-wrong-key.json
+=== RUN   TestProbeGoldenVectors/arm-bad-magic.json
+=== RUN   TestProbeGoldenVectors/arm-hostname-endpoint.json
+=== RUN   TestProbeGoldenVectors/arm-linklocal-endpoint.json
+=== RUN   TestProbeGoldenVectors/arm-loopback-endpoint.json
+=== RUN   TestProbeGoldenVectors/arm-multicast-endpoint.json
+=== RUN   TestProbeGoldenVectors/arm-private-endpoint-a.json
+=== RUN   TestProbeGoldenVectors/arm-private-endpoint-b.json
+=== RUN   TestProbeGoldenVectors/arm-truncated.json
+=== RUN   TestProbeGoldenVectors/arm-ttl-over-cap.json
+=== RUN   TestProbeGoldenVectors/arm-unspecified-endpoint.json
+=== RUN   TestProbeGoldenVectors/arm-valid-tcp.json
+=== RUN   TestProbeGoldenVectors/arm-valid-udp.json
+=== RUN   TestProbeGoldenVectors/arm-zero-ttl.json
+=== RUN   TestProbeGoldenVectors/armed-valid.json
+=== RUN   TestProbeGoldenVectors/armed-wrong-digest.json
+=== RUN   TestProbeGoldenVectors/armed-wrong-key.json
+=== RUN   TestProbeGoldenVectors/operation-ingress-expired.json
+=== RUN   TestProbeGoldenVectors/operation-ingress-ok.json
+=== RUN   TestProbeGoldenVectors/operation-ingress-wrong-activation.json
+=== RUN   TestProbeGoldenVectors/operation-ingress-wrong-provider.json
+=== RUN   TestProbeGoldenVectors/operation-ingress-wrong-source.json
+=== RUN   TestProbeGoldenVectors/operation-replay.json
+=== RUN   TestProbeGoldenVectors/receipt-valid.json
+=== RUN   TestProbeGoldenVectors/receipt-wrong-provider.json
+=== RUN   TestProbeGoldenVectors/wan1-bad-magic.json
+=== RUN   TestProbeGoldenVectors/wan1-truncated.json
+=== RUN   TestProbeGoldenVectors/wan1-valid-tcp.json
+=== RUN   TestProbeGoldenVectors/wan1-valid-udp.json
+=== RUN   TestProbeGoldenVectors/wan1-wrong-key.json
+--- PASS: TestProbeGoldenVectors (0.00s)
+    --- PASS: TestProbeGoldenVectors/ack-valid.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/ack-wrong-key.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/arm-bad-magic.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/arm-hostname-endpoint.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/arm-linklocal-endpoint.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/arm-loopback-endpoint.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/arm-multicast-endpoint.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/arm-private-endpoint-a.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/arm-private-endpoint-b.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/arm-truncated.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/arm-ttl-over-cap.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/arm-unspecified-endpoint.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/arm-valid-tcp.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/arm-valid-udp.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/arm-zero-ttl.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/armed-valid.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/armed-wrong-digest.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/armed-wrong-key.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/operation-ingress-expired.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/operation-ingress-ok.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/operation-ingress-wrong-activation.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/operation-ingress-wrong-provider.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/operation-ingress-wrong-source.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/operation-replay.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/receipt-valid.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/receipt-wrong-provider.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/wan1-bad-magic.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/wan1-truncated.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/wan1-valid-tcp.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/wan1-valid-udp.json (0.00s)
+    --- PASS: TestProbeGoldenVectors/wan1-wrong-key.json (0.00s)
+=== RUN   TestStateModelGoldenVectors
+=== RUN   TestStateModelGoldenVectors/applied-forward-empty-id-invalid.json
+=== RUN   TestStateModelGoldenVectors/applied-forward-revision-regression-invalid.json
+=== RUN   TestStateModelGoldenVectors/applied-forward-unknown-strategy-invalid.json
+=== RUN   TestStateModelGoldenVectors/applied-forward-valid.json
+=== RUN   TestStateModelGoldenVectors/decommission-active-decommissioned-rejected.json
+=== RUN   TestStateModelGoldenVectors/decommission-active-decommissioning-allowed.json
+=== RUN   TestStateModelGoldenVectors/decommission-decommissioned-cleanup-only-allowed.json
+=== RUN   TestStateModelGoldenVectors/decommission-decommissioning-decommissioned-allowed.json
+=== RUN   TestStateModelGoldenVectors/inbox-applied-nacked-rejected.json
+=== RUN   TestStateModelGoldenVectors/inbox-applying-applied-allowed.json
+=== RUN   TestStateModelGoldenVectors/inbox-applying-nacked-allowed.json
+=== RUN   TestStateModelGoldenVectors/inbox-intent-persisted-applying-allowed.json
+=== RUN   TestStateModelGoldenVectors/inbox-received-applied-rejected.json
+=== RUN   TestStateModelGoldenVectors/inbox-received-intent-persisted-allowed.json
+=== RUN   TestStateModelGoldenVectors/key-rotation-acked-active-allowed.json
+=== RUN   TestStateModelGoldenVectors/key-rotation-active-retired-allowed.json
+=== RUN   TestStateModelGoldenVectors/key-rotation-announced-acked-allowed.json
+=== RUN   TestStateModelGoldenVectors/key-rotation-prepared-active-rejected.json
+=== RUN   TestStateModelGoldenVectors/key-rotation-prepared-announced-allowed.json
+=== RUN   TestStateModelGoldenVectors/outbox-claimed-sent-allowed.json
+=== RUN   TestStateModelGoldenVectors/outbox-gc-claimed-rejected.json
+=== RUN   TestStateModelGoldenVectors/outbox-pending-claimed-allowed.json
+=== RUN   TestStateModelGoldenVectors/outbox-pending-sent-rejected.json
+=== RUN   TestStateModelGoldenVectors/outbox-receipted-gc-allowed.json
+=== RUN   TestStateModelGoldenVectors/outbox-semantic-acked-gc-rejected.json
+=== RUN   TestStateModelGoldenVectors/outbox-semantic-acked-receipted-allowed.json
+=== RUN   TestStateModelGoldenVectors/outbox-sent-gc-rejected.json
+=== RUN   TestStateModelGoldenVectors/outbox-sent-pending-rejected.json
+=== RUN   TestStateModelGoldenVectors/outbox-sent-semantic-acked-allowed.json
+=== RUN   TestStateModelGoldenVectors/publication-unverified-with-vantage-invalid.json
+=== RUN   TestStateModelGoldenVectors/publication-verified-valid.json
+=== RUN   TestStateModelGoldenVectors/publication-verified-without-return-path-invalid.json
+=== RUN   TestStateModelGoldenVectors/publication-verified-without-vantage-invalid.json
+=== RUN   TestStateModelGoldenVectors/restore-reconciling-authorized-allowed.json
+=== RUN   TestStateModelGoldenVectors/restore-recovery-quarantine-reconciling-allowed.json
+=== RUN   TestStateModelGoldenVectors/restore-restored-authorized-rejected.json
+=== RUN   TestStateModelGoldenVectors/restore-restored-recovery-quarantine-allowed.json
+=== RUN   TestStateModelGoldenVectors/snapshot-invalid-illegal-value.json
+=== RUN   TestStateModelGoldenVectors/snapshot-invalid-missing-axis.json
+=== RUN   TestStateModelGoldenVectors/snapshot-valid-all-axes.json
+--- PASS: TestStateModelGoldenVectors (0.00s)
+    --- PASS: TestStateModelGoldenVectors/applied-forward-empty-id-invalid.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/applied-forward-revision-regression-invalid.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/applied-forward-unknown-strategy-invalid.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/applied-forward-valid.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/decommission-active-decommissioned-rejected.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/decommission-active-decommissioning-allowed.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/decommission-decommissioned-cleanup-only-allowed.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/decommission-decommissioning-decommissioned-allowed.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/inbox-applied-nacked-rejected.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/inbox-applying-applied-allowed.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/inbox-applying-nacked-allowed.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/inbox-intent-persisted-applying-allowed.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/inbox-received-applied-rejected.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/inbox-received-intent-persisted-allowed.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/key-rotation-acked-active-allowed.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/key-rotation-active-retired-allowed.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/key-rotation-announced-acked-allowed.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/key-rotation-prepared-active-rejected.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/key-rotation-prepared-announced-allowed.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/outbox-claimed-sent-allowed.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/outbox-gc-claimed-rejected.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/outbox-pending-claimed-allowed.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/outbox-pending-sent-rejected.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/outbox-receipted-gc-allowed.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/outbox-semantic-acked-gc-rejected.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/outbox-semantic-acked-receipted-allowed.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/outbox-sent-gc-rejected.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/outbox-sent-pending-rejected.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/outbox-sent-semantic-acked-allowed.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/publication-unverified-with-vantage-invalid.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/publication-verified-valid.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/publication-verified-without-return-path-invalid.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/publication-verified-without-vantage-invalid.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/restore-reconciling-authorized-allowed.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/restore-recovery-quarantine-reconciling-allowed.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/restore-restored-authorized-rejected.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/restore-restored-recovery-quarantine-allowed.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/snapshot-invalid-illegal-value.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/snapshot-invalid-missing-axis.json (0.00s)
+    --- PASS: TestStateModelGoldenVectors/snapshot-valid-all-axes.json (0.00s)
+PASS
+ok  	github.com/gxbrave/AntiNAT/test/contracts	0.340s
+EXIT[contracts]=0
+
+=== go ===
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-agent	0.011s
+?   	github.com/gxbrave/AntiNAT/cmd/antinat-controller	[no test files]
+?   	github.com/gxbrave/AntiNAT/cmd/antinat-hook-runner	[no test files]
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-probe	0.008s
+ok  	github.com/gxbrave/AntiNAT/cmd/antinatctl	1.109s
+ok  	github.com/gxbrave/AntiNAT/internal/agent	5.175s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/control	3.213s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/localstate	3.237s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	6.007s
+ok  	github.com/gxbrave/AntiNAT/internal/buildinfo	0.829s
+ok  	github.com/gxbrave/AntiNAT/internal/config	0.003s
+ok  	github.com/gxbrave/AntiNAT/internal/controller	2.557s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/agenthub	12.758s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/api	6.909s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/auth	2.809s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/deployment	0.001s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/lifecycle	0.902s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	11.072s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/recovery	1.370s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/store	12.643s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/web	0.242s
+ok  	github.com/gxbrave/AntiNAT/internal/forward	0.001s
+ok  	github.com/gxbrave/AntiNAT/internal/forward/tcp	1.126s
+ok  	github.com/gxbrave/AntiNAT/internal/forward/udp	0.067s
+ok  	github.com/gxbrave/AntiNAT/internal/hook	10.252s
+ok  	github.com/gxbrave/AntiNAT/internal/metrics	0.001s
+ok  	github.com/gxbrave/AntiNAT/internal/protocol	0.467s
+ok  	github.com/gxbrave/AntiNAT/internal/security	0.014s
+ok  	github.com/gxbrave/AntiNAT/internal/security/framecrypto	0.002s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal	5.257s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/direct	0.004s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/manual	0.002s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/natpmp	0.256s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/pcp	0.262s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/stun	0.494s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/upnp	0.313s
+?   	github.com/gxbrave/AntiNAT/migrations	[no test files]
+ok  	github.com/gxbrave/AntiNAT/scripts	0.005s
+ok  	github.com/gxbrave/AntiNAT/spike/datapath	0.070s
+ok  	github.com/gxbrave/AntiNAT/spike/network	0.066s
+ok  	github.com/gxbrave/AntiNAT/spike/sandbox	2.169s
+ok  	github.com/gxbrave/AntiNAT/spike/sqlite	1.505s
+ok  	github.com/gxbrave/AntiNAT/spike/state	1.757s
+ok  	github.com/gxbrave/AntiNAT/spike/windows-identity	0.123s
+?   	github.com/gxbrave/AntiNAT/test/browser/seed	[no test files]
+ok  	github.com/gxbrave/AntiNAT/test/contracts	0.424s
+ok  	github.com/gxbrave/AntiNAT/test/e2e	1.359s
+ok  	github.com/gxbrave/AntiNAT/test/e2e/harness	0.153s
+ok  	github.com/gxbrave/AntiNAT/test/integration	0.033s
+?   	github.com/gxbrave/AntiNAT/web	[no test files]
+EXIT[go]=0
+
+=== race ===
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-agent	1.023s
+?   	github.com/gxbrave/AntiNAT/cmd/antinat-controller	[no test files]
+?   	github.com/gxbrave/AntiNAT/cmd/antinat-hook-runner	[no test files]
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-probe	1.016s
+ok  	github.com/gxbrave/AntiNAT/cmd/antinatctl	3.266s
+ok  	github.com/gxbrave/AntiNAT/internal/agent	7.892s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/control	13.129s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/localstate	3.697s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	8.055s
+ok  	github.com/gxbrave/AntiNAT/internal/buildinfo	1.892s
+ok  	github.com/gxbrave/AntiNAT/internal/config	1.011s
+ok  	github.com/gxbrave/AntiNAT/internal/controller	14.360s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/agenthub	38.191s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/api	34.150s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/auth	9.041s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/deployment	1.010s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/lifecycle	9.494s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	43.998s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/recovery	12.853s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/store	96.174s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/web	2.778s
+ok  	github.com/gxbrave/AntiNAT/internal/forward	1.007s
+ok  	github.com/gxbrave/AntiNAT/internal/forward/tcp	2.214s
+ok  	github.com/gxbrave/AntiNAT/internal/forward/udp	1.072s
+ok  	github.com/gxbrave/AntiNAT/internal/hook	28.504s
+ok  	github.com/gxbrave/AntiNAT/internal/metrics	1.008s
+ok  	github.com/gxbrave/AntiNAT/internal/protocol	5.828s
+ok  	github.com/gxbrave/AntiNAT/internal/security	1.067s
+ok  	github.com/gxbrave/AntiNAT/internal/security/framecrypto	1.024s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal	8.333s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/direct	1.010s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/manual	1.008s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/natpmp	1.265s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/pcp	1.271s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/stun	1.489s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/upnp	1.347s
+?   	github.com/gxbrave/AntiNAT/migrations	[no test files]
+ok  	github.com/gxbrave/AntiNAT/scripts	1.022s
+ok  	github.com/gxbrave/AntiNAT/spike/datapath	1.248s
+ok  	github.com/gxbrave/AntiNAT/spike/network	4.164s
+ok  	github.com/gxbrave/AntiNAT/spike/sandbox	12.410s
+ok  	github.com/gxbrave/AntiNAT/spike/sqlite	2.302s
+ok  	github.com/gxbrave/AntiNAT/spike/state	2.904s
+ok  	github.com/gxbrave/AntiNAT/spike/windows-identity	1.230s
+?   	github.com/gxbrave/AntiNAT/test/browser/seed	[no test files]
+ok  	github.com/gxbrave/AntiNAT/test/contracts	4.366s
+ok  	github.com/gxbrave/AntiNAT/test/e2e	3.495s
+ok  	github.com/gxbrave/AntiNAT/test/e2e/harness	1.162s
+ok  	github.com/gxbrave/AntiNAT/test/integration	1.037s
+?   	github.com/gxbrave/AntiNAT/web	[no test files]
+EXIT[race]=0
+
+=== vet ===
+EXIT[vet]=0
+
+=== gofmt ===
+EXIT[gofmt]=0
+
+=== diff ===
+EXIT[diff]=0
+
+=== windows ===
+EXIT[windows]=0
+
+=== openapi ===
+OK: openapi.yaml valid; 33 paths; 13 error statuses referenced; 13 registered.
+EXIT[openapi]=0
+
+=== static ===
+fixed_browser_password_literals=0
+unapproved_0011_migration_refs_in_live_code=0
+raw_token_command_channels_in_production_builder=0
+EXIT[static]=0
+
+=== candidate ===
+HEAD=be3692cd07875259450ec1210d902f8dc17ffbca
+## ai/P17-web-ui
