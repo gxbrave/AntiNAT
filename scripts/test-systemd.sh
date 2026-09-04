@@ -76,4 +76,4 @@ systemctl is-active --quiet "$unit" && exit 1 || true
 [[ "$(grep -c '^stop$' "$test_dir/events")" -ge 1 ]]
 
 ANTINAT_P18_TEST_TMP="$test_dir/installer" bash "$script_dir/test-installers.sh" >/dev/null
-printf '%s\n' 'scripts/test-systemd.sh: PASS (native systemd start/restart/stop plus isolated installer fresh/rollback/upgrade/purge)'
+printf '%s\n' 'scripts/test-systemd.sh: SUPPORTED_WITH_LIMITS (systemd-analyze on redirected shipped-unit copies plus synthetic inert start/restart/stop; installer fresh/rollback/upgrade/purge remains isolated-test-root evidence)'
