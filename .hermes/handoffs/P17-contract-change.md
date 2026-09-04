@@ -12,7 +12,7 @@ waive the frozen P04/P15/P16 contracts and does not authorize any old
 - Child plan: `.hermes/plans/v1-beta/17-web-ui-deployment.md`
 - Continuation source: `.hermes/handoffs/P17-paused-handoff.md`
 - Required implementation base: `329fdf5039e4e55350d923462f78c2d4ee2e3588`
-- P17 candidate implementation commit: `90bf774`
+- P17 candidate implementation commit: `7cc4e4f`
 - Pre-P17 OpenAPI manifest SHA-256: `aa60d05f621f62ecf617c52583babf59cf98e77633945e7a109b0b3da6b6ce32`
 - P17 OpenAPI SHA-256: `43785c94abf6f158f52f0059d38a260d4d68f052a5ca1aed26539e48bc06c1eb`
 

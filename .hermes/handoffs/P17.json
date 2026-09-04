@@ -3,7 +3,7 @@
   "schema_version": "antinat.handoff/v1",
   "branch": "ai/P17-web-ui",
   "base_sha": "329fdf5039e4e55350d923462f78c2d4ee2e3588",
-  "head_sha": "90bf774a4dc3045caaab451e6c40640a5e1e2388",
+  "head_sha": "7cc4e4f644f43e36dea2665cad062ff49b86f3b8",
   "commits": [
     "1a01ab7edd58a481905859c181832d33d2604e02",
     "f6f05924a110835780692a8115b381f338d1a5d7",
@@ -16,7 +16,9 @@
     "fd1e6fba95e208850bd4352eee87b9654ff3de41",
     "f8bdc0313e9af4c123945cff5bf5d125c3e949b1",
     "afbab12458be5450b4205c2b305f410e3694bab5",
-    "90bf774a4dc3045caaab451e6c40640a5e1e2388"
+    "90bf774a4dc3045caaab451e6c40640a5e1e2388",
+    "8916bdb0fdbd22dbf26fe7aaaa8ed7ae3962acfb",
+    "7cc4e4f644f43e36dea2665cad062ff49b86f3b8"
   ],
   "files_changed_count": 67,
   "files_changed": [
@@ -157,12 +159,12 @@
   ],
   "evidence_sha256": {
     "test/browser/evidence/p17-admin-desktop.png": "332960277b00776658cace79e054a5e4b273a50a52034bbf24ea41118d75a485",
-    "test/browser/evidence/p17-admin-mobile.png": "61c2408e5d08a8a863471f6cf399d8f6522c7433356869a014740b1d7442e1b2",
+    "test/browser/evidence/p17-admin-mobile.png": "650b556ab6e147a795a2921fa7ead4b41b14f69bb5956a18e37c88c91c7196bd",
     "test/browser/evidence/p17-admin-en.png": "3ba2f1c6f76a60a3c554ad6a48aa5725b64b3edc33712bc89c9a0aed57357d78",
-    "test/browser/evidence/p17-home-zh.png": "6eaa6aebed5f5ccbfac69053360d9c700ca0f04c3e85d4fa29ff8b825c901f44",
-    "test/browser/evidence/p17-home-en.png": "8a4198a63d2fd45a7285196aa0291cb5f2868d865b810040d78286e244fee6ba",
-    "test/browser/evidence/p17-home-mobile.png": "dd7a43d7816154702ffe4ed720e2d1087d31d0a10755bb7b3d5e1672dfac4672",
-    ".hermes/handoffs/P17-contract-change.md": "776b4a012e5b5349f12737230bbdb1fa9ef06767e130aca22145f56110b995de"
+    "test/browser/evidence/p17-home-zh.png": "97110357129f438025c1d4bb3a744d4e97913d4eb5cbc373b06e36519a995452",
+    "test/browser/evidence/p17-home-en.png": "fe8598a288f5b361517bbc97bb652076b141a67911aa0b12bbda4539c23b589b",
+    "test/browser/evidence/p17-home-mobile.png": "6f9de443fd790e2aae8bb388360e9e4e7a27baf678fc1fbaa24a2cd2287ea516",
+    ".hermes/handoffs/P17-contract-change.md": "32fce7783c540b5f51894ea04406524c9ad2ca667d65df290a85491b089555a8"
   },
   "contracts_consumed": [
     {
