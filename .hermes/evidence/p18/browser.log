@@ -1,84 +1,84 @@
 == test-browser: build controller ==
-== test-browser: start controller on 127.0.0.1:59343 (temp store) ==
+== test-browser: start controller on 127.0.0.1:56871 (temp store) ==
 == test-browser: seed public fixture ==
 seed: public fixture ready (private=false)
 
 Running 6 tests using 1 worker
 
-(node:3695835) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(node:3824379) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
 (Use `node --trace-warnings ...` to show where the warning was created)
-  ✓  1 [chromium-desktop] › home-public.spec.js:9:3 › public home › renders the four durable states with text, shape and risk (219ms)
-  ✓  2 [chromium-desktop] › home-public.spec.js:41:3 › public home › verified card is the only default-clickable link and points at the published URL (172ms)
-  ✓  3 [chromium-desktop] › home-public.spec.js:50:3 › public home › unverified card opens only after an explicit risk confirmation (233ms)
-  ✓  4 [chromium-desktop] › home-public.spec.js:62:3 › public home › offline card keeps the last address and copies it only after a risk confirm (297ms)
-  ✓  5 [chromium-desktop] › home-public.spec.js:77:3 › public home › category navigation filters cards and "all" restores them (222ms)
-  ✓  6 [chromium-desktop] › home-public.spec.js:86:3 › public home › mobile category strip becomes a horizontally scrolling rail (201ms)
+  ✓  1 [chromium-desktop] › home-public.spec.js:9:3 › public home › renders the four durable states with text, shape and risk (452ms)
+  ✓  2 [chromium-desktop] › home-public.spec.js:41:3 › public home › verified card is the only default-clickable link and points at the published URL (151ms)
+  ✓  3 [chromium-desktop] › home-public.spec.js:50:3 › public home › unverified card opens only after an explicit risk confirmation (211ms)
+  ✓  4 [chromium-desktop] › home-public.spec.js:62:3 › public home › offline card keeps the last address and copies it only after a risk confirm (251ms)
+  ✓  5 [chromium-desktop] › home-public.spec.js:77:3 › public home › category navigation filters cards and "all" restores them (220ms)
+  ✓  6 [chromium-desktop] › home-public.spec.js:86:3 › public home › mobile category strip becomes a horizontally scrolling rail (227ms)
 
-  6 passed (2.2s)
+  6 passed (2.3s)
 
 Running 10 tests using 1 worker
 
-(node:3697971) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(node:3826660) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
 (Use `node --trace-warnings ...` to show where the warning was created)
-  ✓   1 [chromium-desktop] › admin.spec.js:24:3 › admin shell › four tabs render and arrow keys switch tabs (388ms)
-  ✓   2 [chromium-desktop] › admin.spec.js:37:3 › admin shell › forwards tab shows durable text statuses and the evidence chain (355ms)
-  ✓   3 [chromium-desktop] › admin.spec.js:61:3 › admin shell › nodes tab distinguishes offline/online durably in text + shape (282ms)
-  ✓   4 [chromium-desktop] › admin.spec.js:71:3 › admin shell › loading, error, and retry states are explicit (452ms)
-  ✓   5 [chromium-desktop] › admin.spec.js:87:3 › admin shell › a group with no forwards renders the empty state (316ms)
-  ✓   6 [chromium-desktop] › admin.spec.js:97:3 › admin shell › SSE connects, reconnects after a dropped stream, and surfaces a new admin event (3.7s)
-  ✓   7 [chromium-desktop] › admin.spec.js:124:3 › admin shell › global settings tab loads the form from a real settings record (330ms)
-  ✓   8 [chromium-desktop] › admin.spec.js:133:3 › admin shell › global settings tab keeps the returned ETag for a second save (430ms)
-  ✓   9 [chromium-desktop] › admin.spec.js:144:3 › admin shell › long bilingual strings do not overflow the page (209ms)
-  ✓  10 [chromium-desktop] › admin.spec.js:161:3 › admin shell › mobile admin stays inside the viewport with scrollable tables (170ms)
+  ✓   1 [chromium-desktop] › admin.spec.js:24:3 › admin shell › four tabs render and arrow keys switch tabs (352ms)
+  ✓   2 [chromium-desktop] › admin.spec.js:37:3 › admin shell › forwards tab shows durable text statuses and the evidence chain (531ms)
+  ✓   3 [chromium-desktop] › admin.spec.js:61:3 › admin shell › nodes tab distinguishes offline/online durably in text + shape (440ms)
+  ✓   4 [chromium-desktop] › admin.spec.js:71:3 › admin shell › loading, error, and retry states are explicit (617ms)
+  ✓   5 [chromium-desktop] › admin.spec.js:87:3 › admin shell › a group with no forwards renders the empty state (303ms)
+  ✓   6 [chromium-desktop] › admin.spec.js:97:3 › admin shell › SSE connects, reconnects after a dropped stream, and surfaces a new admin event (3.8s)
+  ✓   7 [chromium-desktop] › admin.spec.js:124:3 › admin shell › global settings tab loads the form from a real settings record (245ms)
+  ✓   8 [chromium-desktop] › admin.spec.js:133:3 › admin shell › global settings tab keeps the returned ETag for a second save (345ms)
+  ✓   9 [chromium-desktop] › admin.spec.js:144:3 › admin shell › long bilingual strings do not overflow the page (275ms)
+  ✓  10 [chromium-desktop] › admin.spec.js:161:3 › admin shell › mobile admin stays inside the viewport with scrollable tables (249ms)
 
-  10 passed (8.1s)
+  10 passed (8.8s)
 
 Running 9 tests using 1 worker
 
-(node:3702277) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(node:3831058) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
 (Use `node --trace-warnings ...` to show where the warning was created)
-  ✓  1 [chromium-desktop] › deployment.spec.js:29:3 › node deployment flow › create failure stays recoverable in the create dialog (400ms)
-  ✓  2 [chromium-desktop] › deployment.spec.js:45:3 › node deployment flow › double-submitting node creation produces one POST (359ms)
-  ✓  3 [chromium-desktop] › deployment.spec.js:62:3 › node deployment flow › creates a node once and enters a secret-free deployment dialog (350ms)
-  ✓  4 [chromium-desktop] › deployment.spec.js:85:3 › node deployment flow › renders platform-specific commands with an isolated Docker enrollment helper (369ms)
-  ✓  5 [chromium-desktop] › deployment.spec.js:131:3 › node deployment flow › saves a structured profile, reloads it, and keeps invalid values out of persistence (547ms)
-  ✓  6 [chromium-desktop] › deployment.spec.js:153:3 › node deployment flow › double-saving a profile produces one PUT (355ms)
-  ✓  7 [chromium-desktop] › deployment.spec.js:170:3 › node deployment flow › clipboard failure leaves a manually selectable command (299ms)
-  ✓  8 [chromium-desktop] › deployment.spec.js:184:3 › node deployment flow › frontend PowerShell builder does not expose raw shell syntax (80ms)
-  ✓  9 [chromium-desktop] › deployment.spec.js:198:3 › node deployment flow › allows saving when detection is unavailable and shows a recoverable error (369ms)
+  ✓  1 [chromium-desktop] › deployment.spec.js:29:3 › node deployment flow › create failure stays recoverable in the create dialog (482ms)
+  ✓  2 [chromium-desktop] › deployment.spec.js:45:3 › node deployment flow › double-submitting node creation produces one POST (482ms)
+  ✓  3 [chromium-desktop] › deployment.spec.js:62:3 › node deployment flow › creates a node once and enters a secret-free deployment dialog (517ms)
+  ✓  4 [chromium-desktop] › deployment.spec.js:85:3 › node deployment flow › renders platform-specific commands with an isolated Docker enrollment helper (481ms)
+  ✓  5 [chromium-desktop] › deployment.spec.js:131:3 › node deployment flow › saves a structured profile, reloads it, and keeps invalid values out of persistence (841ms)
+  ✓  6 [chromium-desktop] › deployment.spec.js:153:3 › node deployment flow › double-saving a profile produces one PUT (459ms)
+  ✓  7 [chromium-desktop] › deployment.spec.js:170:3 › node deployment flow › clipboard failure leaves a manually selectable command (339ms)
+  ✓  8 [chromium-desktop] › deployment.spec.js:184:3 › node deployment flow › frontend PowerShell builder does not expose raw shell syntax (120ms)
+  ✓  9 [chromium-desktop] › deployment.spec.js:198:3 › node deployment flow › allows saving when detection is unavailable and shows a recoverable error (430ms)
 
-  9 passed (3.9s)
+  9 passed (5.4s)
 
 Running 3 tests using 1 worker
 
-(node:3704575) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(node:3833462) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
 (Use `node --trace-warnings ...` to show where the warning was created)
-  ✓  1 [chromium-desktop] › destructive.spec.js:21:3 › destructive dialogs › forward delete states immediate listener/connection consequences and returns focus on cancel (495ms)
-  ✓  2 [chromium-desktop] › destructive.spec.js:40:3 › destructive dialogs › normal and force node deletion have distinct consequences and offline warning (521ms)
-  ✓  3 [chromium-desktop] › destructive.spec.js:62:3 › destructive dialogs › a precondition failure keeps the dialog open with a recoverable error (465ms)
+  ✓  1 [chromium-desktop] › destructive.spec.js:21:3 › destructive dialogs › forward delete states immediate listener/connection consequences and returns focus on cancel (532ms)
+  ✓  2 [chromium-desktop] › destructive.spec.js:40:3 › destructive dialogs › normal and force node deletion have distinct consequences and offline warning (451ms)
+  ✓  3 [chromium-desktop] › destructive.spec.js:62:3 › destructive dialogs › a precondition failure keeps the dialog open with a recoverable error (439ms)
 
-  3 passed (2.0s)
+  3 passed (1.9s)
 
 Running 4 tests using 1 worker
 
-(node:3705905) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(node:3835099) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
 (Use `node --trace-warnings ...` to show where the warning was created)
-  ✓  1 [chromium-desktop] › a11y.spec.js:34:3 › accessibility and review evidence › keyboard focus, labels, reduced motion, and desktop screenshot (338ms)
-  ✓  2 [chromium-desktop] › a11y.spec.js:48:3 › accessibility and review evidence › mobile admin has no horizontal overflow and keeps controls usable (450ms)
-  ✓  3 [chromium-desktop] › a11y.spec.js:65:3 › accessibility and review evidence › captures public and admin language evidence without retaining a token (459ms)
-  ✓  4 [chromium-desktop] › a11y.spec.js:106:3 › accessibility and review evidence › verified publication requires every evidence axis to be ready (248ms)
+  ✓  1 [chromium-desktop] › a11y.spec.js:34:3 › accessibility and review evidence › keyboard focus, labels, reduced motion, and desktop screenshot (329ms)
+  ✓  2 [chromium-desktop] › a11y.spec.js:48:3 › accessibility and review evidence › mobile admin has no horizontal overflow and keeps controls usable (358ms)
+  ✓  3 [chromium-desktop] › a11y.spec.js:65:3 › accessibility and review evidence › captures public and admin language evidence without retaining a token (503ms)
+  ✓  4 [chromium-desktop] › a11y.spec.js:106:3 › accessibility and review evidence › verified publication requires every evidence axis to be ready (191ms)
 
-  4 passed (1.9s)
+  4 passed (1.8s)
 == test-browser: seed private-site fixture ==
 seed: private fixture ready (private=true)
 
 Running 3 tests using 1 worker
 
-(node:3707064) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(node:3836149) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
 (Use `node --trace-warnings ...` to show where the warning was created)
-  ✓  1 [chromium-desktop] › home-private.spec.js:12:3 › private home › unauthenticated / redirects to the sign-in page (171ms)
-  ✓  2 [chromium-desktop] › home-private.spec.js:18:3 › private home › sign-in succeeds and then / renders the public directory (340ms)
-  ✓  3 [chromium-desktop] › home-private.spec.js:31:3 › private home › wrong credentials stay on the sign-in form and show an error (190ms)
+  ✓  1 [chromium-desktop] › home-private.spec.js:12:3 › private home › unauthenticated / redirects to the sign-in page (158ms)
+  ✓  2 [chromium-desktop] › home-private.spec.js:18:3 › private home › sign-in succeeds and then / renders the public directory (389ms)
+  ✓  3 [chromium-desktop] › home-private.spec.js:31:3 › private home › wrong credentials stay on the sign-in form and show an error (136ms)
 
   3 passed (1.3s)
 == test-browser: stop controller ==

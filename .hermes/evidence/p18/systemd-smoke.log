@@ -1,8 +1,49 @@
-Created symlink /run/systemd/system/multi-user.target.wants/antinat-p18-smoke-3683783.service → /run/systemd/system/antinat-p18-smoke-3683783.service.
-curl: (7) Failed to connect to 127.0.0.1 port 36565 after 0 ms: Couldn't connect to server
-curl: (7) Failed to connect to 127.0.0.1 port 36565 after 0 ms: Couldn't connect to server
-curl: (7) Failed to connect to 127.0.0.1 port 36565 after 0 ms: Couldn't connect to server
-Removed "/run/systemd/system/multi-user.target.wants/antinat-p18-smoke-3683783.service".
+systemd stability run 1/3
+Created symlink /run/systemd/system/multi-user.target.wants/antinat-p18-smoke-3790653.service → /run/systemd/system/antinat-p18-smoke-3790653.service.
+curl: (7) Failed to connect to 127.0.0.1 port 34297 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 34297 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 34297 after 0 ms: Couldn't connect to server
+Removed "/run/systemd/system/multi-user.target.wants/antinat-p18-smoke-3790653.service".
+Created symlink /etc/systemd/system/multi-user.target.wants/antinat-controller.service → /etc/systemd/system/antinat-controller.service.
+curl: (7) Failed to connect to 127.0.0.1 port 3111 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 3111 after 0 ms: Couldn't connect to server
+Created symlink /etc/systemd/system/multi-user.target.wants/antinat-agent.service → /etc/systemd/system/antinat-agent.service.
+curl: (7) Failed to connect to 127.0.0.1 port 3111 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 3111 after 0 ms: Couldn't connect to server
+Removed "/etc/systemd/system/multi-user.target.wants/antinat-agent.service".
+Removed "/etc/systemd/system/multi-user.target.wants/antinat-controller.service".
+Created symlink /etc/systemd/system/multi-user.target.wants/antinat-controller.service → /etc/systemd/system/antinat-controller.service.
+Created symlink /etc/systemd/system/multi-user.target.wants/antinat-agent.service → /etc/systemd/system/antinat-agent.service.
+Removed "/etc/systemd/system/multi-user.target.wants/antinat-agent.service".
+Removed "/etc/systemd/system/multi-user.target.wants/antinat-controller.service".
+scripts/test-systemd.sh: PASS (shipped signed installer + real systemd Controller/Agent install, enrollment, restart, failed-upgrade rollback, successful upgrade, purge, and no-residue checks)
+scripts/test-systemd.sh: LIMITS (native Windows, OpenRC, arm64, and real-WAN paths require their native hosts)
+systemd stability run 2/3
+Created symlink /run/systemd/system/multi-user.target.wants/antinat-p18-smoke-3801282.service → /run/systemd/system/antinat-p18-smoke-3801282.service.
+curl: (7) Failed to connect to 127.0.0.1 port 37503 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 37503 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 37503 after 0 ms: Couldn't connect to server
+Removed "/run/systemd/system/multi-user.target.wants/antinat-p18-smoke-3801282.service".
+Created symlink /etc/systemd/system/multi-user.target.wants/antinat-controller.service → /etc/systemd/system/antinat-controller.service.
+curl: (7) Failed to connect to 127.0.0.1 port 3111 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 3111 after 0 ms: Couldn't connect to server
+Created symlink /etc/systemd/system/multi-user.target.wants/antinat-agent.service → /etc/systemd/system/antinat-agent.service.
+curl: (7) Failed to connect to 127.0.0.1 port 3111 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 3111 after 0 ms: Couldn't connect to server
+Removed "/etc/systemd/system/multi-user.target.wants/antinat-agent.service".
+Removed "/etc/systemd/system/multi-user.target.wants/antinat-controller.service".
+Created symlink /etc/systemd/system/multi-user.target.wants/antinat-controller.service → /etc/systemd/system/antinat-controller.service.
+Created symlink /etc/systemd/system/multi-user.target.wants/antinat-agent.service → /etc/systemd/system/antinat-agent.service.
+Removed "/etc/systemd/system/multi-user.target.wants/antinat-agent.service".
+Removed "/etc/systemd/system/multi-user.target.wants/antinat-controller.service".
+scripts/test-systemd.sh: PASS (shipped signed installer + real systemd Controller/Agent install, enrollment, restart, failed-upgrade rollback, successful upgrade, purge, and no-residue checks)
+scripts/test-systemd.sh: LIMITS (native Windows, OpenRC, arm64, and real-WAN paths require their native hosts)
+systemd stability run 3/3
+Created symlink /run/systemd/system/multi-user.target.wants/antinat-p18-smoke-3811930.service → /run/systemd/system/antinat-p18-smoke-3811930.service.
+curl: (7) Failed to connect to 127.0.0.1 port 55877 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 55877 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 55877 after 0 ms: Couldn't connect to server
+Removed "/run/systemd/system/multi-user.target.wants/antinat-p18-smoke-3811930.service".
 Created symlink /etc/systemd/system/multi-user.target.wants/antinat-controller.service → /etc/systemd/system/antinat-controller.service.
 curl: (7) Failed to connect to 127.0.0.1 port 3111 after 0 ms: Couldn't connect to server
 curl: (7) Failed to connect to 127.0.0.1 port 3111 after 0 ms: Couldn't connect to server

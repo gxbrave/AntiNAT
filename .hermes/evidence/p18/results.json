@@ -1,13 +1,13 @@
 {
   "schema_version": "antinat.evidence/v1",
   "plan": "P18",
-  "commit_sha": "d2a15dba4feeba29ba09cbaaa115fbba6964dc2f",
+  "commit_sha": "562caf3afc6ed80428d4534438ecaf95c7029d7a",
   "command": "P18 verification matrix recorded in verification-bundle.sha256",
   "result": "PASS",
-  "artifact_digest": "sha256:a762030e3ce73de6afe0215eae5c364af476abdc940d0b295b5313ebf0f16555",
+  "artifact_digest": "sha256:e470cad62c2df2e188cbaaba57a30bdba34637567423073831fba80c910f14b6",
   "os": "linux/amd64 systemd host with cross-build and local OCI lanes",
   "timeout": 900,
-  "summary": "Full repository, race, browser, installer, Agent uninstall IPC, real systemd lifecycle, cross-build, and local OCI checks completed; native Windows, OpenRC, arm64 runtime, registry signing, SBOM, and real-WAN execution remain explicit limits.",
+  "summary": "Full repository, race, browser, installer, Agent uninstall IPC, three consecutive real systemd lifecycles, intentional-failure cleanup, cross-build, and local OCI checks completed; native Windows, OpenRC, arm64 runtime, registry signing, SBOM, and real-WAN execution remain explicit limits.",
   "evidence_paths": [
     ".hermes/evidence/p18/verification-bundle.sha256",
     ".hermes/evidence/p18/systemd-native.json",
