@@ -25,7 +25,7 @@ cross-build:
 	GOOS=windows GOARCH=amd64 go build ./cmd/...
 
 verify-evidence:
-	go run ./scripts/verify-evidence.go ./test/evidence/fixtures/pass.json
+	GOWORK=off go test ./scripts -run TestValidateAcceptsValidEvidenceFixture -count=1
 
 verify-evidence-parity:
 	python3 scripts/verify-evidence-parity.py

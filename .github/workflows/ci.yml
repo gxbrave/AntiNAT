@@ -36,7 +36,7 @@ jobs:
       - name: Workflow policy
         run: go test ./scripts -run TestWorkflowPolicy -count=1
       - name: Validate evidence fixture
-        run: go run ./scripts/verify-evidence.go ./test/evidence/fixtures/pass.json
+        run: go test ./scripts -run TestValidateAcceptsValidEvidenceFixture -count=1
       - name: Upload evidence fixture
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

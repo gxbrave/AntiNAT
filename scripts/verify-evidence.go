@@ -391,7 +391,7 @@ func validate(data []byte) error {
 	return nil
 }
 
-func main() {
+func verifyEvidenceCLI() {
 	if len(os.Args) != 2 {
 		fmt.Fprintln(os.Stderr, "EVIDENCE_USAGE: usage: verify-evidence <record.json>")
 		os.Exit(2)
