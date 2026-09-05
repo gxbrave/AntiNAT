@@ -1,6 +1,6 @@
-implementation_sha=16d42de79c1412ef76848af50299097717176750
-implementation_tree_sha=783efd504d51863a01deb2cedbe11a00411a5f09
-command=gofmt -l internal/install
+implementation_sha=b8002a0ff25a848d36a41cd5f216e05f7ddeb8c3
+implementation_tree_sha=3cbde32e4a5fead4d997e870eb51396f391612fb
+command=gofmt -l internal/install (no files listed)
 
 
 exit_code=0

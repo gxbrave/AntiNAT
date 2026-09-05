@@ -1,9 +1,230 @@
-implementation_sha=16d42de79c1412ef76848af50299097717176750
-implementation_tree_sha=783efd504d51863a01deb2cedbe11a00411a5f09
-command=docker info --format 'docker-daemon: PASS server={{.ServerVersion}} architecture={{.Architecture}}' && docker image inspect antinat:p18-agent antinat:p18-controller --format 'local_image={{.RepoTags}} id={{.Id}}'
+implementation_sha=b8002a0ff25a848d36a41cd5f216e05f7ddeb8c3
+implementation_tree_sha=3cbde32e4a5fead4d997e870eb51396f391612fb
+command=docker info and docker image inspect antinat:p18-agent antinat:p18-controller
 
-docker-daemon: PASS server=29.6.1 architecture=x86_64
-local_image=[antinat:p18-agent] id=sha256:dc614c90550d09979c1f9bf7ee110ca421e6565d41b1cfcfd66d52816f1e6783
-local_image=[antinat:p18-controller] id=sha256:2232fe6c9cc74767ce7298ee7c6b260acc5d050f9056fd113fc214f3fe54da7c
+Client: Docker Engine - Community
+ Version:    29.6.1
+ Context:    default
+ Debug Mode: false
+ Plugins:
+  buildx: Docker Buildx (Docker Inc.)
+    Version:  v0.35.0
+    Path:     /usr/libexec/docker/cli-plugins/docker-buildx
+  compose: Docker Compose (Docker Inc.)
+    Version:  v5.3.0
+    Path:     /usr/libexec/docker/cli-plugins/docker-compose
+  model: Docker Model Runner (Docker Inc.)
+    Version:  v1.2.5
+    Path:     /usr/libexec/docker/cli-plugins/docker-model
+
+Server:
+ Containers: 6
+  Running: 6
+  Paused: 0
+  Stopped: 0
+ Images: 8
+ Server Version: 29.6.1
+ Storage Driver: overlayfs
+  driver-type: io.containerd.snapshotter.v1
+ Logging Driver: json-file
+ Cgroup Driver: systemd
+ Cgroup Version: 2
+ Plugins:
+  Volume: local
+  Network: bridge host ipvlan macvlan null overlay
+  Log: awslogs fluentd gcplogs gelf journald json-file local splunk syslog
+ CDI spec directories:
+  /etc/cdi
+  /var/run/cdi
+ Swarm: inactive
+ Runtimes: io.containerd.runc.v2 runc
+ Default Runtime: runc
+ Init Binary: docker-init
+ containerd version: e53c7c1516c3b2bff98eb76f1f4117477e6f4e66
+ runc version: v1.3.6-0-g491b69ba
+ init version: de40ad0
+ Security Options:
+  apparmor
+  seccomp
+   Profile: builtin
+  cgroupns
+ Kernel Version: 6.8.0-138-generic
+ Operating System: Ubuntu 24.04.3 LTS
+ OSType: linux
+ Architecture: x86_64
+ CPUs: 8
+ Total Memory: 9.711GiB
+ Name: hermes
+ ID: aa0d950e-54bd-41d8-bb56-bea761fece1f
+ Docker Root Dir: /var/lib/docker
+ Debug Mode: false
+ Experimental: false
+ Insecure Registries:
+  ::1/128
+  127.0.0.0/8
+ Live Restore Enabled: false
+ Firewall Backend: iptables
+  EnableUserlandProxy: true
+  UserlandProxyPath: /usr/bin/docker-proxy
+
+[
+    {
+        "Id": "sha256:f5dd5c929e194eb06b27e72dc58241e8f5171445391370905b4ac1f78634dbb0",
+        "RepoTags": [
+            "antinat:p18-agent"
+        ],
+        "RepoDigests": [
+            "antinat@sha256:f5dd5c929e194eb06b27e72dc58241e8f5171445391370905b4ac1f78634dbb0"
+        ],
+        "Comment": "buildkit.dockerfile.v0",
+        "Created": "2026-09-05T04:48:45.524234694Z",
+        "Config": {
+            "User": "65532:65532",
+            "Env": [
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            ],
+            "Entrypoint": [
+                "/opt/antinat/bin/stage-enrollment"
+            ],
+            "Volumes": {
+                "/var/lib/antinat": {},
+                "/var/log/antinat": {}
+            },
+            "WorkingDir": "/var/lib/antinat",
+            "Labels": {
+                "org.opencontainers.image.description": "AntiNAT forwarding agent",
+                "org.opencontainers.image.licenses": "Apache-2.0",
+                "org.opencontainers.image.source": "https://github.com/gxbrave/AntiNAT",
+                "org.opencontainers.image.title": "AntiNAT Agent"
+            },
+            "Healthcheck": {
+                "Test": [
+                    "CMD",
+                    "/opt/antinat/bin/healthcheck-agent"
+                ],
+                "Interval": 30000000000,
+                "Timeout": 5000000000,
+                "StartPeriod": 10000000000,
+                "Retries": 3
+            }
+        },
+        "Architecture": "amd64",
+        "Os": "linux",
+        "Size": 17233932,
+        "RootFS": {
+            "Type": "layers",
+            "Layers": [
+                "sha256:6f09edfb3f6d7173733adc8eec8ea00626550dc6fc2dcf07d40e13f5c1e907c4",
+                "sha256:4ed2a1d0d0c96c00779d7570f3d1f791f84233be571eacf8fce27fb4381754f4",
+                "sha256:5ede6a566e28e3fe702a4d9e8dd83d6ed70b0a4a24e799d21cf5b7b8f0813067",
+                "sha256:f96d3fedbfe9d884b7459d17d56e2c4be6e45081b4b544708242b39d4231b1ac",
+                "sha256:f73e7db875579a0ecbe6e922c404a18de794dad7af934063351677f7f837b808",
+                "sha256:02d1fec9467939f3650ef36c93a1f5aae912a6940a7c69be5a33b22eb214832c",
+                "sha256:c04301f9a1964ad6c2bb892940563b282e7da0e47ac82f755b0c74123bfdd11d",
+                "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+                "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef"
+            ]
+        },
+        "Metadata": {
+            "LastTagTime": "2026-09-05T04:52:35.838173628Z"
+        },
+        "Descriptor": {
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "digest": "sha256:f5dd5c929e194eb06b27e72dc58241e8f5171445391370905b4ac1f78634dbb0",
+            "size": 856
+        },
+        "Identity": {
+            "Build": [
+                {
+                    "Ref": "tkgf8crsactydzdr29ec0u830",
+                    "CreatedAt": "2026-09-05T04:52:35.843324448Z"
+                }
+            ]
+        }
+    },
+    {
+        "Id": "sha256:0109ea9c0f69f5a2e850b24d08e508c4931ec96efa5bef9b1979e4c726189e0a",
+        "RepoTags": [
+            "antinat:p18-controller"
+        ],
+        "RepoDigests": [
+            "antinat@sha256:0109ea9c0f69f5a2e850b24d08e508c4931ec96efa5bef9b1979e4c726189e0a"
+        ],
+        "Comment": "buildkit.dockerfile.v0",
+        "Created": "2026-09-05T04:48:45.524234694Z",
+        "Config": {
+            "User": "65532:65532",
+            "ExposedPorts": {
+                "3111/tcp": {}
+            },
+            "Env": [
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            ],
+            "Entrypoint": [
+                "/opt/antinat/bin/antinat-controller",
+                "-listen",
+                "127.0.0.1:3111",
+                "-store",
+                "/var/lib/antinat/controller.db",
+                "-keydir",
+                "/var/lib/antinat/controller-keys"
+            ],
+            "Volumes": {
+                "/var/lib/antinat": {},
+                "/var/log/antinat": {}
+            },
+            "WorkingDir": "/var/lib/antinat",
+            "Labels": {
+                "org.opencontainers.image.description": "AntiNAT controller",
+                "org.opencontainers.image.licenses": "Apache-2.0",
+                "org.opencontainers.image.source": "https://github.com/gxbrave/AntiNAT",
+                "org.opencontainers.image.title": "AntiNAT Controller"
+            },
+            "Healthcheck": {
+                "Test": [
+                    "CMD-SHELL",
+                    "wget -q -O - http://127.0.0.1:3111/readyz >/dev/null || exit 1"
+                ],
+                "Interval": 30000000000,
+                "Timeout": 5000000000,
+                "StartPeriod": 10000000000,
+                "Retries": 3
+            }
+        },
+        "Architecture": "amd64",
+        "Os": "linux",
+        "Size": 17234421,
+        "RootFS": {
+            "Type": "layers",
+            "Layers": [
+                "sha256:6f09edfb3f6d7173733adc8eec8ea00626550dc6fc2dcf07d40e13f5c1e907c4",
+                "sha256:4ed2a1d0d0c96c00779d7570f3d1f791f84233be571eacf8fce27fb4381754f4",
+                "sha256:5ede6a566e28e3fe702a4d9e8dd83d6ed70b0a4a24e799d21cf5b7b8f0813067",
+                "sha256:f96d3fedbfe9d884b7459d17d56e2c4be6e45081b4b544708242b39d4231b1ac",
+                "sha256:f73e7db875579a0ecbe6e922c404a18de794dad7af934063351677f7f837b808",
+                "sha256:02d1fec9467939f3650ef36c93a1f5aae912a6940a7c69be5a33b22eb214832c",
+                "sha256:c04301f9a1964ad6c2bb892940563b282e7da0e47ac82f755b0c74123bfdd11d",
+                "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+                "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef"
+            ]
+        },
+        "Metadata": {
+            "LastTagTime": "2026-09-05T04:52:48.262981162Z"
+        },
+        "Descriptor": {
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "digest": "sha256:0109ea9c0f69f5a2e850b24d08e508c4931ec96efa5bef9b1979e4c726189e0a",
+            "size": 856
+        },
+        "Identity": {
+            "Build": [
+                {
+                    "Ref": "l9gkpe0y7q17o6y0rhto6woia",
+                    "CreatedAt": "2026-09-05T04:52:48.268652074Z"
+                }
+            ]
+        }
+    }
+]
 
 exit_code=0

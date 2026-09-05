@@ -6,6 +6,9 @@ bin/antinat-controller
 bin/antinat-hook-runner
 state.db
 node.key
+.key.lock
+.lifecycle.lock
+.upgrade.lock
 controller.db
 controller.db-wal
 controller.db-shm

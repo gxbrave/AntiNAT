@@ -1,11 +1,11 @@
-implementation_sha=16d42de79c1412ef76848af50299097717176750
-implementation_tree_sha=783efd504d51863a01deb2cedbe11a00411a5f09
+implementation_sha=b8002a0ff25a848d36a41cd5f216e05f7ddeb8c3
+implementation_tree_sha=3cbde32e4a5fead4d997e870eb51396f391612fb
 command=docker/verify-oci-contract.sh antinat:p18-agent antinat:p18-controller
 
-local_image_id antinat:p18-agent sha256:dc614c90550d09979c1f9bf7ee110ca421e6565d41b1cfcfd66d52816f1e6783
+local_image_id antinat:p18-agent sha256:f5dd5c929e194eb06b27e72dc58241e8f5171445391370905b4ac1f78634dbb0
 SUPPORTED_WITH_LIMITS: antinat:p18-agent was loaded locally and has no registry manifest digest; release evidence must record IMAGE_REF@DIGEST.
 SUPPORTED_WITH_LIMITS: syft is unavailable; no SBOM was generated for antinat:p18-agent.
-local_image_id antinat:p18-controller sha256:2232fe6c9cc74767ce7298ee7c6b260acc5d050f9056fd113fc214f3fe54da7c
+local_image_id antinat:p18-controller sha256:0109ea9c0f69f5a2e850b24d08e508c4931ec96efa5bef9b1979e4c726189e0a
 SUPPORTED_WITH_LIMITS: antinat:p18-controller was loaded locally and has no registry manifest digest; release evidence must record IMAGE_REF@DIGEST.
 SUPPORTED_WITH_LIMITS: syft is unavailable; no SBOM was generated for antinat:p18-controller.
 SUPPORTED_WITH_LIMITS: cosign is unavailable; release signature verification was not run.

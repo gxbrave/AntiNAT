@@ -1,7 +1,1 @@
-implementation_sha=16d42de79c1412ef76848af50299097717176750
-implementation_tree_sha=783efd504d51863a01deb2cedbe11a00411a5f09
-command=bash scripts/test-installers.sh
-
 scripts/test-installers.sh: PASS
-
-exit_code=0

@@ -1,12 +1,6 @@
-implementation_sha=16d42de79c1412ef76848af50299097717176750
-implementation_tree_sha=783efd504d51863a01deb2cedbe11a00411a5f09
-command=compose_token="$(mktemp)"
-: >"$compose_token"
-chmod 600 "$compose_token"
-ANTINAT_ENDPOINT=https://controller.example ANTINAT_NODE=ci-node ANTINAT_PIN=0000000000000000000000000000000000000000000000000000000000000000 ANTINAT_ENROLLMENT_TOKEN_FILE="$compose_token" docker compose -f docker/compose.yaml config --quiet
-status=$?
-rm -f "$compose_token"
-exit "$status"
+implementation_sha=b8002a0ff25a848d36a41cd5f216e05f7ddeb8c3
+implementation_tree_sha=3cbde32e4a5fead4d997e870eb51396f391612fb
+command=token_file=$(mktemp); chmod 600 "$token_file"; ANTINAT_ENDPOINT=https://controller.example ANTINAT_NODE=ci-node ANTINAT_PIN=0000000000000000000000000000000000000000000000000000000000000000 ANTINAT_ENROLLMENT_TOKEN_FILE="$token_file" docker compose -f docker/compose.yaml config --quiet
 
 
 exit_code=0

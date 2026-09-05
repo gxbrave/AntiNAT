@@ -1,6 +1,16 @@
 # P18 contract-change record
 
-Status: candidate amendment for P18 review and integration.
+Status: approved by the P18 orchestrator for fresh independent review and
+integration, limited to the additive revision recorded below. This is not
+release approval.
+
+Approval record: on 2026-09-05 UTC, the P18 orchestrator approved the
+candidate snapshot `3520b57038dbcfe8bbe3fba9c8d61903e09cec96` proposal to
+add the required public `controller_pin` field to the existing
+`EnrollmentToken` response and update the byte-matched contract manifest.
+The approval does not authorize a new route or method, a secret channel, a
+protocol or lifecycle revision, a legacy API surface, or any further frozen
+contract change.
 
 This record amends the P17 deployment/enrollment handoff narrowly. It does
 not waive the frozen installer, protocol, or lifecycle contracts, and it does

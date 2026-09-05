@@ -354,7 +354,12 @@ func (h *Hub) handleInboundFrame(s *ControlSession, frame []byte) error {
 	s.mu.Unlock()
 
 	switch hdr.MessageType {
-	case "desired_result", "operation_complete", "forward_delete_ack",
+	case "operation_complete":
+		if operationID, ok := parseAgentUninstallNotice(env); ok {
+			return h.handleAgentUninstallNotice(s, env, operationID)
+		}
+		return h.handleAgentResult(s, env)
+	case "desired_result", "forward_delete_ack",
 		"node_decommission_ack":
 		return h.handleAgentResult(s, env)
 	case "probe_armed", "probe_ingress_receipt", "probe_result":
@@ -378,6 +383,53 @@ func (h *Hub) handleInboundFrame(s *ControlSession, frame []byte) error {
 	default:
 		return fmt.Errorf("unexpected message type %q", hdr.MessageType)
 	}
+}
+
+func parseAgentUninstallNotice(env protocol.Envelope) (string, bool) {
+	var notice struct {
+		OperationID string `json:"deletion_operation_id"`
+		Notice      string `json:"notice"`
+	}
+	if err := protocol.DecodeStrictJSONInto(env.Payload, &notice); err != nil ||
+		notice.Notice != "agent uninstall requested" || len(notice.OperationID) != 32 {
+		return "", false
+	}
+	for _, char := range notice.OperationID {
+		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f')) {
+			return "", false
+		}
+	}
+	want := security.MessageID(notice.OperationID, "operation_complete")
+	if env.Header.MessageID != want {
+		return "", false
+	}
+	return notice.OperationID, true
+}
+
+// handleAgentUninstallNotice admits the one Agent-initiated operation result.
+// Its exact authenticated payload is durable before the receipt is emitted;
+// all other operation_complete messages still require a Controller outbox row.
+func (h *Hub) handleAgentUninstallNotice(s *ControlSession, env protocol.Envelope, operationID string) error {
+	item := store.ControlInboxItem{
+		MessageID:       hex.EncodeToString(env.Header.MessageID[:]),
+		NodeID:          s.nodeID,
+		MessageType:     "operation_complete",
+		OperationID:     operationID,
+		SemanticPayload: string(env.Payload),
+		State:           store.ControlInboxReceived,
+	}
+	if _, err := h.store.RecordControlInboxOwned(s.owner, item); err != nil {
+		return fmt.Errorf("persist agent uninstall notice: %w", err)
+	}
+	if err := h.store.SetControlInboxStateExact(item, store.ControlInboxProcessed); err != nil {
+		return fmt.Errorf("complete agent uninstall notice: %w", err)
+	}
+	h.audit("AGENT_UNINSTALL_NOTICE", fmt.Sprintf(`{"node_id":%q,"operation_id":%q}`, s.nodeID, operationID))
+	receiptID := security.MessageID(operationID, "message_receipt")
+	payload := []byte(fmt.Sprintf(`{"operation_id":%q}`, operationID))
+	writeCtx, cancel := context.WithTimeout(context.Background(), h.cfg.ControlWriteTimeout)
+	defer cancel()
+	return s.writeEnvelope(writeCtx, receiptID, "message_receipt", payload)
 }
 
 // A sink can authorize terminal probe-receipt rejection only through an
@@ -970,7 +1022,16 @@ func (h *Hub) outboxPump(ctx context.Context, s *ControlSession) {
 					return
 				}
 				if err := h.store.MarkControlOutboxSentOwned(item.OperationID, item.MessageType, s.owner); err != nil {
-					closeOnError("CONTROL_OUTBOX_MARK_SENT_FAILED", err)
+					// A fast Agent can return and receipt the deterministic result
+					// before this post-write transition runs. Accept only proof that
+					// this exact row already advanced or was durably GC'd; every other
+					// owner/phase failure remains session-fatal.
+					current, currentErr := h.store.ControlOutboxItemByOperation(item.OperationID, item.MessageType)
+					if errors.Is(currentErr, store.ErrNotFound) ||
+						(currentErr == nil && (current.State == "SENT" || current.State == "SEMANTIC_ACKED")) {
+						continue
+					}
+					closeOnError("CONTROL_OUTBOX_MARK_SENT_FAILED", errors.Join(err, currentErr))
 					return
 				}
 			}

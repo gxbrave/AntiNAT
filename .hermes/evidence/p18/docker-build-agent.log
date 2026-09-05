@@ -1,25 +1,25 @@
-implementation_sha=16d42de79c1412ef76848af50299097717176750
-implementation_tree_sha=783efd504d51863a01deb2cedbe11a00411a5f09
+implementation_sha=b8002a0ff25a848d36a41cd5f216e05f7ddeb8c3
+implementation_tree_sha=3cbde32e4a5fead4d997e870eb51396f391612fb
 command=docker buildx build --platform linux/amd64 --target agent --tag antinat:p18-agent --load .
 
 #0 building with "default" instance using docker driver
 
 #1 [internal] load build definition from Dockerfile
-#1 transferring dockerfile: 3.13kB done
+#1 transferring dockerfile: 3.28kB done
 #1 DONE 0.0s
 
 #2 resolve image config for docker-image://docker.io/docker/dockerfile:1.7
-#2 DONE 1.6s
+#2 DONE 0.9s
 
 #3 docker-image://docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
 #3 resolve docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e done
 #3 CACHED
 
-#4 [internal] load metadata for docker.io/library/alpine:3.22
-#4 DONE 1.5s
+#4 [internal] load metadata for docker.io/library/alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+#4 DONE 0.0s
 
-#5 [internal] load metadata for docker.io/library/golang:1.26-bookworm
-#5 DONE 1.5s
+#5 [internal] load metadata for docker.io/library/golang:1.26-bookworm@sha256:9fdc884aacc3bec89b20ffc69f4bb369c78210e3e4f600387b5128b12c199f81
+#5 DONE 0.0s
 
 #6 [internal] load .dockerignore
 #6 transferring context: 2B done
@@ -34,8 +34,8 @@ command=docker buildx build --platform linux/amd64 --target agent --tag antinat:
 #8 DONE 0.0s
 
 #9 [internal] load build context
-#9 transferring context: 76.43MB 0.1s done
-#9 DONE 0.2s
+#9 transferring context: 23.03MB 0.1s done
+#9 DONE 0.1s
 
 #10 [build 2/8] WORKDIR /src
 #10 CACHED
@@ -47,50 +47,49 @@ command=docker buildx build --platform linux/amd64 --target agent --tag antinat:
 #12 CACHED
 
 #13 [build 5/8] COPY . .
-#13 DONE 0.2s
+#13 DONE 0.1s
 
 #14 [build 6/8] RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off     go build -trimpath -ldflags "-s -w -X github.com/gxbrave/AntiNAT/internal/buildinfo.Version=dev -X github.com/gxbrave/AntiNAT/internal/buildinfo.Commit=unknown -X github.com/gxbrave/AntiNAT/internal/buildinfo.Date=unknown"     -o /out/antinat-agent ./cmd/antinat-agent
-#14 DONE 5.2s
+#14 DONE 5.1s
 
 #15 [build 7/8] RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off     go build -trimpath -ldflags "-s -w -X github.com/gxbrave/AntiNAT/internal/buildinfo.Version=dev -X github.com/gxbrave/AntiNAT/internal/buildinfo.Commit=unknown -X github.com/gxbrave/AntiNAT/internal/buildinfo.Date=unknown"     -o /out/antinat-controller ./cmd/antinat-controller
-#15 DONE 6.8s
+#15 DONE 6.2s
 
 #16 [build 8/8] RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off     go build -trimpath -ldflags "-s -w -X github.com/gxbrave/AntiNAT/internal/buildinfo.Version=dev -X github.com/gxbrave/AntiNAT/internal/buildinfo.Commit=unknown -X github.com/gxbrave/AntiNAT/internal/buildinfo.Date=unknown"     -o /out/antinat-hook-runner ./cmd/antinat-hook-runner
 #16 DONE 0.3s
 
-#17 [runtime 2/9] RUN addgroup -S -g 65532 antinat && adduser -S -D -H -u 65532 -G antinat antinat     && mkdir -p /var/lib/antinat /var/log/antinat     && chown -R 65532:65532 /var/lib/antinat /var/log/antinat
+#17 [runtime 3/9] COPY --from=build /out/antinat-agent /opt/antinat/bin/antinat-agent
 #17 CACHED
 
-#18 [runtime 3/9] COPY --from=build /out/antinat-agent /opt/antinat/bin/antinat-agent
+#18 [runtime 8/9] RUN chmod 0755 /opt/antinat/bin/*
 #18 CACHED
 
-#19 [runtime 4/9] COPY --from=build /out/antinat-controller /opt/antinat/bin/antinat-controller
-#19 DONE 0.0s
+#19 [runtime 7/9] COPY docker/stage-enrollment.sh /opt/antinat/bin/stage-enrollment
+#19 CACHED
 
 #20 [runtime 5/9] COPY --from=build /out/antinat-hook-runner /opt/antinat/bin/antinat-hook-runner
-#20 DONE 0.0s
+#20 CACHED
 
 #21 [runtime 6/9] COPY docker/healthcheck-agent.sh /opt/antinat/bin/healthcheck-agent
-#21 DONE 0.0s
+#21 CACHED
 
-#22 [runtime 7/9] COPY docker/stage-enrollment.sh /opt/antinat/bin/stage-enrollment
-#22 DONE 0.0s
+#22 [runtime 4/9] COPY --from=build /out/antinat-controller /opt/antinat/bin/antinat-controller
+#22 CACHED
 
-#23 [runtime 8/9] RUN chmod 0755 /opt/antinat/bin/*
-#23 DONE 0.1s
+#23 [runtime 2/9] RUN addgroup -S -g 65532 antinat && adduser -S -D -H -u 65532 -G antinat antinat     && mkdir -p /var/lib/antinat /var/log/antinat     && chown -R 65532:65532 /var/lib/antinat /var/log/antinat
+#23 CACHED
 
 #24 [runtime 9/9] WORKDIR /var/lib/antinat
-#24 DONE 0.0s
+#24 CACHED
 
 #25 exporting to image
-#25 exporting layers
-#25 exporting layers 0.5s done
-#25 exporting manifest sha256:da3e6b01bfd7b2ca756b1632788781d084a4cc20edaa3c58ef1458e2090fece7 done
-#25 exporting config sha256:03cfa3ce2dac948f30a4123e885b3a2063150c83cb817619719e18a85004d55f done
-#25 exporting attestation manifest sha256:efc9c36f654b9d8121594800770c7b2fa38bf6e2869fc9e5cc8d20f153a2f331 0.0s done
-#25 exporting manifest list sha256:dc614c90550d09979c1f9bf7ee110ca421e6565d41b1cfcfd66d52816f1e6783 done
+#25 exporting layers done
+#25 exporting manifest sha256:78e54e1eac47b53152a54a84037f2ed23a4b201f57a15bb713379cd3fd19d02a done
+#25 exporting config sha256:b41ff3a52db65c956f61b803b4f6e55e45f591fd7f33f336f66e98303188e495 done
+#25 exporting attestation manifest sha256:d3c2d9296144fdf303aa4f6ec828f081593447f12a584cbdc5a25afaf1f087e7 done
+#25 exporting manifest list sha256:f5dd5c929e194eb06b27e72dc58241e8f5171445391370905b4ac1f78634dbb0 done
 #25 naming to docker.io/library/antinat:p18-agent done
-#25 unpacking to docker.io/library/antinat:p18-agent 0.1s done
-#25 DONE 0.6s
+#25 unpacking to docker.io/library/antinat:p18-agent done
+#25 DONE 0.0s
 
 exit_code=0

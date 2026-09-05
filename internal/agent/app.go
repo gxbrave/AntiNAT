@@ -135,6 +135,7 @@ type App struct {
 	reconnectWG     sync.WaitGroup
 	runCancel       context.CancelFunc
 	lifecycleWG     sync.WaitGroup
+	uninstallServer localUninstallServer
 }
 
 // controlClient is the lifecycle surface the composed app needs from the
@@ -572,6 +573,19 @@ func (a *App) Start(ctx context.Context) error {
 		_ = a.store.Close()
 		return fmt.Errorf("agent: retry pending probe receipts: %w", err)
 	}
+	uninstallServer, err := startLocalUninstallServer(a)
+	if err != nil {
+		runCancel()
+		a.client.Shutdown()
+		a.client.Wait()
+		_ = a.dp.closeAll(context.Background())
+		a.probeMgr.Close()
+		_ = a.store.Close()
+		return fmt.Errorf("agent: start local uninstall endpoint: %w", err)
+	}
+	a.closeMu.Lock()
+	a.uninstallServer = uninstallServer
+	a.closeMu.Unlock()
 	if a.currentMarker() == localstate.MarkerActive {
 		a.replayActivationStatuses(runCtx)
 		a.lifecycleWG.Add(1)
@@ -1679,50 +1693,65 @@ func (a *App) Shutdown(ctx context.Context) error {
 	cancel := a.runCancel
 	a.runCancel = nil
 	client := a.client
+	uninstallServer := a.uninstallServer
 	a.closeMu.Unlock()
 
+	var endpointErr error
+	// Stop local administrative admission while the control channel and store
+	// are still available to requests that were already accepted.
+	if uninstallServer != nil {
+		if err := uninstallServer.Close(ctx); err != nil {
+			endpointErr = fmt.Errorf("agent: close local uninstall endpoint: %w", err)
+		} else {
+			a.closeMu.Lock()
+			if a.uninstallServer == uninstallServer {
+				a.uninstallServer = nil
+			}
+			a.closeMu.Unlock()
+		}
+	}
 	if cancel != nil {
 		cancel()
 	}
 	if client != nil {
 		if bounded, ok := client.(contextShutdownClient); ok {
 			if err := bounded.ShutdownContext(ctx); err != nil {
-				return fmt.Errorf("agent: wait for control shutdown: %w", err)
+				return errors.Join(endpointErr, fmt.Errorf("agent: wait for control shutdown: %w", err))
 			}
 		} else {
 			// Test and legacy lifecycle clients may only expose the original
 			// terminal operation; retain the context-bounded join for them.
 			client.Shutdown()
 			if err := waitWithContext(ctx, client.Wait); err != nil {
-				return fmt.Errorf("agent: wait for control shutdown: %w", err)
+				return errors.Join(endpointErr, fmt.Errorf("agent: wait for control shutdown: %w", err))
 			}
 		}
 	}
 	if err := waitWithContext(ctx, a.reconnectWG.Wait); err != nil {
-		return fmt.Errorf("agent: wait for reconnect loop: %w", err)
+		return errors.Join(endpointErr, fmt.Errorf("agent: wait for reconnect loop: %w", err))
 	}
 	if err := waitWithContext(ctx, a.lifecycleWG.Wait); err != nil {
-		return fmt.Errorf("agent: wait for liveness loop: %w", err)
+		return errors.Join(endpointErr, fmt.Errorf("agent: wait for liveness loop: %w", err))
 	}
 	if a.probeMgr != nil {
 		if err := a.probeMgr.CloseContext(ctx); err != nil {
-			return fmt.Errorf("agent: wait for probe manager: %w", err)
+			return errors.Join(endpointErr, fmt.Errorf("agent: wait for probe manager: %w", err))
 		}
 	}
 	if a.dp != nil {
 		if err := a.dp.closeAll(ctx); err != nil {
-			return fmt.Errorf("agent: close data plane: %w", err)
+			return errors.Join(endpointErr, fmt.Errorf("agent: close data plane: %w", err))
 		}
 	}
 	if a.store != nil {
 		if err := a.store.Close(); err != nil {
-			return fmt.Errorf("agent: close localstate: %w", err)
+			return errors.Join(endpointErr, fmt.Errorf("agent: close localstate: %w", err))
 		}
 	}
 	a.closeMu.Lock()
 	a.closed = true
 	a.closeMu.Unlock()
-	return nil
+	return endpointErr
 }
 
 // Store exposes the agent localstate store (tests and status).

@@ -61,7 +61,7 @@ fi
 
 write_completion_marker() {
     if [ -e "$complete_file" ]; then
-        [ -f "$complete_file" ] || die 'enrollment completion marker is not a regular file'
+        [ ! -L "$complete_file" ] && [ -f "$complete_file" ] || die 'enrollment completion marker is not a regular file'
         return
     fi
     umask 077
@@ -100,8 +100,15 @@ enrollment_consumed=0
 child_pid=$!
 while kill -0 "$child_pid" 2>/dev/null; do
     if [ ! -e "$staged_file" ] && [ ! -L "$staged_file" ]; then
-        enrollment_consumed=1
-        break
+        # A normal Agent is long-running, so its successful exit cannot be the
+        # enrollment acknowledgement. Token consumption while it is still
+        # alive is the durable handoff point. The successful-exit path below
+        # remains as a fallback for short-lived Agents that race this poll.
+        if kill -0 "$child_pid" 2>/dev/null; then
+            write_completion_marker
+            enrollment_consumed=1
+            break
+        fi
     fi
     sleep 1
 done
@@ -111,7 +118,7 @@ if wait "$child_pid"; then
 else
     child_status=$?
 fi
-if [ "$child_status" -eq 0 ] && [ ! -e "$staged_file" ] && [ ! -L "$staged_file" ]; then
+if [ "$child_status" -eq 0 ] && [ "$enrollment_consumed" -eq 0 ] && [ ! -e "$staged_file" ] && [ ! -L "$staged_file" ]; then
     write_completion_marker
 fi
 exit "$child_status"

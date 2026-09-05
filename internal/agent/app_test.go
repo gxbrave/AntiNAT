@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -80,8 +81,9 @@ func TestAgentNewEnrollsAndConnects(t *testing.T) {
 		t.Fatalf("enrollment token: %v", err)
 	}
 
+	stateDir := t.TempDir()
 	app, err := New(Config{
-		StateDir:            t.TempDir(),
+		StateDir:            stateDir,
 		Endpoint:            "http://" + ctrl.Addr(),
 		NodeID:              "n1",
 		Token:               token,
@@ -99,8 +101,22 @@ func TestAgentNewEnrollsAndConnects(t *testing.T) {
 	if !app.Ready() {
 		t.Fatal("agent not ready after Start")
 	}
+	if runtime.GOOS == "linux" {
+		info, err := os.Lstat(filepath.Join(stateDir, UninstallSocketName))
+		if err != nil {
+			t.Fatalf("local uninstall socket after Start: %v", err)
+		}
+		if info.Mode()&os.ModeSocket == 0 || info.Mode().Perm() != 0o600 {
+			t.Fatalf("local uninstall endpoint mode = %v, want socket 0600", info.Mode())
+		}
+	}
 	if err := app.Shutdown(context.Background()); err != nil {
 		t.Fatalf("Shutdown: %v", err)
+	}
+	if runtime.GOOS == "linux" {
+		if _, err := os.Lstat(filepath.Join(stateDir, UninstallSocketName)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("local uninstall socket remains after Shutdown: %v", err)
+		}
 	}
 	if app.Ready() {
 		t.Fatal("agent still ready after Shutdown")
@@ -224,6 +240,38 @@ func (c *blockingShutdownClient) SendMessage(context.Context, string, []byte) er
 func (c *blockingShutdownClient) Close()                                            {}
 func (c *blockingShutdownClient) Shutdown()                                         {}
 func (c *blockingShutdownClient) Wait()                                             { <-c.unblock }
+
+type failingUninstallServer struct{ err error }
+
+func (s failingUninstallServer) Close(context.Context) error { return s.err }
+
+type shutdownRecordingClient struct{ shutdown atomic.Bool }
+
+func (*shutdownRecordingClient) Connect(context.Context) error                     { return nil }
+func (*shutdownRecordingClient) SendMessage(context.Context, string, []byte) error { return nil }
+func (*shutdownRecordingClient) Close()                                            {}
+func (c *shutdownRecordingClient) Shutdown()                                       { c.shutdown.Store(true) }
+func (*shutdownRecordingClient) Wait()                                             {}
+
+func TestShutdownContinuesAfterUninstallEndpointCloseError(t *testing.T) {
+	store, err := localstate.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpointErr := errors.New("endpoint close failed")
+	client := &shutdownRecordingClient{}
+	app := &App{store: store, client: client, uninstallServer: failingUninstallServer{err: endpointErr}}
+
+	if err := app.Shutdown(context.Background()); !errors.Is(err, endpointErr) {
+		t.Fatalf("Shutdown error = %v, want endpoint error", err)
+	}
+	if !client.shutdown.Load() {
+		t.Fatal("control client shutdown was skipped after endpoint error")
+	}
+	if _, err := store.SchemaVersion(); err == nil {
+		t.Fatal("localstate remained open after endpoint error")
+	}
+}
 
 func TestShutdownHonorsContextWhileWaitingForControlDrain(t *testing.T) {
 	client := &blockingShutdownClient{unblock: make(chan struct{})}

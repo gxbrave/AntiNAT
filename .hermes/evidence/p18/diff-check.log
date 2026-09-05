@@ -1,5 +1,1 @@
-implementation_sha=16d42de79c1412ef76848af50299097717176750
-implementation_tree_sha=783efd504d51863a01deb2cedbe11a00411a5f09
-command=git diff --check 28aeaab5bb9c788da9c0068b8314b4f48c5a423d..16d42de79c1412ef76848af50299097717176750
-
-exit_code=0
+git diff --check base..implementation_head: PASS

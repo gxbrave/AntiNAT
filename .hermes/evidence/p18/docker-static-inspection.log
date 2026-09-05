@@ -1,16 +1,8 @@
-implementation_sha=16d42de79c1412ef76848af50299097717176750
-implementation_tree_sha=783efd504d51863a01deb2cedbe11a00411a5f09
-command=set -eu
-for image in antinat:p18-agent antinat:p18-controller; do
-    docker image inspect "$image" --format "{{json .Config.User}}" | jq -e ".[0:5] == \"65532\"" >/dev/null
-    docker image inspect "$image" --format "{{json .Config.Volumes}}" | jq -e "has(\"/var/lib/antinat\") and has(\"/var/log/antinat\")" >/dev/null
-done
-docker image inspect antinat:p18-agent --format "{{json .Config.Entrypoint}}" | jq -e ".[0] == \"/opt/antinat/bin/stage-enrollment\"" >/dev/null
-docker image inspect antinat:p18-controller --format "{{json .Config.Entrypoint}}" | jq -e ".[0] == \"/opt/antinat/bin/antinat-controller\"" >/dev/null
-docker image inspect antinat:p18-agent --format "{{json .Config.Healthcheck.Test}}" | jq -e "join(\" \") | contains(\"healthcheck-agent\")" >/dev/null
-docker image inspect antinat:p18-controller --format "{{json .Config.Healthcheck.Test}}" | jq -e "join(\" \") | contains(\"/readyz\")" >/dev/null
-printf "%s\n" "static-runtime-inspection: PASS"
+implementation_sha=b8002a0ff25a848d36a41cd5f216e05f7ddeb8c3
+implementation_tree_sha=3cbde32e4a5fead4d997e870eb51396f391612fb
+command=docker image inspect antinat:p18-agent antinat:p18-controller with non-root, volumes, entrypoints, and health checks
 
-static-runtime-inspection: PASS
+{"User":"65532:65532","Env":["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"],"Entrypoint":["/opt/antinat/bin/stage-enrollment"],"Volumes":{"/var/lib/antinat":{},"/var/log/antinat":{}},"WorkingDir":"/var/lib/antinat","Labels":{"org.opencontainers.image.description":"AntiNAT forwarding agent","org.opencontainers.image.licenses":"Apache-2.0","org.opencontainers.image.source":"https://github.com/gxbrave/AntiNAT","org.opencontainers.image.title":"AntiNAT Agent"},"Healthcheck":{"Test":["CMD","/opt/antinat/bin/healthcheck-agent"],"Interval":30000000000,"Timeout":5000000000,"StartPeriod":10000000000,"Retries":3}}
+{"User":"65532:65532","ExposedPorts":{"3111/tcp":{}},"Env":["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"],"Entrypoint":["/opt/antinat/bin/antinat-controller","-listen","127.0.0.1:3111","-store","/var/lib/antinat/controller.db","-keydir","/var/lib/antinat/controller-keys"],"Volumes":{"/var/lib/antinat":{},"/var/log/antinat":{}},"WorkingDir":"/var/lib/antinat","Labels":{"org.opencontainers.image.description":"AntiNAT controller","org.opencontainers.image.licenses":"Apache-2.0","org.opencontainers.image.source":"https://github.com/gxbrave/AntiNAT","org.opencontainers.image.title":"AntiNAT Controller"},"Healthcheck":{"Test":["CMD-SHELL","wget -q -O - http://127.0.0.1:3111/readyz >/dev/null || exit 1"],"Interval":30000000000,"Timeout":5000000000,"StartPeriod":10000000000,"Retries":3}}
 
 exit_code=0

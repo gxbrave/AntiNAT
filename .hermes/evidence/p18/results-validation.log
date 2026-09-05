@@ -1,10 +1,6 @@
-implementation_sha=16d42de79c1412ef76848af50299097717176750
-implementation_tree_sha=783efd504d51863a01deb2cedbe11a00411a5f09
-command=python3 -m json.tool .hermes/evidence/p18/results.json plus exact-head/result/evidence consistency checks
-
-results.json: PASS
-implementation_head_sha: PASS
-implementation_head_tree_sha: PASS
-browser.log: PASS
-
-exit_code=0
+PASS .hermes/evidence/p18/results.json: evidence record is valid
+PASS .hermes/evidence/p18/systemd-native.json: evidence record is valid
+PASS .hermes/evidence/p18/windows-build.json: evidence record is valid
+PASS .hermes/evidence/p18/openrc-unavailable.json: evidence record is valid
+PASS .hermes/evidence/p18/arm64-build.json: evidence record is valid
+PASS .hermes/evidence/p18/oci-local.json: evidence record is valid

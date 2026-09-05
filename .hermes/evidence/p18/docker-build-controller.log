@@ -1,11 +1,11 @@
-implementation_sha=16d42de79c1412ef76848af50299097717176750
-implementation_tree_sha=783efd504d51863a01deb2cedbe11a00411a5f09
+implementation_sha=b8002a0ff25a848d36a41cd5f216e05f7ddeb8c3
+implementation_tree_sha=3cbde32e4a5fead4d997e870eb51396f391612fb
 command=docker buildx build --platform linux/amd64 --target controller --tag antinat:p18-controller --load .
 
 #0 building with "default" instance using docker driver
 
 #1 [internal] load build definition from Dockerfile
-#1 transferring dockerfile: 3.13kB done
+#1 transferring dockerfile: 3.28kB done
 #1 DONE 0.0s
 
 #2 resolve image config for docker-image://docker.io/docker/dockerfile:1.7
@@ -15,29 +15,26 @@ command=docker buildx build --platform linux/amd64 --target controller --tag ant
 #3 resolve docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e done
 #3 CACHED
 
-#4 [internal] load metadata for docker.io/library/alpine:3.22
-#4 ...
+#4 [internal] load metadata for docker.io/library/alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+#4 DONE 0.0s
 
-#5 [internal] load metadata for docker.io/library/golang:1.26-bookworm
-#5 DONE 0.4s
-
-#4 [internal] load metadata for docker.io/library/alpine:3.22
-#4 DONE 0.4s
+#5 [internal] load metadata for docker.io/library/golang:1.26-bookworm@sha256:9fdc884aacc3bec89b20ffc69f4bb369c78210e3e4f600387b5128b12c199f81
+#5 DONE 0.0s
 
 #6 [internal] load .dockerignore
 #6 transferring context: 2B done
 #6 DONE 0.0s
 
-#7 [runtime 1/9] FROM docker.io/library/alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
-#7 resolve docker.io/library/alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce 0.0s done
+#7 [build 1/8] FROM docker.io/library/golang:1.26-bookworm@sha256:9fdc884aacc3bec89b20ffc69f4bb369c78210e3e4f600387b5128b12c199f81
+#7 resolve docker.io/library/golang:1.26-bookworm@sha256:9fdc884aacc3bec89b20ffc69f4bb369c78210e3e4f600387b5128b12c199f81 0.0s done
 #7 DONE 0.0s
 
-#8 [build 1/8] FROM docker.io/library/golang:1.26-bookworm@sha256:9fdc884aacc3bec89b20ffc69f4bb369c78210e3e4f600387b5128b12c199f81
-#8 resolve docker.io/library/golang:1.26-bookworm@sha256:9fdc884aacc3bec89b20ffc69f4bb369c78210e3e4f600387b5128b12c199f81 0.0s done
+#8 [runtime 1/9] FROM docker.io/library/alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+#8 resolve docker.io/library/alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce 0.0s done
 #8 DONE 0.0s
 
 #9 [internal] load build context
-#9 transferring context: 103.52kB 0.0s done
+#9 transferring context: 102.88kB 0.0s done
 #9 DONE 0.0s
 
 #10 [build 2/8] WORKDIR /src
@@ -56,30 +53,30 @@ command=docker buildx build --platform linux/amd64 --target controller --tag ant
 #14 DONE 5.2s
 
 #15 [build 7/8] RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off     go build -trimpath -ldflags "-s -w -X github.com/gxbrave/AntiNAT/internal/buildinfo.Version=dev -X github.com/gxbrave/AntiNAT/internal/buildinfo.Commit=unknown -X github.com/gxbrave/AntiNAT/internal/buildinfo.Date=unknown"     -o /out/antinat-controller ./cmd/antinat-controller
-#15 DONE 6.4s
+#15 DONE 6.2s
 
 #16 [build 8/8] RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off     go build -trimpath -ldflags "-s -w -X github.com/gxbrave/AntiNAT/internal/buildinfo.Version=dev -X github.com/gxbrave/AntiNAT/internal/buildinfo.Commit=unknown -X github.com/gxbrave/AntiNAT/internal/buildinfo.Date=unknown"     -o /out/antinat-hook-runner ./cmd/antinat-hook-runner
 #16 DONE 0.3s
 
-#17 [runtime 4/9] COPY --from=build /out/antinat-controller /opt/antinat/bin/antinat-controller
+#17 [runtime 8/9] RUN chmod 0755 /opt/antinat/bin/*
 #17 CACHED
 
-#18 [runtime 5/9] COPY --from=build /out/antinat-hook-runner /opt/antinat/bin/antinat-hook-runner
+#18 [runtime 7/9] COPY docker/stage-enrollment.sh /opt/antinat/bin/stage-enrollment
 #18 CACHED
 
-#19 [runtime 7/9] COPY docker/stage-enrollment.sh /opt/antinat/bin/stage-enrollment
+#19 [runtime 2/9] RUN addgroup -S -g 65532 antinat && adduser -S -D -H -u 65532 -G antinat antinat     && mkdir -p /var/lib/antinat /var/log/antinat     && chown -R 65532:65532 /var/lib/antinat /var/log/antinat
 #19 CACHED
 
-#20 [runtime 6/9] COPY docker/healthcheck-agent.sh /opt/antinat/bin/healthcheck-agent
+#20 [runtime 3/9] COPY --from=build /out/antinat-agent /opt/antinat/bin/antinat-agent
 #20 CACHED
 
-#21 [runtime 8/9] RUN chmod 0755 /opt/antinat/bin/*
+#21 [runtime 4/9] COPY --from=build /out/antinat-controller /opt/antinat/bin/antinat-controller
 #21 CACHED
 
-#22 [runtime 2/9] RUN addgroup -S -g 65532 antinat && adduser -S -D -H -u 65532 -G antinat antinat     && mkdir -p /var/lib/antinat /var/log/antinat     && chown -R 65532:65532 /var/lib/antinat /var/log/antinat
+#22 [runtime 5/9] COPY --from=build /out/antinat-hook-runner /opt/antinat/bin/antinat-hook-runner
 #22 CACHED
 
-#23 [runtime 3/9] COPY --from=build /out/antinat-agent /opt/antinat/bin/antinat-agent
+#23 [runtime 6/9] COPY docker/healthcheck-agent.sh /opt/antinat/bin/healthcheck-agent
 #23 CACHED
 
 #24 [runtime 9/9] WORKDIR /var/lib/antinat
@@ -87,10 +84,10 @@ command=docker buildx build --platform linux/amd64 --target controller --tag ant
 
 #25 exporting to image
 #25 exporting layers done
-#25 exporting manifest sha256:cad05f64186c9fd6f77e2ffedfc8ddcccf945c9be6bd8987b48afa4e81dd927f done
-#25 exporting config sha256:04f5ad9abfcb9d092afc50cab5fce3c335d72a6b8177d90d051db051ef6b2e5a done
-#25 exporting attestation manifest sha256:74feb744f3a905f93dc5effec6600a2d8090ffb5533dd440ea78338c8234300e done
-#25 exporting manifest list sha256:2232fe6c9cc74767ce7298ee7c6b260acc5d050f9056fd113fc214f3fe54da7c done
+#25 exporting manifest sha256:d58d10f02d81f842da27ea1e4d328744cb3971561a561bf522b749b170f4fd8b done
+#25 exporting config sha256:d4c310e487dde7f7785c8266f4e4c9ec8fd55f140d7a57261d59e68d5d890b44 done
+#25 exporting attestation manifest sha256:c31bbaf02fbf4027890f6373b0d6362045b4b21d0ef0612ededaa41ad09dc1bf 0.0s done
+#25 exporting manifest list sha256:0109ea9c0f69f5a2e850b24d08e508c4931ec96efa5bef9b1979e4c726189e0a done
 #25 naming to docker.io/library/antinat:p18-controller done
 #25 unpacking to docker.io/library/antinat:p18-controller done
 #25 DONE 0.0s

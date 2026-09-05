@@ -1,0 +1,1 @@
+SUPPORTED_WITH_LIMITS: native OpenRC host unavailable; isolated OpenRC installer/source-injection coverage passed in scripts/test-installers.sh
