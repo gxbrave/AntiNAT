@@ -4,7 +4,7 @@
   "commit_sha": "22dfa6a9677984b6e81d2b17a019db569c1d533e",
   "command": "P18 verification matrix recorded in verification-bundle.sha256",
   "result": "PASS",
-  "artifact_digest": "sha256:b99cc1f7740b67ae7218c4a65caae4d8abacdeca81ce7ca9cc554de6d4b7f738",
+  "artifact_digest": "sha256:b1b4135adf57aa3fce2747fc72d62413c05cf08eac6bbce5960c50d5c76e9306",
   "os": "linux/amd64 systemd host with cross-build and local OCI lanes",
   "timeout": 900,
   "summary": "Full repository, race, browser, installer, Agent uninstall IPC, three consecutive real systemd lifecycles, intentional-failure cleanup, cross-build, and local OCI checks completed; native Windows, OpenRC, arm64 runtime, registry signing, SBOM, and real-WAN execution remain explicit limits.",
