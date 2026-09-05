@@ -1,10 +1,10 @@
 {
   "schema_version": "antinat.evidence/v1",
   "plan": "P18",
-  "commit_sha": "8a4a085e50ff69333e6f7fd0124f20d2bc7c2e28",
+  "commit_sha": "f521f9972c2c3a0e6446221d0f30b9f3671e4379",
   "command": "P18 verification matrix recorded in verification-bundle.sha256",
   "result": "PASS",
-  "artifact_digest": "sha256:ed8a8a4b12331a64ad6d208da125a0373ed49405b1594a2a32a79ac860f4ebf6",
+  "artifact_digest": "sha256:aa2e2bb834a8c59984ef9ed9131db67bea6a51cc2e031a29b86f886174c5e9b7",
   "os": "linux/amd64 systemd host with cross-build and local OCI lanes",
   "timeout": 900,
   "summary": "Full repository, race, browser, installer, Agent uninstall IPC, three consecutive real systemd lifecycles, intentional-failure cleanup, cross-build, and local OCI checks completed; native Windows, OpenRC, arm64 runtime, registry signing, SBOM, and real-WAN execution remain explicit limits.",
