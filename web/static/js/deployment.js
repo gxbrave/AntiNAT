@@ -15,8 +15,8 @@
   var DOCKER_TOKEN_TARGET = '/run/secrets/antinat_enrollment_token';
   var RELEASE_BASE_URL = 'https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta';
   var INSTALLER_SCRIPT_SHA256 = 'a76fcd5150ea34cde8f02cf67ed56b64d561041a5698b8b9430be182c1e4c194';
-  var INSTALLER_LIB_SHA256 = '757c4ede3506961a0af106d3d9c63589e716de42097b1fcb55c8002adaed51f6';
-  var INSTALLER_PS1_SHA256 = 'db92ec929fb943df1debe51ae222814b3ad8e65147db070392b4bbb9a022fd9f';
+  var INSTALLER_LIB_SHA256 = '9db7e760bbd14e8a51841189cdec98b32ab09406c644e856358faeb32e38b356';
+  var INSTALLER_PS1_SHA256 = '4341ae0d53e7cc1e377263ec0b954e57ea7be10e3f6a8dbaf348e025a5c6e02a';
   var INSTALLER_TRUST_SHA256 = '7c250ef2c4b3ece394f1d22f106742152116ef192a89bda1f1deaef9073112f3';
   var DOCKER_IMAGE = 'ghcr.io/gxbrave/antinat-agent:v1.0.0-beta';
   var defaultProfile = {
