@@ -1,10 +1,10 @@
 {
   "schema_version": "antinat.evidence/v1",
   "plan": "P18",
-  "commit_sha": "927cc77857a3d4753759a5a0e5ed2d398de1173a",
+  "commit_sha": "d2a15dba4feeba29ba09cbaaa115fbba6964dc2f",
   "command": "bash scripts/test-systemd.sh",
   "result": "PASS",
-  "artifact_digest": "sha256:0171b72068fc5cdffd8af8e4da7b8620937e9423f6921daa9079b8983138b6d6",
+  "artifact_digest": "sha256:b25cbc27db40bd60d35b004ea62e9c1220c459c9f80b90fcccc794d265486b6c",
   "os": "linux/amd64 systemd",
   "timeout": 300,
   "summary": "Shipped signed installer exercised real Controller and Agent install, TLS enrollment, restart, failed-upgrade rollback, successful upgrade, durable online uninstall receipt, purge, and no-residue checks.",
