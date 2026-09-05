@@ -66,4 +66,3 @@ installer acceptance flow executable:
 
 No P19 lifecycle delivery, protocol, installer parser, or unowned state schema
 is changed by this amendment.
-
