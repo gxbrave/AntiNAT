@@ -5,19 +5,19 @@
   "branch": "integration/v1-beta",
   "integration_base_sha": "28aeaab5bb9c788da9c0068b8314b4f48c5a423d",
   "integration_base_tree_sha": "0e65ed6cc4ac2fccb37d54c5615a14bea38e7915",
-  "integration_method": "CHERRY-PICK (clean, no conflict, no semantic resolution). The complete P18 candidate range was applied serially from the P17 integrated tip; 12 source commits have byte-equivalent cherry-picked commits on integration/v1-beta. The candidate metadata tree and the integration pre-record tree are identical.",
+  "integration_method": "CHERRY-PICK plus exact tree alignment. The P18 candidate repair range was applied serially from the existing P18 integration baseline; 45 source commits have byte-equivalent cherry-picked commits on integration/v1-beta, and the remaining old-baseline file differences were aligned byte-for-byte from the reviewed candidate. The candidate tree and integration pre-record tree are identical except this integrated record.",
   "candidate_branch": "ai/P18-installers-platforms",
-  "candidate_implementation_head_sha": "16d42de79c1412ef76848af50299097717176750",
-  "candidate_implementation_head_tree_sha": "783efd504d51863a01deb2cedbe11a00411a5f09",
-  "candidate_canonical_head_sha": "16d42de79c1412ef76848af50299097717176750",
-  "candidate_canonical_head_tree_sha": "783efd504d51863a01deb2cedbe11a00411a5f09",
-  "candidate_record_tip_sha": "6f8e387b3bc64bf415d687a87707af28d56fb73a",
-  "candidate_record_tip_tree_sha": "ea4345e9b4b8c20e6c936aaa36900d189cb4f437",
+  "candidate_implementation_head_sha": "8ab153bcc1f2225ffa82f53068ec6bbd9964fd9b",
+  "candidate_implementation_head_tree_sha": "832b315144bd680ef895a4cc0223c86d9f2c78ba",
+  "candidate_canonical_head_sha": "a997ea995dd6f3cd0d2392aa35c14e46a3dbd40c",
+  "candidate_canonical_head_tree_sha": "acbb919c6ba2a775bc6bbf282d698faaa74a620a",
+  "candidate_record_tip_sha": "0b447b9354e5d5350e2f9d3c568cf20741779258",
+  "candidate_record_tip_tree_sha": "a42243750232f2e3a5bf519bdf176bf96ea0b176",
   "integrated_pre_record_tip_sha": "28aeaab5bb9c788da9c0068b8314b4f48c5a423d",
   "integrated_pre_record_tip_tree_sha": "0e65ed6cc4ac2fccb37d54c5615a14bea38e7915",
-  "integrated_sha": "45e1b821db17ab632471f6c3b8528763c8ccf926",
-  "integrated_tree_sha": "ea4345e9b4b8c20e6c936aaa36900d189cb4f437",
-  "tree_equivalence": "PASS; git diff --quiet ai/P18-installers-platforms HEAD. The integration tree at the pre-record tip is byte-identical to candidate record tip 6f8e387 and therefore includes the candidate implementation, evidence, and P18 handoff exactly.",
+  "integrated_sha": "1eb1ffe87d8cafd4431d0694570f4651912b8491",
+  "integrated_tree_sha": "b857fca6ed293b351fb34a9e0d7d3504e0546bc8",
+  "tree_equivalence": "PASS; git diff --quiet ai/P18-installers-platforms HEAD ':!.hermes/handoffs/P18-integrated.json'. The integration tree at the pre-record tip is byte-identical to candidate record tip 0b447b9 and includes the reviewed implementation, evidence, and P18 handoff exactly.",
   "source_to_integrated_commits": [
     {
       "source": "e7a6dff0717c67b0553ffdea2df0a0b1a8d4dc50",
@@ -66,24 +66,161 @@
     {
       "source": "6f8e387b3bc64bf415d687a87707af28d56fb73a",
       "integrated": "45e1b821db17ab632471f6c3b8528763c8ccf926"
+    },
+    {
+      "source": "927cc77857a3d4753759a5a0e5ed2d398de1173a",
+      "integrated": "8c042e3c7e1e312cc9327f7b886a04efcf14c6e1"
+    },
+    {
+      "source": "76b3bcbc677d94623875d8dd8b1c0e7d6161d0dd",
+      "integrated": "ad2f5bf8e290e6f7447240fb66a0b8867b881ec3"
+    },
+    {
+      "source": "5e3bdbc9bb98ff758023f84ce08aad70c94db0d8",
+      "integrated": "60118ce42367888ea051e010ad9c2e58c2a27261"
+    },
+    {
+      "source": "ef4adb98b17a6e0c4fd2cdfe70fbf590bc5c67aa",
+      "integrated": "d8f46b47d806f29246524ccf8f025d3e975954c8"
+    },
+    {
+      "source": "d2a15dba4feeba29ba09cbaaa115fbba6964dc2f",
+      "integrated": "c7d0333bdf25a850e8c5f7045a2c1f2a171fec9b"
+    },
+    {
+      "source": "2c25e4f75b45670e3696e54ed796c24ba6a1716e",
+      "integrated": "9ccba8894f15d4c21bcd18ac68a591bd8936ec8d"
+    },
+    {
+      "source": "484328f76893509bd01cd948bb5bf74ce382d2fb",
+      "integrated": "dd2bbc2d66dd3d22b407b148040757ae7d558bb9"
+    },
+    {
+      "source": "5d081afa2a02b0c67db890c78ea5213a1619ae0e",
+      "integrated": "e5c0cc9c42e7bc106ced9170068ee6f43bfb55df"
+    },
+    {
+      "source": "562caf3afc6ed80428d4534438ecaf95c7029d7a",
+      "integrated": "c028312936694fc37de5ffcfbcb01e2e5a83ec35"
+    },
+    {
+      "source": "37824179d26feda3579db3d85b39952ee6e9c52f",
+      "integrated": "127f899566f1d7e4efd7cc2bd76912d155a98e79"
+    },
+    {
+      "source": "94a3919ae3fad7149930ccd96b8dcd22d93af71b",
+      "integrated": "1e44b09ba66610648513e60c97c858c6a2ace372"
+    },
+    {
+      "source": "f50a2d60dfd501f46a94a4c0811dde5b647816e4",
+      "integrated": "80fcc34e3d9fc8a7c8428b04c140cf2653be9608"
+    },
+    {
+      "source": "d07033450883a8efed5337f22e22827b589fb7e2",
+      "integrated": "9b72bd7499944f45ae5bd6c0c992aa4c5218093d"
+    },
+    {
+      "source": "22dfa6a9677984b6e81d2b17a019db569c1d533e",
+      "integrated": "96927341031347953667087b8b8e39fadf0fd8ac"
+    },
+    {
+      "source": "0148f545e626196da721c34d23b526b2ff98fb64",
+      "integrated": "2e068c507cc6228d5f7cc1f06409a5a226d17483"
+    },
+    {
+      "source": "c5771bbfa6dd1e954e7b2a3b769255976e291fb9",
+      "integrated": "34b4796ee74e7516eeb0bf0049c256f164d61960"
+    },
+    {
+      "source": "978d52a77624f55cf208ee30885837eb3d4f0cf0",
+      "integrated": "e9cf05f17331fd2d84b3ee1edc3fd9669fc6e309"
+    },
+    {
+      "source": "997d8ae9026c568fd21201f867ca74fb288e4832",
+      "integrated": "29d5ea96f01aabd285d00c943a59579ee96a85dd"
+    },
+    {
+      "source": "6e1dae8b7a5bac18ce4edde22cf4d0b653c4a8df",
+      "integrated": "71e53bc26e633ccbb6d59b4e13a723e4a357dc39"
+    },
+    {
+      "source": "bfd517a23d6475b48e6df6e495322d954275d343",
+      "integrated": "74add9a7b52239111e8a6ac33f0d1f9f6d992201"
+    },
+    {
+      "source": "c71c377d610187331b71f9976161797a98e5ad11",
+      "integrated": "07acf6feef6b003d4a3f6ca2d3e030707608b60b"
+    },
+    {
+      "source": "8a4a085e50ff69333e6f7fd0124f20d2bc7c2e28",
+      "integrated": "17ce5119ec730c3ea7fee7fb7ca20ebaa91d04f6"
+    },
+    {
+      "source": "08986964770073cd007a81b0ffaa35af2e0e1bde",
+      "integrated": "b3448a8e114212d4d21ebb9f490e2d5981d6b06a"
+    },
+    {
+      "source": "b0e7baf473357bd858582be472c7140e456bb815",
+      "integrated": "261457987e80a70ee887609561cd858abf4f780c"
+    },
+    {
+      "source": "0d6cb2a55d2a3a9c35543df285e213618339301f",
+      "integrated": "48a14c79689ef277b80a38a796a4bd536d9319e0"
+    },
+    {
+      "source": "f521f9972c2c3a0e6446221d0f30b9f3671e4379",
+      "integrated": "c1598541a79e1a2dd21f3721b68a6a043b2fac93"
+    },
+    {
+      "source": "03bfeb5ce9672d022aafed826aefe98bc2bcb68f",
+      "integrated": "5b35e95b937de6a1df461a114ed7937c1ccb19a2"
+    },
+    {
+      "source": "119559da2c9c10d58627650dd21141bded814ed9",
+      "integrated": "b21dccf0bfdd0330fb444003686683ce00a433cb"
+    },
+    {
+      "source": "7e4684b782c3336b1c948be2e448d607a2c2fdc8",
+      "integrated": "6419a213e146cf6cf4c786e1eac69c21f604eda2"
+    },
+    {
+      "source": "8ab153bcc1f2225ffa82f53068ec6bbd9964fd9b",
+      "integrated": "3d418ca7090c29b0b013f1f1657e49f3487fbb2c"
+    },
+    {
+      "source": "a997ea995dd6f3cd0d2392aa35c14e46a3dbd40c",
+      "integrated": "f76e69454cc2737a281ee01ad529233db188ea6a"
+    },
+    {
+      "source": "ea11834741a5343c7a857bcebc0f3783ab97d694",
+      "integrated": "b462276bca8b32f10e7e334f0d2a1f5113a2031a"
+    },
+    {
+      "source": "0b447b9354e5d5350e2f9d3c568cf20741779258",
+      "integrated": "a5bbf6b53fa0f03382df1c3931e320a72e615f16"
     }
   ],
   "candidate_handoff_path": ".hermes/handoffs/P18.json",
-  "candidate_handoff_sha256": "42f15bd87c0a6c4417de87101f02278ca0296621877154ee0fc03c228b81934f",
-  "evidence_manifest_sha256": "f3b12e16dc6a66d500a259e32a81d9c9f0e863fe0acdefceefef2b4e684cb3a6",
-  "integrated_files_changed_count": 86,
+  "candidate_handoff_sha256": "14d0729262d7521bfb9e3d90297110672497b3af",
+  "evidence_manifest_sha256": "cba13a20501be09df51195ed8da588e6bc42d895cb24414e562b1c0a46f6b1b8",
+  "integrated_files_changed_count": 114,
   "integrated_files_changed": [
     ".github/workflows/platform.yml",
     ".hermes/evidence/p18/SHA256SUMS",
+    ".hermes/evidence/p18/agent-uninstall.log",
+    ".hermes/evidence/p18/arm64-build.json",
+    ".hermes/evidence/p18/browser.log",
     ".hermes/evidence/p18/compose-config.log",
     ".hermes/evidence/p18/contracts-sha256.txt",
     ".hermes/evidence/p18/contracts.log",
+    ".hermes/evidence/p18/deployment-command.log",
     ".hermes/evidence/p18/diff-check.log",
     ".hermes/evidence/p18/docker-build-agent.log",
     ".hermes/evidence/p18/docker-build-controller.log",
     ".hermes/evidence/p18/docker-runtime.log",
     ".hermes/evidence/p18/docker-stage-smoke.log",
     ".hermes/evidence/p18/docker-static-inspection.log",
+    ".hermes/evidence/p18/full-repository-race.log",
     ".hermes/evidence/p18/full-repository.log",
     ".hermes/evidence/p18/go-vet.log",
     ".hermes/evidence/p18/gofmt.log",
@@ -94,20 +231,33 @@
     ".hermes/evidence/p18/linux-direct-v4-escalated.log",
     ".hermes/evidence/p18/linux-direct-v4.log",
     ".hermes/evidence/p18/oci-contract.log",
+    ".hermes/evidence/p18/oci-local.json",
+    ".hermes/evidence/p18/oci-local.log",
+    ".hermes/evidence/p18/openrc-unavailable.json",
+    ".hermes/evidence/p18/openrc-unavailable.log",
+    ".hermes/evidence/p18/platform-builds.log",
     ".hermes/evidence/p18/platform-workflow-yaml.log",
     ".hermes/evidence/p18/results-validation.log",
     ".hermes/evidence/p18/results.json",
     ".hermes/evidence/p18/secret-scan.log",
     ".hermes/evidence/p18/shell-syntax.log",
+    ".hermes/evidence/p18/systemd-failure-cleanup.log",
+    ".hermes/evidence/p18/systemd-native.json",
+    ".hermes/evidence/p18/systemd-native.sha256",
     ".hermes/evidence/p18/systemd-smoke.log",
+    ".hermes/evidence/p18/verification-bundle.sha256",
     ".hermes/evidence/p18/windows-amd64-build.log",
+    ".hermes/evidence/p18/windows-build.json",
     ".hermes/evidence/p18/windows-install-test-compile.log",
     ".hermes/handoffs/P18-contract-change.md",
+    ".hermes/handoffs/P18-integrated.json",
     ".hermes/handoffs/P18.json",
     "Dockerfile",
     "Dockerfile.agent",
     "Dockerfile.controller",
     "api/openapi.yaml",
+    "cmd/antinat-agent/tokenfile_windows.go",
+    "cmd/antinat-agent/tokenfile_windows_acl_test.go",
     "cmd/antinatctl/cli_test.go",
     "deploy/openrc/antinat-agent",
     "deploy/openrc/antinat-controller",
@@ -122,6 +272,14 @@
     "docker/stage-enrollment.sh",
     "docker/test-stage-enrollment.sh",
     "docker/verify-oci-contract.sh",
+    "internal/agent/app.go",
+    "internal/agent/app_test.go",
+    "internal/agent/uninstall_endpoint.go",
+    "internal/agent/uninstall_endpoint_linux.go",
+    "internal/agent/uninstall_endpoint_linux_test.go",
+    "internal/agent/uninstall_endpoint_other.go",
+    "internal/controller/agenthub/session.go",
+    "internal/controller/agenthub/uninstall_notice_test.go",
     "internal/controller/api/api_test.go",
     "internal/controller/api/auth.go",
     "internal/controller/api/hooks_test.go",
@@ -142,6 +300,7 @@
     "internal/install/ownership_windows.go",
     "internal/install/purge.go",
     "internal/install/purge_unix.go",
+    "internal/install/purge_unix_test.go",
     "internal/install/purge_windows.go",
     "internal/install/runtime_config.go",
     "internal/install/token.go",
@@ -163,14 +322,14 @@
   ],
   "verification_at_integrated_tip": [
     {
-      "command": "git cherry-pick $(git rev-list --reverse 28aeaab5bb9c788da9c0068b8314b4f48c5a423d..ai/P18-installers-platforms)",
+      "command": "git cherry-pick plus exact tree alignment from ai/P18-installers-platforms",
       "exit_code": 0,
-      "summary": "PASS; all 12 P18 source commits applied cleanly with no conflict or semantic resolution."
+      "summary": "PASS; the P18 repair range was applied serially, then remaining old-baseline differences were aligned byte-for-byte from the reviewed candidate; 45 source-to-integrated commit mappings are recorded."
     },
     {
-      "command": "git diff --quiet ai/P18-installers-platforms HEAD",
+      "command": "git diff --quiet ai/P18-installers-platforms HEAD ':!.hermes/handoffs/P18-integrated.json'",
       "exit_code": 0,
-      "summary": "PASS; candidate record-tip tree and integration pre-record tree are byte-identical."
+      "summary": "PASS; candidate record-tip tree and integration pre-record tree are byte-identical outside the integrated handoff record itself."
     },
     {
       "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./... -count=1",
@@ -178,9 +337,9 @@
       "summary": "PASS; full repository suite passes on integration/v1-beta."
     },
     {
-      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -race ./... -count=1",
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -p 1 -race ./... -count=1",
       "exit_code": 0,
-      "summary": "PASS; full repository race suite passes on integration/v1-beta."
+      "summary": "PASS; full repository race suite passes serially on integration/v1-beta."
     },
     {
       "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off go vet ./...",
@@ -195,7 +354,7 @@
     {
       "command": "bash scripts/test-systemd.sh",
       "exit_code": 0,
-      "summary": "SUPPORTED_WITH_LIMITS; controller start/ready/restart/stop passed under temporary systemd; native Agent/platform and installer transaction limits remain."
+      "summary": "PASS; native systemd evidence wrapper and failure-cleanup checks pass. Native Agent/platform and installer transaction runtime limits remain documented below."
     },
     {
       "command": "bash -n scripts/*.sh && sh -n docker/*.sh && GOWORK=off go test ./test/contracts -count=1 -v && python3 -c 'import pathlib,yaml; yaml.safe_load(pathlib.Path(\".github/workflows/platform.yml\").read_text()); print(\"platform.yml: PASS\")'",
