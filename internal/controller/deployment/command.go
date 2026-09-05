@@ -34,7 +34,7 @@ const (
 	installerPS1URL    = releaseBaseURL + "/install.ps1"
 	installerTrustURL  = releaseBaseURL + "/release-ed25519.pub"
 	installerScriptSHA = "a76fcd5150ea34cde8f02cf67ed56b64d561041a5698b8b9430be182c1e4c194"
-	installerLibSHA    = "9db7e760bbd14e8a51841189cdec98b32ab09406c644e856358faeb32e38b356"
+	installerLibSHA    = "7390a532831fd5f066d1aafac2d9160e9999fba96c656fcf884a69314a66a7e5"
 	installerPS1SHA    = "4341ae0d53e7cc1e377263ec0b954e57ea7be10e3f6a8dbaf348e025a5c6e02a"
 	installerTrustSHA  = "7c250ef2c4b3ece394f1d22f106742152116ef192a89bda1f1deaef9073112f3"
 	containerImage     = "ghcr.io/gxbrave/antinat-agent:v1.0.0-beta"

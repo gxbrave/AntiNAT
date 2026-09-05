@@ -1,9 +1,14 @@
 package deployment
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"unicode/utf16"
@@ -178,6 +183,80 @@ func TestBuildInstallCommandUsesPlatformSpecificDownloadAndNoSecret(t *testing.T
 			if decodeErr != nil || !strings.Contains(decoded, "release-ed25519.pub") || !strings.Contains(decoded, installerPS1SHA) || !strings.Contains(decoded, installerTrustSHA) || strings.Contains(decoded, "scriptblock]::Create") {
 				t.Errorf("Windows command did not stage and verify the local installer: %q", decoded)
 			}
+		}
+	}
+}
+
+func TestInstallerHashesMatchCheckedInConsumers(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", ".."))
+
+	frontend, err := os.ReadFile(filepath.Join(root, "web", "static", "js", "deployment.js"))
+	if err != nil {
+		t.Fatalf("read deployment UI: %v", err)
+	}
+
+	assets := []struct {
+		path             string
+		backendSHA       string
+		frontendVariable string
+	}{
+		{path: "install.sh", backendSHA: installerScriptSHA, frontendVariable: "INSTALLER_SCRIPT_SHA256"},
+		{path: "libinstall.sh", backendSHA: installerLibSHA, frontendVariable: "INSTALLER_LIB_SHA256"},
+		{path: "install.ps1", backendSHA: installerPS1SHA, frontendVariable: "INSTALLER_PS1_SHA256"},
+	}
+	for _, asset := range assets {
+		t.Run(asset.path, func(t *testing.T) {
+			script, readErr := os.ReadFile(filepath.Join(root, "scripts", asset.path))
+			if readErr != nil {
+				t.Fatalf("read installer asset: %v", readErr)
+			}
+			digest := sha256.Sum256(script)
+			if got := hex.EncodeToString(digest[:]); got != asset.backendSHA {
+				t.Fatalf("backend SHA = %q, checked-in scripts/%s = %q", asset.backendSHA, asset.path, got)
+			}
+			wantFrontend := "var " + asset.frontendVariable + " = '" + asset.backendSHA + "';"
+			if !strings.Contains(string(frontend), wantFrontend) {
+				t.Fatalf("deployment UI does not contain backend SHA in %s", asset.frontendVariable)
+			}
+		})
+	}
+}
+
+func TestWindowsInstallerTokenACLMatchesAgentServiceIdentity(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", ".."))
+	script, err := os.ReadFile(filepath.Join(root, "scripts", "install.ps1"))
+	if err != nil {
+		t.Fatalf("read PowerShell installer: %v", err)
+	}
+	contents := string(script)
+	for _, required := range []string{
+		"$acl.SetOwner($service)",
+		"Add-AgentServiceSidToEnrollmentTokenAcl $script:TokenTemp",
+		"@('NT SERVICE', $ServiceName)",
+		"StartsWith('S-1-5-80-'",
+		"$sid -notin $expected",
+		"Write-ServiceToken $path",
+	} {
+		if !strings.Contains(contents, required) {
+			t.Errorf("PowerShell installer is missing LocalService token ACL guard %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"$acl.SetOwner($system)",
+		"foreach ($sid in @($system, $service))",
+		"$rules.Count -ne 1",
+		"Write-SystemToken $path",
+	} {
+		if strings.Contains(contents, forbidden) {
+			t.Errorf("PowerShell installer still contains incompatible token ACL behavior %q", forbidden)
 		}
 	}
 }
