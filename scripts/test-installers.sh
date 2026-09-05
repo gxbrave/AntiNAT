@@ -118,6 +118,88 @@ windows_helper_failure_line=$(grep -n "throw 'remote uninstall helper could not 
     exit 1
 }
 
+# Rollback quiescence must not replace the service state captured before the
+# upgrade. Exercise both a partial service start and a fully started service set
+# without requiring a host systemd instance.
+(
+    source "$repo_dir/scripts/libinstall.sh"
+    INSTALLER_SERVICE_MANAGER=systemd
+    INSTALLER_ROLE=both
+    INSTALLER_SERVICE_NAME=antinat-agent.service
+    INSTALLER_TEST_ROOT=
+    agent_active=1
+    controller_active=1
+    agent_enabled=1
+    controller_enabled=1
+    fail_agent_start=0
+    installer_systemd_unit_present() { return 0; }
+    systemctl() {
+        local operation="$1" unit
+        case "$operation" in
+            is-active)
+                unit="$3"
+                [[ "$unit" == antinat-agent.service && "$agent_active" == 1 ||
+                   "$unit" == antinat-controller.service && "$controller_active" == 1 ]]
+                ;;
+            is-enabled)
+                unit="$3"
+                [[ "$unit" == antinat-agent.service && "$agent_enabled" == 1 ||
+                   "$unit" == antinat-controller.service && "$controller_enabled" == 1 ]]
+                ;;
+            stop)
+                unit="$2"
+                if [[ "$unit" == antinat-agent.service ]]; then agent_active=0; else controller_active=0; fi
+                ;;
+            disable)
+                unit="$2"
+                if [[ "$unit" == antinat-agent.service ]]; then agent_enabled=0; else controller_enabled=0; fi
+                ;;
+            enable)
+                unit="$2"
+                if [[ "$unit" == antinat-agent.service ]]; then agent_enabled=1; else controller_enabled=1; fi
+                ;;
+            start)
+                unit="$2"
+                if [[ "$unit" == antinat-agent.service ]]; then
+                    [[ "$fail_agent_start" == 0 ]] || return 1
+                    agent_active=1
+                else
+                    controller_active=1
+                fi
+                ;;
+            daemon-reload) ;;
+            *) return 1 ;;
+        esac
+    }
+    installer_systemctl() { systemctl "$@"; }
+
+    installer_stop_service
+    [[ "$INSTALLER_AGENT_WAS_ACTIVE" == 1 && "$INSTALLER_CONTROLLER_WAS_ACTIVE" == 1 &&
+       "$INSTALLER_AGENT_WAS_ENABLED" == 1 && "$INSTALLER_CONTROLLER_WAS_ENABLED" == 1 ]]
+
+    fail_agent_start=1
+    installer_start_services && { echo 'partial service-start fixture unexpectedly succeeded' >&2; exit 1; }
+    [[ "$controller_active" == 1 && "$agent_active" == 0 ]]
+    installer_quiesce_services
+    [[ "$INSTALLER_AGENT_WAS_ACTIVE" == 1 && "$INSTALLER_CONTROLLER_WAS_ACTIVE" == 1 &&
+       "$INSTALLER_AGENT_WAS_ENABLED" == 1 && "$INSTALLER_CONTROLLER_WAS_ENABLED" == 1 ]] || {
+        echo 'partial-start rollback quiescence overwrote original service state' >&2
+        exit 1
+    }
+    fail_agent_start=0
+    installer_start_services
+    [[ "$controller_active" == 1 && "$agent_active" == 1 ]]
+
+    installer_quiesce_services
+    [[ "$INSTALLER_AGENT_WAS_ACTIVE" == 1 && "$INSTALLER_CONTROLLER_WAS_ACTIVE" == 1 &&
+       "$INSTALLER_AGENT_WAS_ENABLED" == 1 && "$INSTALLER_CONTROLLER_WAS_ENABLED" == 1 ]] || {
+        echo 'completion-journal rollback quiescence overwrote original service state' >&2
+        exit 1
+    }
+    installer_start_services
+    [[ "$controller_active" == 1 && "$agent_active" == 1 ]]
+)
+
 # OpenRC sources agent.conf as root. Every generated value must remain data,
 # including a single quote followed by valid shell commands.
 openrc_root="$cache_dir/openrc-quote-root"
@@ -281,7 +363,7 @@ set -e
 # state, then start the restored service set. The test-mode service wrapper is
 # inert, so assert this safety ordering directly against the shipped function.
 rollback_body=$(sed -n '/if ((failed != 0)); then/,/return "$INSTALLER_EXIT_ROLLBACK"/p' "$repo_dir/scripts/libinstall.sh")
-rollback_stop_line=$(grep -n 'installer_stop_service || rollback_failed=1' <<<"$rollback_body" | cut -d: -f1)
+rollback_stop_line=$(grep -n 'installer_quiesce_services || rollback_failed=1' <<<"$rollback_body" | cut -d: -f1)
 rollback_restore_line=$(grep -n 'installer_restore_snapshot "$backup" || rollback_failed=1' <<<"$rollback_body" | cut -d: -f1)
 [[ -n "$rollback_stop_line" && -n "$rollback_restore_line" && "$rollback_stop_line" -lt "$rollback_restore_line" ]] || {
     echo 'upgrade rollback restores live state before stopping promoted services' >&2
@@ -306,7 +388,7 @@ for relative in "${rollback_paths[@]}"; do
     cmp -- "$root/$relative" "$rollback_snapshot/$relative" || { echo "completion journal rollback did not restore $relative" >&2; exit 1; }
 done
 completion_rollback_body=$(sed -n '/if installer_test_fail_at complete_journal/,/return "$INSTALLER_EXIT_ROLLBACK"/p' "$repo_dir/scripts/libinstall.sh")
-completion_stop_line=$(grep -n 'installer_stop_service || rollback_failed=1' <<<"$completion_rollback_body" | cut -d: -f1)
+completion_stop_line=$(grep -n 'installer_quiesce_services || rollback_failed=1' <<<"$completion_rollback_body" | cut -d: -f1)
 completion_restore_line=$(grep -n 'installer_restore_snapshot "$backup" || rollback_failed=1' <<<"$completion_rollback_body" | cut -d: -f1)
 completion_start_line=$(grep -n 'installer_start_services || rollback_failed=1' <<<"$completion_rollback_body" | cut -d: -f1)
 [[ -n "$completion_stop_line" && -n "$completion_restore_line" && -n "$completion_start_line" && \

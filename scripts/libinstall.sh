@@ -1506,6 +1506,29 @@ installer_stop_service() {
     return "$failed"
 }
 
+installer_quiesce_services() {
+    local failed=0
+    if [[ "$INSTALLER_SERVICE_MANAGER" == openrc ]]; then
+        if installer_role_has_agent && [[ -e "$INSTALLER_OPENRC_DIR/antinat-agent" ]]; then
+            installer_openrc stop antinat-agent || failed=1
+        fi
+        if installer_role_has_controller && [[ -e "$INSTALLER_OPENRC_DIR/antinat-controller" ]]; then
+            installer_openrc stop antinat-controller || failed=1
+        fi
+    else
+        local unit
+        local units=()
+        installer_role_has_agent && units+=("$INSTALLER_SERVICE_NAME")
+        installer_role_has_controller && units+=(antinat-controller.service)
+        for unit in "${units[@]}"; do
+            if installer_systemd_unit_present "$unit"; then
+                installer_systemctl stop "$unit" || failed=1
+            fi
+        done
+    fi
+    return "$failed"
+}
+
 installer_remote_uninstall_notice() {
     # The running Agent owns the signed notice/receipt protocol. It accepts
     # only root peers on its private state-directory socket and returns success
@@ -2398,7 +2421,7 @@ installer_upgrade() {
         # Quiesce them before restoring executable and mutable state bytes;
         # otherwise Controller writes race the snapshot verification and the
         # old binaries are not actually the processes serving after rollback.
-        installer_stop_service || rollback_failed=1
+        installer_quiesce_services || rollback_failed=1
         if ((rollback_failed == 0)); then
             installer_restore_snapshot "$backup" || rollback_failed=1
         fi
@@ -2423,7 +2446,7 @@ installer_upgrade() {
     if installer_test_fail_at complete_journal || ! installer_upgrade_journal_write "$backup" complete "$completed"; then
         rollback_failed=0
         installer_upgrade_journal_write "$backup" rollback_in_progress "$completed" 'upgrade completion journal failed; restoring snapshot' || rollback_failed=1
-        installer_stop_service || rollback_failed=1
+        installer_quiesce_services || rollback_failed=1
         if ((rollback_failed == 0)); then
             installer_restore_snapshot "$backup" || rollback_failed=1
         fi
