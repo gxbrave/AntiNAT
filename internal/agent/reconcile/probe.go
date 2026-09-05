@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -334,7 +335,16 @@ func (m *ProbeManager) PrepareProbeArm(raw []byte, forwardID string) (PreparedPr
 		return PreparedProbeArm{}, ErrProbeArmRejected
 	}
 	wantEndpoint := net.JoinHostPort(applied.ActualBindHost, fmt.Sprintf("%d", applied.ActualBindPort))
-	if arm.Endpoint != wantEndpoint {
+	endpointMatches := arm.Endpoint == wantEndpoint
+	if !endpointMatches && applied.PublicPort != 0 {
+		// A STUN-only or gateway forward may bind a private local tuple while
+		// its independently observed public candidate is the probe endpoint.
+		// ParseProbeArm has already enforced the global IPv4 endpoint rule; the
+		// recorded candidate port is the remaining binding constraint.
+		candidate, parseErr := netip.ParseAddrPort(arm.Endpoint)
+		endpointMatches = parseErr == nil && candidate.Port() == applied.PublicPort
+	}
+	if !endpointMatches {
 		return PreparedProbeArm{}, ErrProbeArmRejected
 	}
 	deadline := m.clock().Add(time.Duration(arm.TTLMS) * time.Millisecond)

@@ -36,12 +36,20 @@ type probeSend struct {
 }
 
 func newProbeTestEnv(t *testing.T) *probeTestEnv {
-	return newProbeTestEnvOptions(t, nil)
+	return newProbeTestEnvOptionsWithPublicPort(t, nil, 0)
 }
 
 // newProbeTestEnvOptions builds a probe environment whose ProbeManagerOptions
 // can be mutated (e.g. capacity bounds) before the manager is constructed.
 func newProbeTestEnvOptions(t *testing.T, mutate func(*ProbeManagerOptions)) *probeTestEnv {
+	return newProbeTestEnvOptionsWithPublicPort(t, mutate, 0)
+}
+
+func newProbeTestEnvWithPublicPort(t *testing.T, publicPort uint16) *probeTestEnv {
+	return newProbeTestEnvOptionsWithPublicPort(t, nil, publicPort)
+}
+
+func newProbeTestEnvOptionsWithPublicPort(t *testing.T, mutate func(*ProbeManagerOptions), publicPort uint16) *probeTestEnv {
 	t.Helper()
 	st, err := localstate.Open(filepath.Join(t.TempDir(), "state"))
 	if err != nil {
@@ -73,6 +81,7 @@ func newProbeTestEnvOptions(t *testing.T, mutate func(*ProbeManagerOptions)) *pr
 		DesiredRevision: 1,
 		ActualBindHost:  "198.51.100.7",
 		ActualBindPort:  8080,
+		PublicPort:      publicPort,
 		Strategy:        "direct-v4",
 		LayerVersion:    1,
 		AppliedAtUnix:   time.Now().Unix(),
@@ -176,6 +185,28 @@ func TestHandleProbeArmRejectsEndpointMismatch(t *testing.T) {
 	arm.Endpoint = "198.51.100.7:9999" // does not match bind port 8080
 	if _, err := e.mgr.HandleProbeArm(context.Background(), arm.Canonical(), "fwd-1"); err == nil {
 		t.Fatal("arm with wrong endpoint accepted")
+	}
+}
+
+func TestHandleProbeArmAcceptsPublicCandidateForPrivateBind(t *testing.T) {
+	e := newProbeTestEnvWithPublicPort(t, 9304)
+
+	arm := sampleProbeArm()
+	arm.Activation = activationFor(e.forward, 1)
+	arm.Endpoint = "198.51.100.9:9304"
+	if _, err := e.mgr.HandleProbeArm(context.Background(), arm.Canonical(), e.forward); err != nil {
+		t.Fatalf("public-candidate arm rejected: %v", err)
+	}
+}
+
+func TestHandleProbeArmRejectsMismatchedPublicCandidatePort(t *testing.T) {
+	e := newProbeTestEnvWithPublicPort(t, 9304)
+
+	arm := sampleProbeArm()
+	arm.Activation = activationFor(e.forward, 1)
+	arm.Endpoint = "198.51.100.9:9305"
+	if _, err := e.mgr.HandleProbeArm(context.Background(), arm.Canonical(), e.forward); err == nil {
+		t.Fatal("arm with mismatched public candidate port accepted")
 	}
 }
 

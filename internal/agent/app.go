@@ -1600,25 +1600,27 @@ func (a *App) onForwardApplied(spec protocol.ForwardSpec, applied protocol.Appli
 			act.ResetForGenerationWithID(applied.SpecRevision, activationID)
 		}
 	}
-	// Gateway-aware initial axes (P12W Story 7): a live acquisition's verdict
-	// sets mapping_state and the mapping is HEALTHY until the renewal loop says
-	// otherwise. Direct/UDP forwards keep the neutral NOT_REQUIRED axes.
-	if actor := a.dp.forwards[applied.ForwardID]; actor != nil && actor.acq != nil {
+	// A successfully installed actor is live regardless of whether its public
+	// endpoint came from a gateway acquisition or same-tuple STUN. Reflect the
+	// live listener/data plane first, then project any acquisition evidence onto
+	// the mapping and keepalive axes.
+	if actor := a.dp.forwards[applied.ForwardID]; actor != nil {
 		generation := act.Generation()
-		if state := mappingStateForVerdict(actor.acq.Verdict); state != "" {
+		_ = act.Update("listener_state", "READY", generation)
+		_ = act.Update("data_plane_state", "READY", generation)
+		if state := mappingStateForVerdict(actor.meta.verdict); state != "" {
 			_ = act.Update("mapping_state", state, generation)
 		}
 		// Repair R1 finding 7: keepalive_state HEALTHY is only observable when
-		// the acquisition has a running renewal loop. Manual-static is
-		// operator-configured with no renewal (nothing to observe), so the
+		// the acquisition has a running renewal loop. Manual-static and
+		// STUN-only are operator/configuration paths with no renewal, so the
 		// truthful axis is NOT_REQUIRED rather than a HEALTHY claim the
 		// lifecycle handlers can never correct.
-		if actor.strategy == protocol.StrategyManualStaticV4 {
+		if actor.strategy == protocol.StrategyManualStaticV4 || actor.acq == nil {
 			_ = act.Update("keepalive_state", "NOT_REQUIRED", generation)
 		} else {
 			_ = act.Update("keepalive_state", "HEALTHY", generation)
 		}
-		_ = act.Update("data_plane_state", "READY", generation)
 	}
 	a.dp.mu.Unlock()
 	if a.store != nil {

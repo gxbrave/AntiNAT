@@ -204,7 +204,7 @@ func p12wGatewayCompositionWithObserver(t *testing.T, observed netip.AddrPort) (
 		StunServers:    []string{"stun+tcp://100.64.0.1:3478"},
 		ProfileStore:   profiles,
 		StunObserver:   obs.observe,
-		StunSource:     &p12wListenerSource{},
+		StunSource:     &p12wSameTupleSource{},
 	})
 	// The gateway route resolves its own (private) source inside the manager;
 	// the data plane's capability gate is the Story 6 "route table usable +
@@ -750,6 +750,37 @@ func TestDataPlaneManualStaticKeepaliveStateNotRequired(t *testing.T) {
 	}
 	if snap.DataPlaneState != "READY" {
 		t.Fatalf("manual-static data_plane_state = %q, want READY", snap.DataPlaneState)
+	}
+}
+
+func TestDataPlaneStunOnlyActivationReflectsLiveCandidate(t *testing.T) {
+	d, _, _, _ := p12wGatewayCompositionWithObserver(t, netip.MustParseAddrPort("8.8.8.8:51234"))
+	a := &App{store: d.cfg.Store, dp: d, activations: make(map[string]*reconcile.Activation)}
+	d.cfg.OnApplied = a.onForwardApplied
+
+	spec := protocol.ForwardSpec{
+		ForwardID: "fwd-stun-only-live", Protocol: protocol.ProtocolTCP, Target: "127.0.0.1:9",
+		Strategy: protocol.StrategyStunOnly, DesiredRevision: 1, Presence: protocol.PresencePresent,
+	}
+	applied, err := d.apply(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("stun-only apply: %v", err)
+	}
+	if applied.PublicPort != 51234 {
+		t.Fatalf("public_port = %d, want observed candidate port 51234", applied.PublicPort)
+	}
+	snap := a.ActivationSnapshot(spec.ForwardID)
+	if snap == nil {
+		t.Fatal("no activation recorded for stun-only forward")
+	}
+	if snap.ListenerState != "READY" || snap.DataPlaneState != "READY" {
+		t.Fatalf("live axes = listener %q data-plane %q, want READY/READY", snap.ListenerState, snap.DataPlaneState)
+	}
+	if snap.MappingState != "PUBLIC_CANDIDATE" {
+		t.Fatalf("mapping_state = %q, want PUBLIC_CANDIDATE", snap.MappingState)
+	}
+	if snap.KeepaliveState != "NOT_REQUIRED" {
+		t.Fatalf("keepalive_state = %q, want NOT_REQUIRED", snap.KeepaliveState)
 	}
 }
 

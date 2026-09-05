@@ -373,7 +373,8 @@ func (a *App) Hooks() *hook.Service { return a.hooks }
 
 // ArmProbe creates a probe operation for one forward at its current spec
 // revision and enqueues the probe_arm command (Story 1 controller
-// operation). The endpoint must equal the agent's actual bind tuple.
+// operation). The endpoint must be a concrete global candidate; the Agent
+// accepts either its exact bind tuple or the recorded public candidate port.
 func (a *App) ArmProbe(ctx context.Context, nodeID, forwardID, endpoint string) (store.ProbeOperation, error) {
 	row, err := a.store.LatestForwardSpec(forwardID)
 	if err != nil {
