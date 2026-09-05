@@ -1,0 +1,237 @@
+{
+  "schema_version": 1,
+  "plan": "P18",
+  "stage": "INTEGRATED",
+  "branch": "integration/v1-beta",
+  "integration_base_sha": "28aeaab5bb9c788da9c0068b8314b4f48c5a423d",
+  "integration_base_tree_sha": "0e65ed6cc4ac2fccb37d54c5615a14bea38e7915",
+  "integration_method": "CHERRY-PICK (clean, no conflict, no semantic resolution). The complete P18 candidate range was applied serially from the P17 integrated tip; 12 source commits have byte-equivalent cherry-picked commits on integration/v1-beta. The candidate metadata tree and the integration pre-record tree are identical.",
+  "candidate_branch": "ai/P18-installers-platforms",
+  "candidate_implementation_head_sha": "16d42de79c1412ef76848af50299097717176750",
+  "candidate_implementation_head_tree_sha": "783efd504d51863a01deb2cedbe11a00411a5f09",
+  "candidate_canonical_head_sha": "16d42de79c1412ef76848af50299097717176750",
+  "candidate_canonical_head_tree_sha": "783efd504d51863a01deb2cedbe11a00411a5f09",
+  "candidate_record_tip_sha": "6f8e387b3bc64bf415d687a87707af28d56fb73a",
+  "candidate_record_tip_tree_sha": "ea4345e9b4b8c20e6c936aaa36900d189cb4f437",
+  "integrated_pre_record_tip_sha": "28aeaab5bb9c788da9c0068b8314b4f48c5a423d",
+  "integrated_pre_record_tip_tree_sha": "0e65ed6cc4ac2fccb37d54c5615a14bea38e7915",
+  "integrated_sha": "45e1b821db17ab632471f6c3b8528763c8ccf926",
+  "integrated_tree_sha": "ea4345e9b4b8c20e6c936aaa36900d189cb4f437",
+  "tree_equivalence": "PASS; git diff --quiet ai/P18-installers-platforms HEAD. The integration tree at the pre-record tip is byte-identical to candidate record tip 6f8e387 and therefore includes the candidate implementation, evidence, and P18 handoff exactly.",
+  "source_to_integrated_commits": [
+    {
+      "source": "e7a6dff0717c67b0553ffdea2df0a0b1a8d4dc50",
+      "integrated": "ac2a82aa26fc53f668103cc388b6376e23b156fe"
+    },
+    {
+      "source": "f8dce1c627ba37cd08125f12ee956fd064038215",
+      "integrated": "f7b4da4526c8e49ba15bd63c56f3de90267d42c9"
+    },
+    {
+      "source": "fdb449c209e23b3bd7861cf1295ad55e20750128",
+      "integrated": "e6d945a3b9f4687e995e3e462c39f309667f477f"
+    },
+    {
+      "source": "8749a34384fd3a861477f911279ed59965676dca",
+      "integrated": "a729ef3970244338834d2dc7aee18821b7e550e7"
+    },
+    {
+      "source": "0df641b47c528eb606603f5dc34140459745d129",
+      "integrated": "62849c0679d330a658c49be36396688b179c2a29"
+    },
+    {
+      "source": "4ee3aece72ba60946a20de62bfd6c57f147bba69",
+      "integrated": "ac8387d80e5b9704cb47abebffd8e8fe7601400e"
+    },
+    {
+      "source": "7c311ab17d5633961c157196b567866f65cc07f7",
+      "integrated": "14e29e7f96144b2e4bbf13b029d9f8514de38356"
+    },
+    {
+      "source": "7b58b64e66499a5127d65c664f865d9e38a07a1d",
+      "integrated": "fbf724105ce91f55c4322a140112a83f954cd195"
+    },
+    {
+      "source": "d90e140ab3b31d8b11256041c1cb7d58ed8d0904",
+      "integrated": "be19128402226e64b6726c477aa7231f1351670d"
+    },
+    {
+      "source": "38cac5645daed694a30607dc569eb57aa2d947b5",
+      "integrated": "639a73a8d9b71e53e04f7763cef6a2b14b3ceffa"
+    },
+    {
+      "source": "16d42de79c1412ef76848af50299097717176750",
+      "integrated": "781beceaa109ec0a73ec2a3b4c7906d245ccb0bd"
+    },
+    {
+      "source": "6f8e387b3bc64bf415d687a87707af28d56fb73a",
+      "integrated": "45e1b821db17ab632471f6c3b8528763c8ccf926"
+    }
+  ],
+  "candidate_handoff_path": ".hermes/handoffs/P18.json",
+  "candidate_handoff_sha256": "42f15bd87c0a6c4417de87101f02278ca0296621877154ee0fc03c228b81934f",
+  "evidence_manifest_sha256": "f3b12e16dc6a66d500a259e32a81d9c9f0e863fe0acdefceefef2b4e684cb3a6",
+  "integrated_files_changed_count": 86,
+  "integrated_files_changed": [
+    ".github/workflows/platform.yml",
+    ".hermes/evidence/p18/SHA256SUMS",
+    ".hermes/evidence/p18/compose-config.log",
+    ".hermes/evidence/p18/contracts-sha256.txt",
+    ".hermes/evidence/p18/contracts.log",
+    ".hermes/evidence/p18/diff-check.log",
+    ".hermes/evidence/p18/docker-build-agent.log",
+    ".hermes/evidence/p18/docker-build-controller.log",
+    ".hermes/evidence/p18/docker-runtime.log",
+    ".hermes/evidence/p18/docker-stage-smoke.log",
+    ".hermes/evidence/p18/docker-static-inspection.log",
+    ".hermes/evidence/p18/full-repository.log",
+    ".hermes/evidence/p18/go-vet.log",
+    ".hermes/evidence/p18/gofmt.log",
+    ".hermes/evidence/p18/install-go-race.log",
+    ".hermes/evidence/p18/install-go-test.log",
+    ".hermes/evidence/p18/installer-smoke.log",
+    ".hermes/evidence/p18/linux-arm64-subset-build.log",
+    ".hermes/evidence/p18/linux-direct-v4-escalated.log",
+    ".hermes/evidence/p18/linux-direct-v4.log",
+    ".hermes/evidence/p18/oci-contract.log",
+    ".hermes/evidence/p18/platform-workflow-yaml.log",
+    ".hermes/evidence/p18/results-validation.log",
+    ".hermes/evidence/p18/results.json",
+    ".hermes/evidence/p18/secret-scan.log",
+    ".hermes/evidence/p18/shell-syntax.log",
+    ".hermes/evidence/p18/systemd-smoke.log",
+    ".hermes/evidence/p18/windows-amd64-build.log",
+    ".hermes/evidence/p18/windows-install-test-compile.log",
+    ".hermes/handoffs/P18-contract-change.md",
+    ".hermes/handoffs/P18.json",
+    "Dockerfile",
+    "Dockerfile.agent",
+    "Dockerfile.controller",
+    "api/openapi.yaml",
+    "cmd/antinatctl/cli_test.go",
+    "deploy/openrc/antinat-agent",
+    "deploy/openrc/antinat-controller",
+    "deploy/ownership-allowlist.txt",
+    "deploy/systemd/antinat-agent.service",
+    "deploy/systemd/antinat-controller.service",
+    "deploy/trust/README.md",
+    "deploy/trust/release-ed25519.pub",
+    "docker/README.md",
+    "docker/compose.yaml",
+    "docker/healthcheck-agent.sh",
+    "docker/stage-enrollment.sh",
+    "docker/test-stage-enrollment.sh",
+    "docker/verify-oci-contract.sh",
+    "internal/controller/api/api_test.go",
+    "internal/controller/api/auth.go",
+    "internal/controller/api/hooks_test.go",
+    "internal/controller/api/nodes_min.go",
+    "internal/controller/api/p15_repair1_h3_helpers_test.go",
+    "internal/controller/api/p15_repair1_h8_helpers_test.go",
+    "internal/controller/api/router_test.go",
+    "internal/controller/app.go",
+    "internal/controller/deployment/command.go",
+    "internal/controller/deployment/command_test.go",
+    "internal/install/artifact.go",
+    "internal/install/compat.go",
+    "internal/install/contract.go",
+    "internal/install/install_test.go",
+    "internal/install/layout.go",
+    "internal/install/ownership_unix.go",
+    "internal/install/ownership_unix_test.go",
+    "internal/install/ownership_windows.go",
+    "internal/install/purge.go",
+    "internal/install/purge_unix.go",
+    "internal/install/purge_windows.go",
+    "internal/install/runtime_config.go",
+    "internal/install/token.go",
+    "internal/install/token_unix.go",
+    "internal/install/token_windows.go",
+    "internal/install/upgrade.go",
+    "internal/install/upgrade_lock_unix.go",
+    "internal/install/upgrade_lock_windows.go",
+    "scripts/install.ps1",
+    "scripts/install.sh",
+    "scripts/libinstall.sh",
+    "scripts/test-installers.sh",
+    "scripts/test-systemd.sh",
+    "scripts/uninstall.ps1",
+    "scripts/uninstall.sh",
+    "test/browser/deployment.spec.js",
+    "test/contracts/manifest.json",
+    "web/static/js/deployment.js"
+  ],
+  "verification_at_integrated_tip": [
+    {
+      "command": "git cherry-pick $(git rev-list --reverse 28aeaab5bb9c788da9c0068b8314b4f48c5a423d..ai/P18-installers-platforms)",
+      "exit_code": 0,
+      "summary": "PASS; all 12 P18 source commits applied cleanly with no conflict or semantic resolution."
+    },
+    {
+      "command": "git diff --quiet ai/P18-installers-platforms HEAD",
+      "exit_code": 0,
+      "summary": "PASS; candidate record-tip tree and integration pre-record tree are byte-identical."
+    },
+    {
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./... -count=1",
+      "exit_code": 0,
+      "summary": "PASS; full repository suite passes on integration/v1-beta."
+    },
+    {
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -race ./... -count=1",
+      "exit_code": 0,
+      "summary": "PASS; full repository race suite passes on integration/v1-beta."
+    },
+    {
+      "command": "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off go vet ./...",
+      "exit_code": 0,
+      "summary": "PASS; repository vet is clean on integration/v1-beta."
+    },
+    {
+      "command": "bash scripts/test-installers.sh",
+      "exit_code": 0,
+      "summary": "PASS; isolated installer smoke covers install, conflict, token, rollback, upgrade, role isolation, and purge."
+    },
+    {
+      "command": "bash scripts/test-systemd.sh",
+      "exit_code": 0,
+      "summary": "SUPPORTED_WITH_LIMITS; controller start/ready/restart/stop passed under temporary systemd; native Agent/platform and installer transaction limits remain."
+    },
+    {
+      "command": "bash -n scripts/*.sh && sh -n docker/*.sh && GOWORK=off go test ./test/contracts -count=1 -v && python3 -c 'import pathlib,yaml; yaml.safe_load(pathlib.Path(\".github/workflows/platform.yml\").read_text()); print(\"platform.yml: PASS\")'",
+      "exit_code": 0,
+      "summary": "PASS; shell entry points, frozen contracts, and platform workflow YAML validate."
+    },
+    {
+      "command": "./scripts/test-browser.sh",
+      "exit_code": 0,
+      "summary": "PASS; all 35 loopback Chromium tests pass: home 6, admin 10, deployment 9, destructive 3, accessibility 4, and private-home 3. Generated P17 screenshots were restored afterward."
+    },
+    {
+      "command": "git status --short --branch",
+      "exit_code": 0,
+      "summary": "PASS; integration/v1-beta is clean at the pre-record tip."
+    }
+  ],
+  "capability_result": "SUPPORTED_WITH_LIMITS",
+  "known_limits": [
+    "No native Windows PowerShell, Windows Service, ACL/Defender, or router/data-path runtime evidence; Windows remains build-only.",
+    "No native arm64 or OpenRC host evidence. arm64 verification is limited to Agent, CLI, and installer package compilation; full arm64 command builds remain blocked by the pre-existing internal/hook/sandbox_linux.go SYS_FORK/SYS_VFORK architecture issue.",
+    "Docker evidence is limited to local amd64 image builds and static inspection. Local image IDs are not registry manifest digests; no SBOM, signature, or production host-network runtime evidence is claimed. syft and cosign are unavailable.",
+    "Native systemd evidence covers a temporary controller lifecycle harness; installer fresh-install/upgrade/rollback/purge mutations remain isolated test-root evidence.",
+    "The smoke release uses a generated test Ed25519 key and local artifacts. Production release artifact pinning, SBOM/signature, and exact image/artifact digest approval remain P19 work.",
+    "govulncheck was unavailable and was not recorded as PASS.",
+    "The full repository suite requires the provisioned ANTINAT_DEDICATED_UID=12001 and ANTINAT_DEDICATED_GID=12001 environment; no native platform support promotion is claimed.",
+    "No public-WAN, real-router, or native platform support promotion is claimed."
+  ],
+  "milestone": "P18 integrated; P19 ready. P19 is not started, and no remote push or release was performed.",
+  "next_module": {
+    "plan": "P19",
+    "status": "READY",
+    "reason": "P01-P18 are integrated and the P18 integration gates passed.",
+    "do_not_start_until": "The orchestrator explicitly starts P19 with its required release inputs and approver."
+  },
+  "release_performed": false,
+  "remote_push": "NONE",
+  "self_approval": false
+}
