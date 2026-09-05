@@ -7,8 +7,9 @@
 ## Decision
 
 The module path is `github.com/gxbrave/AntiNAT`. The repository declares
-`go 1.26.0` with `toolchain go1.26.5`, the version verified from the official Go
-distribution metadata during bootstrap. CI pins action references by commit SHA,
+`go 1.26.0` with `toolchain go1.26.6`, the fixed patch version used by the
+release lane after the P19 vulnerability gate identified reachable standard
+library fixes in Go 1.26.5. CI pins action references by commit SHA,
 uses read-only permissions, fixed job timeouts, artifact retention, and separate
 `pr-fast`, `pr-integration`, and `windows-pr` lanes.
 

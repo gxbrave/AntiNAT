@@ -340,7 +340,8 @@ run_gate install-upgrade-purge true "bash scripts/test-installers.sh" \
     "isolated installer install, upgrade, rollback, and purge coverage passes" \
     run_test_command bash "$script_dir/test-installers.sh"
 
-if [[ -x "$script_dir/test-browser.sh" && -d "$repo_dir/test/browser/node_modules" ]]; then
+if [[ -x "$script_dir/test-browser.sh" && -f "$repo_dir/test/browser/package.json" && \
+    "$(command -v node || true)" && "$(command -v npm || true)" ]]; then
     run_gate browser-e2e true "./scripts/test-browser.sh" \
         "the bilingual UI and deployment browser suite passes" bash "$script_dir/test-browser.sh"
 else

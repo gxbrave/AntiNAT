@@ -2,7 +2,7 @@ module github.com/gxbrave/AntiNAT
 
 go 1.26.0
 
-toolchain go1.26.5
+toolchain go1.26.6
 
 require (
 	go.etcd.io/bbolt v1.5.0

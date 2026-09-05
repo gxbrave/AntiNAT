@@ -32,6 +32,27 @@ func TestReleaseSecurityBoundary(t *testing.T) {
 	}
 }
 
+func TestBetaRunnerExecutesAvailableReleaseGates(t *testing.T) {
+	path := filepath.Join("..", "..", "scripts", "run-beta-gates.sh")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, `-f "$repo_dir/test/browser/package.json"`) {
+		t.Fatal("browser gate must be selected from the pinned package manifest")
+	}
+	if strings.Contains(text, `-d "$repo_dir/test/browser/node_modules"`) {
+		t.Fatal("browser gate must not require preinstalled node_modules")
+	}
+	if !strings.Contains(text, "command -v node") || !strings.Contains(text, "command -v npm") {
+		t.Fatal("browser gate must check for its runtime prerequisites")
+	}
+	if !strings.Contains(text, "govulncheck ./...") {
+		t.Fatal("release runner must retain the vulnerability gate")
+	}
+}
+
 func TestExactArtifactMetadata(t *testing.T) {
 	releaseDir := os.Getenv("ANTINAT_RELEASE_DIR")
 	if releaseDir == "" {

@@ -8,7 +8,7 @@ The authoritative integrated baseline is `622f98b8e3958a14094c1fad5cd775f3c93ccd
 
 P10 composed working Controller/Agent application paths and a local Linux direct-v4 walking skeleton. P12/P12W added reviewed STUN/gateway traversal libraries and production composition, while P13–P18 added the remaining lifecycle, API, hook, UI, installer, service, and platform packaging work. The P19 runner builds the candidate once and binds every gate to the exact manifest digest.
 
-Important qualification: no independent public-WAN, real CPE/router, native Windows, native arm64/OpenRC, registry OCI digest, vulnerability-scan, browser, or 24-hour soak evidence is available for this candidate run. Those gaps keep the candidate at `SUPPORTED_WITH_LIMITS`; they are not silently promoted by local, loopback, cross-build, or isolated test-root evidence.
+Important qualification: no independent public-WAN, real CPE/router, native Windows, native arm64/OpenRC, registry OCI digest, or 24-hour soak evidence is available for this candidate run. Browser coverage and `govulncheck` run in the refreshed release lane; those local results do not promote WAN, platform, registry, or soak capabilities. The remaining gaps keep the candidate at `SUPPORTED_WITH_LIMITS`.
 
 See:
 
@@ -30,7 +30,7 @@ The v1.0-beta boundary is frozen in:
 
 A candidate endpoint is never described as globally reachable merely because a local socket was bound, a gateway mapping succeeded, or STUN returned a mapping. Only a matching authenticated probe from a named independent vantage can produce `OPEN_FROM_VANTAGE`. Local, loopback, netns, fake-server, and cross-build results retain their actual evidence level.
 
-No independent public-WAN, real CPE/router, or native Windows runtime evidence is claimed for the currently integrated traversal paths. Cross-builds are compile evidence only. P18 installer/platform evidence remains bounded by its documented host and registry limits. `govulncheck` and the browser dependencies were unavailable in the local P19 candidate run and are not claimed as PASS.
+No independent public-WAN, real CPE/router, or native Windows runtime evidence is claimed for the currently integrated traversal paths. Cross-builds are compile evidence only. P18 installer/platform evidence remains bounded by its documented host and registry limits. The refreshed P19 lane runs the pinned browser suite and `govulncheck` on Go 1.26.6; these checks do not replace the unavailable external gates.
 
 Natter is listed in `antinat.txt` as an inspiration for networking principles. AntiNAT is a clean-room implementation: no Natter source, GPL-3.0 code, or copied implementation is included. AntiNAT source is distributed under the Apache License 2.0 in `LICENSE`.
 

@@ -3,8 +3,9 @@
 This checklist is evaluated against one exact candidate bundle. The current
 P19 candidate is not a published release: the repository has no production
 signing key, independent release approver, controller endpoint, remote probe
-vantage, native Windows/OpenRC/arm64 hosts, browser dependencies, vulnerability
-scanner, or 24-hour soak result.
+vantage, native Windows/OpenRC/arm64 hosts, registry digest, or 24-hour soak
+result. The release lane provisions the pinned browser suite and
+`govulncheck`; their local results do not replace the external gates.
 
 ## Required gates
 
