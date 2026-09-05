@@ -726,30 +726,51 @@ function Set-EnrollmentTokenAcl([string] $Path, [bool] $Directory) {
     $acl = Get-Acl -LiteralPath $Path
     $acl.SetAccessRuleProtection($true, $false)
     foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRuleSpecific($rule) }
-    $system = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList @('S-1-5-18')
     $service = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList @($LocalServiceSid)
-    $acl.SetOwner($system)
+    $acl.SetOwner($service)
     $inheritance = if ($Directory) { [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit } else { [Security.AccessControl.InheritanceFlags]::None }
-    foreach ($sid in @($system, $service)) {
-        $rule = New-Object -TypeName System.Security.AccessControl.FileSystemAccessRule -ArgumentList @($sid, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance, [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow)
-        [void]$acl.AddAccessRule($rule)
+    $rule = New-Object -TypeName System.Security.AccessControl.FileSystemAccessRule -ArgumentList @($service, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance, [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow)
+    [void]$acl.AddAccessRule($rule)
+    Set-Acl -LiteralPath $Path -AclObject $acl
+}
+
+function Add-AgentServiceSidToEnrollmentTokenAcl([string] $Path) {
+    Assert-NoReparsePath $Path
+    $account = New-Object -TypeName System.Security.Principal.NTAccount -ArgumentList @('NT SERVICE', $ServiceName)
+    try {
+        $serviceSid = $account.Translate([Security.Principal.SecurityIdentifier])
+    } catch {
+        throw 'could not resolve the restricted Agent service SID'
     }
+    if (-not $serviceSid.Value.StartsWith('S-1-5-80-', [StringComparison]::Ordinal)) {
+        throw 'Agent service identity did not resolve to a service SID'
+    }
+    $acl = Get-Acl -LiteralPath $Path
+    if (-not $acl.AreAccessRulesProtected -or (Get-SidString $acl.Owner) -ne $LocalServiceSid) {
+        throw 'token file ACL is not LocalService-owned and protected'
+    }
+    $rule = New-Object -TypeName System.Security.AccessControl.FileSystemAccessRule -ArgumentList @($serviceSid, [Security.AccessControl.FileSystemRights]::FullControl, [Security.AccessControl.InheritanceFlags]::None, [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow)
+    [void]$acl.AddAccessRule($rule)
     Set-Acl -LiteralPath $Path -AclObject $acl
 }
 
 function Assert-EnrollmentTokenAcl([string] $Path) {
     Assert-NoReparsePath $Path
     $acl = Get-Acl -LiteralPath $Path
-    if (-not $acl.AreAccessRulesProtected -or (Get-SidString $acl.Owner) -ne 'S-1-5-18') { throw 'token file ACL is not SYSTEM-owned and protected' }
+    if (-not $acl.AreAccessRulesProtected -or (Get-SidString $acl.Owner) -ne $LocalServiceSid) { throw 'token file ACL is not LocalService-owned and protected' }
     $rules = @($acl.Access)
-    if ($rules.Count -ne 2) { throw 'token file ACL does not contain the exact service access list' }
+    $serviceAccount = New-Object -TypeName System.Security.Principal.NTAccount -ArgumentList @('NT SERVICE', $ServiceName)
+    try { $agentServiceSid = $serviceAccount.Translate([Security.Principal.SecurityIdentifier]).Value } catch { $agentServiceSid = '' }
+    $expected = @($LocalServiceSid)
+    if ($agentServiceSid) { $expected += $agentServiceSid }
+    if ($rules.Count -ne $expected.Count) { throw 'token file ACL does not contain the exact service access list' }
     $seen = @{}
     foreach ($rule in $rules) {
         $sid = Get-SidString $rule.IdentityReference
-        if ($rule.IsInherited -or $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or $sid -notin @('S-1-5-18', $LocalServiceSid)) { throw 'token file ACL grants an untrusted principal' }
+        if ($rule.IsInherited -or $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or $sid -notin $expected) { throw 'token file ACL grants an untrusted principal' }
         $seen[$sid] = $true
     }
-    if (-not $seen.ContainsKey('S-1-5-18') -or -not $seen.ContainsKey($LocalServiceSid)) { throw 'token file ACL is missing a required service principal' }
+    foreach ($sid in $expected) { if (-not $seen[$sid]) { throw 'token file ACL omits a required service identity' } }
 }
 
 function Write-PrivateBytes([string] $Path, [byte[]] $Bytes) {
@@ -776,7 +797,7 @@ function Write-PrivateBytes([string] $Path, [byte[]] $Bytes) {
     }
 }
 
-function Write-SystemToken([string] $Path, [byte[]] $Bytes) {
+function Write-ServiceToken([string] $Path, [byte[]] $Bytes) {
     $parent = Split-Path -LiteralPath $Path -Parent
     New-Item -ItemType Directory -Force -Path $parent | Out-Null
     Assert-NoReparsePath $parent
@@ -1066,7 +1087,7 @@ function Read-Token {
             Set-PrivateAcl $DataDir $true $true
             $path = Join-Path $DataDir ('.enrollment-token.' + [Guid]::NewGuid().ToString('N'))
             $encoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList @($false)
-            Write-SystemToken $path $encoding.GetBytes($token + [Environment]::NewLine)
+            Write-ServiceToken $path $encoding.GetBytes($token + [Environment]::NewLine)
             $script:TokenTemp = $path
         } finally {
             $token = $null
@@ -1121,6 +1142,10 @@ function Install-Service([bool] $IncludeToken) {
     }
     & sc.exe sidtype $ServiceName restricted *> $null
     if ($LASTEXITCODE -ne 0) { throw 'service SID configuration failed' }
+    if ($IncludeToken -and $script:TokenTemp) {
+        Add-AgentServiceSidToEnrollmentTokenAcl $script:TokenTemp
+        Assert-EnrollmentTokenAcl $script:TokenTemp
+    }
     Start-Service -Name $ServiceName
 }
 
