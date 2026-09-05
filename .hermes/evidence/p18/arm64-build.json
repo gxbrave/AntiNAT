@@ -1,0 +1,12 @@
+{
+  "schema_version": "antinat.evidence/v1",
+  "plan": "P18",
+  "commit_sha": "927cc77857a3d4753759a5a0e5ed2d398de1173a",
+  "command": "CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -buildvcs=false ./cmd/antinat-agent ./cmd/antinatctl ./internal/install",
+  "result": "SUPPORTED_WITH_LIMITS",
+  "artifact_digest": "sha256:d9ec40a4c82e79bbe14b13e53cf333ee2ae05a0a6a03a7f95e6f66567ef18595",
+  "os": "linux/amd64 cross-compiling linux/arm64",
+  "timeout": 300,
+  "summary": "Agent, CLI, and installer subset cross-build for arm64; no native arm64 runtime host was available.",
+  "evidence_paths": [".hermes/evidence/p18/linux-arm64-subset-build.log"]
+}

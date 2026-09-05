@@ -1,0 +1,12 @@
+{
+  "schema_version": "antinat.evidence/v1",
+  "plan": "P18",
+  "commit_sha": "927cc77857a3d4753759a5a0e5ed2d398de1173a",
+  "command": "GOOS=windows GOARCH=amd64 go build -buildvcs=false ./cmd/... && GOOS=windows GOARCH=amd64 go test -c -o /tmp/antinat-agent-windows.test.exe ./cmd/antinat-agent && GOOS=windows GOARCH=amd64 go test -c -o /tmp/antinat-p18-install.test.exe ./internal/install",
+  "result": "SUPPORTED_WITH_LIMITS",
+  "artifact_digest": "sha256:4a8cda5fa5dc58de1c9e5d5a3e6f72653c8c1947a3111e4f2d9754e69e205398",
+  "os": "linux/amd64 cross-compiling windows/amd64",
+  "timeout": 300,
+  "summary": "Windows commands and installer tests compile; no native Windows service lifecycle host was available.",
+  "evidence_paths": [".hermes/evidence/p18/windows-amd64-build.log"]
+}

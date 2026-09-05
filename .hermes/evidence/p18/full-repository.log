@@ -1,57 +1,51 @@
-implementation_sha=16d42de79c1412ef76848af50299097717176750
-implementation_tree_sha=783efd504d51863a01deb2cedbe11a00411a5f09
-command=GOCACHE=/tmp/antinat-p18-gocache GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./... -count=1
-
-ok  	github.com/gxbrave/AntiNAT/cmd/antinat-agent	0.018s
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-agent	0.022s
 ?   	github.com/gxbrave/AntiNAT/cmd/antinat-controller	[no test files]
 ?   	github.com/gxbrave/AntiNAT/cmd/antinat-hook-runner	[no test files]
-ok  	github.com/gxbrave/AntiNAT/cmd/antinat-probe	0.017s
-ok  	github.com/gxbrave/AntiNAT/cmd/antinatctl	1.416s
-ok  	github.com/gxbrave/AntiNAT/internal/agent	5.612s
-ok  	github.com/gxbrave/AntiNAT/internal/agent/control	3.546s
-ok  	github.com/gxbrave/AntiNAT/internal/agent/localstate	3.615s
-ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	6.410s
-ok  	github.com/gxbrave/AntiNAT/internal/buildinfo	1.877s
-ok  	github.com/gxbrave/AntiNAT/internal/config	0.005s
-ok  	github.com/gxbrave/AntiNAT/internal/controller	2.810s
-ok  	github.com/gxbrave/AntiNAT/internal/controller/agenthub	13.401s
-ok  	github.com/gxbrave/AntiNAT/internal/controller/api	7.605s
-ok  	github.com/gxbrave/AntiNAT/internal/controller/auth	2.756s
-ok  	github.com/gxbrave/AntiNAT/internal/controller/deployment	0.005s
-ok  	github.com/gxbrave/AntiNAT/internal/controller/lifecycle	1.139s
-ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	10.867s
-ok  	github.com/gxbrave/AntiNAT/internal/controller/recovery	1.422s
-ok  	github.com/gxbrave/AntiNAT/internal/controller/store	13.008s
-ok  	github.com/gxbrave/AntiNAT/internal/controller/web	0.241s
-ok  	github.com/gxbrave/AntiNAT/internal/forward	0.002s
-ok  	github.com/gxbrave/AntiNAT/internal/forward/tcp	1.143s
-ok  	github.com/gxbrave/AntiNAT/internal/forward/udp	0.065s
-ok  	github.com/gxbrave/AntiNAT/internal/hook	5.080s
-ok  	github.com/gxbrave/AntiNAT/internal/install	0.279s
-ok  	github.com/gxbrave/AntiNAT/internal/metrics	0.002s
-ok  	github.com/gxbrave/AntiNAT/internal/protocol	0.604s
-ok  	github.com/gxbrave/AntiNAT/internal/security	0.023s
-ok  	github.com/gxbrave/AntiNAT/internal/security/framecrypto	0.003s
-ok  	github.com/gxbrave/AntiNAT/internal/traversal	5.253s
-ok  	github.com/gxbrave/AntiNAT/internal/traversal/direct	0.004s
-ok  	github.com/gxbrave/AntiNAT/internal/traversal/manual	0.004s
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-probe	0.009s
+ok  	github.com/gxbrave/AntiNAT/cmd/antinatctl	1.139s
+ok  	github.com/gxbrave/AntiNAT/internal/agent	5.449s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/control	3.213s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/localstate	3.274s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	6.120s
+ok  	github.com/gxbrave/AntiNAT/internal/buildinfo	0.908s
+ok  	github.com/gxbrave/AntiNAT/internal/config	0.003s
+ok  	github.com/gxbrave/AntiNAT/internal/controller	2.574s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/agenthub	13.006s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/api	7.336s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/auth	2.829s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/deployment	0.003s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/lifecycle	0.978s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/probe	11.050s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/recovery	1.597s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/store	12.596s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/web	0.257s
+ok  	github.com/gxbrave/AntiNAT/internal/forward	0.001s
+ok  	github.com/gxbrave/AntiNAT/internal/forward/tcp	1.127s
+ok  	github.com/gxbrave/AntiNAT/internal/forward/udp	0.066s
+ok  	github.com/gxbrave/AntiNAT/internal/hook	4.454s
+ok  	github.com/gxbrave/AntiNAT/internal/install	0.212s
+ok  	github.com/gxbrave/AntiNAT/internal/metrics	0.003s
+ok  	github.com/gxbrave/AntiNAT/internal/protocol	0.595s
+ok  	github.com/gxbrave/AntiNAT/internal/security	0.043s
+ok  	github.com/gxbrave/AntiNAT/internal/security/framecrypto	0.004s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal	5.266s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/direct	0.005s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/manual	0.007s
 ok  	github.com/gxbrave/AntiNAT/internal/traversal/natpmp	0.257s
-ok  	github.com/gxbrave/AntiNAT/internal/traversal/pcp	0.258s
-ok  	github.com/gxbrave/AntiNAT/internal/traversal/stun	0.469s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/pcp	0.260s
+ok  	github.com/gxbrave/AntiNAT/internal/traversal/stun	0.473s
 ok  	github.com/gxbrave/AntiNAT/internal/traversal/upnp	0.312s
 ?   	github.com/gxbrave/AntiNAT/migrations	[no test files]
 ok  	github.com/gxbrave/AntiNAT/scripts	0.004s
-ok  	github.com/gxbrave/AntiNAT/spike/datapath	0.029s
-ok  	github.com/gxbrave/AntiNAT/spike/network	0.065s
-ok  	github.com/gxbrave/AntiNAT/spike/sandbox	2.231s
-ok  	github.com/gxbrave/AntiNAT/spike/sqlite	1.434s
-ok  	github.com/gxbrave/AntiNAT/spike/state	1.865s
-ok  	github.com/gxbrave/AntiNAT/spike/windows-identity	0.116s
+ok  	github.com/gxbrave/AntiNAT/spike/datapath	0.036s
+ok  	github.com/gxbrave/AntiNAT/spike/network	0.070s
+ok  	github.com/gxbrave/AntiNAT/spike/sandbox	2.176s
+ok  	github.com/gxbrave/AntiNAT/spike/sqlite	1.517s
+ok  	github.com/gxbrave/AntiNAT/spike/state	1.837s
+ok  	github.com/gxbrave/AntiNAT/spike/windows-identity	0.117s
 ?   	github.com/gxbrave/AntiNAT/test/browser/seed	[no test files]
-ok  	github.com/gxbrave/AntiNAT/test/contracts	0.422s
-ok  	github.com/gxbrave/AntiNAT/test/e2e	1.460s
+ok  	github.com/gxbrave/AntiNAT/test/contracts	0.433s
+ok  	github.com/gxbrave/AntiNAT/test/e2e	1.462s
 ok  	github.com/gxbrave/AntiNAT/test/e2e/harness	0.155s
-ok  	github.com/gxbrave/AntiNAT/test/integration	0.072s
+ok  	github.com/gxbrave/AntiNAT/test/integration	0.057s
 ?   	github.com/gxbrave/AntiNAT/web	[no test files]
-
-exit_code=0
