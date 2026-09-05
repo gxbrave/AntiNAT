@@ -6,17 +6,18 @@
   "branch": "ai/P19-beta-release",
   "base_sha": "622f98b8e3958a14094c1fad5cd775f3c93ccdb1",
   "base_tree_sha": "709fed91d7cf2e9326f11c14df28441185fb6d7e",
-  "head_sha": "389a05a824c12d695bd71ef0eaeb3656884c2419",
-  "head_tree_sha": "dc22956c3d8a3ac84862266355523ed02e7bbb7c",
-  "canonical_head_sha": "389a05a824c12d695bd71ef0eaeb3656884c2419",
-  "canonical_head_tree_sha": "dc22956c3d8a3ac84862266355523ed02e7bbb7c",
-  "candidate_record_tip_sha": "389a05a824c12d695bd71ef0eaeb3656884c2419",
-  "candidate_record_tip_tree_sha": "dc22956c3d8a3ac84862266355523ed02e7bbb7c",
+  "head_sha": "0a682ef3c266e687dc9254b822af338edd3931ae",
+  "head_tree_sha": "77869f551814b3ef43458eb30e23529aca6115dd",
+  "canonical_head_sha": "0a682ef3c266e687dc9254b822af338edd3931ae",
+  "canonical_head_tree_sha": "77869f551814b3ef43458eb30e23529aca6115dd",
+  "candidate_record_tip_sha": "0a682ef3c266e687dc9254b822af338edd3931ae",
+  "candidate_record_tip_tree_sha": "77869f551814b3ef43458eb30e23529aca6115dd",
   "record_pointer_convention": "head_sha identifies the clean pre-handoff candidate tip used for the one-time build. The commit that adds this P19.json record is a pointer-only record commit and is excluded from the candidate source identity.",
   "commits": [
     "d70b8e86c418a01d149e288dab4df244d288ce53",
     "1354fc09e37b79f45fb9d427d91382b292860580",
-    "389a05a824c12d695bd71ef0eaeb3656884c2419"
+    "389a05a824c12d695bd71ef0eaeb3656884c2419",
+    "0a682ef3c266e687dc9254b822af338edd3931ae"
   ],
   "files_changed_count": 17,
   "files_changed": [
@@ -75,12 +76,12 @@
       "summary": "Isolated Linux installer install, upgrade, rollback, role, and purge suite passes."
     },
     {
-      "command": "PATH=/tmp/antinat-p19-tools:$PATH GOWORK=off bash scripts/run-beta-gates.sh --version v1.0.0-beta.1 --artifacts /tmp/antinat-p19-refresh.CWqxNa/dist --evidence /tmp/antinat-p19-refresh.CWqxNa/evidence",
+      "command": "PATH=/tmp/antinat-p19-tools:$PATH GOWORK=off bash scripts/run-beta-gates.sh --version v1.0.0-beta.1 --artifacts /tmp/antinat-p19-final.2x4pYC/dist --evidence /tmp/antinat-p19-final.2x4pYC/evidence",
       "exit_code": 0,
       "summary": "Go 1.26.6 candidate built once; exact local build, browser, vulnerability, functional, installer, security, race, vet, and evidence gates pass; unavailable external gates remain SUPPORTED_WITH_LIMITS."
     },
     {
-      "command": "PATH=/tmp/antinat-p19-tools:$PATH GOTOOLCHAIN=go1.26.6+auto GOWORK=off go run ./scripts/verify-release-evidence.go /tmp/antinat-p19-refresh.CWqxNa/evidence",
+      "command": "GOTOOLCHAIN=go1.26.6+auto GOWORK=off go run ./scripts/verify-release-evidence.go /tmp/antinat-p19-final.2x4pYC/evidence",
       "exit_code": 0,
       "summary": "Primary evidence bundle validates against the exact unsigned manifest."
     },
@@ -99,13 +100,13 @@
     "release": "v1.0.0-beta.1",
     "status": "SUPPORTED_WITH_LIMITS",
     "promotion": "NO_GO",
-    "artifact_directory": "/tmp/antinat-p19-refresh.CWqxNa/dist/release",
-    "evidence_directory": "/tmp/antinat-p19-refresh.CWqxNa/evidence",
-    "manifest_sha256": "sha256:743ffd208d91ad32af4c519d3e81d5714ee700fe5434ff3aa53066e31564b29c",
-    "evidence_bundle_sha256": "sha256:6e9d2482ff1d1e3df20d9e354bde3f8e8915a3019b5ecccc3b2755b68d9d1c19",
+    "artifact_directory": "/tmp/antinat-p19-final.2x4pYC/dist/release",
+    "evidence_directory": "/tmp/antinat-p19-final.2x4pYC/evidence",
+    "manifest_sha256": "sha256:97c940ebeeb804f7dd938da59fbab4b2cf2d641dc6a606e5bf57dc026dc22bb2",
+    "evidence_bundle_sha256": "sha256:78d3c088e4a60b63746e2a3881aba45bebe3c815ad9b27b89cb123121e4fb90d",
     "evidence_digest_method": "SHA-256 of sorted sha256sum lines for every regular file in the evidence directory.",
-    "release_record_sha256": "sha256:3bc604db5b39a6b915ba3620ad04a31a4f4da17057e805011d4eb0f501c5e167",
-    "final_verifier_log_sha256": "sha256:b19970c0e88337ea9bb82b4c8472991c59d25439151d182a8a88bf4d9b8494f9",
+    "release_record_sha256": "sha256:c6461add4cec8b56d29b93ae275076632a9d5e25e9fa41a70bebbccdc56a68c7",
+    "final_verifier_log_sha256": "sha256:b4dd9f710d31c1dd428b39fe321f5de392583da9c4c33af6ba8500a1603ab564",
     "signature_status": "SKIPPED",
     "sbom_status": "SUPPORTED_WITH_LIMITS",
     "artifact_count": 15,
@@ -129,25 +130,25 @@
       {"id":"release-evidence","result":"PASS","required":true,"exit_code":0}
     ],
     "evidence": [
-      "/tmp/antinat-p19-refresh.CWqxNa/dist/release/manifest.json",
-      "/tmp/antinat-p19-refresh.CWqxNa/evidence/release.json",
-      "/tmp/antinat-p19-refresh.CWqxNa/evidence/exact-build.log",
-      "/tmp/antinat-p19-refresh.CWqxNa/evidence/sbom.log",
-      "/tmp/antinat-p19-refresh.CWqxNa/evidence/artifact-integrity.log",
-      "/tmp/antinat-p19-refresh.CWqxNa/evidence/signature.log",
-      "/tmp/antinat-p19-refresh.CWqxNa/evidence/exact-artifact-metadata.log",
-      "/tmp/antinat-p19-refresh.CWqxNa/evidence/unit-tests.log",
-      "/tmp/antinat-p19-refresh.CWqxNa/evidence/race-tests.log",
-      "/tmp/antinat-p19-refresh.CWqxNa/evidence/vet.log",
-      "/tmp/antinat-p19-refresh.CWqxNa/evidence/functional-e2e.log",
-      "/tmp/antinat-p19-refresh.CWqxNa/evidence/install-upgrade-purge.log",
-      "/tmp/antinat-p19-refresh.CWqxNa/evidence/browser-e2e.log",
-      "/tmp/antinat-p19-refresh.CWqxNa/evidence/security.log",
-      "/tmp/antinat-p19-refresh.CWqxNa/evidence/govulncheck.log",
-      "/tmp/antinat-p19-refresh.CWqxNa/evidence/real-wan.log",
-      "/tmp/antinat-p19-refresh.CWqxNa/evidence/platform-matrix.log",
-      "/tmp/antinat-p19-refresh.CWqxNa/evidence/soak.log",
-      "/tmp/antinat-p19-refresh.CWqxNa/evidence/release-evidence.log"
+      "/tmp/antinat-p19-final.2x4pYC/dist/release/manifest.json",
+      "/tmp/antinat-p19-final.2x4pYC/evidence/release.json",
+      "/tmp/antinat-p19-final.2x4pYC/evidence/exact-build.log",
+      "/tmp/antinat-p19-final.2x4pYC/evidence/sbom.log",
+      "/tmp/antinat-p19-final.2x4pYC/evidence/artifact-integrity.log",
+      "/tmp/antinat-p19-final.2x4pYC/evidence/signature.log",
+      "/tmp/antinat-p19-final.2x4pYC/evidence/exact-artifact-metadata.log",
+      "/tmp/antinat-p19-final.2x4pYC/evidence/unit-tests.log",
+      "/tmp/antinat-p19-final.2x4pYC/evidence/race-tests.log",
+      "/tmp/antinat-p19-final.2x4pYC/evidence/vet.log",
+      "/tmp/antinat-p19-final.2x4pYC/evidence/functional-e2e.log",
+      "/tmp/antinat-p19-final.2x4pYC/evidence/install-upgrade-purge.log",
+      "/tmp/antinat-p19-final.2x4pYC/evidence/browser-e2e.log",
+      "/tmp/antinat-p19-final.2x4pYC/evidence/security.log",
+      "/tmp/antinat-p19-final.2x4pYC/evidence/govulncheck.log",
+      "/tmp/antinat-p19-final.2x4pYC/evidence/real-wan.log",
+      "/tmp/antinat-p19-final.2x4pYC/evidence/platform-matrix.log",
+      "/tmp/antinat-p19-final.2x4pYC/evidence/soak.log",
+      "/tmp/antinat-p19-final.2x4pYC/evidence/release-evidence.log"
     ]
   },
   "signed_test_candidate": {
@@ -191,7 +192,7 @@
   "ownership_transfers": [
     {
       "files": ["scripts/run-beta-gates.sh", "scripts/verify-release-evidence.go", "scripts/verify_release_evidence_test.go", "test/release/release_test.go", ".github/workflows/release.yml"],
-      "reason": "P19 exact-artifact candidate build, gate orchestration, release evidence verification, and protected promotion workflow.",
+      "reason": "P19 exact-artifact candidate build, gate orchestration, release evidence verification, path-boundary hardening, and protected promotion workflow.",
       "boundary": "No internal production package or frozen API/protocol contract was changed."
     },
     {
@@ -209,7 +210,7 @@
   "review_status": "REVIEW_REQUIRED",
   "self_approval": false,
   "cleanup_done": true,
-  "cleanup_notes": "The diagnostic duplicate runner was stopped. The refreshed unsigned primary bundle and non-sensitive public test key/evidence are intentionally retained at the recorded paths; the temporary private test key is removed after signing-path verification. Browser temporary state was cleaned after the PASS run; scanner tooling remains outside the repository.",
+  "cleanup_notes": "The diagnostic duplicate runner was stopped. The final unsigned primary bundle and non-sensitive public test key/evidence are intentionally retained at the recorded paths; the temporary private test key is removed after signing-path verification. Browser temporary state was cleaned after the PASS run; scanner tooling remains outside the repository.",
   "release_performed": false,
   "tag_created": false,
   "remote_push": "NONE",
