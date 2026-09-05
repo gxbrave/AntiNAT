@@ -1,0 +1,210 @@
+{
+  "plan": "P19",
+  "schema_version": "antinat.handoff/v1",
+  "name": "v1.0-beta integration, exact artifact evidence, and release candidate",
+  "stage": "CANDIDATE",
+  "branch": "ai/P19-beta-release",
+  "base_sha": "622f98b8e3958a14094c1fad5cd775f3c93ccdb1",
+  "base_tree_sha": "709fed91d7cf2e9326f11c14df28441185fb6d7e",
+  "head_sha": "1354fc09e37b79f45fb9d427d91382b292860580",
+  "head_tree_sha": "ab1b0afdf0f124deab97a6f511a778ddcedddeb8",
+  "canonical_head_sha": "1354fc09e37b79f45fb9d427d91382b292860580",
+  "canonical_head_tree_sha": "ab1b0afdf0f124deab97a6f511a778ddcedddeb8",
+  "candidate_record_tip_sha": "1354fc09e37b79f45fb9d427d91382b292860580",
+  "candidate_record_tip_tree_sha": "ab1b0afdf0f124deab97a6f511a778ddcedddeb8",
+  "record_pointer_convention": "head_sha identifies the clean pre-handoff candidate tip used for the one-time build. The commit that adds this P19.json record is a pointer-only record commit and is excluded from the candidate source identity.",
+  "commits": [
+    "d70b8e86c418a01d149e288dab4df244d288ce53",
+    "1354fc09e37b79f45fb9d427d91382b292860580"
+  ],
+  "files_changed_count": 14,
+  "files_changed": [
+    ".github/workflows/ci.yml",
+    ".github/workflows/release.yml",
+    "CHANGELOG.md",
+    "Makefile",
+    "README.md",
+    "docs/beta-release-checklist.md",
+    "docs/nat-support.md",
+    "docs/release-policy.md",
+    "docs/support-matrix.md",
+    "scripts/run-beta-gates.sh",
+    "scripts/verify-evidence.go",
+    "scripts/verify-release-evidence.go",
+    "scripts/verify_release_evidence_test.go",
+    "test/release/release_test.go"
+  ],
+  "tests": [
+    {
+      "command": "go test ./scripts ./test/release -count=1",
+      "exit_code": 0,
+      "summary": "Release verifier, workflow boundary, and exact-artifact tests pass."
+    },
+    {
+      "command": "GOWORK=off go test -p 1 ./... -count=1",
+      "exit_code": 0,
+      "summary": "Full repository unit suite passes with the dedicated sandbox identity and test umask."
+    },
+    {
+      "command": "GOWORK=off go test -p 1 -race ./... -count=1",
+      "exit_code": 0,
+      "summary": "Full repository race suite passes without a reported data race."
+    },
+    {
+      "command": "GOWORK=off go vet ./...",
+      "exit_code": 0,
+      "summary": "Full repository vet gate passes."
+    },
+    {
+      "command": "bash -n scripts/run-beta-gates.sh && git diff --check",
+      "exit_code": 0,
+      "summary": "Runner shell syntax and whitespace checks pass."
+    },
+    {
+      "command": "GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./test/e2e -count=1 -v",
+      "exit_code": 0,
+      "summary": "Local TCP/UDP and lifecycle walking-skeleton E2E passes."
+    },
+    {
+      "command": "bash -c 'umask 022; bash scripts/test-installers.sh'",
+      "exit_code": 0,
+      "summary": "Isolated Linux installer install, upgrade, rollback, role, and purge suite passes."
+    },
+    {
+      "command": "GOWORK=off bash scripts/run-beta-gates.sh --version v1.0.0-beta.1 --artifacts /tmp/antinat-p19-run.DnLrUj/dist --evidence /tmp/antinat-p19-run.DnLrUj/evidence",
+      "exit_code": 0,
+      "summary": "Unsigned primary candidate built once and all executable local gates completed; unavailable external gates were recorded as SUPPORTED_WITH_LIMITS."
+    },
+    {
+      "command": "GOWORK=off go run ./scripts/verify-release-evidence.go /tmp/antinat-p19-run.DnLrUj/evidence",
+      "exit_code": 0,
+      "summary": "Primary evidence bundle validates against the exact unsigned manifest."
+    },
+    {
+      "command": "ANTINAT_RELEASE_SIGNING_KEY=/tmp/antinat-p19-signed.UiNHAn/release.key ANTINAT_TRUST_ROOT_FILE=/tmp/antinat-p19-signed.UiNHAn/release.pub GOWORK=off bash scripts/run-beta-gates.sh --version v1.0.0-beta.1 --artifacts /tmp/antinat-p19-signed.UiNHAn/dist --evidence /tmp/antinat-p19-signed.UiNHAn/evidence",
+      "exit_code": 0,
+      "summary": "A separate candidate run exercised detached Ed25519 signing with a temporary test key; it is not production signing evidence."
+    },
+    {
+      "command": "ANTINAT_TEST_MODE=1 GOWORK=off go run ./scripts/verify-release-evidence.go --public-key /tmp/antinat-p19-signed.UiNHAn/release.pub --allow-test-root /tmp/antinat-p19-signed.UiNHAn/evidence",
+      "exit_code": 0,
+      "summary": "The test-root signed candidate verifies successfully; promotion remains blocked by missing approval and limited required gates."
+    }
+  ],
+  "candidate": {
+    "release": "v1.0.0-beta.1",
+    "status": "SUPPORTED_WITH_LIMITS",
+    "promotion": "NO_GO",
+    "artifact_directory": "/tmp/antinat-p19-run.DnLrUj/dist/release",
+    "evidence_directory": "/tmp/antinat-p19-run.DnLrUj/evidence",
+    "manifest_sha256": "sha256:b40ec94f93601aa223c84b32d373fc83e1cb1fa27cd338288dee2ce72689a338",
+    "evidence_bundle_sha256": "sha256:5a3d597bec9bac905b2d917e936b2d84397a7f744ab42fd1ccf802e87a6e53b7",
+    "evidence_digest_method": "SHA-256 of sorted sha256sum lines for every regular file in the evidence directory.",
+    "release_record_sha256": "sha256:5dd1e57a2468b688d0441a61ea29f3298630a4ffcee78fe9a8c10e375d9689b6",
+    "final_verifier_log_sha256": "sha256:c0630e55b17023230a3ddaa2ab73895d67a7bef482bec659b4a5c33e26f5ff87",
+    "signature_status": "SKIPPED",
+    "sbom_status": "SUPPORTED_WITH_LIMITS",
+    "artifact_count": 15,
+    "gate_results": [
+      {"id":"exact-build","result":"PASS","required":true,"exit_code":0},
+      {"id":"sbom","result":"PASS","required":true,"exit_code":0},
+      {"id":"artifact-integrity","result":"PASS","required":true,"exit_code":0},
+      {"id":"signature","result":"SUPPORTED_WITH_LIMITS","required":true,"exit_code":0},
+      {"id":"exact-artifact-metadata","result":"PASS","required":true,"exit_code":0},
+      {"id":"unit-tests","result":"PASS","required":true,"exit_code":0},
+      {"id":"race-tests","result":"PASS","required":true,"exit_code":0},
+      {"id":"vet","result":"PASS","required":true,"exit_code":0},
+      {"id":"functional-e2e","result":"PASS","required":true,"exit_code":0},
+      {"id":"install-upgrade-purge","result":"PASS","required":true,"exit_code":0},
+      {"id":"browser-e2e","result":"SUPPORTED_WITH_LIMITS","required":true,"exit_code":0},
+      {"id":"security","result":"PASS","required":true,"exit_code":0},
+      {"id":"govulncheck","result":"SUPPORTED_WITH_LIMITS","required":true,"exit_code":0},
+      {"id":"real-wan","result":"SUPPORTED_WITH_LIMITS","required":true,"exit_code":0},
+      {"id":"platform-matrix","result":"SUPPORTED_WITH_LIMITS","required":true,"exit_code":0},
+      {"id":"soak","result":"SUPPORTED_WITH_LIMITS","required":true,"exit_code":0},
+      {"id":"release-evidence","result":"PASS","required":true,"exit_code":0}
+    ],
+    "evidence": [
+      "/tmp/antinat-p19-run.DnLrUj/dist/release/manifest.json",
+      "/tmp/antinat-p19-run.DnLrUj/evidence/release.json",
+      "/tmp/antinat-p19-run.DnLrUj/evidence/exact-build.log",
+      "/tmp/antinat-p19-run.DnLrUj/evidence/sbom.log",
+      "/tmp/antinat-p19-run.DnLrUj/evidence/artifact-integrity.log",
+      "/tmp/antinat-p19-run.DnLrUj/evidence/signature.log",
+      "/tmp/antinat-p19-run.DnLrUj/evidence/exact-artifact-metadata.log",
+      "/tmp/antinat-p19-run.DnLrUj/evidence/unit-tests.log",
+      "/tmp/antinat-p19-run.DnLrUj/evidence/race-tests.log",
+      "/tmp/antinat-p19-run.DnLrUj/evidence/vet.log",
+      "/tmp/antinat-p19-run.DnLrUj/evidence/functional-e2e.log",
+      "/tmp/antinat-p19-run.DnLrUj/evidence/install-upgrade-purge.log",
+      "/tmp/antinat-p19-run.DnLrUj/evidence/browser-e2e.log",
+      "/tmp/antinat-p19-run.DnLrUj/evidence/security.log",
+      "/tmp/antinat-p19-run.DnLrUj/evidence/govulncheck.log",
+      "/tmp/antinat-p19-run.DnLrUj/evidence/real-wan.log",
+      "/tmp/antinat-p19-run.DnLrUj/evidence/platform-matrix.log",
+      "/tmp/antinat-p19-run.DnLrUj/evidence/soak.log",
+      "/tmp/antinat-p19-run.DnLrUj/evidence/release-evidence.log"
+    ]
+  },
+  "signed_test_candidate": {
+    "artifact_directory": "/tmp/antinat-p19-signed.UiNHAn/dist/release",
+    "evidence_directory": "/tmp/antinat-p19-signed.UiNHAn/evidence",
+    "manifest_sha256": "sha256:e78457355ecd8308d1468440c0b33e86eab3699168e1ba6bfa9ed2104b7126a2",
+    "evidence_bundle_sha256": "sha256:4ced4f4a769beefc243e36ebc2fded4bb005c67d1665ae06104112880332662d",
+    "release_record_sha256": "sha256:a8dad8316fef3b9cdc4a364ca04a4bdb91457939bd82cca1f0cc11943f90d58a",
+    "final_verifier_log_sha256": "sha256:d27b4e8c18393c0c0bec25a89d90bd952f9420c9f538d73ed334c35721972ba2",
+    "signature_status": "PASS",
+    "trust_root": "release-key-2026",
+    "public_key": "/tmp/antinat-p19-signed.UiNHAn/release.pub",
+    "production_release": false,
+    "approval": false
+  },
+  "contracts_consumed": [
+    {"path":".hermes/handoffs/P18-integrated.json","sha256":"4682b0f13b4111c9e0dec21b5be884701e50e1a33ec22064656dc4e29dde6534"},
+    {"path":"docs/v1-scope-contract.md","sha256":"e016cfd0bb0e1395eb23dccf60bc283217139a81db56bf9c1f87ef5f3afe9eaf"},
+    {"path":"docs/installer-contract.md","sha256":"c7f83ea2fedcf9b1c393dae290ff1168bcd9f495d064a2ea74d386f3d38c630a"},
+    {"path":"deploy/trust/release-ed25519.pub","sha256":"7c250ef2c4b3ece394f1d22f106742152116ef192a89bda1f1deaef9073112f3"}
+  ],
+  "contracts_changed": [],
+  "contract_revision_approval": "NONE",
+  "capability_result": "SUPPORTED_WITH_LIMITS",
+  "known_limits": [
+    "The primary candidate is unsigned because no production release signing key was available; no independent release approver was available.",
+    "The signed candidate used a temporary test Ed25519 key only to exercise the verifier path; it is not production trust evidence and is not promotable.",
+    "Playwright dependencies were unavailable, so browser-e2e is SUPPORTED_WITH_LIMITS rather than PASS.",
+    "govulncheck was unavailable; the fallback Go module SBOM is retained, but vulnerability scanning is not claimed as PASS.",
+    "No independent public-WAN controller/probe vantage, real CPE/router matrix, native Windows runtime, native arm64/OpenRC host, registry OCI digest, or 24-hour soak was provisioned.",
+    "Local loopback, cross-build, isolated test-root installer, and local OCI evidence retain their actual evidence levels and do not promote runtime support.",
+    "The candidate bundles are external generated evidence at the recorded /tmp paths; no release binaries or generated logs were added to the source tree."
+  ],
+  "red_reasons": {
+    "story_1": "RED: the integrated tree had no P19 exact-artifact release record or verifier bound to a single manifest digest.",
+    "story_2": "RED: the integrated tree had no one-time Linux/Windows candidate build, checksum set, SBOM, or detached release signature path.",
+    "story_3": "RED: the integrated tree had no release runner recording functional, security, installer, platform, WAN, or soak gate evidence.",
+    "story_4": "RED: external WAN, native platform, registry, vulnerability, browser, and soak infrastructure was unavailable and remains explicitly limited.",
+    "story_5": "RED: release evidence did not yet have structural path, artifact-digest, gate-evidence, or promotion verification tests.",
+    "story_6": "RED: no immutable promotion workflow existed that downloads and signs an already-built candidate without rebuilding it.",
+    "story_7": "RED: README/support status still described P19 as unstarted and did not reflect the integrated P18 evidence limits."
+  },
+  "ownership_transfers": [
+    {
+      "files": ["scripts/run-beta-gates.sh", "scripts/verify-release-evidence.go", "scripts/verify_release_evidence_test.go", "test/release/release_test.go", ".github/workflows/release.yml"],
+      "reason": "P19 exact-artifact candidate build, gate orchestration, release evidence verification, and protected promotion workflow.",
+      "boundary": "No internal production package or frozen API/protocol contract was changed."
+    },
+    {
+      "files": ["docs/beta-release-checklist.md", "docs/nat-support.md", "docs/release-policy.md", "CHANGELOG.md", "README.md", "docs/support-matrix.md"],
+      "reason": "P19 release, NAT support, rollback, promotion, and evidence status documentation.",
+      "boundary": "Claims remain limited to the recorded P18/P19 evidence; no GA SLO or global reachability claim was added."
+    }
+  ],
+  "review_ready": true,
+  "review_status": "REVIEW_REQUIRED",
+  "self_approval": false,
+  "cleanup_done": true,
+  "cleanup_notes": "The diagnostic duplicate runner was stopped. The unsigned primary bundle and non-sensitive public test key/evidence are intentionally retained at the recorded paths; the temporary private test key is removed after signing-path verification.",
+  "release_performed": false,
+  "tag_created": false,
+  "remote_push": "NONE",
+  "merge_push_release": "NOT_PERFORMED"
+}
