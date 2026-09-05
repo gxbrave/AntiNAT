@@ -1,6 +1,6 @@
-implementation_sha=8749a34384fd3a861477f911279ed59965676dca
-implementation_tree_sha=564e5027e2378a7ccbf1a7863dde2394720e2eb2
-command=capsh --drop=cap_net_admin -- -c direct-v4 E2E
+implementation_sha=16d42de79c1412ef76848af50299097717176750
+implementation_tree_sha=783efd504d51863a01deb2cedbe11a00411a5f09
+command=capsh --drop=cap_net_admin -- -c "GOCACHE=/tmp/antinat-p18-gocache GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./test/e2e -run '^TestLinuxDirectV4WalkingSkeleton$' -count=1 -v"
 
 === RUN   TestLinuxDirectV4WalkingSkeleton
     walking_skeleton_test.go:31: add loopback alias 8.8.8.8/32: exit status 2 (RTNETLINK answers: Operation not permitted

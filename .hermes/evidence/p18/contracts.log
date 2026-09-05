@@ -1,5 +1,5 @@
-implementation_sha=8749a34384fd3a861477f911279ed59965676dca
-implementation_tree_sha=564e5027e2378a7ccbf1a7863dde2394720e2eb2
+implementation_sha=16d42de79c1412ef76848af50299097717176750
+implementation_tree_sha=783efd504d51863a01deb2cedbe11a00411a5f09
 command=GOCACHE=/tmp/antinat-p18-gocache GOWORK=off go test ./test/contracts -count=1 -v
 
 === RUN   TestControlEnvelopeGoldenVectors
@@ -43,7 +43,7 @@ command=GOCACHE=/tmp/antinat-p18-gocache GOWORK=off go test ./test/contracts -co
     --- PASS: TestControlEnvelopeGoldenVectors/signature-tampered-header.json (0.00s)
     --- PASS: TestControlEnvelopeGoldenVectors/signature-wrong-key.json (0.00s)
 === RUN   TestControlEnvelopeBitFlipFailsBeforePayloadDecode
---- PASS: TestControlEnvelopeBitFlipFailsBeforePayloadDecode (1.11s)
+--- PASS: TestControlEnvelopeBitFlipFailsBeforePayloadDecode (0.16s)
 === RUN   TestControlEnvelopeRejectsAmbiguousJSON
 === RUN   TestControlEnvelopeRejectsAmbiguousJSON/duplicate-key
 === RUN   TestControlEnvelopeRejectsAmbiguousJSON/trailing-garbage
@@ -70,20 +70,20 @@ command=GOCACHE=/tmp/antinat-p18-gocache GOWORK=off go test ./test/contracts -co
 === RUN   TestEnrollmentGoldenVectors/result-valid.json
 === RUN   TestEnrollmentGoldenVectors/result-wrong-key.json
 === RUN   TestEnrollmentGoldenVectors/result-zero-credential-version.json
---- PASS: TestEnrollmentGoldenVectors (0.01s)
+--- PASS: TestEnrollmentGoldenVectors (0.00s)
     --- PASS: TestEnrollmentGoldenVectors/challenge-truncated.json (0.00s)
     --- PASS: TestEnrollmentGoldenVectors/challenge-unsupported-version.json (0.00s)
     --- PASS: TestEnrollmentGoldenVectors/challenge-valid.json (0.00s)
     --- PASS: TestEnrollmentGoldenVectors/challenge-wrong-key.json (0.00s)
     --- PASS: TestEnrollmentGoldenVectors/request-empty-token.json (0.00s)
-    --- PASS: TestEnrollmentGoldenVectors/request-valid.json (0.01s)
+    --- PASS: TestEnrollmentGoldenVectors/request-valid.json (0.00s)
     --- PASS: TestEnrollmentGoldenVectors/request-wrong-challenge-hash.json (0.00s)
     --- PASS: TestEnrollmentGoldenVectors/request-wrong-key.json (0.00s)
     --- PASS: TestEnrollmentGoldenVectors/result-valid.json (0.00s)
     --- PASS: TestEnrollmentGoldenVectors/result-wrong-key.json (0.00s)
     --- PASS: TestEnrollmentGoldenVectors/result-zero-credential-version.json (0.00s)
 === RUN   TestEnrollmentBitFlipFailsBeforeSemanticUse
---- PASS: TestEnrollmentBitFlipFailsBeforeSemanticUse (0.66s)
+--- PASS: TestEnrollmentBitFlipFailsBeforeSemanticUse (0.11s)
 === RUN   TestInstallerContractGoldenVectors
 === RUN   TestInstallerContractGoldenVectors/artifact-manifest-bad-hash-invalid.json
 === RUN   TestInstallerContractGoldenVectors/artifact-manifest-no-signature-invalid.json
@@ -148,7 +148,7 @@ command=GOCACHE=/tmp/antinat-p18-gocache GOWORK=off go test ./test/contracts -co
 --- PASS: TestContractManifest (0.00s)
 === RUN   TestOpenAPIAndErrorCodeCoverage
     openapi_test.go:39: OK: openapi.yaml valid; 33 paths; 13 error statuses referenced; 13 registered.
---- PASS: TestOpenAPIAndErrorCodeCoverage (0.41s)
+--- PASS: TestOpenAPIAndErrorCodeCoverage (0.07s)
 === RUN   TestProbeGoldenVectors
 === RUN   TestProbeGoldenVectors/ack-valid.json
 === RUN   TestProbeGoldenVectors/ack-wrong-key.json
@@ -181,7 +181,7 @@ command=GOCACHE=/tmp/antinat-p18-gocache GOWORK=off go test ./test/contracts -co
 === RUN   TestProbeGoldenVectors/wan1-valid-tcp.json
 === RUN   TestProbeGoldenVectors/wan1-valid-udp.json
 === RUN   TestProbeGoldenVectors/wan1-wrong-key.json
---- PASS: TestProbeGoldenVectors (0.01s)
+--- PASS: TestProbeGoldenVectors (0.00s)
     --- PASS: TestProbeGoldenVectors/ack-valid.json (0.00s)
     --- PASS: TestProbeGoldenVectors/ack-wrong-key.json (0.00s)
     --- PASS: TestProbeGoldenVectors/arm-bad-magic.json (0.00s)
@@ -296,6 +296,6 @@ command=GOCACHE=/tmp/antinat-p18-gocache GOWORK=off go test ./test/contracts -co
     --- PASS: TestStateModelGoldenVectors/snapshot-invalid-missing-axis.json (0.00s)
     --- PASS: TestStateModelGoldenVectors/snapshot-valid-all-axes.json (0.00s)
 PASS
-ok  	github.com/gxbrave/AntiNAT/test/contracts	2.214s
+ok  	github.com/gxbrave/AntiNAT/test/contracts	0.358s
 
 exit_code=0

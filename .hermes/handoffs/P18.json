@@ -6,20 +6,28 @@
   "branch": "ai/P18-installers-platforms",
   "base_sha": "28aeaab5bb9c788da9c0068b8314b4f48c5a423d",
   "base_tree_sha": "0e65ed6cc4ac2fccb37d54c5615a14bea38e7915",
-  "head_sha": "8749a34384fd3a861477f911279ed59965676dca",
-  "head_tree_sha": "564e5027e2378a7ccbf1a7863dde2394720e2eb2",
-  "candidate_record_tip_sha": "8749a34384fd3a861477f911279ed59965676dca",
-  "candidate_record_tip_tree_sha": "564e5027e2378a7ccbf1a7863dde2394720e2eb2",
-  "canonical_head_sha": "8749a34384fd3a861477f911279ed59965676dca",
-  "canonical_head_tree_sha": "564e5027e2378a7ccbf1a7863dde2394720e2eb2",
-  "implementation_head_sha": "8749a34384fd3a861477f911279ed59965676dca",
-  "implementation_head_tree_sha": "564e5027e2378a7ccbf1a7863dde2394720e2eb2",
+  "head_sha": "16d42de79c1412ef76848af50299097717176750",
+  "head_tree_sha": "783efd504d51863a01deb2cedbe11a00411a5f09",
+  "candidate_record_tip_sha": "16d42de79c1412ef76848af50299097717176750",
+  "candidate_record_tip_tree_sha": "783efd504d51863a01deb2cedbe11a00411a5f09",
+  "canonical_head_sha": "16d42de79c1412ef76848af50299097717176750",
+  "canonical_head_tree_sha": "783efd504d51863a01deb2cedbe11a00411a5f09",
+  "implementation_head_sha": "16d42de79c1412ef76848af50299097717176750",
+  "implementation_head_tree_sha": "783efd504d51863a01deb2cedbe11a00411a5f09",
   "commits": [
-    "8749a34384fd3a861477f911279ed59965676dca",
+    "e7a6dff0717c67b0553ffdea2df0a0b1a8d4dc50",
+    "f8dce1c627ba37cd08125f12ee956fd064038215",
     "fdb449c209e23b3bd7861cf1295ad55e20750128",
-    "e7a6dff0717c67b0553ffdea2df0a0b1a8d4dc50"
+    "8749a34384fd3a861477f911279ed59965676dca",
+    "0df641b47c528eb606603f5dc34140459745d129",
+    "4ee3aece72ba60946a20de62bfd6c57f147bba69",
+    "7c311ab17d5633961c157196b567866f65cc07f7",
+    "7b58b64e66499a5127d65c664f865d9e38a07a1d",
+    "d90e140ab3b31d8b11256041c1cb7d58ed8d0904",
+    "38cac5645daed694a30607dc569eb57aa2d947b5",
+    "16d42de79c1412ef76848af50299097717176750"
   ],
-  "files_changed_count": 64,
+  "files_changed_count": 86,
   "files_changed": [
     ".github/workflows/platform.yml",
     ".hermes/evidence/p18/SHA256SUMS",
@@ -49,10 +57,13 @@
     ".hermes/evidence/p18/shell-syntax.log",
     ".hermes/evidence/p18/windows-amd64-build.log",
     ".hermes/evidence/p18/windows-install-test-compile.log",
+    ".hermes/handoffs/P18-contract-change.md",
     ".hermes/handoffs/P18.json",
     "Dockerfile",
     "Dockerfile.agent",
     "Dockerfile.controller",
+    "api/openapi.yaml",
+    "cmd/antinatctl/cli_test.go",
     "deploy/openrc/antinat-agent",
     "deploy/openrc/antinat-controller",
     "deploy/ownership-allowlist.txt",
@@ -66,11 +77,24 @@
     "docker/stage-enrollment.sh",
     "docker/test-stage-enrollment.sh",
     "docker/verify-oci-contract.sh",
+    "internal/controller/api/api_test.go",
+    "internal/controller/api/auth.go",
+    "internal/controller/api/hooks_test.go",
+    "internal/controller/api/nodes_min.go",
+    "internal/controller/api/p15_repair1_h3_helpers_test.go",
+    "internal/controller/api/p15_repair1_h8_helpers_test.go",
+    "internal/controller/api/router_test.go",
+    "internal/controller/app.go",
+    "internal/controller/deployment/command.go",
+    "internal/controller/deployment/command_test.go",
     "internal/install/artifact.go",
     "internal/install/compat.go",
     "internal/install/contract.go",
     "internal/install/install_test.go",
     "internal/install/layout.go",
+    "internal/install/ownership_unix.go",
+    "internal/install/ownership_unix_test.go",
+    "internal/install/ownership_windows.go",
     "internal/install/purge.go",
     "internal/install/purge_unix.go",
     "internal/install/purge_windows.go",
@@ -79,12 +103,18 @@
     "internal/install/token_unix.go",
     "internal/install/token_windows.go",
     "internal/install/upgrade.go",
+    "internal/install/upgrade_lock_unix.go",
+    "internal/install/upgrade_lock_windows.go",
     "scripts/install.ps1",
     "scripts/install.sh",
     "scripts/libinstall.sh",
     "scripts/test-installers.sh",
+    "scripts/test-systemd.sh",
     "scripts/uninstall.ps1",
-    "scripts/uninstall.sh"
+    "scripts/uninstall.sh",
+    "test/browser/deployment.spec.js",
+    "test/contracts/manifest.json",
+    "web/static/js/deployment.js"
   ],
   "tests": [
     {
@@ -96,6 +126,16 @@
       "command": "bash scripts/test-installers.sh",
       "exit_code": 0,
       "summary": "PASS; isolated installer smoke covers fresh install, repeated-install conflict, token consumption and non-leakage, failed health-gated upgrade rollback, successful upgrade, ambiguous artifact rejection, role isolation, bad token mode, bad signature, and purge residue."
+    },
+    {
+      "command": "./scripts/test-browser.sh",
+      "exit_code": 0,
+      "summary": "PASS; all 35 loopback Chromium tests pass: home 6, admin 10, deployment 9, destructive 3, accessibility 4, and private-home 3."
+    },
+    {
+      "command": "bash scripts/test-systemd.sh",
+      "exit_code": 0,
+      "summary": "SUPPORTED_WITH_LIMITS; under a real systemd PID 1, systemd-analyze accepted copies of the shipped units with ExecStart redirected to /bin/true, and a synthetic inert unit passed start/restart/stop; the installer fresh/rollback/upgrade/purge portion remained isolated-test-root smoke."
     },
     {
       "command": "bash docker/test-stage-enrollment.sh",
@@ -193,9 +233,9 @@
       "summary": "PASS; no unformatted installer Go files."
     },
     {
-      "command": "git diff --check HEAD^ HEAD",
+      "command": "git diff --check 28aeaab5bb9c788da9c0068b8314b4f48c5a423d..16d42de79c1412ef76848af50299097717176750",
       "exit_code": 0,
-      "summary": "PASS; implementation commit has no whitespace errors."
+      "summary": "PASS; the full P18 candidate range has no whitespace errors."
     },
     {
       "command": "scan generated evidence logs for known enrollment-token test literals",
@@ -210,6 +250,7 @@
   ],
   "evidence": [
     ".hermes/evidence/p18/SHA256SUMS",
+    ".hermes/evidence/p18/browser.log",
     ".hermes/evidence/p18/compose-config.log",
     ".hermes/evidence/p18/contracts-sha256.txt",
     ".hermes/evidence/p18/contracts.log",
@@ -234,79 +275,209 @@
     ".hermes/evidence/p18/results.json",
     ".hermes/evidence/p18/secret-scan.log",
     ".hermes/evidence/p18/shell-syntax.log",
+    ".hermes/evidence/p18/systemd-smoke.log",
     ".hermes/evidence/p18/windows-amd64-build.log",
     ".hermes/evidence/p18/windows-install-test-compile.log"
   ],
   "evidence_sha256": {
-    ".hermes/evidence/p18/SHA256SUMS": "71dcc51cf39ea02ea9c9570a251913937f506b1162426d3801e8a08240f4d31b",
-    ".hermes/evidence/p18/compose-config.log": "aded2f3f0eafbc888e02286a97357eada50fbd005c87f8c1436f7eebce4a3fe6",
+    ".hermes/evidence/p18/browser.log": "1343452b4088b75aa1f62ae2b44225442167356f4d224f5cca2036e4db7e2695",
+    ".hermes/evidence/p18/compose-config.log": "ca3c4a1b83f85a9e7d6af9a85b7b34a8bce6032986fa99b7940e5e280c1ab483",
     ".hermes/evidence/p18/contracts-sha256.txt": "f3210db03f565342782e74354188c1e97290963ee2dec7256fa85c23ed2316a6",
-    ".hermes/evidence/p18/contracts.log": "838bca0154615d403022796e2a915f9e4e4d1f41e340e758d63c102aabc14d79",
-    ".hermes/evidence/p18/diff-check.log": "ea27f2c2e4335a38f884e0025f5bc6dcf72015dff9d592811e383f5a7f307131",
-    ".hermes/evidence/p18/docker-build-agent.log": "b4dfeb876767a04062c3e1a23bd1be17242171866f627186482b0267ea9de8f4",
-    ".hermes/evidence/p18/docker-build-controller.log": "67ae5cf4711e1a98b02da810a10727f959e3b96120553e3e41e523848500a4bc",
-    ".hermes/evidence/p18/docker-runtime.log": "1809442086c2a2e4d9df828195774025960a86a142fd264c5765e176f796ad5b",
-    ".hermes/evidence/p18/docker-stage-smoke.log": "4439a5217421c4722600713ba50c0ec78561daf4d6b0d1f310de5a0a582a0e85",
-    ".hermes/evidence/p18/docker-static-inspection.log": "7cee51c562a8d5a7ae5f4dc74cf447bb22ece591913cab1d91551a5971aecaaf",
-    ".hermes/evidence/p18/full-repository.log": "3e2f1a5be676a249e55a7aab60be3bbdff1c98bce3c64eed1a0379924987c775",
-    ".hermes/evidence/p18/go-vet.log": "88f1c57366f75a6568f69c398dc2c7873e9c3a3763adb535fe73f0661c86fe63",
-    ".hermes/evidence/p18/gofmt.log": "e1229846d23f776e4cc0c364fc6b22a437916c14a49ff9c0396f884e8b504208",
-    ".hermes/evidence/p18/install-go-race.log": "44ea2a4587f30a7bcf800f6bab0c5a7495d87c708b9e2ee8bf8492302979716c",
-    ".hermes/evidence/p18/install-go-test.log": "63283fd47f139c7d3ca9ae2dac96764dceb4e02e16d0f5f823f0aa2e18139832",
-    ".hermes/evidence/p18/installer-smoke.log": "a4cf2a6f61e9afd212cf011cb1dd940fd69a2666cbeffd76cabf5aed53f1c807",
-    ".hermes/evidence/p18/linux-arm64-subset-build.log": "2bf029fed3cb0314f957ca1600c50282e4cdd415956a1341ca872a7bdff85ca3",
-    ".hermes/evidence/p18/linux-direct-v4-escalated.log": "11522db94e210fb7ae03a75b20d6ce39dd78fb9e8eecbd502e7398bf5469cedc",
-    ".hermes/evidence/p18/linux-direct-v4.log": "b6036cb4024420e4a4e92f34a868246b2345223dfd040049d83b73459681cf73",
-    ".hermes/evidence/p18/oci-contract.log": "eb99c879f9396832c216ce8946e3da0f5d3e4be7f039761d5490a7e14087e76d",
-    ".hermes/evidence/p18/platform-workflow-yaml.log": "bb00a14addf9a9e1ac21069d1b0594d8104c0f9a7724250ec264bff64248e3c2",
-    ".hermes/evidence/p18/results-validation.log": "86c953e11187b3818f316f4c29155c85510b7599e81a6620cd8f902615a3116f",
-    ".hermes/evidence/p18/results.json": "722c1f295ff05b12a65af131225c5e4709d75a62bac29a807b2d04d42e06bdda",
-    ".hermes/evidence/p18/secret-scan.log": "c136158be493e4ee84f18454b50c9192a12ce408e028ab0ae7d3d4cbf990a38f",
-    ".hermes/evidence/p18/shell-syntax.log": "252b1df57930d3ad985ebb4e9843576b0c6b5953c9dbf2087477205b8f4978a3",
-    ".hermes/evidence/p18/windows-amd64-build.log": "9ac38c2d73c9645a0b59590fd0c1cdb0bf5a12e550b71f194915034b46436700",
-    ".hermes/evidence/p18/windows-install-test-compile.log": "08fce5c81afa40bb7a14a90b3a6be7db8a42ed614ac489c22bedab81ad2c7b57"
+    ".hermes/evidence/p18/contracts.log": "be29669bb0985f6d00334540e4f3eb48d729b5bb82aaf01b035dd64f305837b1",
+    ".hermes/evidence/p18/diff-check.log": "e8512d2270b96ba92e6135a14e977a8e7560884a060ac798b5a471a4051edd8f",
+    ".hermes/evidence/p18/docker-build-agent.log": "d6ee577408a40058848b6da1b9158ec6b3170d5688c404663d02e79d133df0f3",
+    ".hermes/evidence/p18/docker-build-controller.log": "aec637dd7c759441beda185d58383bf9f5459574f18c94295f5fd7ed6db47ee6",
+    ".hermes/evidence/p18/docker-runtime.log": "ab1ee891ff2f7aa702e94c60258f4eebc77c949bc5a527775b37aef808f4f20b",
+    ".hermes/evidence/p18/docker-stage-smoke.log": "d925cdbb43101a7f797804449cae80d08202fd64f771022c90b8156db2a9fbd7",
+    ".hermes/evidence/p18/docker-static-inspection.log": "83789156e9354e8e4b5609bb97d067230ef2abb897147cb441e3cff84bd6d7e8",
+    ".hermes/evidence/p18/full-repository.log": "9c422636b5e115c9e876af2d5d434466f105980336c04e5fb287c4f5b04825fe",
+    ".hermes/evidence/p18/go-vet.log": "ed10eb5a84e86e213841a62f33c831797f433763e0d762dfabf472a504ea6476",
+    ".hermes/evidence/p18/gofmt.log": "cc9bfd8259298229955e30df278dcab568b76f8a865eaf0ac6ce50b8ce467e0f",
+    ".hermes/evidence/p18/install-go-race.log": "c0d710bb3e193ab08265a9aa60644eb566315d8ab159c76141b5ea29786a5023",
+    ".hermes/evidence/p18/install-go-test.log": "25b71dfdd98aed9b972cb38ac0c4a479e3f18c22a24976a9f08456279e46c97f",
+    ".hermes/evidence/p18/installer-smoke.log": "32dcc3e0e9658bf5de1acd0177cd75c6ef016afcaccfb79eb095b5ef71752c81",
+    ".hermes/evidence/p18/linux-arm64-subset-build.log": "973f0a7e15391c14cbf9f2e2805dc1d9aafc3d6da5d72827909750abe7ed3af0",
+    ".hermes/evidence/p18/linux-direct-v4-escalated.log": "8e2a9ffc0cc3ab5d0a9058c25ead4752171ab1826d18d69d0a53734568d4dadf",
+    ".hermes/evidence/p18/linux-direct-v4.log": "a06fe378322479b301829acc923af5b6155ae2622fd646317c774d19d09f7bdd",
+    ".hermes/evidence/p18/oci-contract.log": "f7a94043eb4d84c315d957c3f95ee03c0632d9e4d327ad537c3948d203672125",
+    ".hermes/evidence/p18/platform-workflow-yaml.log": "848d50789554db23aabc18fb488523c30dd0d9e5dd0bdf6bea8002aeedd7f5f8",
+    ".hermes/evidence/p18/results-validation.log": "26866294121eec3d2c6a0fcb22f61208eb4169e7a7ed3adfb87dd7b6bab41936",
+    ".hermes/evidence/p18/results.json": "362fe2d3bef4dbd986c5aa32bdeb106d34eafde01b7841b93632cada9b05334c",
+    ".hermes/evidence/p18/secret-scan.log": "f34431c9e122779a8c927f75b4d15dba1b4d487d410fb4e2cef64dfca6acf9a6",
+    ".hermes/evidence/p18/shell-syntax.log": "ad1731edca16267b16e7afb28f6f4bf28df8a7ab8e5187a591e305feef61cb35",
+    ".hermes/evidence/p18/systemd-smoke.log": "18879aead6d8556e21dba303e325327d1ad6c9ece410885e410f712a9874f729",
+    ".hermes/evidence/p18/windows-amd64-build.log": "9df2a5041b77a66dc87ad66976e4304c5b97dbe2c2771bfc1cdc2226c5761f16",
+    ".hermes/evidence/p18/windows-install-test-compile.log": "19b5a090b4663d08491f63323f679beacacdc330d8e57dec26c0bfd6f6d7918f",
+    ".hermes/evidence/p18/SHA256SUMS": "f3b12e16dc6a66d500a259e32a81d9c9f0e863fe0acdefceefef2b4e684cb3a6"
   },
   "contracts_consumed": [
-    { "path": ".hermes/plans/v1-beta/00-master-orchestration.md", "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4" },
-    { "path": ".hermes/plans/v1-beta/18-installers-platforms.md", "sha256": "cdb26257f3e4655f360f4bf075dcd51c5eef2829682c7bcf5d79b1d96587e1f2" },
-    { "path": ".hermes/plans/2026-08-09_055007-antinat-v1-reviewed-execution-plan.md", "sha256": "5fb4216ae41c4fb77a757596274b9f8e1df6f32a81c399971b82e60c07527226" },
-    { "path": "docs/installer-contract.md", "sha256": "c7f83ea2fedcf9b1c393dae290ff1168bcd9f495d064a2ea74d386f3d38c630a" },
-    { "path": "docs/protocol.md", "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74" },
-    { "path": "docs/state-model.md", "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03" },
-    { "path": "docs/v1-scope-contract.md", "sha256": "e016cfd0bb0e1395eb23dccf60bc283217139a81db56bf9c1f87ef5f3afe9eaf" },
-    { "path": "api/openapi.yaml", "sha256": "43785c94abf6f158f52f0059d38a260d4d68f052a5ca1aed26539e48bc06c1eb" },
-    { "path": "test/contracts/manifest.json", "sha256": "b1ca3f29b9132307fe84f8b5661696efd0857135a21ae1bcad898263a4fd050b" },
-    { "path": "test/fixtures/compat/compat-n-minus-one-valid.json", "sha256": "6e262d620ecfa973b336a9f00098b7e55739db02f0e6bcf7eb3fefbda1fa2e94" },
-    { "path": "test/fixtures/compat/compat-regression-invalid.json", "sha256": "e5a93b9311c1f92c03f1595206030c1a3fc7eeda85ba6d256f84686a8be1373a" },
-    { "path": "test/fixtures/compat/compat-same-version-valid.json", "sha256": "9f1d4901c1be7d6a04ca9ebe83fb834d8cc97cb5e13e4d1c943c16c502bd1072" },
-    { "path": "test/fixtures/compat/compat-skip-version-invalid.json", "sha256": "d3b9ffcd9e2eff945482b74004fd2cb5ba4b0cbb062bdf5c3061bb6d42cbd135" },
-    { "path": "test/fixtures/installer-contract/artifact-manifest-bad-hash-invalid.json", "sha256": "e50e6915f9e06f5ce07db6b914725386a8ec47e22ae0f115d406f55498cf2ffc" },
-    { "path": "test/fixtures/installer-contract/artifact-manifest-no-signature-invalid.json", "sha256": "ba23c4a306be129773f2c3a9e57c163c7ea1e082b1f4def29a9b7200254bfa8a" },
-    { "path": "test/fixtures/installer-contract/artifact-manifest-valid.json", "sha256": "2bb81121a9caef8a632a6ed520416e94255029523e15fff66862d3d1bf374339" },
-    { "path": "test/fixtures/installer-contract/cli-install-token-fd-valid.json", "sha256": "33ce1dca0119e79310eea87711a46862b917c3f73d20f918b68da49085acc1f4" },
-    { "path": "test/fixtures/installer-contract/cli-install-valid.json", "sha256": "ee2c28799c478e59a75ee48fca19ce657226db785fa5b5f07c5605b706e210dc" },
-    { "path": "test/fixtures/installer-contract/cli-token-fd-bare-invalid.json", "sha256": "bddf0ff9455e257e2101df8de8df175f50d072371029ec5a550d03eaafb90e46" },
-    { "path": "test/fixtures/installer-contract/cli-token-literal-forbidden.json", "sha256": "aa967e214b896b9d1759c85bdd14fd79ab33660f248cf4b8be779a934d039c04" },
-    { "path": "test/fixtures/installer-contract/cli-unknown-flag-invalid.json", "sha256": "3b15b7cb2daae509d7c252ec829eee00fd4c0ae8181146a5044a9ce360ae70cf" },
-    { "path": "test/fixtures/installer-contract/cli-unknown-short-flag-invalid.json", "sha256": "c42a080f066d51d85252c9e8f80f11e63b8167bafadbf21358287eb13197619d" },
-    { "path": "test/fixtures/installer-contract/exit-0-valid.json", "sha256": "872358ecfc4fab6021c60f36c43a5259a5069eecbf32289ca3b26f78f1acdf1b" },
-    { "path": "test/fixtures/installer-contract/exit-4-valid.json", "sha256": "1a564fd20312b68944e3d56b5b8cbdfb95ac82f61e3976966e8d988a895dc406" },
-    { "path": "test/fixtures/installer-contract/exit-42-invalid.json", "sha256": "9288e496ff90edc3e5fc705a7f76e226f2845e7ead32acba3cf086b4cd3100bb" },
-    { "path": "test/fixtures/installer-contract/exit-7-valid.json", "sha256": "c537a1106b8af951c9548a4ba8dc739a462455c76379772871847fbd604ede6b" },
-    { "path": "test/fixtures/installer-contract/path-install-dir-invalid.json", "sha256": "3457d8a990b4b77daf12d75601613ae366cfa282832205a9d0a98fdc9af18120" },
-    { "path": "test/fixtures/installer-contract/path-install-dir-valid.json", "sha256": "4a81401dd4c73ba7e3cc174929d29caa80056988b50015d43c6705ad6fb89a8d" },
-    { "path": "test/fixtures/installer-contract/path-service-valid.json", "sha256": "6bd45b66c798417e6194eac073a2549ac4d3631c7e7e3b7ceaf6f409ab0bc38f" },
-    { "path": "test/fixtures/installer-contract/path-state-marker-valid.json", "sha256": "bc36b21d058d103a447cd804024429e1c9f6fd51c1698ef305b62cc297ba3e05" },
-    { "path": "test/fixtures/installer-contract/purge-no-residue-valid.json", "sha256": "493e139905daf0a8e2ea90db2cac3814b3bc9e74f77986d41952af795fcdd5fa" },
-    { "path": "test/fixtures/installer-contract/purge-unknown-state-invalid.json", "sha256": "80b73c2695c84288122e8dc884499ea6021213a94e5327d1a0bddade2e656153" },
-    { "path": "test/fixtures/installer-contract/token-fd-valid.json", "sha256": "a4cb83a17c53cd99fbbbfefc4594c5beccc5efd60f48f11338a50a77ea7a5e1a" },
-    { "path": "test/fixtures/installer-contract/token-fd-without-flag-invalid.json", "sha256": "ac722c6925073c1fa0f8d378741932101f00b034e99fc25c168e0863592dc40e" },
-    { "path": "test/fixtures/installer-contract/token-file-0600-valid.json", "sha256": "318862d9f8d4086351b01c708841ffe4d499ce7d1a5c3224bfe95a93265d33db" },
-    { "path": "test/fixtures/installer-contract/token-file-0644-invalid.json", "sha256": "70667b107430a98d5cd7bda820517e050d402a86939caaf4414313e075948db1" },
-    { "path": "test/fixtures/installer-contract/token-multiple-inputs-invalid.json", "sha256": "f84bd3a2575fa81dc6cf0145265e7a76bf986af59028dc7309ca9303473b624e" },
-    { "path": "test/fixtures/installer-contract/token-tty-valid.json", "sha256": "784970e1ddeff3e9a8fa58bb5c81c988f6fe09832f019cc678fb40ab67b2e6b0" }
+    {
+      "path": ".hermes/plans/v1-beta/00-master-orchestration.md",
+      "sha256": "94382d2f1c60274ccf6d25127d6c70fb3de4359f8daee91defe85208cfd6e0f4"
+    },
+    {
+      "path": ".hermes/plans/v1-beta/18-installers-platforms.md",
+      "sha256": "cdb26257f3e4655f360f4bf075dcd51c5eef2829682c7bcf5d79b1d96587e1f2"
+    },
+    {
+      "path": ".hermes/plans/2026-08-09_055007-antinat-v1-reviewed-execution-plan.md",
+      "sha256": "5fb4216ae41c4fb77a757596274b9f8e1df6f32a81c399971b82e60c07527226"
+    },
+    {
+      "path": "docs/installer-contract.md",
+      "sha256": "c7f83ea2fedcf9b1c393dae290ff1168bcd9f495d064a2ea74d386f3d38c630a"
+    },
+    {
+      "path": "docs/protocol.md",
+      "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"
+    },
+    {
+      "path": "docs/state-model.md",
+      "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
+    },
+    {
+      "path": "docs/v1-scope-contract.md",
+      "sha256": "e016cfd0bb0e1395eb23dccf60bc283217139a81db56bf9c1f87ef5f3afe9eaf"
+    },
+    {
+      "path": "api/openapi.yaml",
+      "sha256": "43785c94abf6f158f52f0059d38a260d4d68f052a5ca1aed26539e48bc06c1eb"
+    },
+    {
+      "path": "test/contracts/manifest.json",
+      "sha256": "b1ca3f29b9132307fe84f8b5661696efd0857135a21ae1bcad898263a4fd050b"
+    },
+    {
+      "path": "test/fixtures/compat/compat-n-minus-one-valid.json",
+      "sha256": "6e262d620ecfa973b336a9f00098b7e55739db02f0e6bcf7eb3fefbda1fa2e94"
+    },
+    {
+      "path": "test/fixtures/compat/compat-regression-invalid.json",
+      "sha256": "e5a93b9311c1f92c03f1595206030c1a3fc7eeda85ba6d256f84686a8be1373a"
+    },
+    {
+      "path": "test/fixtures/compat/compat-same-version-valid.json",
+      "sha256": "9f1d4901c1be7d6a04ca9ebe83fb834d8cc97cb5e13e4d1c943c16c502bd1072"
+    },
+    {
+      "path": "test/fixtures/compat/compat-skip-version-invalid.json",
+      "sha256": "d3b9ffcd9e2eff945482b74004fd2cb5ba4b0cbb062bdf5c3061bb6d42cbd135"
+    },
+    {
+      "path": "test/fixtures/installer-contract/artifact-manifest-bad-hash-invalid.json",
+      "sha256": "e50e6915f9e06f5ce07db6b914725386a8ec47e22ae0f115d406f55498cf2ffc"
+    },
+    {
+      "path": "test/fixtures/installer-contract/artifact-manifest-no-signature-invalid.json",
+      "sha256": "ba23c4a306be129773f2c3a9e57c163c7ea1e082b1f4def29a9b7200254bfa8a"
+    },
+    {
+      "path": "test/fixtures/installer-contract/artifact-manifest-valid.json",
+      "sha256": "2bb81121a9caef8a632a6ed520416e94255029523e15fff66862d3d1bf374339"
+    },
+    {
+      "path": "test/fixtures/installer-contract/cli-install-token-fd-valid.json",
+      "sha256": "33ce1dca0119e79310eea87711a46862b917c3f73d20f918b68da49085acc1f4"
+    },
+    {
+      "path": "test/fixtures/installer-contract/cli-install-valid.json",
+      "sha256": "ee2c28799c478e59a75ee48fca19ce657226db785fa5b5f07c5605b706e210dc"
+    },
+    {
+      "path": "test/fixtures/installer-contract/cli-token-fd-bare-invalid.json",
+      "sha256": "bddf0ff9455e257e2101df8de8df175f50d072371029ec5a550d03eaafb90e46"
+    },
+    {
+      "path": "test/fixtures/installer-contract/cli-token-literal-forbidden.json",
+      "sha256": "aa967e214b896b9d1759c85bdd14fd79ab33660f248cf4b8be779a934d039c04"
+    },
+    {
+      "path": "test/fixtures/installer-contract/cli-unknown-flag-invalid.json",
+      "sha256": "3b15b7cb2daae509d7c252ec829eee00fd4c0ae8181146a5044a9ce360ae70cf"
+    },
+    {
+      "path": "test/fixtures/installer-contract/cli-unknown-short-flag-invalid.json",
+      "sha256": "c42a080f066d51d85252c9e8f80f11e63b8167bafadbf21358287eb13197619d"
+    },
+    {
+      "path": "test/fixtures/installer-contract/exit-0-valid.json",
+      "sha256": "872358ecfc4fab6021c60f36c43a5259a5069eecbf32289ca3b26f78f1acdf1b"
+    },
+    {
+      "path": "test/fixtures/installer-contract/exit-4-valid.json",
+      "sha256": "1a564fd20312b68944e3d56b5b8cbdfb95ac82f61e3976966e8d988a895dc406"
+    },
+    {
+      "path": "test/fixtures/installer-contract/exit-42-invalid.json",
+      "sha256": "9288e496ff90edc3e5fc705a7f76e226f2845e7ead32acba3cf086b4cd3100bb"
+    },
+    {
+      "path": "test/fixtures/installer-contract/exit-7-valid.json",
+      "sha256": "c537a1106b8af951c9548a4ba8dc739a462455c76379772871847fbd604ede6b"
+    },
+    {
+      "path": "test/fixtures/installer-contract/path-install-dir-invalid.json",
+      "sha256": "3457d8a990b4b77daf12d75601613ae366cfa282832205a9d0a98fdc9af18120"
+    },
+    {
+      "path": "test/fixtures/installer-contract/path-install-dir-valid.json",
+      "sha256": "4a81401dd4c73ba7e3cc174929d29caa80056988b50015d43c6705ad6fb89a8d"
+    },
+    {
+      "path": "test/fixtures/installer-contract/path-service-valid.json",
+      "sha256": "6bd45b66c798417e6194eac073a2549ac4d3631c7e7e3b7ceaf6f409ab0bc38f"
+    },
+    {
+      "path": "test/fixtures/installer-contract/path-state-marker-valid.json",
+      "sha256": "bc36b21d058d103a447cd804024429e1c9f6fd51c1698ef305b62cc297ba3e05"
+    },
+    {
+      "path": "test/fixtures/installer-contract/purge-no-residue-valid.json",
+      "sha256": "493e139905daf0a8e2ea90db2cac3814b3bc9e74f77986d41952af795fcdd5fa"
+    },
+    {
+      "path": "test/fixtures/installer-contract/purge-unknown-state-invalid.json",
+      "sha256": "80b73c2695c84288122e8dc884499ea6021213a94e5327d1a0bddade2e656153"
+    },
+    {
+      "path": "test/fixtures/installer-contract/token-fd-valid.json",
+      "sha256": "a4cb83a17c53cd99fbbbfefc4594c5beccc5efd60f48f11338a50a77ea7a5e1a"
+    },
+    {
+      "path": "test/fixtures/installer-contract/token-fd-without-flag-invalid.json",
+      "sha256": "ac722c6925073c1fa0f8d378741932101f00b034e99fc25c168e0863592dc40e"
+    },
+    {
+      "path": "test/fixtures/installer-contract/token-file-0600-valid.json",
+      "sha256": "318862d9f8d4086351b01c708841ffe4d499ce7d1a5c3224bfe95a93265d33db"
+    },
+    {
+      "path": "test/fixtures/installer-contract/token-file-0644-invalid.json",
+      "sha256": "70667b107430a98d5cd7bda820517e050d402a86939caaf4414313e075948db1"
+    },
+    {
+      "path": "test/fixtures/installer-contract/token-multiple-inputs-invalid.json",
+      "sha256": "f84bd3a2575fa81dc6cf0145265e7a76bf986af59028dc7309ca9303473b624e"
+    },
+    {
+      "path": "test/fixtures/installer-contract/token-tty-valid.json",
+      "sha256": "784970e1ddeff3e9a8fa58bb5c81c988f6fe09832f019cc678fb40ab67b2e6b0"
+    }
   ],
-  "contracts_changed": [],
+  "contracts_changed": [
+    {
+      "path": "api/openapi.yaml",
+      "before_sha256": "43785c94abf6f158f52f0059d38a260d4d68f052a5ca1aed26539e48bc06c1eb",
+      "after_sha256": "83fe9a30461482aa587b0c96d42c387c8f568769b56c2c6d7339335a1a25df29",
+      "summary": "Add required controller_pin to the existing EnrollmentToken response; no new route or method."
+    },
+    {
+      "path": "test/contracts/manifest.json",
+      "before_sha256": "b1ca3f29b9132307fe84f8b5661696efd0857135a21ae1bcad898263a4fd050b",
+      "after_sha256": "9851a6bcc5419b92ec49d379ebb0ab0ee8f584de730a02420d19e9a3b692ea9c",
+      "summary": "Manifest records the updated OpenAPI bytes."
+    }
+  ],
   "ownership_transfers": [
     {
       "files": [
@@ -328,24 +499,71 @@
       "boundary": "No changes to P12 integration, frozen contract bytes, Controller/Agent production composition, or another child branch."
     },
     {
-      "files": ["internal/install/install_test.go"],
+      "files": [
+        "internal/install/install_test.go"
+      ],
       "reason": "P18 focused regression coverage",
       "boundary": "Tests only."
     },
     {
-      "files": [".hermes/evidence/p18/**", ".hermes/handoffs/P18.json"],
+      "files": [
+        ".hermes/evidence/p18/**",
+        ".hermes/handoffs/P18.json"
+      ],
       "reason": "P18 evidence and candidate handoff record",
       "boundary": "Candidate metadata only; no integration or release action."
+    },
+    {
+      "files": [
+        "internal/controller/api/auth.go",
+        "internal/controller/api/nodes_min.go",
+        "internal/controller/app.go"
+      ],
+      "reason": "P17 -> P18 transfer: carry the active Controller public-key pin through the existing enrollment-token response and router composition.",
+      "boundary": "Existing versioned route and response only; no new route, token storage, or lifecycle delivery."
+    },
+    {
+      "files": [
+        "internal/controller/deployment/command.go",
+        "internal/controller/deployment/command_test.go"
+      ],
+      "reason": "P17 -> P18 transfer: render the ephemeral node ID and public Controller pin for Linux, Windows, and Docker installer commands.",
+      "boundary": "Command rendering only; no persisted profile field, enrollment-token parameter, or installer parser change."
+    },
+    {
+      "files": [
+        "web/static/js/deployment.js",
+        "test/browser/deployment.spec.js"
+      ],
+      "reason": "P17 -> P18 transfer: consume and validate the additive controller_pin response field in the deployment UI and browser regression coverage.",
+      "boundary": "Secret-free one-time token and command surfaces only; no token persistence, URL, environment, or service configuration."
+    },
+    {
+      "files": [
+        "api/openapi.yaml",
+        "test/contracts/manifest.json"
+      ],
+      "reason": "P17 -> P18 contract amendment: document the additive EnrollmentToken controller_pin field and update the byte-matched contract manifest.",
+      "boundary": "One required public trust field on the existing response; no legacy route, protocol, or lifecycle contract expansion."
+    },
+    {
+      "files": [
+        "docker/compose.yaml",
+        "docker/README.md"
+      ],
+      "reason": "P17 -> P18 transfer: align the existing deployment command's Docker environment and protected token-file contract with the OCI wrapper.",
+      "boundary": "Linux host-network Docker packaging only; no P19 release digest, SBOM, signature, or lifecycle delivery claim."
     }
   ],
   "capability_result": "SUPPORTED_WITH_LIMITS",
   "known_limits": [
-    "Linux installer validation is isolated test-root evidence; no native systemd fresh-install/restart/upgrade/purge run was possible in this workspace.",
+    "Under the host's real systemd PID 1, systemd-analyze accepted copies of the shipped units after ExecStart was redirected to /bin/true, and a synthetic inert unit passed start/restart/stop; this does not prove the shipped binaries or a native installer transaction. Installer fresh-install/upgrade/rollback/purge mutations remain isolated test-root evidence.",
     "No native Windows PowerShell, Windows Service, ACL/Defender, or router/data-path runtime evidence; Windows remains build-only.",
     "No native arm64 or OpenRC host evidence. arm64 verification is limited to Agent, CLI, and installer package compilation; full arm64 command builds remain blocked by the pre-existing internal/hook/sandbox_linux.go SYS_FORK/SYS_VFORK architecture issue.",
     "Docker evidence is limited to local amd64 image builds and static inspection. Local image IDs are not registry manifest digests; no SBOM, signature, or production host-network runtime evidence is claimed. syft and cosign are unavailable.",
     "The smoke release uses a generated test Ed25519 key and local artifacts. Production release artifact pinning, SBOM/signature, and exact image/artifact digest approval remain P19 work.",
     "The full repository suite requires the provisioned ANTINAT_DEDICATED_UID=12001 and ANTINAT_DEDICATED_GID=12001 environment; no native platform support promotion is claimed.",
+    "Installer values for bind interface, log level, auto-update, detection scheduler, and GitHub proxy are persisted in agent.conf, but the current Agent runtime consumes only endpoint/state/node/token/pin/STUN/auto-order; Windows services also do not load agent.conf. These options are not runtime-enforced by this P18 implementation, and application changes are out of scope.",
     "govulncheck was unavailable and was not recorded as PASS.",
     "No public-WAN, real-router, or native platform support promotion is claimed."
   ],

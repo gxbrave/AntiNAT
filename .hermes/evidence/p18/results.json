@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "plan": "P18",
-  "implementation_head_sha": "8749a34384fd3a861477f911279ed59965676dca",
-  "implementation_head_tree_sha": "564e5027e2378a7ccbf1a7863dde2394720e2eb2",
+  "implementation_head_sha": "16d42de79c1412ef76848af50299097717176750",
+  "implementation_head_tree_sha": "783efd504d51863a01deb2cedbe11a00411a5f09",
   "checks": [
     {
       "name": "shell syntax",
@@ -17,6 +17,20 @@
       "exit_code": 0,
       "status": "PASS",
       "evidence": "installer-smoke.log"
+    },
+    {
+      "name": "browser suite",
+      "command": "./scripts/test-browser.sh",
+      "exit_code": 0,
+      "status": "PASS",
+      "evidence": "browser.log"
+    },
+    {
+      "name": "systemd host lifecycle harness",
+      "command": "bash scripts/test-systemd.sh",
+      "exit_code": 0,
+      "status": "SUPPORTED_WITH_LIMITS",
+      "evidence": "systemd-smoke.log"
     },
     {
       "name": "Docker enrollment staging smoke",
@@ -146,7 +160,7 @@
     },
     {
       "name": "implementation diff whitespace",
-      "command": "git diff --check HEAD^ HEAD",
+      "command": "git diff --check 28aeaab5bb9c788da9c0068b8314b4f48c5a423d..16d42de79c1412ef76848af50299097717176750",
       "exit_code": 0,
       "status": "PASS",
       "evidence": "diff-check.log"
@@ -177,7 +191,7 @@
     {
       "name": "native platform hosts",
       "status": "NOT_RUN",
-      "reason": "No native Windows, OpenRC, or arm64 host was available in this workspace; Windows and arm64 checks remain build-only and the Docker checks remain local/static."
+      "reason": "No native Windows, OpenRC, or arm64 host was available in this workspace; Windows, OpenRC, and arm64 remain build-only or unavailable. Native systemd lifecycle evidence is recorded separately; the installer portion remains isolated-test-root evidence."
     }
   ]
 }
