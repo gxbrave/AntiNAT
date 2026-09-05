@@ -1,6 +1,6 @@
-ok  	github.com/gxbrave/AntiNAT/internal/agent	8.942s
-ok  	github.com/gxbrave/AntiNAT/internal/agent/control	5.390s
-ok  	github.com/gxbrave/AntiNAT/internal/agent/localstate	6.278s
-ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	11.672s
-ok  	github.com/gxbrave/AntiNAT/internal/controller/agenthub	19.397s
-ok  	github.com/gxbrave/AntiNAT/cmd/antinat-agent	0.016s
+ok  	github.com/gxbrave/AntiNAT/internal/agent	9.134s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/control	5.982s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/localstate	6.836s
+ok  	github.com/gxbrave/AntiNAT/internal/agent/reconcile	12.219s
+ok  	github.com/gxbrave/AntiNAT/internal/controller/agenthub	20.719s
+ok  	github.com/gxbrave/AntiNAT/cmd/antinat-agent	0.022s
