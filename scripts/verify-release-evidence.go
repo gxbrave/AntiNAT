@@ -637,6 +637,9 @@ func safeEvidencePath(evidenceDir, relative string) (string, error) {
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 		return "", errors.New("path escapes the release bundle")
 	}
+	if err := rejectSymlinkComponents(bundleRoot, path); err != nil {
+		return "", fmt.Errorf("evidence path components: %w", err)
+	}
 	return path, nil
 }
 
@@ -644,12 +647,23 @@ func safeArtifactDirectory(evidenceDir, relative string) (string, error) {
 	if relative == "" || filepath.IsAbs(relative) || strings.ContainsAny(relative, "\\\x00") {
 		return "", errors.New("must be a relative artifact directory")
 	}
+	bundleRoot, err := filepath.Abs(filepath.Dir(evidenceDir))
+	if err != nil {
+		return "", err
+	}
 	path, err := filepath.Abs(filepath.Join(evidenceDir, filepath.FromSlash(relative)))
 	if err != nil {
 		return "", err
 	}
+	rel, err := filepath.Rel(bundleRoot, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", errors.New("artifact directory escapes the release bundle")
+	}
 	if filepath.Base(path) != "release" {
 		return "", errors.New("artifact directory must end in release")
+	}
+	if err := rejectSymlinkComponents(bundleRoot, path); err != nil {
+		return "", fmt.Errorf("artifact directory path: %w", err)
 	}
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -678,7 +692,54 @@ func safeRelativePath(root, relative string) (string, error) {
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 		return "", errors.New("path escapes its root")
 	}
+	if err := rejectSymlinkComponents(root, path); err != nil {
+		return "", fmt.Errorf("path components: %w", err)
+	}
 	return path, nil
+}
+
+func rejectSymlinkComponents(root, path string) error {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return errors.New("path escapes its root")
+	}
+	rootInfo, err := os.Lstat(root)
+	if err != nil {
+		return err
+	}
+	if rootInfo.Mode()&os.ModeSymlink != 0 {
+		return errors.New("root is a symlink")
+	}
+	current := root
+	if rel == "." {
+		return nil
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
+	for index, part := range parts {
+		current = filepath.Join(current, part)
+		info, statErr := os.Lstat(current)
+		if errors.Is(statErr, os.ErrNotExist) {
+			return nil
+		}
+		if statErr != nil {
+			return statErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("path traverses a symlink")
+		}
+		if index < len(parts)-1 && !info.IsDir() {
+			return errors.New("path traverses a non-directory")
+		}
+	}
+	return nil
 }
 
 func optionalSafeEvidencePath(root, relative string) (string, bool, error) {

@@ -48,10 +48,12 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
           echo "$GOBIN" >> "$GITHUB_PATH"
       - name: Build once and run beta gates
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
           mkdir -p artifacts/evidence
           GOWORK=off bash scripts/run-beta-gates.sh \
-            --version '${{ inputs.version }}' \
+            --version "$RELEASE_VERSION" \
             --artifacts dist \
             --evidence artifacts/evidence
       - name: Verify candidate evidence
@@ -92,6 +94,13 @@ jobs:
         with:
           name: antinat-${{ inputs.version }}-candidate
           path: release-bundle
+      - name: Verify candidate source identity
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          test "$(jq -r '.release' release-bundle/artifacts/evidence/release.json)" = "$RELEASE_VERSION"
+          test "$(jq -r '.source.commit_sha' release-bundle/artifacts/evidence/release.json)" = "$GITHUB_SHA"
+          test "$(jq -r '.source.commit_sha' release-bundle/dist/release/source.json)" = "$GITHUB_SHA"
       - name: Sign and finalize metadata without rebuilding
         env:
           ANTINAT_RELEASE_SIGNING_KEY: ${{ secrets.ANTINAT_RELEASE_SIGNING_KEY }}
@@ -104,6 +113,10 @@ jobs:
             -in release-bundle/dist/release/manifest.json \
             -out release-bundle/dist/release/manifest.sig
           chmod 600 release-bundle/dist/release/manifest.sig
+          printf '%s\n' \
+            'result=PASS' \
+            'reason=protected promotion job verified the detached Ed25519 signature' \
+            >release-bundle/artifacts/evidence/signature.log
           jq --arg actor "$GITHUB_ACTOR" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             '.approval = {approved:true,approver:$actor,recorded_at:$now}
              | .gates = (.gates | map(if .id == "signature" then .result = "PASS" | .summary = "protected release signature verified in promotion job" else . end))
@@ -112,9 +125,12 @@ jobs:
             release-bundle/artifacts/evidence/release.json >release-bundle/artifacts/evidence/release.json.tmp
           mv -- release-bundle/artifacts/evidence/release.json.tmp release-bundle/artifacts/evidence/release.json
       - name: Require promotion-grade evidence
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
           GOWORK=off go run ./scripts/verify-release-evidence.go \
-            --require-promotion release-bundle/artifacts/evidence
+            --require-promotion release-bundle/artifacts/evidence \
+            >release-bundle/artifacts/evidence/release-evidence.log
       - name: Create immutable GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

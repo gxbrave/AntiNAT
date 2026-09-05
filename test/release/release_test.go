@@ -14,10 +14,11 @@ import (
 )
 
 func TestReleaseSecurityBoundary(t *testing.T) {
-	for _, path := range []string{
+	paths := []string{
 		filepath.Join("..", "..", "scripts", "run-beta-gates.sh"),
 		filepath.Join("..", "..", ".github", "workflows", "release.yml"),
-	} {
+	}
+	for _, path := range paths {
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("read %s: %v", path, err)
@@ -28,6 +29,26 @@ func TestReleaseSecurityBoundary(t *testing.T) {
 		}
 		if strings.Contains(text, "pull_request_target") {
 			t.Fatalf("%s enables privileged fork execution", path)
+		}
+	}
+
+	workflow, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "release.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflowText := string(workflow)
+	if strings.Contains(workflowText, "--version '${{ inputs.version }}'") {
+		t.Fatal("release workflow interpolates the version directly into shell quoting")
+	}
+	for _, required := range []string{
+		`--version "$RELEASE_VERSION"`,
+		"Verify candidate source identity",
+		"source.commit_sha",
+		"protected promotion job verified the detached Ed25519 signature",
+		"release-evidence.log",
+	} {
+		if !strings.Contains(workflowText, required) {
+			t.Fatalf("release workflow missing promotion safety check %q", required)
 		}
 	}
 }

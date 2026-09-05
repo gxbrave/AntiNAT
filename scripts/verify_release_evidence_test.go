@@ -93,6 +93,48 @@ func TestVerifyReleaseEvidenceRejectsGateEvidenceMissingFromBundle(t *testing.T)
 	}
 }
 
+func TestVerifyReleaseEvidenceRejectsArtifactDirectoryEscape(t *testing.T) {
+	bundle, publicKey := makeReleaseBundle(t, true)
+	recordPath := filepath.Join(bundle.evidence, "release.json")
+	var record releaseEvidence
+	decodeJSONFile(t, recordPath, &record)
+	record.ArtifactDirectory = "../../release"
+	writeJSONFile(t, recordPath, record)
+
+	t.Setenv("ANTINAT_TEST_MODE", "1")
+	if _, err := verifyReleaseEvidence(bundle.evidence, releaseVerifierOptions{
+		PublicKeyPath: publicKey,
+		AllowTestRoot: true,
+	}); err == nil || !strings.Contains(err.Error(), "escapes the release bundle") {
+		t.Fatalf("artifact directory verification error = %v, want bundle escape rejection", err)
+	}
+}
+
+func TestVerifyReleaseEvidenceRejectsEvidenceSymlinkComponent(t *testing.T) {
+	bundle, publicKey := makeReleaseBundle(t, true)
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "gate.log"), []byte("outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(bundle.evidence, "nested")); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+	recordPath := filepath.Join(bundle.evidence, "release.json")
+	var record releaseEvidence
+	decodeJSONFile(t, recordPath, &record)
+	record.Evidence = []string{"nested/gate.log"}
+	record.Gates[0].Evidence = []string{"nested/gate.log"}
+	writeJSONFile(t, recordPath, record)
+
+	t.Setenv("ANTINAT_TEST_MODE", "1")
+	if _, err := verifyReleaseEvidence(bundle.evidence, releaseVerifierOptions{
+		PublicKeyPath: publicKey,
+		AllowTestRoot: true,
+	}); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("evidence symlink verification error = %v, want symlink rejection", err)
+	}
+}
+
 func TestVerifyReleaseEvidenceAllowsUnsignedLocalCandidateOnly(t *testing.T) {
 	bundle, _ := makeReleaseBundle(t, false)
 	recordPath := filepath.Join(bundle.evidence, "release.json")
