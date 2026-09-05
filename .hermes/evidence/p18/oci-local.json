@@ -1,10 +1,10 @@
 {
   "schema_version": "antinat.evidence/v1",
   "plan": "P18",
-  "commit_sha": "562caf3afc6ed80428d4534438ecaf95c7029d7a",
+  "commit_sha": "22dfa6a9677984b6e81d2b17a019db569c1d533e",
   "command": "docker buildx build --platform linux/amd64 --target agent --tag antinat:p18-agent --load . && docker buildx build --platform linux/amd64 --target controller --tag antinat:p18-controller --load . && bash docker/test-stage-enrollment.sh && bash docker/verify-oci-contract.sh antinat:p18-agent antinat:p18-controller",
   "result": "SUPPORTED_WITH_LIMITS",
-  "artifact_digest": "sha256:d3d203833c3840938b10520fc89820d6fae729270bc0bcf78e755abc8d76a829",
+  "artifact_digest": "sha256:42d5bc74ec0830fb0e21f09b61e2d11b7bb859e5f1cdb0b3c8d6af9700df7962",
   "os": "linux/amd64 Docker buildx local daemon",
   "timeout": 600,
   "summary": "Both role images built and loaded; enrollment staging passed. Registry manifest digest, SBOM, and cosign evidence remain unavailable and are not claimed.",

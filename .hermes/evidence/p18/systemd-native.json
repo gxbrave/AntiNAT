@@ -1,12 +1,12 @@
 {
   "schema_version": "antinat.evidence/v1",
   "plan": "P18",
-  "commit_sha": "562caf3afc6ed80428d4534438ecaf95c7029d7a",
-  "command": "ANTINAT_P18_TEST_ABORT_AFTER_ROLLBACK=1 bash scripts/test-systemd.sh; verify exit 99 and no paths, units, drop-in, user, or group remain; then for run in 1 2 3; do bash scripts/test-systemd.sh; done",
+  "commit_sha": "22dfa6a9677984b6e81d2b17a019db569c1d533e",
+  "command": "set -o pipefail; { set +e; ANTINAT_P18_TEST_ABORT_AFTER_ROLLBACK=1 bash scripts/test-systemd.sh; abort_status=$?; set -e; printf 'intentional_abort_status=%s\\n' \"$abort_status\"; [[ \"$abort_status\" == 99 ]]; for path in /opt/antinat /var/lib/antinat /var/log/antinat /etc/antinat /etc/systemd/system/antinat-agent.service /etc/systemd/system/antinat-controller.service /etc/systemd/system/antinat-agent.service.d/p18-native-test.conf; do [[ ! -e \"$path\" && ! -L \"$path\" ]]; done; ! id antinat >/dev/null 2>&1; ! getent group antinat >/dev/null 2>&1; echo 'intentional failure cleanup: PASS'; } 2>&1 | tee .hermes/evidence/p18/systemd-failure-cleanup.log && { for run in 1 2 3; do echo \"systemd stability run $run/3\"; bash scripts/test-systemd.sh; done; } 2>&1 | tee .hermes/evidence/p18/systemd-smoke.log",
   "result": "PASS",
-  "artifact_digest": "sha256:060379a40221dfd30e0a1de9f398cbddfaf3958059b1e8ae45db2ffa55dcba5d",
+  "artifact_digest": "sha256:80302a3a57ae0e16a03529f789120d99deea4cf25d95ab1d5f207a60c570d892",
   "os": "linux/amd64 systemd",
   "timeout": 300,
   "summary": "Shipped signed installer completed three consecutive real Controller and Agent install, TLS enrollment, restart, failed-upgrade rollback, successful upgrade, durable online uninstall receipt, purge, and no-residue runs; a separate intentional post-rollback abort also proved trap cleanup leaves no installation resources or account.",
-  "evidence_paths": [".hermes/evidence/p18/systemd-smoke.log", ".hermes/evidence/p18/systemd-failure-cleanup.log"]
+  "evidence_paths": [".hermes/evidence/p18/systemd-native.sha256", ".hermes/evidence/p18/systemd-smoke.log", ".hermes/evidence/p18/systemd-failure-cleanup.log"]
 }

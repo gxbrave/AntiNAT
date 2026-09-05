@@ -1,7 +1,7 @@
 {
   "schema_version": "antinat.evidence/v1",
   "plan": "P18",
-  "commit_sha": "562caf3afc6ed80428d4534438ecaf95c7029d7a",
+  "commit_sha": "22dfa6a9677984b6e81d2b17a019db569c1d533e",
   "command": "command -v rc-service && command -v rc-update; bash scripts/test-installers.sh",
   "result": "SUPPORTED_WITH_LIMITS",
   "artifact_digest": "sha256:2d2a2b08e216a0b41eb33d3deca93948de693b9c822496c2dbd703d4513d907e",
