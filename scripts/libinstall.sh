@@ -48,6 +48,7 @@ INSTALLER_AGENT_WAS_ENABLED=0
 INSTALLER_CONTROLLER_WAS_ENABLED=0
 INSTALLER_SCHEMA_EXISTED_BEFORE_INSTALL=0
 INSTALLER_SCHEMA_BACKUP=""
+INSTALLER_INSTALL_SNAPSHOT=""
 INSTALLER_UPGRADE_LOCK_FD=""
 
 INSTALLER_TEST_ROOT="${ANTINAT_TEST_ROOT:-}"
@@ -131,6 +132,7 @@ installer_init_paths() {
     INSTALLER_CONTROLLER_WAS_ENABLED=0
     INSTALLER_SCHEMA_EXISTED_BEFORE_INSTALL=0
     INSTALLER_SCHEMA_BACKUP=""
+    INSTALLER_INSTALL_SNAPSHOT=""
 }
 
 installer_parse_args() {
@@ -254,6 +256,13 @@ installer_parse_args() {
         sequential|parallel) ;;
         *) return "$INSTALLER_EXIT_USAGE" ;;
     esac
+    if [[ -n "${ANTINAT_TEST_FAIL_POINT:-}" ]]; then
+        [[ "${ANTINAT_TEST_MODE:-0}" == 1 && -n "$INSTALLER_TEST_ROOT" ]] || return "$INSTALLER_EXIT_USAGE"
+        case "$ANTINAT_TEST_FAIL_POINT" in
+            enrollment|write) ;;
+            *) return "$INSTALLER_EXIT_USAGE" ;;
+        esac
+    fi
     if [[ -n "$INSTALLER_GITHUB_PROXY" && ("$INSTALLER_GITHUB_PROXY" == *"@"* || ! "$INSTALLER_GITHUB_PROXY" =~ ^https://[^[:space:]/?#]+(/[^[:space:]?#]*)?$) ]]; then
         return "$INSTALLER_EXIT_USAGE"
     fi
@@ -677,6 +686,10 @@ installer_copy_artifact() {
     installer_atomic_copy_verified "$INSTALLER_ARTIFACT_DIR/${name##*/}" "$destination" "$mode" "$expected"
 }
 
+installer_test_fail_at() {
+    [[ "${ANTINAT_TEST_MODE:-0}" == 1 && -n "$INSTALLER_TEST_ROOT" && "${ANTINAT_TEST_FAIL_POINT:-}" == "$1" ]]
+}
+
 installer_write_config() {
     local token_file="${1:-}"
     local node_id="${ANTINAT_NODE_ID:-}"
@@ -706,10 +719,10 @@ installer_write_config() {
         if [[ -n "$INSTALLER_GITHUB_PROXY" ]]; then
             printf "ANTINAT_GITHUB_PROXY='%s'\n" "${INSTALLER_GITHUB_PROXY//\'/\'\\\'\'}"
         fi
-        printf "ANTINAT_BIND_INTERFACE='%s'\n" "${INSTALLER_BIND_INTERFACE//\'/\'\\\'}"
-        printf "ANTINAT_LOG_LEVEL='%s'\n" "${INSTALLER_LOG_LEVEL//\'/\'\\\'}"
-        printf "ANTINAT_AUTO_UPDATE='%s'\n" "${INSTALLER_AUTO_UPDATE//\'/\'\\\'}"
-        printf "ANTINAT_DETECTION_SCHEDULER='%s'\n" "${INSTALLER_SCHEDULER//\'/\'\\\'}"
+        printf "ANTINAT_BIND_INTERFACE='%s'\n" "${INSTALLER_BIND_INTERFACE//\'/\'\\\'\'}"
+        printf "ANTINAT_LOG_LEVEL='%s'\n" "${INSTALLER_LOG_LEVEL//\'/\'\\\'\'}"
+        printf "ANTINAT_AUTO_UPDATE='%s'\n" "${INSTALLER_AUTO_UPDATE//\'/\'\\\'\'}"
+        printf "ANTINAT_DETECTION_SCHEDULER='%s'\n" "${INSTALLER_SCHEDULER//\'/\'\\\'\'}"
         if [[ -n "${ANTINAT_STUN_SERVERS:-}" ]]; then
             printf "ANTINAT_STUN_SERVERS='%s'\n" "${ANTINAT_STUN_SERVERS//\'/\'\\\'\'}"
         fi
@@ -734,6 +747,7 @@ installer_create_user() {
 
 installer_write_schema_version() {
     local temporary
+    installer_test_fail_at write && return 1
     mkdir -p -- "$INSTALLER_DATA_DIR"
     if [[ -e "$INSTALLER_SCHEMA_FILE" || -L "$INSTALLER_SCHEMA_FILE" ]]; then
         [[ -f "$INSTALLER_SCHEMA_FILE" && ! -L "$INSTALLER_SCHEMA_FILE" ]] || return 1
@@ -973,6 +987,8 @@ installer_ownership_resource_role() {
         "$INSTALLER_INSTALL_DIR:bin/antinat-hook-runner"|\
         "$INSTALLER_DATA_DIR:state.db"|\
         "$INSTALLER_DATA_DIR:node.key"|\
+        "$INSTALLER_DATA_DIR:.key.lock"|\
+        "$INSTALLER_DATA_DIR:.lifecycle.lock"|\
         "$INSTALLER_DATA_DIR:terminal.marker"|\
         "$INSTALLER_DATA_DIR:agent.marker"|\
         "$(dirname -- "$INSTALLER_CONFIG"):agent.conf"|\
@@ -992,6 +1008,7 @@ installer_ownership_resource_role() {
             return 0
             ;;
         "$INSTALLER_DATA_DIR:backups"|\
+        "$INSTALLER_DATA_DIR:.upgrade.lock"|\
         "$INSTALLER_DATA_DIR:schema.version"|\
         "$(dirname -- "$INSTALLER_LOG_DIR"):$(basename -- "$INSTALLER_LOG_DIR")"|\
         "$INSTALLER_DATA_DIR:ownership-manifest.json"|\
@@ -1079,6 +1096,8 @@ installer_make_ownership_manifest() {
               {root:$root,path:"bin/antinat-hook-runner"},
               {root:$data,path:"state.db"},
               {root:$data,path:"node.key"},
+              {root:$data,path:".key.lock"},
+              {root:$data,path:".lifecycle.lock"},
               {root:$data,path:"terminal.marker"},
               {root:$data,path:"agent.marker"},
               {root:$config,path:"agent.conf"},
@@ -1111,6 +1130,7 @@ installer_make_ownership_manifest() {
         --arg manager "$INSTALLER_SERVICE_MANAGER" \
         '. + [
           {root:$data,path:"backups"},
+          {root:$data,path:".upgrade.lock"},
           {root:$logroot,path:$logname},
           {root:$data,path:"schema.version"},
           {root:$data,path:"ownership-manifest.json"},
@@ -1244,6 +1264,7 @@ installer_start_services() {
 
 installer_wait_for_token_consumption() {
     [[ -n "$INSTALLER_TOKEN_TMP" ]] || return 0
+    installer_test_fail_at enrollment && return "$INSTALLER_EXIT_TOKEN"
     [[ -n "$INSTALLER_TEST_ROOT" || "${ANTINAT_TEST_MODE:-0}" == 1 ]] && return 0
     local i
     for ((i=0; i<30; i++)); do
@@ -1266,6 +1287,42 @@ installer_conflict() {
     return 1
 }
 
+installer_controller_port_available() {
+    python3 - <<'PY'
+import socket
+
+try:
+    connection = socket.create_connection(("127.0.0.1", 3111), timeout=0.25)
+except OSError:
+    raise SystemExit(0)
+else:
+    connection.close()
+    raise SystemExit(1)
+PY
+}
+
+installer_begin_install_transaction() {
+    local snapshot
+    snapshot=$(mktemp -d "${TMPDIR:-/tmp}/antinat-install.XXXXXX") || return 1
+    chmod 700 -- "$snapshot"
+    installer_chown root:root "$snapshot"
+    INSTALLER_INSTALL_SNAPSHOT="$snapshot"
+    if ! installer_snapshot_files "$snapshot" installer_install_resource_list || \
+        ! installer_snapshot_install_directories "$snapshot"; then
+        rm -rf -- "$snapshot"
+        INSTALLER_INSTALL_SNAPSHOT=""
+        return 1
+    fi
+}
+
+installer_cleanup_install_snapshot() {
+    local snapshot="$INSTALLER_INSTALL_SNAPSHOT"
+    [[ -n "$snapshot" ]] || return 0
+    installer_assert_private_metadata_dir "$snapshot" || return 1
+    rm -rf -- "$snapshot" || return 1
+    INSTALLER_INSTALL_SNAPSHOT=""
+}
+
 installer_install() {
     if installer_role_has_agent && ! installer_validate_endpoint "$INSTALLER_ENDPOINT"; then
         installer_die "$INSTALLER_EXIT_USAGE" "controller endpoint must be an http(s) URL without credentials, query or fragment" || true
@@ -1280,8 +1337,21 @@ installer_install() {
         installer_die "$INSTALLER_EXIT_CONFLICT" "AntiNAT is already installed; use upgrade" || true
         return "$INSTALLER_EXIT_CONFLICT"
     fi
-    installer_create_user
-    installer_prepare_dirs
+    if installer_role_has_controller && ! installer_controller_port_available; then
+        installer_die "$INSTALLER_EXIT_CONFLICT" "Controller listen port 127.0.0.1:3111 is already in use" || true
+        return "$INSTALLER_EXIT_CONFLICT"
+    fi
+    if ! installer_begin_install_transaction; then
+        return "$INSTALLER_EXIT_GENERIC"
+    fi
+    installer_create_user || {
+        installer_rollback_new_install
+        return "$INSTALLER_EXIT_GENERIC"
+    }
+    installer_prepare_dirs || {
+        installer_rollback_new_install
+        return "$INSTALLER_EXIT_GENERIC"
+    }
     if ! installer_backup_schema_for_install; then
         installer_rollback_new_install
         return "$INSTALLER_EXIT_GENERIC"
@@ -1348,12 +1418,21 @@ installer_install() {
     fi
     installer_cleanup_schema_backup
     if installer_role_has_agent; then
-        chmod 600 -- "$INSTALLER_CONFIG"
-        installer_chown root:root "$INSTALLER_CONFIG"
+        if ! chmod 600 -- "$INSTALLER_CONFIG" || ! installer_chown root:root "$INSTALLER_CONFIG"; then
+            installer_rollback_new_install
+            return "$INSTALLER_EXIT_GENERIC"
+        fi
     fi
     # The manifest and HMAC key are installer authority, not Agent state. Keep
     # both root-owned so an Agent cannot authorize its own purge.
-    installer_chown root:root "$INSTALLER_OWNERSHIP_MANIFEST" "$INSTALLER_OWNERSHIP_KEY"
+    if ! installer_chown root:root "$INSTALLER_OWNERSHIP_MANIFEST" "$INSTALLER_OWNERSHIP_KEY"; then
+        installer_rollback_new_install
+        return "$INSTALLER_EXIT_GENERIC"
+    fi
+    if ! installer_cleanup_install_snapshot; then
+        installer_rollback_new_install
+        return "$INSTALLER_EXIT_GENERIC"
+    fi
     printf 'antinat installer: install complete\n'
 }
 
@@ -1428,35 +1507,46 @@ installer_stop_service() {
 }
 
 installer_remote_uninstall_notice() {
-    # The running Agent owns the signed notice/receipt protocol. The installer
-    # invokes an explicitly provisioned helper when one is available and never
-    # claims remote deletion when the node is offline or the helper is absent.
+    # The running Agent owns the signed notice/receipt protocol. It accepts
+    # only root peers on its private state-directory socket and returns success
+    # only after the Controller's durable receipt reaches local state.
     [[ "${ANTINAT_TEST_MODE:-0}" == 1 ]] && return 0
-    local action="${1:-uninstall}" operation_id helper export_path
+    local action="${1:-uninstall}" operation_id socket response export_path
     [[ "$action" == uninstall || "$action" == purge ]] || return 1
+    installer_role_has_agent || return 0
+    # This root-only emergency override deliberately skips Controller delivery.
+    # It is used when the Agent cannot provide a durable receipt and the
+    # operator has explicitly accepted the offline decommission obligation.
+    [[ "${ANTINAT_FORCE_OFFLINE_PURGE:-0}" == 1 ]] && return 0
     operation_id=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
-    helper="${ANTINAT_UNINSTALL_NOTICE_HELPER:-}"
-    if [[ -n "$helper" ]]; then
-        [[ -x "$helper" && ! -L "$helper" ]] || return 1
-        if ! timeout 35 "$helper" --operation-id "$operation_id" --action "$action"; then
-            return 1
-        fi
+    [[ "$operation_id" =~ ^[0-9a-f]{32}$ ]] || return 1
+    socket="$INSTALLER_DATA_DIR/uninstall.sock"
+    if [[ -S "$socket" && ! -L "$socket" ]]; then
+        command -v curl >/dev/null 2>&1 || return 1
+        command -v jq >/dev/null 2>&1 || return 1
+        response=$(curl --fail --silent --show-error --max-time 35 \
+            --unix-socket "$socket" \
+            -H 'Content-Type: application/json' \
+            --data-binary "{\"operation_id\":\"$operation_id\"}" \
+            http://localhost/v1/uninstall-notice) || return 1
+        jq -e --arg operation_id "$operation_id" \
+            'type == "object" and keys == ["operation_id", "status"] and .operation_id == $operation_id and .status == "RECEIPTED"' \
+            <<<"$response" >/dev/null || return 1
         return 0
     fi
     export_path="${ANTINAT_OFFLINE_EXPORT_FILE:-}"
     if [[ -n "$export_path" ]]; then
         umask 077
-        umask 077
         printf '{"operation_id":"%s","status":"UNKNOWN","requested_action":"%s","action":"operator_review_required"}\n' "$operation_id" "$action" >"$export_path" || return 1
         printf 'antinat installer: offline uninstall notice exported; Controller decommission is still required\n' >&2
     fi
-    [[ "${ANTINAT_FORCE_OFFLINE_PURGE:-0}" == 1 ]]
+    return 1
 }
 
 installer_uninstall() {
     installer_init_paths
-    installer_stop_service || return "$INSTALLER_EXIT_GENERIC"
     installer_remote_uninstall_notice || return "$INSTALLER_EXIT_GENERIC"
+    installer_stop_service || return "$INSTALLER_EXIT_GENERIC"
     if installer_role_has_agent; then
         installer_safe_remove "$INSTALLER_INSTALL_DIR" bin/antinat-agent || return "$INSTALLER_EXIT_GENERIC"
         installer_safe_remove "$INSTALLER_INSTALL_DIR" bin/antinat-hook-runner || return "$INSTALLER_EXIT_GENERIC"
@@ -1560,6 +1650,24 @@ PY
 installer_rollback_new_install() {
     local failed=0
     installer_stop_service || failed=1
+    if [[ -n "$INSTALLER_INSTALL_SNAPSHOT" ]]; then
+        installer_cleanup_schema_backup
+        if installer_restore_snapshot "$INSTALLER_INSTALL_SNAPSHOT" && \
+            installer_restore_install_directories "$INSTALLER_INSTALL_SNAPSHOT"; then
+            installer_cleanup_install_snapshot || failed=1
+        else
+            printf 'antinat installer: install rollback snapshot retained at %s\n' "$INSTALLER_INSTALL_SNAPSHOT" >&2
+            failed=1
+        fi
+        rmdir -- "$INSTALLER_BIN_DIR" 2>/dev/null || true
+        rmdir -- "$INSTALLER_INSTALL_DIR" 2>/dev/null || true
+        rmdir -- "$INSTALLER_SERVICE_DIR" 2>/dev/null || true
+        rmdir -- "$INSTALLER_OPENRC_DIR" 2>/dev/null || true
+        rmdir -- "$(dirname -- "$INSTALLER_CONFIG")" 2>/dev/null || true
+        rmdir -- "$INSTALLER_DATA_DIR" 2>/dev/null || true
+        rmdir -- "$INSTALLER_LOG_DIR" 2>/dev/null || true
+        return "$failed"
+    fi
     if installer_role_has_agent; then
         installer_safe_remove "$INSTALLER_INSTALL_DIR" bin/antinat-agent || true
         installer_safe_remove "$INSTALLER_INSTALL_DIR" bin/antinat-hook-runner || true
@@ -1613,6 +1721,8 @@ installer_fallback_purge() {
         installer_safe_remove "$INSTALLER_DATA_DIR" agent.marker || return 1
         installer_safe_remove "$INSTALLER_DATA_DIR" state.db || return 1
         installer_safe_remove "$INSTALLER_DATA_DIR" node.key || return 1
+        installer_safe_remove "$INSTALLER_DATA_DIR" .key.lock || return 1
+        installer_safe_remove "$INSTALLER_DATA_DIR" .lifecycle.lock || return 1
         installer_safe_remove "$(dirname -- "$INSTALLER_CONFIG")" agent.conf || return 1
         installer_safe_remove "$INSTALLER_SERVICE_DIR" antinat-agent.service || return 1
         installer_safe_remove "$INSTALLER_OPENRC_DIR" antinat-agent || return 1
@@ -1629,6 +1739,7 @@ installer_fallback_purge() {
     if [[ ! -e "$INSTALLER_INSTALL_DIR/bin/antinat-agent" && ! -e "$INSTALLER_INSTALL_DIR/bin/antinat-controller" ]]; then
         installer_safe_remove "$INSTALLER_DATA_DIR" schema.version || return 1
     fi
+    installer_safe_remove "$INSTALLER_DATA_DIR" .upgrade.lock || return 1
     installer_safe_remove "$(dirname -- "$INSTALLER_LOG_DIR")" "$(basename -- "$INSTALLER_LOG_DIR")" || return 1
 }
 
@@ -1674,8 +1785,8 @@ installer_manifest_purge() {
 
 installer_purge() {
     installer_init_paths
-    installer_stop_service || return "$INSTALLER_EXIT_GENERIC"
     installer_remote_uninstall_notice purge || return "$INSTALLER_EXIT_GENERIC"
+    installer_stop_service || return "$INSTALLER_EXIT_GENERIC"
     local used_manifest=1
     INSTALLER_PURGE_KEEP_OTHER=0
     if ! installer_manifest_purge; then
@@ -1849,7 +1960,7 @@ PY
 }
 
 installer_snapshot_files() {
-    local backup="$1"
+    local backup="$1" resource_list="${2:-installer_upgrade_resource_list}"
     mkdir -p -- "$backup"
     chmod 700 -- "$backup"
     installer_chown root:root "$backup"
@@ -1878,10 +1989,71 @@ installer_snapshot_files() {
             printf '0\tnone\t%s\t%s\t-\t-\t-\t-\n' "$root" "$relative" >>"$metadata_tmp"
         fi
         index=$((index + 1))
-    done < <(installer_upgrade_resource_list)
+    done < <("$resource_list")
     mv -f -- "$metadata_tmp" "$metadata"
     chmod 600 -- "$metadata"
     installer_chown root:root "$metadata"
+}
+
+installer_install_resource_list() {
+    installer_upgrade_resource_list
+    printf '%s\t%s\n' "$(dirname -- "$INSTALLER_LOG_DIR")" "$(basename -- "$INSTALLER_LOG_DIR")"
+}
+
+installer_install_directory_list() {
+    printf '%s\n' "$INSTALLER_BIN_DIR"
+    printf '%s\n' "$INSTALLER_INSTALL_DIR"
+    printf '%s\n' "$INSTALLER_DATA_DIR"
+    printf '%s\n' "$INSTALLER_LOG_DIR"
+    printf '%s\n' "$(dirname -- "$INSTALLER_CONFIG")"
+    if [[ "$INSTALLER_SERVICE_MANAGER" == systemd ]]; then
+        printf '%s\n' "$INSTALLER_SERVICE_DIR"
+    else
+        printf '%s\n' "$INSTALLER_OPENRC_DIR"
+    fi
+}
+
+installer_snapshot_install_directories() {
+    local backup="$1"
+    local metadata="$backup/directories.tsv" temporary="$backup/.directories.tsv.tmp"
+    local path mode uid gid
+    : >"$temporary"
+    chmod 600 -- "$temporary"
+    while IFS= read -r path; do
+        if [[ -e "$path" || -L "$path" ]]; then
+            [[ -d "$path" && ! -L "$path" ]] || return 1
+            mode=$(stat -c '%a' -- "$path") || return 1
+            uid=$(stat -c '%u' -- "$path") || return 1
+            gid=$(stat -c '%g' -- "$path") || return 1
+            printf '1\t%s\t%s\t%s\t%s\n' "$mode" "$uid" "$gid" "$path" >>"$temporary"
+        else
+            printf '0\t-\t-\t-\t%s\n' "$path" >>"$temporary"
+        fi
+    done < <(installer_install_directory_list)
+    mv -f -- "$temporary" "$metadata"
+    chmod 600 -- "$metadata"
+    installer_chown root:root "$metadata"
+}
+
+installer_restore_install_directories() {
+    local backup="$1" present mode uid gid path extra failed=0
+    installer_assert_private_metadata_file "$backup/directories.tsv" || return 1
+    while IFS=$'\t' read -r present mode uid gid path extra; do
+        [[ -z "${extra:-}" && "$path" == /* && "$path" != *$'\n'* ]] || return 1
+        if [[ "$present" == 0 ]]; then
+            [[ "$mode" == - && "$uid" == - && "$gid" == - ]] || return 1
+            if [[ -e "$path" || -L "$path" ]]; then
+                [[ -d "$path" && ! -L "$path" ]] || { failed=1; continue; }
+                rmdir -- "$path" 2>/dev/null || failed=1
+            fi
+            continue
+        fi
+        [[ "$present" == 1 && "$mode" =~ ^[0-7]{3,4}$ && "$uid" =~ ^[0-9]+$ && "$gid" =~ ^[0-9]+$ ]] || return 1
+        [[ -d "$path" && ! -L "$path" ]] || { failed=1; continue; }
+        chmod "$mode" -- "$path" || failed=1
+        installer_chown "$uid:$gid" "$path" || failed=1
+    done <"$backup/directories.tsv"
+    return "$failed"
 }
 
 installer_upgrade_resource_list() {
@@ -1896,9 +2068,10 @@ installer_upgrade_resource_list() {
         fi
         printf '%s\t%s\n' "$INSTALLER_DATA_DIR" state.db
         printf '%s\t%s\n' "$INSTALLER_DATA_DIR" node.key
+        printf '%s\t%s\n' "$INSTALLER_DATA_DIR" .key.lock
+        printf '%s\t%s\n' "$INSTALLER_DATA_DIR" .lifecycle.lock
         printf '%s\t%s\n' "$INSTALLER_DATA_DIR" terminal.marker
         printf '%s\t%s\n' "$INSTALLER_DATA_DIR" agent.marker
-        printf '%s\t%s\n' "$INSTALLER_DATA_DIR" schema.version
     fi
     if installer_role_has_controller; then
         printf '%s\t%s\n' "$INSTALLER_INSTALL_DIR" bin/antinat-controller
@@ -1912,6 +2085,8 @@ installer_upgrade_resource_list() {
             printf '%s\t%s\n' "$INSTALLER_OPENRC_DIR" antinat-controller
         fi
     fi
+    printf '%s\t%s\n' "$INSTALLER_DATA_DIR" schema.version
+    printf '%s\t%s\n' "$INSTALLER_DATA_DIR" .upgrade.lock
     printf '%s\t%s\n' "$INSTALLER_DATA_DIR" ownership-manifest.json
     printf '%s\t%s\n' "$INSTALLER_DATA_DIR" ownership.key
 }
@@ -2219,7 +2394,14 @@ installer_upgrade() {
     fi
     if ((failed != 0)); then
         installer_upgrade_journal_write "$backup" rollback_in_progress "$completed" 'upgrade failed; restoring snapshot' || rollback_failed=1
-        installer_restore_snapshot "$backup" || rollback_failed=1
+        # A failed health check can leave the newly promoted services running.
+        # Quiesce them before restoring executable and mutable state bytes;
+        # otherwise Controller writes race the snapshot verification and the
+        # old binaries are not actually the processes serving after rollback.
+        installer_stop_service || rollback_failed=1
+        if ((rollback_failed == 0)); then
+            installer_restore_snapshot "$backup" || rollback_failed=1
+        fi
         if ((rollback_failed == 0)); then
             installer_verify_snapshot_state "$backup" || rollback_failed=1
         fi

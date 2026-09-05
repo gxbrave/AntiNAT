@@ -54,7 +54,128 @@ run_installer_role() {
     ANTINAT_ROLE="$role" run_installer_root "$test_root" "$@"
 }
 
+assert_tree_matches() {
+    local actual="$1" expected="$2" message="$3"
+    diff -r --no-dereference -- "$expected" "$actual" >/dev/null || {
+        echo "$message" >&2
+        exit 1
+    }
+    diff \
+        <(find "$expected" -printf '%P\t%y\t%m\t%u\t%g\n' | sort) \
+        <(find "$actual" -printf '%P\t%y\t%m\t%u\t%g\n' | sort) >/dev/null || {
+        echo "$message (metadata differs)" >&2
+        exit 1
+    }
+}
+
 make_release old-binary
+
+# Online removal must obtain the Agent's durable Controller receipt before it
+# stops the service. The normal Linux path is the shipped private Unix socket,
+# not an externally provisioned helper.
+uninstall_notice_line=$(grep -n 'installer_remote_uninstall_notice ||' "$repo_dir/scripts/libinstall.sh" | cut -d: -f1)
+uninstall_stop_line=$(sed -n "${uninstall_notice_line},$((uninstall_notice_line + 3))p" "$repo_dir/scripts/libinstall.sh" | grep -n 'installer_stop_service ||' | cut -d: -f1)
+purge_notice_line=$(grep -n 'installer_remote_uninstall_notice purge ||' "$repo_dir/scripts/libinstall.sh" | cut -d: -f1)
+purge_stop_line=$(sed -n "${purge_notice_line},$((purge_notice_line + 3))p" "$repo_dir/scripts/libinstall.sh" | grep -n 'installer_stop_service ||' | cut -d: -f1)
+[[ "$uninstall_stop_line" == 2 && "$purge_stop_line" == 2 ]] || {
+    echo 'uninstall notice is not completed before service stop' >&2
+    exit 1
+}
+grep -F -- '--unix-socket "$socket"' "$repo_dir/scripts/libinstall.sh" >/dev/null
+grep -F -- '.status == "RECEIPTED"' "$repo_dir/scripts/libinstall.sh" >/dev/null
+force_line=$(grep -n '\[\[ "${ANTINAT_FORCE_OFFLINE_PURGE:-0}" == 1 \]\] && return 0' "$repo_dir/scripts/libinstall.sh" | cut -d: -f1)
+socket_line=$(grep -n 'if \[\[ -S "$socket"' "$repo_dir/scripts/libinstall.sh" | cut -d: -f1)
+[[ -n "$force_line" && -n "$socket_line" && "$force_line" -lt "$socket_line" ]] || {
+    echo 'forced-offline purge does not bypass an unusable Agent socket' >&2
+    exit 1
+}
+if grep -F 'ANTINAT_UNINSTALL_NOTICE_HELPER' "$repo_dir/scripts/libinstall.sh" >/dev/null; then
+    echo 'Linux uninstall still depends on an external notice helper' >&2
+    exit 1
+fi
+
+# OpenRC sources agent.conf as root. Every generated value must remain data,
+# including a single quote followed by valid shell commands.
+openrc_root="$cache_dir/openrc-quote-root"
+openrc_payload="'; INJECTED=yes; #"
+ANTINAT_SERVICE_MANAGER=openrc run_installer_root "$openrc_root" install \
+    --controller-endpoint https://controller.example --bind-interface "$openrc_payload" >/dev/null
+openrc_values=$(env -i sh -c '. "$1"; printf "%s\n%s\n" "$ANTINAT_BIND_INTERFACE" "${INJECTED-unset}"' \
+    _ "$openrc_root/etc/antinat/agent.conf")
+[[ "$openrc_values" == "$openrc_payload"$'\n'unset ]] || {
+    echo 'OpenRC config allowed bind-interface shell injection' >&2
+    exit 1
+}
+
+# A failed enrollment after files are staged must roll back the fresh install
+# and leave the retryable source token in place.
+enrollment_root="$cache_dir/enrollment-failure-root"
+enrollment_token="$cache_dir/enrollment-failure-token"
+printf '%s\n' enrollment-token >"$enrollment_token"
+chmod 600 -- "$enrollment_token"
+set +e
+ANTINAT_TEST_FAIL_POINT=enrollment run_installer_root "$enrollment_root" install \
+    --controller-endpoint https://controller.example --token-file "$enrollment_token" >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" == 3 ]] || { echo "failed enrollment exit=$status, want 3" >&2; exit 1; }
+[[ -f "$enrollment_token" ]] || { echo 'failed enrollment consumed retry token' >&2; exit 1; }
+[[ ! -e "$enrollment_root/opt/antinat/bin/antinat-agent" ]] || { echo 'failed enrollment left Agent binary' >&2; exit 1; }
+
+# A deterministic, test-only write fault stands in for ENOSPC. Rollback must
+# preserve every retained Agent/Controller resource byte-for-byte.
+retained_root="$cache_dir/retained-state-root"
+mkdir -p -- "$retained_root/var/lib/antinat/controller-keys" "$retained_root/etc/antinat" \
+    "$retained_root/var/log/antinat"
+printf '%s\n' retained-state >"$retained_root/var/lib/antinat/state.db"
+printf '%s\n' retained-node-key >"$retained_root/var/lib/antinat/node.key"
+printf '%s\n' retained-terminal >"$retained_root/var/lib/antinat/terminal.marker"
+printf '%s\n' retained-agent >"$retained_root/var/lib/antinat/agent.marker"
+printf '%s\n' retained-controller >"$retained_root/var/lib/antinat/controller.db"
+printf '%s\n' retained-wal >"$retained_root/var/lib/antinat/controller.db-wal"
+printf '%s\n' retained-shm >"$retained_root/var/lib/antinat/controller.db-shm"
+printf '%s\n' retained-controller-key >"$retained_root/var/lib/antinat/controller-keys/key.pem"
+printf '%s\n' 2 >"$retained_root/var/lib/antinat/schema.version"
+printf '%s\n' retained-ownership >"$retained_root/var/lib/antinat/ownership-manifest.json"
+printf '%s\n' retained-ownership-key >"$retained_root/var/lib/antinat/ownership.key"
+printf '%s\n' retained-config >"$retained_root/etc/antinat/agent.conf"
+printf '%s\n' retained-log >"$retained_root/var/log/antinat/agent.log"
+chmod 600 -- "$retained_root"/var/lib/antinat/{state.db,node.key,terminal.marker,agent.marker,controller.db,controller.db-wal,controller.db-shm,schema.version,ownership-manifest.json,ownership.key} \
+    "$retained_root/var/lib/antinat/controller-keys/key.pem" "$retained_root/etc/antinat/agent.conf"
+retained_snapshot="$cache_dir/retained-state-snapshot"
+cp -a -- "$retained_root" "$retained_snapshot"
+set +e
+ANTINAT_ROLE=both ANTINAT_TEST_FAIL_POINT=write run_installer_root "$retained_root" install \
+    --controller-endpoint https://controller.example >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" == 1 ]] || { echo "ENOSPC-like install failure exit=$status, want 1" >&2; exit 1; }
+assert_tree_matches "$retained_root/var/lib/antinat" "$retained_snapshot/var/lib/antinat" 'failed reinstall did not restore retained data'
+assert_tree_matches "$retained_root/etc/antinat" "$retained_snapshot/etc/antinat" 'failed reinstall did not restore retained config'
+assert_tree_matches "$retained_root/var/log/antinat" "$retained_snapshot/var/log/antinat" 'failed reinstall did not restore retained logs'
+
+# A Controller install must reject an occupied native listener before writing
+# package state.
+port_root="$cache_dir/port-conflict-root"
+port_ready="$cache_dir/port-holder-ready"
+python3 -c 'import socket, sys, time; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("127.0.0.1", 3111)); s.listen(); open(sys.argv[1], "w").close(); time.sleep(30)' "$port_ready" &
+port_holder=$!
+trap 'kill "$port_holder" 2>/dev/null || true; rm -rf -- "$cache_dir"' EXIT
+for _ in {1..50}; do
+    [[ -e "$port_ready" ]] && break
+    sleep 0.02
+done
+[[ -e "$port_ready" ]] || { echo 'port-conflict fixture did not become ready' >&2; exit 1; }
+set +e
+run_installer_role controller "$port_root" install >/dev/null 2>&1
+status=$?
+set -e
+kill "$port_holder" 2>/dev/null || true
+wait "$port_holder" 2>/dev/null || true
+trap 'rm -rf -- "$cache_dir"' EXIT
+[[ "$status" == 5 ]] || { echo "port conflict exit=$status, want 5" >&2; exit 1; }
+[[ ! -e "$port_root/opt/antinat/bin/antinat-controller" ]] || { echo 'port conflict changed install state' >&2; exit 1; }
+
 token_file="$cache_dir/token"
 token_value=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
 printf '%s\n' "$token_value" >"$token_file"
@@ -132,8 +253,27 @@ bash "$repo_dir/scripts/install.sh" upgrade >/dev/null 2>&1
 status=$?
 set -e
 [[ "$status" == 6 ]] || { echo "failed upgrade exit=$status, want 6" >&2; exit 1; }
+# Rollback must quiesce the newly promoted services before restoring mutable
+# state, then start the restored service set. The test-mode service wrapper is
+# inert, so assert this safety ordering directly against the shipped function.
+rollback_body=$(sed -n '/if ((failed != 0)); then/,/return "$INSTALLER_EXIT_ROLLBACK"/p' "$repo_dir/scripts/libinstall.sh")
+rollback_stop_line=$(grep -n 'installer_stop_service || rollback_failed=1' <<<"$rollback_body" | cut -d: -f1)
+rollback_restore_line=$(grep -n 'installer_restore_snapshot "$backup" || rollback_failed=1' <<<"$rollback_body" | cut -d: -f1)
+[[ -n "$rollback_stop_line" && -n "$rollback_restore_line" && "$rollback_stop_line" -lt "$rollback_restore_line" ]] || {
+    echo 'upgrade rollback restores live state before stopping promoted services' >&2
+    exit 1
+}
 for relative in "${rollback_paths[@]}"; do
     cmp -- "$root/$relative" "$rollback_snapshot/$relative" || { echo "rollback did not restore $relative" >&2; exit 1; }
+done
+
+set +e
+ANTINAT_FAIL_MIGRATION=1 run_installer upgrade >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" == 6 ]] || { echo "migration failure exit=$status, want 6" >&2; exit 1; }
+for relative in "${rollback_paths[@]}"; do
+    cmp -- "$root/$relative" "$rollback_snapshot/$relative" || { echo "migration rollback did not restore $relative" >&2; exit 1; }
 done
 
 # The failed upgrade leaves a durable journal. Reopen its state as if the
