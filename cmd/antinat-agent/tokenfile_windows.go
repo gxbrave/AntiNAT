@@ -14,6 +14,8 @@ import (
 
 const maxEnrollmentTokenBytes = 4096
 const maxEnrollmentTokenChars = 256
+const agentWindowsServiceAccount = `NT SERVICE\AntiNATAgent`
+const windowsFileFullControl = windows.STANDARD_RIGHTS_REQUIRED | windows.SYNCHRONIZE | 0x1ff
 
 var (
 	errTokenSourceConflict = errors.New("token input sources conflict")
@@ -111,10 +113,10 @@ func readWindowsToken(file *os.File) (*tokenInput, error) {
 	return &tokenInput{token: token}, nil
 }
 
-// requireOwnerOnlyWindowsACL rejects missing/ambiguous DACLs and every
-// data-access allow ACE whose trustee is not the effective owner. This is
-// intentionally conservative: inherited SYSTEM/Administrators grants are
-// rejected rather than treated as equivalent to an owner-only token file.
+// requireOwnerOnlyWindowsACL accepts exactly the ACL produced by install.ps1:
+// LocalService owns the file and both LocalService and the restricted Agent
+// service SID have one explicit FullControl ACE. No inherited or unrelated
+// principal is accepted.
 func requireOwnerOnlyWindowsACL(handle windows.Handle) error {
 	sd, err := windows.GetSecurityInfo(handle, windows.SE_FILE_OBJECT,
 		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
@@ -138,18 +140,39 @@ func requireOwnerOnlyWindowsACL(handle windows.Handle) error {
 	if err != nil || dacl == nil {
 		return errTokenFileUnsafe
 	}
+	serviceSID, _, _, err := windows.LookupSID("", agentWindowsServiceAccount)
+	if err != nil || serviceSID == nil || !strings.HasPrefix(serviceSID.String(), "S-1-5-80-") {
+		return errTokenFileUnsafe
+	}
+	return validateWindowsTokenDACL(dacl, owner, serviceSID)
+}
+
+func validateWindowsTokenDACL(dacl *windows.ACL, owner, serviceSID *windows.SID) error {
+	if dacl == nil || owner == nil || serviceSID == nil || dacl.AceCount != 2 {
+		return errTokenFileUnsafe
+	}
+	seenOwner, seenService := false, false
 	for i := uint32(0); i < uint32(dacl.AceCount); i++ {
 		var ace *windows.ACCESS_ALLOWED_ACE
 		if err := windows.GetAce(dacl, i, &ace); err != nil || ace == nil {
 			return errTokenFileUnsafe
 		}
-		if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || ace.Mask == 0 {
-			continue
-		}
-		sid := (*windows.SID)(unsafe.Pointer(uintptr(unsafe.Pointer(ace)) + unsafe.Offsetof(ace.SidStart)))
-		if !owner.Equals(sid) {
+		if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE ||
+			ace.Header.AceFlags&windows.INHERITED_ACE != 0 || ace.Mask != windowsFileFullControl {
 			return errTokenFileUnsafe
 		}
+		sid := (*windows.SID)(unsafe.Pointer(uintptr(unsafe.Pointer(ace)) + unsafe.Offsetof(ace.SidStart)))
+		switch {
+		case owner.Equals(sid) && !seenOwner:
+			seenOwner = true
+		case serviceSID.Equals(sid) && !seenService:
+			seenService = true
+		default:
+			return errTokenFileUnsafe
+		}
+	}
+	if !seenOwner || !seenService {
+		return errTokenFileUnsafe
 	}
 	return nil
 }
