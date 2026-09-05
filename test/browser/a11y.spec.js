@@ -6,6 +6,11 @@ const ADMIN = {
   username: process.env.ANTINAT_TEST_USER || 'admin',
   password: process.env.ANTINAT_TEST_PASSWORD || ''
 };
+const SCREENSHOT_DIR = process.env.ANTINAT_BROWSER_EVIDENCE_DIR || 'evidence';
+
+function screenshotPath(name) {
+  return `${SCREENSHOT_DIR}/${name}`;
+}
 
 async function login(page) {
   await page.goto('/admin');
@@ -42,7 +47,7 @@ test.describe('accessibility and review evidence', () => {
     });
     expect(outline).not.toBe('none');
     expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--ac-duration').trim())).toBe('0ms');
-    await page.screenshot({ path: 'evidence/p17-admin-desktop.png', fullPage: true });
+    await page.screenshot({ path: screenshotPath('p17-admin-desktop.png'), fullPage: true });
   });
 
   test('mobile admin has no horizontal overflow and keeps controls usable', async ({ page }) => {
@@ -59,7 +64,7 @@ test.describe('accessibility and review evidence', () => {
       })
       .filter((item) => item.width < 44 || item.height < 44));
     expect(touchTargets, 'visible mobile controls must be at least 44x44').toEqual([]);
-    await page.screenshot({ path: 'evidence/p17-admin-mobile.png', fullPage: true });
+    await page.screenshot({ path: screenshotPath('p17-admin-mobile.png'), fullPage: true });
   });
 
   test('captures public and admin language evidence without retaining a token', async ({ page }) => {
@@ -89,17 +94,17 @@ test.describe('accessibility and review evidence', () => {
     await setLanguage('zh');
     await page.goto('/');
     await expect(page.locator('[data-cards]')).toBeVisible();
-    await page.screenshot({ path: 'evidence/p17-home-zh.png', fullPage: true });
+    await page.screenshot({ path: screenshotPath('p17-home-zh.png'), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.screenshot({ path: 'evidence/p17-home-mobile.png', fullPage: true });
+    await page.screenshot({ path: screenshotPath('p17-home-mobile.png'), fullPage: true });
 
     await setLanguage('en');
     await page.goto('/');
     await expect(page.locator('[data-cards]')).toBeVisible();
-    await page.screenshot({ path: 'evidence/p17-home-en.png', fullPage: true });
+    await page.screenshot({ path: screenshotPath('p17-home-en.png'), fullPage: true });
     await page.goto('/admin');
     await expect(page.locator('[data-tabs]')).toBeVisible();
-    await page.screenshot({ path: 'evidence/p17-admin-en.png', fullPage: true });
+    await page.screenshot({ path: screenshotPath('p17-admin-en.png'), fullPage: true });
     await setLanguage('zh');
   });
 

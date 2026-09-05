@@ -11,6 +11,7 @@ BROWSER_DIR="$ROOT/test/browser"
 BIN_DIR="$BROWSER_DIR/.bin"
 BIN="$BIN_DIR/antinat-controller"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/antinat-browser.XXXXXX")"
+SCREENSHOT_DIR="$WORK/evidence"
 CONTROLLER_PID=""
 PORT=""
 FAILED=0
@@ -75,12 +76,14 @@ run_suite() {
   ( cd "$BROWSER_DIR" && ANTINAT_BASE_URL="http://127.0.0.1:$PORT" \
       ANTINAT_TEST_USER="$TEST_USER" ANTINAT_TEST_PASSWORD="$TEST_PASSWORD" \
       ANTINAT_AUTH_STATE="$auth_state" \
+      ANTINAT_BROWSER_EVIDENCE_DIR="$SCREENSHOT_DIR" \
       PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_PATH" \
       npx playwright test "$spec" )
 }
 
 echo "== test-browser: build controller =="
 mkdir -p "$BIN_DIR"
+mkdir -p "$SCREENSHOT_DIR"
 go build -o "$BIN" ./cmd/antinat-controller
 
 if [ ! -d "$BROWSER_DIR/node_modules/playwright" ]; then
