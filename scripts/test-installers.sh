@@ -94,6 +94,30 @@ if grep -F 'ANTINAT_UNINSTALL_NOTICE_HELPER' "$repo_dir/scripts/libinstall.sh" >
     exit 1
 fi
 
+# The Windows entry point has the same receipt-before-stop contract. A failed
+# online helper must leave services untouched, while explicit offline force
+# must bypass even stale/unusable helper configuration.
+windows_purge_body=$(sed -n '/^function Purge-Install {/,/^}/p' "$repo_dir/scripts/install.ps1")
+windows_purge_notice_line=$(grep -n "Send-RemoteUninstallNotice 'purge'" <<<"$windows_purge_body" | cut -d: -f1)
+windows_purge_stop_line=$(grep -n '^    Stop-Delete-Service$' <<<"$windows_purge_body" | cut -d: -f1)
+windows_uninstall_body=$(sed -n "/^    'uninstall' {/,/^    }/p" "$repo_dir/scripts/install.ps1")
+windows_uninstall_notice_line=$(grep -n "Send-RemoteUninstallNotice 'uninstall'" <<<"$windows_uninstall_body" | cut -d: -f1)
+windows_uninstall_stop_line=$(grep -n '^        Stop-Delete-Service$' <<<"$windows_uninstall_body" | cut -d: -f1)
+[[ -n "$windows_purge_notice_line" && -n "$windows_purge_stop_line" && "$windows_purge_notice_line" -lt "$windows_purge_stop_line" && \
+   -n "$windows_uninstall_notice_line" && -n "$windows_uninstall_stop_line" && "$windows_uninstall_notice_line" -lt "$windows_uninstall_stop_line" ]] || {
+    echo 'Windows uninstall or purge stops services before durable receipt' >&2
+    exit 1
+}
+windows_notice_body=$(sed -n '/^function Send-RemoteUninstallNotice/,/^}/p' "$repo_dir/scripts/install.ps1")
+windows_force_line=$(grep -n "ANTINAT_FORCE_OFFLINE_PURGE -eq '1'" <<<"$windows_notice_body" | cut -d: -f1)
+windows_helper_line=$(grep -n 'if ($env:ANTINAT_UNINSTALL_NOTICE_HELPER)' <<<"$windows_notice_body" | cut -d: -f1)
+windows_helper_failure_line=$(grep -n "throw 'remote uninstall helper could not start'" <<<"$windows_notice_body" | cut -d: -f1)
+[[ -n "$windows_force_line" && -n "$windows_helper_line" && -n "$windows_helper_failure_line" && \
+   "$windows_force_line" -lt "$windows_helper_line" && "$windows_helper_line" -lt "$windows_helper_failure_line" ]] || {
+    echo 'Windows forced-offline purge cannot bypass an unusable helper' >&2
+    exit 1
+}
+
 # OpenRC sources agent.conf as root. Every generated value must remain data,
 # including a single quote followed by valid shell commands.
 openrc_root="$cache_dir/openrc-quote-root"

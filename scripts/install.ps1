@@ -1171,6 +1171,10 @@ function Stop-Delete-Service {
 function Send-RemoteUninstallNotice([string] $Action = 'uninstall') {
     if ($env:ANTINAT_TEST_MODE -eq '1') { return }
     if ($Action -notin @('uninstall', 'purge')) { throw 'unsupported remote lifecycle action' }
+    # Explicit offline force is an operator-authorized emergency path. It must
+    # bypass even a configured but unavailable helper; otherwise cleanup can
+    # be blocked by stale helper configuration after the Agent is unreachable.
+    if ($env:ANTINAT_FORCE_OFFLINE_PURGE -eq '1') { return }
     $operationId = [Guid]::NewGuid().ToString('N')
     if ($env:ANTINAT_UNINSTALL_NOTICE_HELPER) {
         $helper = $env:ANTINAT_UNINSTALL_NOTICE_HELPER
@@ -1195,7 +1199,7 @@ function Send-RemoteUninstallNotice([string] $Action = 'uninstall') {
         Write-PrivateBytes $export $encoding.GetBytes($payload)
         Write-Warning 'offline uninstall notice exported; Controller decommission is still required'
     }
-    if ($env:ANTINAT_FORCE_OFFLINE_PURGE -ne '1') { throw 'remote uninstall receipt unavailable; use an online helper or explicit offline force' }
+    throw 'remote uninstall receipt unavailable; use an online helper or explicit offline force'
 }
 
 function Wait-TokenConsumption {
@@ -1447,8 +1451,8 @@ function Remove-EmptyDirectory([string] $Path) {
 }
 
 function Purge-Install {
-    Stop-Delete-Service
     Send-RemoteUninstallNotice 'purge'
+    Stop-Delete-Service
     $manifestVerified = $false
     try {
         $manifest = Read-OwnershipManifest
@@ -2246,8 +2250,8 @@ switch ($script:Command) {
     'install' { Install-Flow }
     'upgrade' { Upgrade-Flow }
     'uninstall' {
-        Stop-Delete-Service
         Send-RemoteUninstallNotice 'uninstall'
+        Stop-Delete-Service
         if ($Role -in @('agent', 'both')) {
             Remove-Owned $InstallDir 'bin/antinat-agent.exe'
             Remove-Owned $InstallDir 'bin/antinat-hook-runner.exe'
