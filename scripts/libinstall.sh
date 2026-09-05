@@ -43,6 +43,7 @@ INSTALLER_AGENT_REENABLE=0
 INSTALLER_CONTROLLER_REENABLE=0
 INSTALLER_SCHEMA_EXISTED_BEFORE_INSTALL=0
 INSTALLER_SCHEMA_BACKUP=""
+INSTALLER_UPGRADE_LOCK_FD=""
 
 INSTALLER_TEST_ROOT="${ANTINAT_TEST_ROOT:-}"
 INSTALLER_ROLE="${ANTINAT_ROLE:-agent}"
@@ -272,7 +273,7 @@ installer_validate_endpoint() {
 
 installer_require_tools() {
     local tool
-    for tool in awk chmod cp curl find getent groupadd head hostname id install jq mktemp mv od openssl python3 readlink rm rmdir sha256sum sleep stat timeout tr useradd wc; do
+    for tool in awk chmod cp curl find flock getent groupadd head hostname id install jq mktemp mv od openssl python3 readlink rm rmdir sha256sum sleep stat sync timeout tr useradd wc; do
         if ! command -v "$tool" >/dev/null 2>&1; then
             installer_die "$INSTALLER_EXIT_GENERIC" "required tool $tool is unavailable" || true
             return "$INSTALLER_EXIT_GENERIC"
@@ -921,6 +922,7 @@ installer_ownership_resource_role() {
             ;;
         "$INSTALLER_DATA_DIR:backups"|\
         "$INSTALLER_DATA_DIR:schema.version"|\
+        "$(dirname -- "$INSTALLER_LOG_DIR"):$(basename -- "$INSTALLER_LOG_DIR")"|\
         "$INSTALLER_DATA_DIR:ownership-manifest.json"|\
         "$INSTALLER_DATA_DIR:ownership.key")
             printf 'shared\n'
@@ -1029,11 +1031,14 @@ installer_make_ownership_manifest() {
     resources=$(jq -c \
         --arg data "$INSTALLER_DATA_DIR" \
         --arg backup "$INSTALLER_BACKUP_DIR" \
+        --arg logroot "$(dirname -- "$INSTALLER_LOG_DIR")" \
+        --arg logname "$(basename -- "$INSTALLER_LOG_DIR")" \
         --arg service "$INSTALLER_SERVICE_DIR" \
         --arg openrc "$INSTALLER_OPENRC_DIR" \
         --arg manager "$INSTALLER_SERVICE_MANAGER" \
         '. + [
           {root:$data,path:"backups"},
+          {root:$logroot,path:$logname},
           {root:$data,path:"schema.version"},
           {root:$data,path:"ownership-manifest.json"},
           {root:$data,path:"ownership.key"}
@@ -1504,6 +1509,7 @@ installer_fallback_purge() {
     if [[ ! -e "$INSTALLER_INSTALL_DIR/bin/antinat-agent" && ! -e "$INSTALLER_INSTALL_DIR/bin/antinat-controller" ]]; then
         installer_safe_remove "$INSTALLER_DATA_DIR" schema.version || return 1
     fi
+    installer_safe_remove "$(dirname -- "$INSTALLER_LOG_DIR")" "$(basename -- "$INSTALLER_LOG_DIR")" || return 1
 }
 
 installer_manifest_purge() {
@@ -1549,7 +1555,7 @@ installer_manifest_purge() {
 installer_purge() {
     installer_init_paths
     installer_stop_service || return "$INSTALLER_EXIT_GENERIC"
-    installer_remote_uninstall_notice || return "$INSTALLER_EXIT_GENERIC"
+    installer_remote_uninstall_notice purge || return "$INSTALLER_EXIT_GENERIC"
     local used_manifest=1
     INSTALLER_PURGE_KEEP_OTHER=0
     if ! installer_manifest_purge; then
@@ -1565,6 +1571,7 @@ installer_purge() {
     rmdir -- "$INSTALLER_OPENRC_DIR" 2>/dev/null || true
     rmdir -- "$(dirname -- "$INSTALLER_CONFIG")" 2>/dev/null || true
     rmdir -- "$INSTALLER_DATA_DIR" 2>/dev/null || true
+    rmdir -- "$INSTALLER_LOG_DIR" 2>/dev/null || true
     if ((used_manifest == 0)); then
         printf 'antinat installer: remote decommission status is unknown; verify Controller-side purge separately\n' >&2
         printf 'antinat installer: purge complete; allowlisted role resources removed, ownership metadata retained because the manifest was not authenticated\n'
@@ -1814,6 +1821,132 @@ installer_restore_snapshot() {
     installer_verify_snapshot_state "$backup"
 }
 
+installer_upgrade_journal_write() {
+    local backup="$1" state="$2" completed="${3:-[]}" error_message="${4:-}"
+    local temporary journal
+    [[ -d "$backup" && ! -L "$backup" && -f "$backup/snapshot.tsv" && ! -L "$backup/snapshot.tsv" ]] || return 1
+    jq -e 'type == "array" and all(.[]; type == "string")' <<<"$completed" >/dev/null || return 1
+    temporary=$(mktemp "$backup/.transaction.XXXXXX") || return 1
+    chmod 600 -- "$temporary"
+    if ! journal=$(jq -cn \
+        --arg schema "antinat.shell-upgrade/v1" \
+        --arg live "$INSTALLER_INSTALL_DIR" \
+        --arg backup "$backup" \
+        --arg state "$state" \
+        --arg error "$error_message" \
+        --argjson completed "$completed" \
+        '{schema:$schema,live_root:$live,backup_path:$backup,snapshot:"snapshot.tsv",state:$state,completed:$completed} + (if $error == "" then {} else {error:$error} end)'); then
+        rm -f -- "$temporary"
+        return 1
+    fi
+    if ! printf '%s\n' "$journal" >"$temporary" || ! mv -f -- "$temporary" "$backup/transaction.json"; then
+        rm -f -- "$temporary"
+        return 1
+    fi
+    chmod 600 -- "$backup/transaction.json"
+    sync -d "$backup" 2>/dev/null || sync
+}
+
+installer_upgrade_resource_allowed() {
+    local root="$1" relative="$2" allowed_root allowed_relative
+    while IFS=$'\t' read -r allowed_root allowed_relative; do
+        if [[ "$root" == "$allowed_root" && "$relative" == "$allowed_relative" ]]; then
+            return 0
+        fi
+    done < <(installer_upgrade_resource_list)
+    return 1
+}
+
+installer_validate_upgrade_snapshot_inputs() {
+    local backup="$1" present kind root relative mode backup_name extra key backup_path
+    [[ -f "$backup/snapshot.tsv" && ! -L "$backup/snapshot.tsv" ]] || return 1
+    declare -A expected_resources=() seen_resources=() seen_backups=()
+    while IFS=$'\t' read -r root relative; do
+        [[ -n "$root" && -n "$relative" ]] || return 1
+        key="${root}"$'\t'"${relative}"
+        expected_resources["$key"]=1
+    done < <(installer_upgrade_resource_list)
+    local expected_count=${#expected_resources[@]} seen_count=0
+    while IFS=$'\t' read -r present kind root relative mode backup_name extra; do
+        [[ -z "${extra:-}" ]] || return 1
+        [[ "$present" == 0 || "$present" == 1 ]] || return 1
+        key="${root}"$'\t'"${relative}"
+        [[ -n "${expected_resources[$key]+present}" && -z "${seen_resources[$key]+present}" ]] || return 1
+        seen_resources["$key"]=1
+        seen_count=$((seen_count + 1))
+        [[ "$relative" != /* && "$relative" != *".."* && "$relative" != *"\\"* ]] || return 1
+        if [[ "$present" == 1 ]]; then
+            [[ "$kind" == file || "$kind" == directory ]] || return 1
+            [[ "$mode" =~ ^[0-7]{3,4}$ ]] || return 1
+            [[ "$backup_name" =~ ^file-[0-9]+$ ]] || return 1
+            [[ -z "${seen_backups[$backup_name]+present}" ]] || return 1
+            seen_backups["$backup_name"]=1
+            backup_path="$backup/$backup_name"
+            [[ -e "$backup_path" && ! -L "$backup_path" ]] || return 1
+            if [[ "$kind" == directory ]]; then
+                [[ -d "$backup_path" ]] || return 1
+            else
+                [[ -f "$backup_path" ]] || return 1
+            fi
+        else
+            [[ "$kind" == none && "$mode" == - && "$backup_name" == - ]] || return 1
+        fi
+    done <"$backup/snapshot.tsv"
+    [[ "$seen_count" == "$expected_count" ]] || return 1
+    for key in "${!expected_resources[@]}"; do
+        [[ -n "${seen_resources[$key]+present}" ]] || return 1
+    done
+}
+
+installer_recover_interrupted_upgrades() {
+    [[ -d "$INSTALLER_BACKUP_DIR" && ! -L "$INSTALLER_BACKUP_DIR" ]] || return 0
+    local candidate journal state live backup snapshot
+    for candidate in "$INSTALLER_BACKUP_DIR"/upgrade.*; do
+        [[ -d "$candidate" && ! -L "$candidate" ]] || continue
+        journal="$candidate/transaction.json"
+        [[ -f "$journal" && ! -L "$journal" ]] || continue
+        [[ "$(stat -c '%a' -- "$journal" 2>/dev/null)" == 600 ]] || return 1
+        if ! jq -e 'type == "object" and ((keys - ["schema","live_root","backup_path","snapshot","state","completed","error"]) | length == 0) and .schema == "antinat.shell-upgrade/v1" and (.completed | type == "array" and all(.[]; type == "string"))' "$journal" >/dev/null; then
+            return 1
+        fi
+        live=$(jq -r '.live_root' "$journal") || return 1
+        backup=$(jq -r '.backup_path' "$journal") || return 1
+        snapshot=$(jq -r '.snapshot' "$journal") || return 1
+        [[ "$live" == "$INSTALLER_INSTALL_DIR" && "$backup" == "$candidate" && "$snapshot" == snapshot.tsv ]] || return 1
+        state=$(jq -r '.state' "$journal") || return 1
+        case "$state" in
+            complete|rolled_back|recovered) continue ;;
+            snapshot_ready|promoting|promoted|migrating|health_checking|rollback_in_progress) ;;
+            *) return 1 ;;
+        esac
+        installer_validate_upgrade_snapshot_inputs "$candidate" || return 1
+        installer_restore_snapshot "$candidate" || return 1
+        installer_verify_snapshot_state "$candidate" || return 1
+        installer_upgrade_journal_write "$candidate" recovered "$(jq -c '.completed' "$journal")" 'interrupted upgrade restored before retry' || return 1
+    done
+}
+
+installer_acquire_upgrade_lock() {
+    local lock="$INSTALLER_DATA_DIR/.upgrade.lock" fd
+    mkdir -p -- "$INSTALLER_DATA_DIR"
+    exec {fd}>>"$lock" || return 1
+    if ! flock -n "$fd"; then
+        exec {fd}>&-
+        return 1
+    fi
+    printf '%s\n' 'upgrade advisory barrier' >&"$fd"
+    INSTALLER_UPGRADE_LOCK_FD="$fd"
+}
+
+installer_release_upgrade_lock() {
+    if [[ -n "$INSTALLER_UPGRADE_LOCK_FD" ]]; then
+        local fd="$INSTALLER_UPGRADE_LOCK_FD"
+        flock -u "$fd" 2>/dev/null || true
+        exec {fd}>&-
+        INSTALLER_UPGRADE_LOCK_FD=""
+    fi
+}
+
 installer_upgrade() {
     installer_init_paths
     installer_validate_upgrade_version || return $?
@@ -1827,28 +1960,55 @@ installer_upgrade() {
     fi
     mkdir -p -- "$INSTALLER_BACKUP_DIR"
     chmod 700 -- "$INSTALLER_BACKUP_DIR"
-    local lock="$INSTALLER_DATA_DIR/.upgrade.lock"
-    if ! (set -C; printf '%s\n' "upgrade barrier" >"$lock") 2>/dev/null; then
+    if ! installer_acquire_upgrade_lock; then
         installer_die "$INSTALLER_EXIT_CONFLICT" "another upgrade is already running" || true
         return "$INSTALLER_EXIT_CONFLICT"
     fi
     local backup
-    backup=$(mktemp -d "$INSTALLER_BACKUP_DIR/upgrade.XXXXXX") || { rm -f -- "$lock"; return "$INSTALLER_EXIT_GENERIC"; }
+    backup=$(mktemp -d "$INSTALLER_BACKUP_DIR/upgrade.XXXXXX") || { installer_release_upgrade_lock; return "$INSTALLER_EXIT_GENERIC"; }
     local failed=0 rollback_failed=0
     installer_stop_service || failed=1
-    installer_snapshot_files "$backup" || failed=1
     if ((failed == 0)); then
+        installer_recover_interrupted_upgrades || failed=1
+    fi
+    if ((failed == 0)); then
+        installer_snapshot_files "$backup" || failed=1
+        installer_verify_snapshot_state "$backup" || failed=1
+        installer_upgrade_journal_write "$backup" snapshot_ready '[]' || failed=1
+    fi
+    local completed='[]'
+    if ((failed == 0)); then
+        installer_upgrade_journal_write "$backup" promoting "$completed" || failed=1
         if installer_role_has_agent; then
-            installer_copy_artifact "antinat-agent-linux-amd64" "$INSTALLER_AGENT_BINARY" 755 || failed=1
+            if installer_copy_artifact "antinat-agent-linux-amd64" "$INSTALLER_AGENT_BINARY" 755; then
+                completed=$(jq -c '. + ["bin/antinat-agent"]' <<<"$completed")
+                installer_upgrade_journal_write "$backup" promoting "$completed" || failed=1
+            else
+                failed=1
+            fi
         fi
         if ((failed == 0)) && installer_role_has_controller; then
-            installer_copy_artifact "antinat-controller-linux-amd64" "$INSTALLER_CONTROLLER_BINARY" 755 || failed=1
+            if installer_copy_artifact "antinat-controller-linux-amd64" "$INSTALLER_CONTROLLER_BINARY" 755; then
+                completed=$(jq -c '. + ["bin/antinat-controller"]' <<<"$completed")
+                installer_upgrade_journal_write "$backup" promoting "$completed" || failed=1
+            else
+                failed=1
+            fi
         fi
         if ((failed == 0)); then
-            installer_write_schema_version || failed=1
+            if installer_write_schema_version; then
+                completed=$(jq -c '. + ["schema.version"]' <<<"$completed")
+                installer_upgrade_journal_write "$backup" promoted "$completed" || failed=1
+            else
+                failed=1
+            fi
         fi
         if [[ "${ANTINAT_FAIL_MIGRATION:-0}" == 1 ]]; then
+            installer_upgrade_journal_write "$backup" migrating "$completed" 'migration failed' || failed=1
             failed=1
+        fi
+        if ((failed == 0)); then
+            installer_upgrade_journal_write "$backup" health_checking "$completed" || failed=1
         fi
         if ((failed == 0)); then
             installer_start_services || failed=1
@@ -1861,9 +2021,18 @@ installer_upgrade() {
         fi
     fi
     if ((failed != 0)); then
+        installer_upgrade_journal_write "$backup" rollback_in_progress "$completed" 'upgrade failed; restoring snapshot' || rollback_failed=1
         installer_restore_snapshot "$backup" || rollback_failed=1
+        if ((rollback_failed == 0)); then
+            installer_verify_snapshot_state "$backup" || rollback_failed=1
+        fi
         installer_start_services || rollback_failed=1
-        rm -f -- "$lock"
+        if ((rollback_failed == 0)); then
+            installer_upgrade_journal_write "$backup" rolled_back "$completed" 'previous version restored' || rollback_failed=1
+        else
+            installer_upgrade_journal_write "$backup" rollback_failed "$completed" 'rollback could not be verified' || true
+        fi
+        installer_release_upgrade_lock
         if ((rollback_failed != 0)); then
             printf 'antinat installer: upgrade failed; rollback could not be verified\n' >&2
         else
@@ -1872,7 +2041,22 @@ installer_upgrade() {
         return "$INSTALLER_EXIT_ROLLBACK"
     fi
     installer_cleanup_schema_backup
-    rm -f -- "$lock"
+    if ! installer_upgrade_journal_write "$backup" complete "$completed"; then
+        rollback_failed=0
+        installer_upgrade_journal_write "$backup" rollback_in_progress "$completed" 'upgrade completion journal failed; restoring snapshot' || rollback_failed=1
+        installer_restore_snapshot "$backup" || rollback_failed=1
+        if ((rollback_failed == 0)); then
+            installer_verify_snapshot_state "$backup" || rollback_failed=1
+        fi
+        if ((rollback_failed == 0)); then
+            installer_upgrade_journal_write "$backup" rolled_back "$completed" 'previous version restored after journal failure' || rollback_failed=1
+        else
+            installer_upgrade_journal_write "$backup" rollback_failed "$completed" 'rollback could not be verified after journal failure' || true
+        fi
+        installer_release_upgrade_lock
+        return "$INSTALLER_EXIT_ROLLBACK"
+    fi
+    installer_release_upgrade_lock
     printf 'antinat installer: upgrade complete\n'
 }
 

@@ -74,7 +74,7 @@ func VerifyOwnershipManifest(path string, key []byte) (OwnershipManifest, error)
 	if len(key) < 16 {
 		return OwnershipManifest{}, errors.New("ownership HMAC key is too short")
 	}
-	raw, err := readBoundedFile(path, 4<<20)
+	raw, err := readProtectedFile(path, 4<<20, "ownership manifest")
 	if err != nil {
 		return OwnershipManifest{}, fmt.Errorf("read ownership manifest: %w", err)
 	}
@@ -174,7 +174,10 @@ func validateRelativeResource(path string) error {
 type PurgeOptions struct {
 	ManifestPath string
 	HMACKey      []byte
-	Fallback     []OwnedResource
+	// HMACKeyPath binds the supplied key bytes to the protected installer key
+	// file. It is required when an authenticated manifest is accepted.
+	HMACKeyPath string
+	Fallback    []OwnedResource
 	// Allowed is the compile-time ownership allowlist. A verified manifest is
 	// still untrusted input until every resource matches this list exactly.
 	Allowed []OwnedResource
@@ -201,6 +204,12 @@ func PurgeOwned(opts PurgeOptions) (PurgeResult, error) {
 	if err == nil {
 		result.ManifestVerified = true
 		resources = manifest.Resources
+		if opts.HMACKeyPath == "" {
+			return result, errors.New("purge ownership key path is required for a verified manifest")
+		}
+		if err := verifyOwnershipKeyFile(opts.HMACKeyPath, opts.HMACKey); err != nil {
+			return result, err
+		}
 		if len(opts.Allowed) == 0 {
 			return result, errors.New("purge ownership allowlist is required for a verified manifest")
 		}
@@ -210,10 +219,20 @@ func PurgeOwned(opts PurgeOptions) (PurgeResult, error) {
 	} else {
 		result.UsedFallback = true
 		result.Warnings = append(result.Warnings, "ownership manifest was absent or invalid; only the compile-time fallback allowlist was used")
+		if len(opts.Allowed) == 0 {
+			return result, errors.New("purge ownership allowlist is required for fallback resources")
+		}
+		if err := resourcesWithinAllowlist(resources, opts.Allowed); err != nil {
+			return result, err
+		}
 	}
 	if len(resources) == 0 {
-		return result, fmt.Errorf("purge has no safe resources: %w", err)
+		if err != nil {
+			return result, fmt.Errorf("purge has no safe resources: %w", err)
+		}
+		return result, errors.New("purge has no safe resources")
 	}
+	resources = append([]OwnedResource(nil), resources...)
 	if err := validateResourceList(resources); err != nil {
 		return result, err
 	}
@@ -299,6 +318,7 @@ func DefaultPurgeResources(layout Layout) []OwnedResource {
 		{Root: layout.DataDir, Path: "ownership-manifest.json"},
 		{Root: layout.DataDir, Path: "ownership.key"},
 		{Root: filepath.Dir(layout.ConfigFile), Path: "agent.conf"},
+		{Root: filepath.Dir(layout.LogDir), Path: filepath.Base(layout.LogDir)},
 		{Root: layout.ServiceDir, Path: "antinat-agent.service"},
 		{Root: layout.ServiceDir, Path: "antinat-controller.service"},
 	}

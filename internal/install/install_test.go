@@ -179,7 +179,11 @@ func TestOwnershipManifestPurgeAndFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifestPath := filepath.Join(t.TempDir(), "ownership.json")
+	keyPath := filepath.Join(t.TempDir(), "ownership.key")
 	key := bytes.Repeat([]byte{0x42}, 32)
+	if err := os.WriteFile(keyPath, key, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	manifest := OwnershipManifest{SchemaVersion: ownershipManifestSchema, InstallationID: "installation-1", Resources: []OwnedResource{{Root: root, Path: "bin/agent"}}}
 	if err := CreateOwnershipManifest(manifestPath, manifest, key); err != nil {
 		t.Fatal(err)
@@ -188,7 +192,7 @@ func TestOwnershipManifestPurgeAndFallback(t *testing.T) {
 		t.Fatalf("verify ownership: %v", err)
 	}
 	allowed := []OwnedResource{{Root: root, Path: "bin/agent"}}
-	result, err := PurgeOwned(PurgeOptions{ManifestPath: manifestPath, HMACKey: key, Allowed: allowed})
+	result, err := PurgeOwned(PurgeOptions{ManifestPath: manifestPath, HMACKey: key, HMACKeyPath: keyPath, Allowed: allowed})
 	if err != nil {
 		t.Fatalf("purge: %v", err)
 	}
@@ -203,7 +207,7 @@ func TestOwnershipManifestPurgeAndFallback(t *testing.T) {
 	if err := os.WriteFile(manifestPath, []byte("tampered"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	result, err = PurgeOwned(PurgeOptions{ManifestPath: manifestPath, HMACKey: key, Fallback: []OwnedResource{{Root: root, Path: "bin/fallback"}}})
+	result, err = PurgeOwned(PurgeOptions{ManifestPath: manifestPath, HMACKey: key, Fallback: []OwnedResource{{Root: root, Path: "bin/fallback"}}, Allowed: []OwnedResource{{Root: root, Path: "bin/fallback"}}})
 	if err != nil {
 		t.Fatalf("fallback purge: %v", err)
 	}
@@ -218,7 +222,11 @@ func TestOwnershipManifestPurgeAndFallback(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := PurgeOwned(PurgeOptions{ManifestPath: filepath.Join(t.TempDir(), "missing"), Fallback: []OwnedResource{{Root: root, Path: "link"}}}); err == nil {
+	if _, err := PurgeOwned(PurgeOptions{
+		ManifestPath: filepath.Join(t.TempDir(), "missing"),
+		Fallback:     []OwnedResource{{Root: root, Path: "link"}},
+		Allowed:      []OwnedResource{{Root: root, Path: "link"}},
+	}); err == nil {
 		t.Fatal("purge followed or removed symlink")
 	}
 	if _, err := os.Stat(outside); err != nil {
@@ -234,6 +242,35 @@ func TestOwnershipManifestPurgeAndFallback(t *testing.T) {
 	}
 	if _, err := VerifyOwnershipManifest(manifestPath, key); err == nil {
 		t.Fatal("accepted ownership manifest with trailing JSON")
+	}
+}
+
+func TestPurgeRejectsUnprotectedOwnershipKey(t *testing.T) {
+	root := t.TempDir()
+	resource := filepath.Join(root, "owned")
+	if err := os.WriteFile(resource, []byte("owned"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	key := bytes.Repeat([]byte{0x53}, 32)
+	manifestPath := filepath.Join(t.TempDir(), "ownership.json")
+	keyPath := filepath.Join(t.TempDir(), "ownership.key")
+	manifest := OwnershipManifest{SchemaVersion: ownershipManifestSchema, InstallationID: "protected-key", Resources: []OwnedResource{{Root: root, Path: "owned"}}}
+	if err := CreateOwnershipManifest(manifestPath, manifest, key); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyPath, key, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PurgeOwned(PurgeOptions{
+		ManifestPath: manifestPath,
+		HMACKey:      key,
+		HMACKeyPath:  keyPath,
+		Allowed:      []OwnedResource{{Root: root, Path: "owned"}},
+	}); err == nil {
+		t.Fatal("purge accepted a group-readable ownership key")
+	}
+	if _, err := os.Stat(resource); err != nil {
+		t.Fatalf("key validation removed the owned resource: %v", err)
 	}
 }
 
@@ -257,6 +294,7 @@ func TestPurgeDirectoryPreflightsAllChildren(t *testing.T) {
 	result, err := PurgeOwned(PurgeOptions{
 		ManifestPath: filepath.Join(t.TempDir(), "missing"),
 		Fallback:     []OwnedResource{{Root: root, Path: "backups"}},
+		Allowed:      []OwnedResource{{Root: root, Path: "backups"}},
 	})
 	if err == nil || result.NoResidue {
 		t.Fatal("purge accepted a directory containing a symlink")
@@ -284,6 +322,7 @@ func TestVerifiedPurgeManifestMustMatchAllowlist(t *testing.T) {
 	}
 	key := bytes.Repeat([]byte{0x19}, 32)
 	manifestPath := filepath.Join(t.TempDir(), "ownership.json")
+	keyPath := filepath.Join(t.TempDir(), "ownership.key")
 	manifest := OwnershipManifest{
 		SchemaVersion:  ownershipManifestSchema,
 		InstallationID: "installation-allowlist",
@@ -295,9 +334,13 @@ func TestVerifiedPurgeManifestMustMatchAllowlist(t *testing.T) {
 	if err := CreateOwnershipManifest(manifestPath, manifest, key); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(keyPath, key, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := PurgeOwned(PurgeOptions{
 		ManifestPath: manifestPath,
 		HMACKey:      key,
+		HMACKeyPath:  keyPath,
 		Allowed:      []OwnedResource{{Root: root, Path: "owned"}},
 	}); err == nil {
 		t.Fatal("purge accepted an authenticated resource outside the allowlist")
@@ -371,8 +414,13 @@ func TestTransactionalUpgradeRestoresCompleteFileSet(t *testing.T) {
 			t.Fatalf("restored %s = %q err=%v", path, got, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(root, ".antinat-upgrade.lock")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("upgrade lock residue: %v", err)
+	lockPath := filepath.Join(root, ".antinat-upgrade.lock")
+	lockInfo, err := os.Stat(lockPath)
+	if err != nil {
+		t.Fatalf("advisory upgrade lock disappeared: %v", err)
+	}
+	if lockInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("advisory upgrade lock mode = %o, want 600", lockInfo.Mode().Perm())
 	}
 	if result.RollbackJournalPath == "" {
 		t.Fatal("successful rollback did not expose its journal path")
@@ -392,6 +440,76 @@ func TestTransactionalUpgradeRestoresCompleteFileSet(t *testing.T) {
 	if err := ValidateNMinusOne(4, 2); err == nil || CodeOf(err) != ExitUpgradeMigrationBlocked {
 		t.Fatal("accepted skipped schema upgrade")
 	}
+}
+
+func TestRecoverInterruptedUpgradeRestoresDurableJournal(t *testing.T) {
+	root := t.TempDir()
+	stage := t.TempDir()
+	backupRoot := t.TempDir()
+	files := []string{"first", "second"}
+	for _, path := range files {
+		if err := os.WriteFile(filepath.Join(root, path), []byte("old-"+path), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(stage, path), []byte("new-"+path), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	backupPath := filepath.Join(backupRoot, "upgrade-crashed")
+	manifest, err := CreateSnapshot(root, backupPath, files)
+	if err != nil {
+		t.Fatalf("create interrupted snapshot: %v", err)
+	}
+	if err := copyFileAtomic(filepath.Join(stage, "first"), filepath.Join(root, "first"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	journalPath := filepath.Join(backupPath, "transaction.json")
+	if err := writeUpgradeTransactionJournal(journalPath, upgradeTransactionJournal{
+		SchemaVersion: upgradeTransactionJournalSchema,
+		LiveRoot:      root,
+		StagingRoot:   stage,
+		BackupPath:    backupPath,
+		Manifest:      manifest,
+		State:         "promoting",
+		Promoted:      []string{"first"},
+	}); err != nil {
+		t.Fatalf("write interrupted journal: %v", err)
+	}
+	if err := RecoverInterruptedUpgrade(context.Background(), root, backupRoot); err != nil {
+		t.Fatalf("recover interrupted upgrade: %v", err)
+	}
+	for _, path := range files {
+		got, err := os.ReadFile(filepath.Join(root, path))
+		if err != nil || string(got) != "old-"+path {
+			t.Fatalf("recovered %s = %q err=%v", path, got, err)
+		}
+	}
+	recovered, err := readUpgradeTransactionJournal(journalPath)
+	if err != nil {
+		t.Fatalf("read recovered journal: %v", err)
+	}
+	if recovered.State != "recovered" {
+		t.Fatalf("recovered journal state = %q", recovered.State)
+	}
+}
+
+func TestUpgradeUsesAdvisoryLock(t *testing.T) {
+	root := t.TempDir()
+	first, err := acquireUpgradeLock(root)
+	if err != nil {
+		t.Fatalf("first upgrade lock: %v", err)
+	}
+	defer releaseUpgradeLock(first)
+	if second, err := acquireUpgradeLock(root); err == nil {
+		releaseUpgradeLock(second)
+		t.Fatal("second upgrade acquired an advisory lock")
+	}
+	releaseUpgradeLock(first)
+	third, err := acquireUpgradeLock(root)
+	if err != nil {
+		t.Fatalf("reacquire upgrade lock: %v", err)
+	}
+	releaseUpgradeLock(third)
 }
 
 func TestTransactionalUpgradeReportsRollbackFailure(t *testing.T) {

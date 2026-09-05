@@ -244,12 +244,30 @@ type UpgradeRequest struct {
 }
 
 type UpgradeResult struct {
-	BackupPath          string
-	RolledBack          bool
-	RollbackFailed      bool
-	RollbackJournalPath string
-	Promoted            bool
-	Manifest            SnapshotManifest
+	BackupPath             string
+	RolledBack             bool
+	RollbackFailed         bool
+	RollbackJournalPath    string
+	TransactionJournalPath string
+	Promoted               bool
+	Manifest               SnapshotManifest
+}
+
+const upgradeTransactionJournalSchema = "antinat.upgrade-transaction/v1"
+
+// upgradeTransactionJournal is written before the first live file is
+// promoted. A process crash therefore leaves enough authenticated-by-location
+// metadata to restore the complete pre-upgrade snapshot on the next run.
+type upgradeTransactionJournal struct {
+	SchemaVersion string           `json:"schema"`
+	LiveRoot      string           `json:"live_root"`
+	StagingRoot   string           `json:"staging_root"`
+	BackupPath    string           `json:"backup_path"`
+	Manifest      SnapshotManifest `json:"manifest"`
+	State         string           `json:"state"`
+	Promoted      []string         `json:"promoted,omitempty"`
+	Restored      []string         `json:"restored,omitempty"`
+	Error         string           `json:"error,omitempty"`
 }
 
 type rollbackJournal struct {
@@ -274,6 +292,17 @@ func TransactionalUpgrade(ctx context.Context, request UpgradeRequest) (result U
 	}
 	if request.LiveRoot == "" || request.StagingRoot == "" {
 		return result, upgradeError(ExitGenericFailure, "upgrade", errors.New("live and staging roots are required"))
+	}
+	if request.LiveRoot, err = canonicalUpgradePath(request.LiveRoot); err != nil {
+		return result, upgradeError(ExitGenericFailure, "upgrade live root", err)
+	}
+	if request.StagingRoot, err = canonicalUpgradePath(request.StagingRoot); err != nil {
+		return result, upgradeError(ExitGenericFailure, "upgrade staging root", err)
+	}
+	if request.BackupRoot != "" {
+		if request.BackupRoot, err = canonicalUpgradePath(request.BackupRoot); err != nil {
+			return result, upgradeError(ExitGenericFailure, "upgrade backup root", err)
+		}
 	}
 	if err := ValidateNMinusOne(request.CurrentVersion, request.PreviousVersion); err != nil {
 		return result, err
@@ -310,8 +339,14 @@ func TransactionalUpgrade(ctx context.Context, request UpgradeRequest) (result U
 	if backupRoot == "" {
 		backupRoot = filepath.Join(filepath.Dir(request.LiveRoot), "antinat-backups")
 	}
+	if backupRoot, err = canonicalUpgradePath(backupRoot); err != nil {
+		return result, upgradeError(ExitGenericFailure, "upgrade backup root", err)
+	}
 	if err := os.MkdirAll(backupRoot, 0o700); err != nil {
 		return result, upgradeError(ExitGenericFailure, "create upgrade backup root", err)
+	}
+	if err := recoverInterruptedUpgrade(ctx, request.LiveRoot, backupRoot); err != nil {
+		return result, upgradeError(ExitGenericFailure, "recover interrupted upgrade", err)
 	}
 	id := fmt.Sprintf("upgrade-%d-%d", time.Now().UnixNano(), upgradeSequence.Add(1))
 	backupPath := filepath.Join(backupRoot, id)
@@ -322,6 +357,22 @@ func TransactionalUpgrade(ctx context.Context, request UpgradeRequest) (result U
 	result.BackupPath, result.Manifest = backupPath, manifest
 	if err := VerifySnapshot(backupPath, manifest); err != nil {
 		return result, upgradeError(ExitGenericFailure, "verify upgrade snapshot", err)
+	}
+	result.TransactionJournalPath = filepath.Join(backupPath, "transaction.json")
+	transaction := upgradeTransactionJournal{
+		SchemaVersion: upgradeTransactionJournalSchema,
+		LiveRoot:      request.LiveRoot,
+		StagingRoot:   request.StagingRoot,
+		BackupPath:    backupPath,
+		Manifest:      manifest,
+		State:         "snapshot_ready",
+	}
+	if err := writeUpgradeTransactionJournal(result.TransactionJournalPath, transaction); err != nil {
+		return result, upgradeError(ExitGenericFailure, "journal upgrade snapshot", err)
+	}
+	transaction.State = "promoting"
+	if err := writeUpgradeTransactionJournal(result.TransactionJournalPath, transaction); err != nil {
+		return result, upgradeError(ExitGenericFailure, "journal upgrade promotion", err)
 	}
 
 	for _, relative := range request.Files {
@@ -349,17 +400,37 @@ func TransactionalUpgrade(ctx context.Context, request UpgradeRequest) (result U
 		if err := copyFileAtomic(source, target, info.Mode().Perm()); err != nil {
 			return rollbackUpgrade(ctx, request, result, upgradeError(ExitRollbackPerformed, "promote artifact", err))
 		}
+		transaction.Promoted = append(transaction.Promoted, relative)
+		if err := writeUpgradeTransactionJournal(result.TransactionJournalPath, transaction); err != nil {
+			return rollbackUpgrade(ctx, request, result, upgradeError(ExitRollbackPerformed, "journal promoted artifact", err))
+		}
 	}
 	result.Promoted = true
+	transaction.State = "promoted"
+	if err := writeUpgradeTransactionJournal(result.TransactionJournalPath, transaction); err != nil {
+		return rollbackUpgrade(ctx, request, result, upgradeError(ExitRollbackPerformed, "journal promoted upgrade", err))
+	}
 	if request.Migrate != nil {
+		transaction.State = "migrating"
+		if err := writeUpgradeTransactionJournal(result.TransactionJournalPath, transaction); err != nil {
+			return rollbackUpgrade(ctx, request, result, upgradeError(ExitRollbackPerformed, "journal migration", err))
+		}
 		if err := request.Migrate(ctx, request.LiveRoot); err != nil {
 			return rollbackUpgrade(ctx, request, result, upgradeError(ExitRollbackPerformed, "migration failed; rollback performed", err))
 		}
 	}
 	if request.HealthCheck != nil {
+		transaction.State = "health_checking"
+		if err := writeUpgradeTransactionJournal(result.TransactionJournalPath, transaction); err != nil {
+			return rollbackUpgrade(ctx, request, result, upgradeError(ExitRollbackPerformed, "journal health check", err))
+		}
 		if err := request.HealthCheck(ctx, request.LiveRoot); err != nil {
 			return rollbackUpgrade(ctx, request, result, upgradeError(ExitRollbackPerformed, "health check failed; rollback performed", err))
 		}
+	}
+	transaction.State = "complete"
+	if err := writeUpgradeTransactionJournal(result.TransactionJournalPath, transaction); err != nil {
+		return rollbackUpgrade(ctx, request, result, upgradeError(ExitRollbackPerformed, "journal completed upgrade", err))
 	}
 	return result, nil
 }
@@ -374,12 +445,26 @@ func rollbackUpgrade(ctx context.Context, request UpgradeRequest, result Upgrade
 		State:         "in_progress",
 	}
 	journalErr := writeRollbackJournal(result.RollbackJournalPath, journal)
+	transaction, transactionErr := readUpgradeTransactionJournal(result.TransactionJournalPath)
+	if transactionErr == nil {
+		transaction.State = "rollback_in_progress"
+		transaction.Error = cause.Error()
+		if err := writeUpgradeTransactionJournal(result.TransactionJournalPath, transaction); err != nil && journalErr == nil {
+			journalErr = err
+		}
+	}
 	restoreErr := restoreSnapshotWithProgress(request.LiveRoot, result.BackupPath, result.Manifest, func(path string) error {
 		journal.Completed = append(journal.Completed, path)
-		if journalErr != nil {
-			return journalErr
+		if err := writeRollbackJournal(result.RollbackJournalPath, journal); err != nil {
+			journalErr = err
+			return err
 		}
-		return writeRollbackJournal(result.RollbackJournalPath, journal)
+		journalErr = nil
+		if transactionErr == nil {
+			transaction.Restored = append(transaction.Restored, path)
+			return writeUpgradeTransactionJournal(result.TransactionJournalPath, transaction)
+		}
+		return nil
 	})
 	if restoreErr != nil {
 		result.RollbackFailed = true
@@ -391,15 +476,26 @@ func rollbackUpgrade(ctx context.Context, request UpgradeRequest, result Upgrade
 		if journalErr != nil {
 			restoreErr = errors.Join(journalErr, restoreErr)
 		}
+		if transactionErr == nil {
+			transaction.State = "rollback_failed"
+			transaction.Error = restoreErr.Error()
+			if err := writeUpgradeTransactionJournal(result.TransactionJournalPath, transaction); err != nil {
+				restoreErr = errors.Join(restoreErr, err)
+			}
+		}
 		return result, upgradeError(ExitGenericFailure, "rollback failed", errors.Join(cause, restoreErr))
 	}
 	result.RolledBack = true
 	journal.State = "complete"
-	if journalErr == nil {
-		if err := writeRollbackJournal(result.RollbackJournalPath, journal); err != nil {
-			return result, upgradeError(ExitRollbackPerformed, "rollback performed; journal finalization failed", errors.Join(cause, err))
+	if err := writeRollbackJournal(result.RollbackJournalPath, journal); err != nil {
+		return result, upgradeError(ExitRollbackPerformed, "rollback performed; journal finalization failed", errors.Join(cause, err))
+	}
+	if transactionErr == nil {
+		transaction.State = "rolled_back"
+		if err := writeUpgradeTransactionJournal(result.TransactionJournalPath, transaction); err != nil {
+			return result, upgradeError(ExitRollbackPerformed, "rollback performed; transaction journal finalization failed", errors.Join(cause, err))
 		}
-	} else {
+	} else if journalErr != nil {
 		return result, upgradeError(ExitRollbackPerformed, "rollback performed; journal unavailable", errors.Join(cause, journalErr))
 	}
 	return result, cause
@@ -413,6 +509,142 @@ func writeRollbackJournal(path string, journal rollbackJournal) error {
 	return atomicWritePrivate(path, raw, 0o600)
 }
 
+func writeUpgradeTransactionJournal(path string, journal upgradeTransactionJournal) error {
+	raw, err := json.MarshalIndent(journal, "", "  ")
+	if err != nil {
+		return err
+	}
+	return atomicWritePrivate(path, raw, 0o600)
+}
+
+func readUpgradeTransactionJournal(path string) (upgradeTransactionJournal, error) {
+	var journal upgradeTransactionJournal
+	raw, err := readProtectedFile(path, 8<<20, "upgrade transaction journal")
+	if err != nil {
+		return journal, err
+	}
+	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&journal); err != nil {
+		return journal, err
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return journal, errors.New("upgrade transaction journal has trailing JSON values")
+		}
+		return journal, err
+	}
+	return journal, nil
+}
+
+func canonicalUpgradePath(path string) (string, error) {
+	if path == "" {
+		return "", errors.New("upgrade path is required")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	clean := filepath.Clean(abs)
+	if clean != abs {
+		return "", errors.New("upgrade path is not canonical")
+	}
+	return clean, nil
+}
+
+func validateUpgradeTransactionJournal(journal upgradeTransactionJournal, liveRoot, backupPath string) error {
+	if journal.SchemaVersion != upgradeTransactionJournalSchema {
+		return errors.New("unsupported upgrade transaction journal schema")
+	}
+	canonicalLive, err := filepath.Abs(liveRoot)
+	if err != nil || filepath.Clean(canonicalLive) != canonicalLive || journal.LiveRoot != canonicalLive {
+		return errors.New("upgrade transaction journal live root mismatch")
+	}
+	canonicalBackup, err := filepath.Abs(backupPath)
+	if err != nil || filepath.Clean(canonicalBackup) != canonicalBackup || journal.BackupPath != canonicalBackup {
+		return errors.New("upgrade transaction journal backup path mismatch")
+	}
+	switch journal.State {
+	case "snapshot_ready", "promoting", "promoted", "migrating", "health_checking", "rollback_in_progress":
+	default:
+		return fmt.Errorf("upgrade transaction journal is not recoverable in state %q", journal.State)
+	}
+	return VerifySnapshot(canonicalBackup, journal.Manifest)
+}
+
+// RecoverInterruptedUpgrade restores every recoverable transaction for the
+// supplied live root. It is safe to call after a process crash because the
+// advisory lock is held by the caller and each journal is atomically written.
+func RecoverInterruptedUpgrade(ctx context.Context, liveRoot, backupRoot string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if liveRoot == "" || backupRoot == "" {
+		return errors.New("live and backup roots are required")
+	}
+	var err error
+	if liveRoot, err = canonicalUpgradePath(liveRoot); err != nil {
+		return err
+	}
+	if backupRoot, err = canonicalUpgradePath(backupRoot); err != nil {
+		return err
+	}
+	lock, err := acquireUpgradeLock(liveRoot)
+	if err != nil {
+		return err
+	}
+	defer releaseUpgradeLock(lock)
+	return recoverInterruptedUpgrade(ctx, liveRoot, backupRoot)
+}
+
+func recoverInterruptedUpgrade(ctx context.Context, liveRoot, backupRoot string) error {
+	entries, err := os.ReadDir(backupRoot)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+		backupPath := filepath.Join(backupRoot, entry.Name())
+		journalPath := filepath.Join(backupPath, "transaction.json")
+		if _, err := os.Lstat(journalPath); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		journal, err := readUpgradeTransactionJournal(journalPath)
+		if err != nil {
+			return fmt.Errorf("read interrupted upgrade journal %q: %w", journalPath, err)
+		}
+		if journal.State == "complete" || journal.State == "rolled_back" || journal.State == "recovered" {
+			continue
+		}
+		if err := validateUpgradeTransactionJournal(journal, liveRoot, backupPath); err != nil {
+			return fmt.Errorf("validate interrupted upgrade journal %q: %w", journalPath, err)
+		}
+		if err := restoreSnapshotWithProgress(liveRoot, backupPath, journal.Manifest, nil); err != nil {
+			journal.State = "rollback_failed"
+			journal.Error = err.Error()
+			_ = writeUpgradeTransactionJournal(journalPath, journal)
+			return fmt.Errorf("restore interrupted upgrade %q: %w", backupPath, err)
+		}
+		journal.State = "recovered"
+		journal.Error = "interrupted upgrade restored before retry"
+		if err := writeUpgradeTransactionJournal(journalPath, journal); err != nil {
+			return fmt.Errorf("finalize interrupted upgrade journal %q: %w", journalPath, err)
+		}
+	}
+	return nil
+}
+
 func validateUpgradePaths(request UpgradeRequest) error {
 	for _, relative := range request.Files {
 		if err := validateRelativeResource(relative); err != nil {
@@ -424,38 +656,6 @@ func validateUpgradePaths(request UpgradeRequest) error {
 
 func upgradeError(code ExitCode, op string, err error) error {
 	return &InstallerError{Code: code, Op: op, Cause: err}
-}
-
-func acquireUpgradeLock(root string) (*os.File, error) {
-	if err := os.MkdirAll(root, 0o700); err != nil {
-		return nil, err
-	}
-	path := filepath.Join(root, ".antinat-upgrade.lock")
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := file.WriteString("upgrade barrier\n"); err != nil {
-		file.Close()
-		os.Remove(path)
-		return nil, err
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		os.Remove(path)
-		return nil, err
-	}
-	return file, nil
-}
-
-func releaseUpgradeLock(file *os.File) {
-	if file == nil {
-		return
-	}
-	path := file.Name()
-	_ = file.Close()
-	_ = os.Remove(path)
-	_ = syncParent(path)
 }
 
 func writeSnapshotManifest(destination string, manifest SnapshotManifest) error {

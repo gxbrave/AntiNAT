@@ -65,6 +65,10 @@ func openProtectedTokenFile(path string) (*TokenInput, error) {
 		_ = file.Close()
 		return nil, tokenError(errors.New("token file must be a regular non-reparse file"))
 	}
+	if err := ensureWindowsHandlePath(path, handle); err != nil {
+		_ = file.Close()
+		return nil, tokenError(fmt.Errorf("token file path binding failed: %w", err))
+	}
 	if err := requireOwnerOnlyWindowsACL(handle); err != nil {
 		_ = file.Close()
 		return nil, tokenError(err)
@@ -109,21 +113,30 @@ func requireOwnerOnlyWindowsACL(handle windows.Handle) error {
 		return errors.New("token file owner is not the current user")
 	}
 	dacl, _, err := sd.DACL()
-	if err != nil || dacl == nil {
+	control, _, controlErr := sd.Control()
+	if controlErr != nil || control&windows.SE_DACL_PROTECTED == 0 {
+		return errors.New("token file DACL inheritance is not disabled")
+	}
+	if err != nil || dacl == nil || dacl.AceCount == 0 {
 		return errors.New("token file DACL is unavailable")
 	}
+	hasOwner := false
 	for i := uint32(0); i < uint32(dacl.AceCount); i++ {
 		var ace *windows.ACCESS_ALLOWED_ACE
 		if err := windows.GetAce(dacl, i, &ace); err != nil || ace == nil {
 			return errors.New("token file DACL contains an unreadable ACE")
 		}
-		if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || ace.Mask == 0 {
-			continue
+		if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || ace.Mask == 0 || ace.Header.AceFlags&windows.INHERITED_ACE != 0 {
+			return errors.New("token file DACL is not a strict protected allow list")
 		}
 		sid := (*windows.SID)(unsafe.Pointer(uintptr(unsafe.Pointer(ace)) + unsafe.Offsetof(ace.SidStart)))
 		if !owner.Equals(sid) {
 			return errors.New("token file DACL grants another principal")
 		}
+		hasOwner = true
+	}
+	if !hasOwner {
+		return errors.New("token file DACL does not grant the owner access")
 	}
 	return nil
 }

@@ -67,6 +67,8 @@ run_installer install --controller-endpoint https://controller.example --platfor
 [[ "$(cat "$root/opt/antinat/bin/antinat-agent")" == old-binary ]] || { echo 'initial artifact missing' >&2; exit 1; }
 [[ "$(cat "$root/var/lib/antinat/schema.version")" == 3 ]] || { echo 'schema marker missing from install' >&2; exit 1; }
 jq -e '.resources[] | select(.path == "schema.version")' "$root/var/lib/antinat/ownership-manifest.json" >/dev/null || { echo 'schema marker missing from ownership manifest' >&2; exit 1; }
+jq -e '.resources[] | select(.path == "antinat" and .root == "'"$root"'/var/log")' "$root/var/lib/antinat/ownership-manifest.json" >/dev/null || { echo 'log directory missing from ownership manifest' >&2; exit 1; }
+printf '%s\n' owned-log-entry >"$root/var/log/antinat/agent.log"
 grep -F -x -- "ANTINAT_BIND_INTERFACE='eth0'" "$root/etc/antinat/agent.conf" >/dev/null || { echo 'bind option missing from config' >&2; exit 1; }
 grep -F -x -- "ANTINAT_LOG_LEVEL='debug'" "$root/etc/antinat/agent.conf" >/dev/null || { echo 'log option missing from config' >&2; exit 1; }
 grep -F -x -- "ANTINAT_AUTO_UPDATE='stable'" "$root/etc/antinat/agent.conf" >/dev/null || { echo 'auto-update option missing from config' >&2; exit 1; }
@@ -83,6 +85,16 @@ run_installer install --controller-endpoint https://controller.example --platfor
 status=$?
 set -e
 [[ "$status" == 5 ]] || { echo "repeat install exit=$status, want 5" >&2; exit 1; }
+
+exec {upgrade_lock_fd}>>"$root/var/lib/antinat/.upgrade.lock"
+flock -n "$upgrade_lock_fd"
+set +e
+run_installer upgrade >/dev/null 2>&1
+status=$?
+set -e
+flock -u "$upgrade_lock_fd"
+exec {upgrade_lock_fd}>&-
+[[ "$status" == 5 ]] || { echo "upgrade lock contention exit=$status, want 5" >&2; exit 1; }
 
 make_release new-binary
 # Seed every Agent-owned upgrade resource so the health-gated rollback proves
@@ -122,6 +134,22 @@ set -e
 for relative in "${rollback_paths[@]}"; do
     cmp -- "$root/$relative" "$rollback_snapshot/$relative" || { echo "rollback did not restore $relative" >&2; exit 1; }
 done
+
+# The failed upgrade leaves a durable journal. Reopen its state as if the
+# process crashed during promotion; the next upgrade must recover the old
+# artifact before taking its new snapshot.
+recovery_candidate=$(find "$root/var/lib/antinat/backups" -mindepth 1 -maxdepth 1 -type d -name 'upgrade.*' -print | sort | tail -n 1)
+[[ -n "$recovery_candidate" && -f "$recovery_candidate/transaction.json" ]] || { echo 'upgrade transaction journal was not created' >&2; exit 1; }
+jq '.state = "promoting"' "$recovery_candidate/transaction.json" >"$cache_dir/recovery-journal.json"
+mv -- "$cache_dir/recovery-journal.json" "$recovery_candidate/transaction.json"
+chmod 600 -- "$recovery_candidate/transaction.json"
+printf '%s\n' tampered-after-crash >"$root/opt/antinat/bin/antinat-agent"
+set +e
+ANTINAT_FORCE_HEALTH_FAIL=1 run_installer upgrade >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" == 6 ]] || { echo "interrupted upgrade recovery exit=$status, want 6" >&2; exit 1; }
+cmp -- "$root/opt/antinat/bin/antinat-agent" "$rollback_snapshot/opt/antinat/bin/antinat-agent" || { echo 'interrupted upgrade recovery did not restore the pre-crash artifact' >&2; exit 1; }
 
 # A missing marker is the explicitly supported legacy N-1 state.
 rm -f -- "$root/var/lib/antinat/schema.version"
@@ -237,6 +265,7 @@ set -e
 [[ "$status" == 7 ]] || { echo "purge exit=$status, want 7" >&2; exit 1; }
 [[ ! -e "$root/opt/antinat/bin/antinat-agent" ]] || { echo 'purge left executable residue' >&2; exit 1; }
 [[ ! -e "$root/etc/antinat/agent.conf" ]] || { echo 'purge left config residue' >&2; exit 1; }
+[[ ! -e "$root/var/log/antinat" ]] || { echo 'purge left log residue' >&2; exit 1; }
 
 fallback_root="$cache_dir/fallback-root"
 run_installer_root "$fallback_root" install --controller-endpoint https://controller.example >/dev/null

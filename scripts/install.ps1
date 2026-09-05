@@ -20,14 +20,18 @@ $script:TokenSource = ''
 $script:TokenSourceIdentity = ''
 $script:SchemaExistedBeforeInstall = $false
 $script:SchemaBackup = ''
+$script:UpgradeMutex = $null
+$script:UpgradeJournalPath = ''
 
 function Initialize-NativeFileApi {
     if ('AntiNAT.NativeFile' -as [type]) { return }
     Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.Win32.SafeHandles;
 
 namespace AntiNAT {
@@ -47,15 +51,29 @@ namespace AntiNAT {
         private const uint GenericRead = 0x80000000;
         private const uint Delete = 0x00010000;
         private const uint FileReadAttributes = 0x00000080;
+        private const uint FileListDirectory = 0x00000001;
+        private const uint Synchronize = 0x00100000;
         private const uint ShareRead = 0x00000001;
         private const uint ShareWrite = 0x00000002;
         private const uint ShareDelete = 0x00000004;
         private const uint OpenExisting = 3;
         private const uint OpenReparsePoint = 0x00200000;
         private const uint BackupSemantics = 0x02000000;
+        private const uint FileDirectoryFile = 0x00000001;
+        private const uint FileOpenForBackupIntent = 0x00004000;
+        private const uint FileSynchronousIoNonalert = 0x00000020;
         private const uint FileAttributeDirectory = 0x00000010;
         private const uint FileAttributeReparsePoint = 0x00000400;
         private const int FileDispositionInfo = 4;
+        private const int FileDispositionInfoExClass = 21;
+        private const uint FileDispositionDelete = 0x00000001;
+        private const uint FileDispositionIgnoreReadonly = 0x00000010;
+        private const uint FileTypeDisk = 0x00000001;
+        private const uint ObjCaseInsensitive = 0x00000040;
+        private const uint ObjDontReparse = 0x00001000;
+        private const int StatusNoSuchFile = unchecked((int)0xC000000F);
+        private const int StatusObjectNameNotFound = unchecked((int)0xC0000034);
+        private const int StatusObjectPathNotFound = unchecked((int)0xC000003A);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct ByHandleFileInformation {
@@ -74,6 +92,47 @@ namespace AntiNAT {
         [StructLayout(LayoutKind.Sequential)]
         private struct FileDispositionInfo { public byte DeleteFile; }
 
+        [StructLayout(LayoutKind.Sequential)]
+        private struct FileDispositionInfoEx { public uint Flags; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct UnicodeString {
+            public ushort Length;
+            public ushort MaximumLength;
+            public IntPtr Buffer;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct ObjectAttributes {
+            public uint Length;
+            public IntPtr RootDirectory;
+            public IntPtr ObjectName;
+            public uint Attributes;
+            public IntPtr SecurityDescriptor;
+            public IntPtr SecurityQualityOfService;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct IoStatusBlock {
+            public IntPtr Status;
+            public IntPtr Information;
+        }
+
+        private sealed class MissingEntryException : IOException {
+            public MissingEntryException(string message) : base(message) { }
+        }
+
+        private sealed class PurgeEntry : IDisposable {
+            public SafeFileHandle Handle;
+            public bool IsDirectory;
+            public string DisplayPath;
+            public List<PurgeEntry> Children = new List<PurgeEntry>();
+
+            public void Dispose() {
+                if (Handle != null) { Handle.Dispose(); Handle = null; }
+            }
+        }
+
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern SafeFileHandle CreateFile(
             string name, uint access, uint share, IntPtr security, uint creation,
@@ -86,6 +145,24 @@ namespace AntiNAT {
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool SetFileInformationByHandle(
             SafeFileHandle handle, int informationClass, ref FileDispositionInfo information, uint size);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetFileInformationByHandle(
+            SafeFileHandle handle, int informationClass, IntPtr information, uint size);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern uint GetFinalPathNameByHandle(
+            SafeFileHandle handle, StringBuilder path, uint length, uint flags);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern uint GetFileType(SafeFileHandle handle);
+
+        [DllImport("ntdll.dll")]
+        private static extern int NtCreateFile(
+            out IntPtr fileHandle, uint desiredAccess, ref ObjectAttributes objectAttributes,
+            out IoStatusBlock ioStatusBlock, IntPtr allocationSize, uint fileAttributes,
+            uint shareAccess, uint createDisposition, uint createOptions, IntPtr eaBuffer,
+            uint eaLength);
 
         private static SafeFileHandle Open(string path, uint access) {
             var handle = CreateFile(path, access, ShareRead | ShareWrite | ShareDelete,
@@ -103,7 +180,8 @@ namespace AntiNAT {
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             }
             bool directory = (information.FileAttributes & FileAttributeDirectory) != 0;
-            if ((!allowDirectory && directory) || (information.FileAttributes & FileAttributeReparsePoint) != 0 ||
+            if (GetFileType(handle) != FileTypeDisk || (!allowDirectory && directory) ||
+                (information.FileAttributes & FileAttributeReparsePoint) != 0 ||
                 (!directory && information.NumberOfLinks != 1)) {
                 throw new IOException("file is not a regular non-reparse file");
             }
@@ -116,6 +194,7 @@ namespace AntiNAT {
             try {
                 ByHandleFileInformation information;
                 string identity = ReadIdentity(handle, out information, false);
+                EnsureExactPath(path, handle);
                 return new TokenReadHandle(handle, identity);
             } catch {
                 handle.Dispose();
@@ -128,14 +207,262 @@ namespace AntiNAT {
             try {
                 ByHandleFileInformation information;
                 string identity = ReadIdentity(handle, out information, true);
+                EnsureExactPath(path, handle);
                 if (!String.IsNullOrEmpty(expectedIdentity) && !String.Equals(identity, expectedIdentity, StringComparison.Ordinal)) {
                     throw new IOException("file identity changed before deletion");
                 }
-                var disposition = new FileDispositionInfo { DeleteFile = 1 };
-                if (!SetFileInformationByHandle(handle, FileDispositionInfo, ref disposition, (uint)Marshal.SizeOf(typeof(FileDispositionInfo)))) {
-                    throw new Win32Exception(Marshal.GetLastWin32Error());
-                }
+                MarkDelete(handle);
             } finally { handle.Dispose(); }
+        }
+
+        // Purge opens the complete tree relative to one stable root handle. A
+        // final-path check rejects a junction or other reparse redirection even
+        // if the root path was replaced after PowerShell inspected it.
+        public static bool DeleteOwnedTree(string root, string relative) {
+            string canonicalRoot = CanonicalRoot(root);
+            string normalizedRelative = ValidateRelative(relative);
+            string lexicalTarget = Path.GetFullPath(Path.Combine(canonicalRoot, normalizedRelative));
+            EnsureWithin(canonicalRoot, lexicalTarget);
+
+            PurgeEntry rootEntry;
+            try { rootEntry = OpenRoot(canonicalRoot); }
+            catch (MissingEntryException) { return false; }
+            try {
+                PurgeEntry target = rootEntry;
+                PurgeEntry finalTarget = null;
+                var parents = new List<PurgeEntry>();
+                string[] parts = normalizedRelative.Split(new[] { '\\' }, StringSplitOptions.RemoveEmptyEntries);
+                try {
+                    for (int i = 0; i < parts.Length; i++) {
+                        PurgeEntry child;
+                        try { child = OpenRelative(target, parts[i], FinalPath(rootEntry.Handle)); }
+                        catch (MissingEntryException) { return false; }
+                        if (i == parts.Length - 1) {
+                            target = child;
+                            finalTarget = child;
+                        } else {
+                            if (!child.IsDirectory) {
+                                child.Dispose();
+                                throw new IOException("purge parent is not a directory");
+                            }
+                            parents.Add(child);
+                            target = child;
+                        }
+                    }
+                    Preflight(target, FinalPath(rootEntry.Handle));
+                    DeleteTree(target);
+                    return true;
+                } finally {
+                    if (finalTarget != null) { DisposeTree(finalTarget); }
+                    foreach (PurgeEntry parent in parents) { parent.Dispose(); }
+                }
+            } finally { rootEntry.Dispose(); }
+        }
+
+        private static string CanonicalRoot(string root) {
+            if (String.IsNullOrEmpty(root) || root.IndexOf('\0') >= 0) {
+                throw new IOException("purge root is invalid");
+            }
+            string canonical = Path.GetFullPath(root);
+            if (!Path.IsPathRooted(canonical)) { throw new IOException("purge root is not rooted"); }
+            if (canonical.Length == 3 && canonical[1] == ':' &&
+                (canonical[2] == Path.DirectorySeparatorChar || canonical[2] == Path.AltDirectorySeparatorChar)) {
+                return canonical;
+            }
+            string trimmed = canonical.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return String.IsNullOrEmpty(trimmed) ? canonical : trimmed;
+        }
+
+        private static string ValidateRelative(string relative) {
+            if (String.IsNullOrEmpty(relative) || relative.IndexOf('\0') >= 0 || relative.IndexOf('\\') >= 0 || Path.IsPathRooted(relative)) {
+                throw new IOException("unsafe purge path");
+            }
+            foreach (char c in relative) {
+                if (!(Char.IsLetterOrDigit(c) || c == '.' || c == '_' || c == '-' || c == '/')) {
+                    throw new IOException("unsafe purge path");
+                }
+            }
+            string[] parts = relative.Split('/');
+            foreach (string part in parts) {
+                if (String.IsNullOrEmpty(part) || part == "." || part == "..") { throw new IOException("unsafe purge path"); }
+            }
+            return relative.Replace('/', '\\');
+        }
+
+        private static void EnsureWithin(string root, string candidate) {
+            string prefix = root.EndsWith("\\", StringComparison.Ordinal) ? root : root + "\\";
+            if (!candidate.Equals(root, StringComparison.OrdinalIgnoreCase) &&
+                !candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) {
+                throw new IOException("purge path escapes its root");
+            }
+        }
+
+        private static string FinalPath(SafeFileHandle handle) {
+            var buffer = new StringBuilder(32768);
+            uint length = GetFinalPathNameByHandle(handle, buffer, (uint)buffer.Capacity, 0);
+            if (length == 0 || length >= buffer.Capacity) { throw new Win32Exception(Marshal.GetLastWin32Error()); }
+            return buffer.ToString();
+        }
+
+        private static string ExtendedPath(string path) {
+            string canonical = Path.GetFullPath(path);
+            if (canonical.StartsWith("\\\\?\\", StringComparison.Ordinal)) { return canonical; }
+            if (canonical.StartsWith("\\\\", StringComparison.Ordinal)) { return "\\\\?\\UNC\\" + canonical.Substring(2); }
+            return "\\\\?\\" + canonical;
+        }
+
+        private static void EnsureExactPath(string expected, SafeFileHandle handle) {
+            string actual = FinalPath(handle).TrimEnd('\\');
+            string wanted = ExtendedPath(expected).TrimEnd('\\');
+            if (!actual.Equals(wanted, StringComparison.OrdinalIgnoreCase)) {
+                throw new IOException("opened path resolves outside its expected path");
+            }
+        }
+
+        private static void EnsureRootIdentity(string expected, SafeFileHandle handle) {
+            string actual = FinalPath(handle).TrimEnd('\\');
+            string wanted = ExtendedPath(expected).TrimEnd('\\');
+            if (!actual.Equals(wanted, StringComparison.OrdinalIgnoreCase)) {
+                throw new IOException("purge root resolves outside its expected path");
+            }
+        }
+
+        private static PurgeEntry OpenRoot(string path) {
+            var handle = CreateFile(path, FileListDirectory | FileReadAttributes | Delete | Synchronize,
+                ShareRead | ShareWrite | ShareDelete, IntPtr.Zero, OpenExisting,
+                OpenReparsePoint | BackupSemantics, IntPtr.Zero);
+            if (handle.IsInvalid) {
+                int error = Marshal.GetLastWin32Error();
+                handle.Dispose();
+                if (error == 2 || error == 3) { throw new MissingEntryException("purge root is absent"); }
+                throw new Win32Exception(error);
+            }
+            try {
+                ByHandleFileInformation information;
+                if (!GetFileInformationByHandle(handle, out information) ||
+                    (information.FileAttributes & FileAttributeDirectory) == 0 ||
+                    (information.FileAttributes & FileAttributeReparsePoint) != 0 ||
+                    GetFileType(handle) != FileTypeDisk) {
+                    throw new IOException("purge root is not a regular non-reparse directory");
+                }
+                EnsureRootIdentity(path, handle);
+                return new PurgeEntry { Handle = handle, IsDirectory = true, DisplayPath = path };
+            } catch { handle.Dispose(); throw; }
+        }
+
+        private static SafeFileHandle OpenRelativeHandle(SafeFileHandle parent, string name, bool directory) {
+            if (String.IsNullOrEmpty(name) || name.Length > 32766 || name.IndexOf('\0') >= 0) {
+                throw new IOException("purge entry name is invalid");
+            }
+            IntPtr nameBuffer = Marshal.StringToHGlobalUni(name);
+            IntPtr unicodeBuffer = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(UnicodeString)));
+            try {
+                var unicode = new UnicodeString { Length = (ushort)(name.Length * 2), MaximumLength = (ushort)(name.Length * 2 + 2), Buffer = nameBuffer };
+                Marshal.StructureToPtr(unicode, unicodeBuffer, false);
+                var attributes = new ObjectAttributes {
+                    Length = (uint)Marshal.SizeOf(typeof(ObjectAttributes)),
+                    RootDirectory = parent.DangerousGetHandle(),
+                    ObjectName = unicodeBuffer,
+                    Attributes = ObjCaseInsensitive | ObjDontReparse
+                };
+                IntPtr raw;
+                IoStatusBlock statusBlock;
+                uint access = Delete | FileReadAttributes | Synchronize;
+                uint options = FileOpenForBackupIntent | FileSynchronousIoNonalert | OpenReparsePoint;
+                if (directory) { access |= FileListDirectory; options |= FileDirectoryFile; }
+                int status = NtCreateFile(out raw, access, ref attributes, out statusBlock, IntPtr.Zero, 0,
+                    ShareRead | ShareWrite | ShareDelete, OpenExisting, options, IntPtr.Zero, 0);
+                if (status != 0) {
+                    if (status == StatusNoSuchFile || status == StatusObjectNameNotFound || status == StatusObjectPathNotFound) {
+                        throw new MissingEntryException("purge entry is absent");
+                    }
+                    throw new IOException("relative purge open failed with NTSTATUS 0x" + ((uint)status).ToString("X8"));
+                }
+                var handle = new SafeFileHandle(raw, true);
+                if (handle.IsInvalid) { handle.Dispose(); throw new IOException("relative purge handle is invalid"); }
+                return handle;
+            } finally {
+                Marshal.FreeHGlobal(unicodeBuffer);
+                Marshal.FreeHGlobal(nameBuffer);
+            }
+        }
+
+        private static PurgeEntry OpenRelative(PurgeEntry parent, string name, string rootFinal) {
+            SafeFileHandle handle = OpenRelativeHandle(parent.Handle, name, false);
+            try {
+                ByHandleFileInformation information;
+                if (!GetFileInformationByHandle(handle, out information) ||
+                    (information.FileAttributes & FileAttributeReparsePoint) != 0 || GetFileType(handle) != FileTypeDisk) {
+                    throw new IOException("purge entry is not a regular non-reparse resource");
+                }
+                bool directory = (information.FileAttributes & FileAttributeDirectory) != 0;
+                if (directory) {
+                    handle.Dispose();
+                    handle = OpenRelativeHandle(parent.Handle, name, true);
+                    if (!GetFileInformationByHandle(handle, out information) ||
+                        (information.FileAttributes & FileAttributeDirectory) == 0 ||
+                        (information.FileAttributes & FileAttributeReparsePoint) != 0 || GetFileType(handle) != FileTypeDisk) {
+                        throw new IOException("purge directory changed during open");
+                    }
+                }
+                string displayPath = Path.Combine(parent.DisplayPath, name);
+                EnsureWithin(rootFinal, FinalPath(handle));
+                return new PurgeEntry { Handle = handle, IsDirectory = directory, DisplayPath = displayPath };
+            } catch { handle.Dispose(); throw; }
+        }
+
+        private static string[] ChildNames(PurgeEntry directory) {
+            var names = new List<string>();
+            foreach (string path in Directory.GetFileSystemEntries(directory.DisplayPath)) {
+                string name = Path.GetFileName(path);
+                if (String.IsNullOrEmpty(name) || name == "." || name == ".." || name.IndexOf('\\') >= 0 || name.IndexOf('/') >= 0) {
+                    throw new IOException("purge directory contains an unsafe name");
+                }
+                names.Add(name);
+            }
+            names.Sort(StringComparer.OrdinalIgnoreCase);
+            return names.ToArray();
+        }
+
+        private static void Preflight(PurgeEntry entry, string rootFinal) {
+            if (!entry.IsDirectory) { return; }
+            foreach (string name in ChildNames(entry)) {
+                PurgeEntry child;
+                try { child = OpenRelative(entry, name, rootFinal); }
+                catch (MissingEntryException) { continue; }
+                try { Preflight(child, rootFinal); entry.Children.Add(child); }
+                catch { DisposeTree(child); throw; }
+            }
+        }
+
+        private static void DisposeTree(PurgeEntry entry) {
+            foreach (PurgeEntry child in entry.Children) { DisposeTree(child); }
+            entry.Children.Clear();
+            entry.Dispose();
+        }
+
+        private static void DeleteTree(PurgeEntry entry) {
+            Exception failure = null;
+            foreach (PurgeEntry child in entry.Children) {
+                try { DeleteTree(child); } catch (Exception error) { if (failure == null) { failure = error; } }
+            }
+            entry.Children.Clear();
+            try { MarkDelete(entry.Handle); } catch (Exception error) { if (failure == null) { failure = error; } }
+            try { entry.Dispose(); } catch (Exception error) { if (failure == null) { failure = error; } }
+            if (failure != null) { throw failure; }
+        }
+
+        private static void MarkDelete(SafeFileHandle handle) {
+            var extended = new FileDispositionInfoEx { Flags = FileDispositionDelete | FileDispositionIgnoreReadonly };
+            IntPtr buffer = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(FileDispositionInfoEx)));
+            try {
+                Marshal.StructureToPtr(extended, buffer, false);
+                if (SetFileInformationByHandle(handle, FileDispositionInfoExClass, buffer, (uint)Marshal.SizeOf(typeof(FileDispositionInfoEx)))) { return; }
+            } finally { Marshal.FreeHGlobal(buffer); }
+            var legacy = new FileDispositionInfo { DeleteFile = 1 };
+            if (!SetFileInformationByHandle(handle, FileDispositionInfo, ref legacy, (uint)Marshal.SizeOf(typeof(FileDispositionInfo)))) {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
         }
     }
 }
@@ -266,6 +593,7 @@ function Set-Paths {
     $script:Hook = P "$env:ProgramFiles\AntiNAT\bin\antinat-hook-runner.exe"
     $script:DataDir = P "$env:ProgramData\AntiNAT"
     $script:Config = P "$env:ProgramData\AntiNAT\agent.conf"
+    $script:LogDir = P "$env:ProgramData\AntiNAT\log"
     $script:ServiceDir = P "$env:ProgramData\AntiNAT\services"
     $script:Manifest = P "$env:ProgramData\AntiNAT\ownership-manifest.json"
     $script:OwnershipKey = P "$env:ProgramData\AntiNAT\ownership.key"
@@ -342,14 +670,34 @@ function Test-StrictFileAcl([string] $Path, [bool] $RequireCurrentOwner) {
     $owner = Get-SidString $acl.Owner
     if ($RequireCurrentOwner -and $owner -ne $trusted[0]) { throw 'file owner is not the current user' }
     if (-not $RequireCurrentOwner -and $owner -notin $trusted) { throw 'file owner is not trusted' }
+    $rules = @($acl.Access)
+    if ($rules.Count -eq 0) { throw 'file ACL has no explicit protected entries' }
     $hasCurrent = $false
-    foreach ($rule in @($acl.Access)) {
+    foreach ($rule in $rules) {
         if ($rule.IsInherited -or $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { throw 'file ACL is not a strict allow list' }
         $sid = Get-SidString $rule.IdentityReference
         if ($sid -notin $trusted) { throw 'file ACL grants an untrusted principal' }
         if ($sid -eq $trusted[0]) { $hasCurrent = $true }
     }
     if ($RequireCurrentOwner -and -not $hasCurrent) { throw 'file ACL does not grant the current user access' }
+}
+
+function Read-ProtectedBytes([string] $Path, [int64] $Limit, [string] $Label) {
+    Test-StrictFileAcl $Path $false
+    Initialize-NativeFileApi
+    $opened = [AntiNAT.NativeFile]::OpenRead($Path)
+    $memory = New-Object -TypeName System.IO.MemoryStream
+    try {
+        $buffer = New-Object -TypeName byte[] -ArgumentList 65536
+        while (($count = $opened.Stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            if ($memory.Length + $count -gt $Limit) { throw "$Label exceeds size limit" }
+            $memory.Write($buffer, 0, $count)
+        }
+        return ,$memory.ToArray()
+    } finally {
+        $memory.Dispose()
+        $opened.Dispose()
+    }
 }
 
 function Test-StrictDirectoryAcl([string] $Path) {
@@ -360,7 +708,9 @@ function Test-StrictDirectoryAcl([string] $Path) {
     if (-not $acl.AreAccessRulesProtected) { throw 'directory ACL inheritance must be disabled' }
     $trusted = Get-TrustedSids
     if ((Get-SidString $acl.Owner) -notin $trusted) { throw 'directory owner is not trusted' }
-    foreach ($rule in @($acl.Access)) {
+    $rules = @($acl.Access)
+    if ($rules.Count -eq 0) { throw 'directory ACL has no explicit protected entries' }
+    foreach ($rule in $rules) {
         if ($rule.IsInherited -or $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { throw 'directory ACL is not a strict allow list' }
         if ((Get-SidString $rule.IdentityReference) -notin $trusted) { throw 'directory ACL grants an untrusted principal' }
     }
@@ -382,7 +732,9 @@ function Assert-SystemOnlyAcl([string] $Path) {
     Assert-NoReparsePath $Path
     $acl = Get-Acl -LiteralPath $Path
     if (-not $acl.AreAccessRulesProtected -or (Get-SidString $acl.Owner) -ne 'S-1-5-18') { throw 'token file ACL is not SYSTEM-owned and protected' }
-    foreach ($rule in @($acl.Access)) {
+    $rules = @($acl.Access)
+    if ($rules.Count -eq 0) { throw 'token file ACL has no explicit protected entries' }
+    foreach ($rule in $rules) {
         if ($rule.IsInherited -or $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or (Get-SidString $rule.IdentityReference) -ne 'S-1-5-18') { throw 'token file ACL grants a principal other than SYSTEM' }
     }
 }
@@ -391,14 +743,22 @@ function Write-PrivateBytes([string] $Path, [byte[]] $Bytes) {
     $parent = Split-Path -LiteralPath $Path -Parent
     New-Item -ItemType Directory -Force -Path $parent | Out-Null
     Assert-NoReparsePath $parent
+    $existing = Get-ExistingItem $Path
+    if ($null -ne $existing -and $existing.PSIsContainer) { throw 'private write destination is a directory' }
     Assert-NoReparsePath $Path
     $temporary = Join-Path $parent ('.antinat-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    $stream = $null
     try {
-        [IO.File]::WriteAllBytes($temporary, $Bytes)
+        $stream = New-Object -TypeName System.IO.FileStream -ArgumentList @($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None, 1048576, [IO.FileOptions]::WriteThrough)
+        if ($Bytes.Length -gt 0) { $stream.Write($Bytes, 0, $Bytes.Length) }
+        $stream.Flush($true)
+        $stream.Dispose()
+        $stream = $null
         Set-PrivateAcl $temporary $false
         Move-Item -LiteralPath $temporary -Destination $Path -Force
         Set-PrivateAcl $Path $false
     } finally {
+        if ($null -ne $stream) { $stream.Dispose() }
         if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
     }
 }
@@ -407,6 +767,8 @@ function Write-SystemToken([string] $Path, [byte[]] $Bytes) {
     $parent = Split-Path -LiteralPath $Path -Parent
     New-Item -ItemType Directory -Force -Path $parent | Out-Null
     Assert-NoReparsePath $parent
+    $existing = Get-ExistingItem $Path
+    if ($null -ne $existing -and $existing.PSIsContainer) { throw 'token destination is a directory' }
     Assert-NoReparsePath $Path
     $temporary = Join-Path $parent ('.antinat-token.' + [Guid]::NewGuid().ToString('N') + '.tmp')
     try {
@@ -852,31 +1214,11 @@ function Cleanup-TokenOnFailure {
 function Remove-Owned([string] $Root, [string] $Relative) {
     $relativePath = $Relative.Replace('/', '\')
     if ([IO.Path]::IsPathRooted($relativePath) -or $relativePath.Contains([char]0) -or $relativePath -match '(^|\\)\.\.?(\\|$)') { throw 'unsafe ownership path' }
-    Assert-NoReparsePath $Root
     $base = [IO.Path]::GetFullPath($Root).TrimEnd('\') + '\'
     $path = [IO.Path]::GetFullPath((Join-Path $Root $relativePath))
     if (-not $path.StartsWith($base, [StringComparison]::OrdinalIgnoreCase)) { throw 'ownership path escapes its root' }
-    $item = Get-ExistingItem $path
-    if ($null -eq $item) { return }
-    Assert-OwnedTreeSafe $path
-    Assert-NoReparsePath $path
-    if ($item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { throw 'refusing reparse-point purge' }
-    if ($item.PSIsContainer) {
-        foreach ($child in Get-ChildItem -LiteralPath $path -Force) { Remove-Owned $path $child.Name }
-    }
-    Remove-ExactPath $path
-}
-
-function Assert-OwnedTreeSafe([string] $Path) {
-    $item = Get-ExistingItem $Path
-    if ($null -eq $item) { return }
-    Assert-NoReparsePath $Path
-    if ($item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { throw 'refusing reparse-point purge' }
-    if ($item.PSIsContainer) {
-        foreach ($child in Get-ChildItem -LiteralPath $Path -Force) { Assert-OwnedTreeSafe $child.FullName }
-    } elseif ($item -isnot [IO.FileInfo]) {
-        throw 'refusing to purge a non-regular resource'
-    }
+    Initialize-NativeFileApi
+    [void][AntiNAT.NativeFile]::DeleteOwnedTree($Root, $Relative)
 }
 
 function Remove-ExactPath([string] $Path) {
@@ -908,9 +1250,10 @@ function Get-CompileTimeResources {
         )
     }
     $resources += @(
-        [ordered]@{ root = $DataDir; path = 'schema.version' },
-        [ordered]@{ root = $DataDir; path = 'backups' },
-        [ordered]@{ root = $DataDir; path = 'ownership-manifest.json' },
+            [ordered]@{ root = $DataDir; path = 'schema.version' },
+            [ordered]@{ root = $DataDir; path = 'backups' },
+            [ordered]@{ root = (Split-Path -LiteralPath $LogDir -Parent); path = (Split-Path -LiteralPath $LogDir -Leaf) },
+            [ordered]@{ root = $DataDir; path = 'ownership-manifest.json' },
         [ordered]@{ root = $DataDir; path = 'ownership.key' }
     )
     return $resources
@@ -929,6 +1272,7 @@ function Get-AllCompileTimeResources {
         [ordered]@{ root = $DataDir; path = 'agent.marker' },
         [ordered]@{ root = $DataDir; path = 'schema.version' },
         [ordered]@{ root = $DataDir; path = 'backups' },
+        [ordered]@{ root = (Split-Path -LiteralPath $LogDir -Parent); path = (Split-Path -LiteralPath $LogDir -Leaf) },
         [ordered]@{ root = $DataDir; path = 'ownership-manifest.json' },
         [ordered]@{ root = $DataDir; path = 'ownership.key' },
         [ordered]@{ root = (Split-Path -LiteralPath $Config -Parent); path = 'agent.conf' }
@@ -1008,7 +1352,7 @@ function New-OwnershipManifest {
     Set-PrivateAcl $DataDir $true
     if ($null -eq (Get-ExistingItem $OwnershipKey)) { Write-PrivateBytes $OwnershipKey (New-RandomBytes 32) }
     Test-StrictFileAcl $OwnershipKey $false
-    $key = [IO.File]::ReadAllBytes($OwnershipKey)
+    $key = Read-ProtectedBytes $OwnershipKey 4MB 'ownership key'
     if ($key.Length -lt 16) { throw 'ownership HMAC key is too short' }
     $existingManifest = Get-ExistingItem $Manifest
     $installationId = $null
@@ -1049,18 +1393,24 @@ function New-OwnershipManifest {
 }
 
 function Read-OwnershipManifest {
-    if ($null -eq (Get-ExistingItem $Manifest) -or $null -eq (Get-ExistingItem $OwnershipKey)) { throw 'ownership manifest or key is missing' }
-    Test-StrictFileAcl $Manifest $false
-    Test-StrictFileAcl $OwnershipKey $false
-    if ((Get-ExistingItem $Manifest).Length -gt 4MB) { throw 'ownership manifest exceeds size limit' }
-    try { $manifest = Get-Content -Raw -LiteralPath $Manifest | ConvertFrom-Json } catch { throw 'ownership manifest is invalid JSON' }
+    $manifestRaw = Read-ProtectedBytes $Manifest 4MB 'ownership manifest'
+    $key = Read-ProtectedBytes $OwnershipKey 4MB 'ownership key'
+    try {
+        $encoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList @($false, $true)
+        $manifest = $encoding.GetString($manifestRaw) | ConvertFrom-Json
+    } catch { throw 'ownership manifest is invalid JSON' }
+    if ($manifest -isnot [System.Management.Automation.PSCustomObject]) { throw 'ownership manifest is not an object' }
     foreach ($property in @($manifest.psobject.Properties)) { if ($property.Name -notin @('schema_version', 'installation_id', 'resources', 'hmac')) { throw 'ownership manifest has an unknown field' } }
     if ([int]$manifest.schema_version -ne 1 -or [string]$manifest.installation_id -notmatch '^[0-9a-f]{32}$' -or [string]$manifest.hmac -notmatch '^[0-9a-f]{64}$') { throw 'ownership manifest fields are invalid' }
     if ($null -eq $manifest.resources) { throw 'ownership manifest has no resources' }
     $resources = @($manifest.resources)
     if ($resources.Count -eq 0) { throw 'ownership manifest has no resources' }
-    foreach ($resource in $resources) { Validate-OwnershipResource $resource; if (-not (Test-AllowedOwnershipResource $resource)) { throw 'ownership manifest contains an unallowlisted resource' } }
-    $key = [IO.File]::ReadAllBytes($OwnershipKey)
+    foreach ($resource in $resources) {
+        if ($resource -isnot [System.Management.Automation.PSCustomObject]) { throw 'ownership resource is not an object' }
+        foreach ($property in @($resource.psobject.Properties)) { if ($property.Name -notin @('root', 'path')) { throw 'ownership resource has an unknown field' } }
+        Validate-OwnershipResource $resource
+        if (-not (Test-AllowedOwnershipResource $resource)) { throw 'ownership manifest contains an unallowlisted resource' }
+    }
     $payload = Get-OwnershipPayload $manifest
     $payloadJson = [string]($payload | ConvertTo-Json -Compress -Depth 8)
     if (-not (Test-ConstantTimeEqual ([string]$manifest.hmac) (Get-HmacHex $payloadJson $key))) { throw 'ownership manifest HMAC mismatch' }
@@ -1084,7 +1434,10 @@ function Purge-Install {
         $manifestVerified = $true
     } catch {
         Write-Warning 'ownership manifest unavailable or invalid; using compile-time allowlist only'
-        $resources = @(Get-CompileTimeResources | Where-Object { (Get-OwnershipResourceRole $_) -ne 'shared' })
+        $resources = @(Get-CompileTimeResources | Where-Object {
+            (Get-OwnershipResourceRole $_) -ne 'shared' -or
+            ([string]$_.root -ieq [string](Split-Path -LiteralPath $LogDir -Parent) -and [string]$_.path -ieq [string](Split-Path -LiteralPath $LogDir -Leaf))
+        })
     }
     try {
         $keepOtherRole = $false
@@ -1096,11 +1449,6 @@ function Purge-Install {
             }
         }
         $remaining = @()
-        foreach ($resource in $resources) {
-            $root = [IO.Path]::GetFullPath([string]$resource.root)
-            $target = [IO.Path]::GetFullPath((Join-Path $root ([string]$resource.path).Replace('/', '\')))
-            Assert-OwnedTreeSafe $target
-        }
         foreach ($resource in $resources) {
             $resourceRole = Get-OwnershipResourceRole $resource
             $remove = ($resourceRole -eq 'agent' -and $Role -in @('agent', 'both')) -or
@@ -1119,7 +1467,7 @@ function Purge-Install {
             Remove-Owned $DataDir 'schema.version'
         }
         if ($manifestVerified -and $keepOtherRole) {
-            $key = [IO.File]::ReadAllBytes($OwnershipKey)
+            $key = Read-ProtectedBytes $OwnershipKey 4MB 'ownership key'
             $payload = [ordered]@{ schema_version = 1; installation_id = [string]$manifest.installation_id; resources = $remaining }
             $payloadJson = [string]($payload | ConvertTo-Json -Compress -Depth 8)
             $newManifest = [ordered]@{
@@ -1134,7 +1482,7 @@ function Purge-Install {
             Remove-Owned $DataDir 'ownership.key'
             Remove-Owned $DataDir 'ownership-manifest.json'
         }
-        foreach ($path in @($BinDir, $InstallDir, $ServiceDir, (Split-Path -LiteralPath $Config -Parent), $DataDir)) { Remove-EmptyDirectory $path }
+        foreach ($path in @($BinDir, $InstallDir, $ServiceDir, (Split-Path -LiteralPath $Config -Parent), $DataDir, $LogDir)) { Remove-EmptyDirectory $path }
     } catch { Fail $ExitGeneric 'purge refused because an owned path is unsafe or could not be removed' }
     if (-not $manifestVerified) { Write-Warning 'remote decommission status is unknown; verify Controller-side purge separately' }
     if (-not $manifestVerified) {
@@ -1154,6 +1502,8 @@ function Copy-FileAtomic([string] $Source, [string] $Destination) {
     $parent = Split-Path -LiteralPath $Destination -Parent
     New-Item -ItemType Directory -Force -Path $parent | Out-Null
     Assert-NoReparsePath $parent
+    $destinationItem = Get-ExistingItem $Destination
+    if ($null -ne $destinationItem -and $destinationItem.PSIsContainer) { throw 'file destination is a directory' }
     Assert-NoReparsePath $Destination
     $temporary = Join-Path $parent ('.antinat-copy.' + [Guid]::NewGuid().ToString('N'))
     try {
@@ -1171,6 +1521,8 @@ function Copy-VerifiedFileAtomic([string] $Source, [string] $Destination, [strin
     $parent = Split-Path -LiteralPath $Destination -Parent
     New-Item -ItemType Directory -Force -Path $parent | Out-Null
     Assert-NoReparsePath $parent
+    $destinationItem = Get-ExistingItem $Destination
+    if ($null -ne $destinationItem -and $destinationItem.PSIsContainer) { throw 'verified file destination is a directory' }
     Assert-NoReparsePath $Destination
     $temporary = Join-Path $parent ('.antinat-verified.' + [Guid]::NewGuid().ToString('N'))
     $hash = [Security.Cryptography.SHA256]::Create()
@@ -1205,6 +1557,9 @@ function Copy-TreeSnapshot([string] $Source, [string] $Destination) {
         Copy-FileAtomic $Source $Destination
         return
     }
+    Assert-NoReparsePath $Destination
+    $destinationItem = Get-ExistingItem $Destination
+    if ($null -ne $destinationItem -and -not $destinationItem.PSIsContainer) { throw 'snapshot tree destination is a file' }
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null
     Assert-NoReparsePath $Destination
     foreach ($child in Get-ChildItem -LiteralPath $Source -Force) {
@@ -1285,7 +1640,235 @@ function Create-UpgradeSnapshot([string] $Destination) {
     return ,$records
 }
 
+function Get-UpgradeMutexName {
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try {
+        $encoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList @($false)
+        $digest = $hash.ComputeHash($encoding.GetBytes([IO.Path]::GetFullPath($InstallDir)))
+    } finally { $hash.Dispose() }
+    return 'Global\AntiNAT-Upgrade-' + (ConvertTo-Hex $digest)
+}
+
+function Acquire-UpgradeMutex {
+    if ($null -ne $script:UpgradeMutex) { throw 'upgrade mutex is already held' }
+    $created = $false
+    $security = New-Object -TypeName System.Security.AccessControl.MutexSecurity
+    $security.SetAccessRuleProtection($true, $false)
+    $seen = @{}
+    foreach ($sidText in @(Get-TrustedSids)) {
+        if ($seen.ContainsKey($sidText)) { continue }
+        $seen[$sidText] = $true
+        $sid = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList @($sidText)
+        $rule = New-Object -TypeName System.Security.AccessControl.MutexAccessRule -ArgumentList @($sid, [System.Threading.MutexRights]::FullControl, [Security.AccessControl.AccessControlType]::Allow)
+        [void]$security.AddAccessRule($rule)
+    }
+    $mutex = New-Object -TypeName System.Threading.Mutex -ArgumentList @($false, (Get-UpgradeMutexName), [ref]$created, $security)
+    $acquired = $false
+    try {
+        try { $acquired = $mutex.WaitOne(0) }
+        catch [System.Threading.AbandonedMutexException] { $acquired = $true }
+    } catch {
+        $mutex.Dispose()
+        throw
+    }
+    if (-not $acquired) {
+        $mutex.Dispose()
+        Fail $ExitConflict 'another upgrade is already running'
+    }
+    $script:UpgradeMutex = $mutex
+}
+
+function Release-UpgradeMutex {
+    $mutex = $script:UpgradeMutex
+    $script:UpgradeMutex = $null
+    if ($null -eq $mutex) { return }
+    try { $mutex.ReleaseMutex() } catch { }
+    $mutex.Dispose()
+}
+
+function Write-UpgradeJournal(
+    [string] $Path,
+    [string] $State,
+    [string] $StagingRoot,
+    [string[]] $Promoted,
+    [string[]] $Restored,
+    [bool] $AgentWasRunning,
+    [bool] $ControllerWasRunning,
+    [string] $ErrorMessage = ''
+) {
+    if ([string]::IsNullOrEmpty($Path) -or [string]::IsNullOrEmpty($State)) { throw 'upgrade journal arguments are incomplete' }
+    $promotedList = @($Promoted | ForEach-Object { [string]$_ })
+    $restoredList = @($Restored | ForEach-Object { [string]$_ })
+    $journal = [ordered]@{
+        schema = 'antinat.powershell-upgrade/v1'
+        live_root = [IO.Path]::GetFullPath($InstallDir)
+        staging_root = if ($StagingRoot) { [IO.Path]::GetFullPath($StagingRoot) } else { '' }
+        backup_path = [IO.Path]::GetFullPath((Split-Path -LiteralPath $Path -Parent))
+        snapshot = 'snapshot.json'
+        state = $State
+        promoted = $promotedList
+        restored = $restoredList
+        agent_was_running = $AgentWasRunning
+        controller_was_running = $ControllerWasRunning
+        error = $ErrorMessage
+    }
+    $encoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList @($false)
+    Write-PrivateBytes $Path $encoding.GetBytes(([string]($journal | ConvertTo-Json -Compress -Depth 8)) + [char]10)
+}
+
+function Read-UpgradeJournal([string] $Path) {
+    try {
+        $raw = Read-ProtectedBytes $Path 1MB 'upgrade transaction journal'
+    } catch { throw "upgrade transaction journal is unsafe: $($_.Exception.Message)" }
+    try {
+        $encoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList @($false, $true)
+        $journal = $encoding.GetString($raw) | ConvertFrom-Json
+    } catch { throw 'upgrade transaction journal is invalid JSON' }
+    if ($journal -isnot [System.Management.Automation.PSCustomObject]) { throw 'upgrade transaction journal is not an object' }
+    $allowed = @('schema', 'live_root', 'staging_root', 'backup_path', 'snapshot', 'state', 'promoted', 'restored', 'agent_was_running', 'controller_was_running', 'error')
+    foreach ($property in @($journal.psobject.Properties)) { if ($property.Name -notin $allowed) { throw 'upgrade transaction journal has an unknown field' } }
+    if ([string]$journal.schema -ne 'antinat.powershell-upgrade/v1' -or [string]$journal.snapshot -ne 'snapshot.json') { throw 'upgrade transaction journal schema is unsupported' }
+    if ([string]$journal.state -notin @('snapshot_ready', 'promoting', 'promoted', 'migrating', 'health_checking', 'rollback_in_progress', 'rollback_failed', 'rolled_back', 'recovered', 'complete')) { throw 'upgrade transaction journal state is invalid' }
+    if ($journal.live_root -isnot [string] -or $journal.staging_root -isnot [string] -or $journal.backup_path -isnot [string] -or $journal.snapshot -isnot [string] -or
+        $journal.promoted -isnot [System.Array] -or $journal.restored -isnot [System.Array] -or
+        $journal.agent_was_running -isnot [bool] -or $journal.controller_was_running -isnot [bool]) { throw 'upgrade transaction journal fields are invalid' }
+    if ([string]$journal.error -and ([string]$journal.error).Length -gt 4096) { throw 'upgrade transaction journal error is too long' }
+    $livePath = [string]$journal.live_root
+    $stagingPath = [string]$journal.staging_root
+    $backupPath = [string]$journal.backup_path
+    $live = [IO.Path]::GetFullPath($livePath)
+    $staging = [IO.Path]::GetFullPath($stagingPath)
+    $backup = [IO.Path]::GetFullPath($backupPath)
+    if ($livePath -ne $live -or $stagingPath -ne $staging -or $backupPath -ne $backup -or
+        $live -ne [IO.Path]::GetFullPath($InstallDir) -or [string]::IsNullOrEmpty($stagingPath) -or
+        $backup -ne [IO.Path]::GetFullPath((Split-Path -LiteralPath $Path -Parent))) { throw 'upgrade transaction journal path binding failed' }
+    foreach ($entry in @($journal.promoted) + @($journal.restored)) {
+        if ($entry -isnot [string] -or [string]::IsNullOrEmpty([string]$entry) -or ([string]$entry).Length -gt 512) { throw 'upgrade transaction journal progress is invalid' }
+    }
+    return $journal
+}
+
+function Assert-SnapshotTreeSafe([string] $Path) {
+    $item = Get-ExistingItem $Path
+    if ($null -eq $item) { throw 'upgrade snapshot resource is missing' }
+    Assert-NoReparsePath $Path
+    if ($item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { throw 'upgrade snapshot contains a reparse point' }
+    if ($item.PSIsContainer) {
+        foreach ($child in Get-ChildItem -LiteralPath $Path -Force) { Assert-SnapshotTreeSafe $child.FullName }
+    } elseif ($item -isnot [IO.FileInfo]) {
+        throw 'upgrade snapshot contains a non-regular resource'
+    }
+}
+
+function Read-UpgradeSnapshotRecords([string] $Backup) {
+    $snapshotPath = Join-Path $Backup 'snapshot.json'
+    try {
+        $raw = Read-ProtectedBytes $snapshotPath 1MB 'upgrade snapshot metadata'
+    } catch { throw "upgrade snapshot metadata is unsafe: $($_.Exception.Message)" }
+    try {
+        $encoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList @($false, $true)
+        $decoded = $encoding.GetString($raw) | ConvertFrom-Json
+    } catch { throw 'upgrade snapshot metadata is invalid JSON' }
+    $records = @($decoded)
+    if ($records.Count -eq 0) { throw 'upgrade snapshot has no records' }
+    $allowed = @(Get-UpgradeResources)
+    $expected = @{}
+    foreach ($resource in $allowed) {
+        $expectedKey = [string]$resource.root + [char]0 + [string]$resource.path
+        if ($expected.ContainsKey($expectedKey)) { throw 'upgrade resource allowlist contains a duplicate' }
+        $expected[$expectedKey] = $true
+    }
+    $seen = @{}
+    $seenBackup = @{}
+    foreach ($record in $records) {
+        if ($record -isnot [System.Management.Automation.PSCustomObject]) { throw 'upgrade snapshot record is not an object' }
+        $fields = @('root', 'path', 'present', 'kind', 'backup')
+        foreach ($property in @($record.psobject.Properties)) { if ($property.Name -notin $fields) { throw 'upgrade snapshot record has an unknown field' } }
+        if ($record.root -isnot [string] -or $record.path -isnot [string] -or $record.kind -isnot [string] -or $record.backup -isnot [string]) { throw 'upgrade snapshot record fields are invalid' }
+        $resource = [ordered]@{ root = [string]$record.root; path = [string]$record.path }
+        Validate-OwnershipResource $resource
+        $matching = @($allowed | Where-Object {
+            [IO.Path]::GetFullPath([string]$_.root) -ieq [string]$resource.root -and [string]$_.path -ieq [string]$resource.path
+        })
+        if ($matching.Count -ne 1) { throw 'upgrade snapshot contains an unallowlisted resource' }
+        $key = [string]$resource.root + [char]0 + [string]$resource.path
+        if ($seen.ContainsKey($key)) { throw 'upgrade snapshot contains a duplicate resource' }
+        if (-not $expected.ContainsKey($key)) { throw 'upgrade snapshot contains an unexpected resource' }
+        $seen[$key] = $true
+        if ($record.present -isnot [bool] -or [string]$record.kind -notin @('missing', 'file', 'directory') -or [string]$record.backup -notmatch '^file-[0-9]+$') { throw 'upgrade snapshot record fields are invalid' }
+        if ($seenBackup.ContainsKey([string]$record.backup)) { throw 'upgrade snapshot contains a duplicate backup name' }
+        $seenBackup[[string]$record.backup] = $true
+        $backupPath = Join-Path $Backup ([string]$record.backup)
+        if ($record.present) {
+            if ([string]$record.kind -eq 'missing') { throw 'present upgrade snapshot record is marked missing' }
+            Assert-SnapshotTreeSafe $backupPath
+            $backupItem = Get-ExistingItem $backupPath
+            if (([string]$record.kind -eq 'directory') -ne $backupItem.PSIsContainer) { throw 'upgrade snapshot kind does not match backup' }
+        } elseif ([string]$record.kind -ne 'missing') {
+            throw 'absent upgrade snapshot record has a present kind'
+        } elseif ($null -ne (Get-ExistingItem $backupPath)) {
+            throw 'absent upgrade snapshot has unexpected backup data'
+        }
+    }
+    if ($seen.Count -ne $expected.Count) { throw 'upgrade snapshot is incomplete' }
+    foreach ($key in $expected.Keys) { if (-not $seen.ContainsKey($key)) { throw 'upgrade snapshot is incomplete' } }
+    return ,$records
+}
+
+function Recover-InterruptedUpgrades {
+    $rootItem = Get-ExistingItem $BackupDir
+    if ($null -eq $rootItem) { return }
+    if (-not $rootItem.PSIsContainer) { throw 'upgrade backup path is not a directory' }
+    Test-StrictDirectoryAcl $BackupDir
+    foreach ($candidate in @(Get-ChildItem -LiteralPath $BackupDir -Force -Directory)) {
+        if ($candidate.Name -notmatch '^upgrade\.[A-Za-z0-9-]+$') { continue }
+        if ($candidate.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { throw 'upgrade backup directory is a reparse point' }
+        $journalPath = Join-Path $candidate.FullName 'transaction.json'
+        if ($null -eq (Get-ExistingItem $journalPath)) { continue }
+        $journal = Read-UpgradeJournal $journalPath
+        if ($journal.state -in @('complete', 'rolled_back', 'recovered')) { continue }
+        $records = Read-UpgradeSnapshotRecords $candidate.FullName
+        $promoted = @($journal.promoted)
+        $restored = @($journal.restored)
+        try {
+            Write-UpgradeJournal $journalPath 'rollback_in_progress' ([string]$journal.staging_root) $promoted $restored $journal.agent_was_running $journal.controller_was_running 'interrupted upgrade recovery in progress'
+            Restore-UpgradeSnapshot $candidate.FullName $records
+            Verify-UpgradeSnapshot $candidate.FullName $records
+            if ($journal.agent_was_running) {
+                if ($null -eq (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)) { throw 'agent service from interrupted upgrade is missing' }
+                Start-Service -Name $ServiceName -ErrorAction Stop
+            }
+            if ($journal.controller_was_running) {
+                if ($null -eq (Get-Service -Name $ControllerServiceName -ErrorAction SilentlyContinue)) { throw 'controller service from interrupted upgrade is missing' }
+                Start-Service -Name $ControllerServiceName -ErrorAction Stop
+            }
+            Write-UpgradeJournal $journalPath 'recovered' ([string]$journal.staging_root) $promoted $restored $journal.agent_was_running $journal.controller_was_running 'interrupted upgrade restored before retry'
+        } catch {
+            try { Write-UpgradeJournal $journalPath 'rollback_failed' ([string]$journal.staging_root) $promoted $restored $journal.agent_was_running $journal.controller_was_running $_.Exception.Message } catch { }
+            throw
+        }
+    }
+}
+
+function Assert-UpgradeRestoreTargets($Records) {
+    foreach ($record in $Records) {
+        $root = [string]$record.root
+        $relative = ([string]$record.path).Replace('/', '\')
+        $target = [IO.Path]::GetFullPath((Join-Path $root $relative))
+        $item = Get-ExistingItem $target
+        if ($null -eq $item) { continue }
+        Assert-NoReparsePath $target
+        if ($record.present) {
+            if ([string]$record.kind -eq 'file' -and ($item.PSIsContainer -or $item -isnot [IO.FileInfo])) { throw "upgrade restore target is not a file: $($record.path)" }
+            if ([string]$record.kind -eq 'directory' -and -not $item.PSIsContainer) { throw "upgrade restore target is not a directory: $($record.path)" }
+        } elseif ($item.PSIsContainer -or $item -isnot [IO.FileInfo]) {
+            throw "upgrade restore target has an unexpected type: $($record.path)"
+        }
+    }
+}
+
 function Restore-UpgradeSnapshot([string] $Destination, $Records) {
+    Assert-UpgradeRestoreTargets $Records
     foreach ($record in $Records) {
         $root = [string]$record.root
         $relative = ([string]$record.path).Replace('/', '\')
@@ -1333,7 +1916,7 @@ function Rollback-New-Install {
     }
     try { Restore-SchemaAfterInstall } catch { }
     Cleanup-SchemaBackup
-    foreach ($path in @($BinDir, $InstallDir, $ServiceDir, (Split-Path -LiteralPath $Config -Parent), $DataDir)) {
+    foreach ($path in @($BinDir, $InstallDir, $ServiceDir, (Split-Path -LiteralPath $Config -Parent), $DataDir, $LogDir)) {
         try { Remove-EmptyDirectory $path } catch { }
     }
 }
@@ -1348,13 +1931,16 @@ function Install-Flow {
     $script:OwnershipKeyExistedBeforeInstall = $null -ne (Get-ExistingItem $OwnershipKey)
     if (($Role -in @('agent', 'both') -and $null -ne (Get-ExistingItem $Agent)) -or
         ($Role -in @('controller', 'both') -and $null -ne (Get-ExistingItem $Controller))) { Fail $ExitConflict 'AntiNAT is already installed; use upgrade' }
-    New-Item -ItemType Directory -Force -Path $BinDir, $DataDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $BinDir, $DataDir, $LogDir | Out-Null
     if ($Role -in @('controller', 'both')) {
         $controllerKeys = Join-Path $DataDir 'controller-keys'
         New-Item -ItemType Directory -Force -Path $controllerKeys | Out-Null
         Set-PrivateAcl $controllerKeys $true
     }
-    try { Set-PrivateAcl $DataDir $true } catch { Fail $ExitGeneric 'could not protect the data directory' }
+    try {
+        Set-PrivateAcl $DataDir $true
+        Set-PrivateAcl $LogDir $true
+    } catch { Fail $ExitGeneric 'could not protect the installer directories' }
     try { Backup-SchemaForInstall } catch { Rollback-New-Install; Fail $ExitGeneric 'could not prepare the schema marker transaction' }
     if ($Role -in @('agent', 'both') -and ($env:ANTINAT_TEST_MODE -ne '1' -or $TokenFile -or $TokenFD -ge 0)) {
         try { Read-Token } catch { Cleanup-TokenOnFailure; Rollback-New-Install; Fail $ExitToken 'token input rejected' }
@@ -1403,13 +1989,21 @@ function Upgrade-Flow {
     Require-ReleaseArtifacts
     if (($Role -in @('agent', 'both') -and $null -eq (Get-ExistingItem $Agent)) -or
         ($Role -in @('controller', 'both') -and $null -eq (Get-ExistingItem $Controller))) { Fail $ExitConflict 'installation is not present' }
-    New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
-    Set-PrivateAcl $BackupDir $true
-    $backup = Join-Path $BackupDir ('upgrade.' + [Guid]::NewGuid().ToString('N'))
+    Acquire-UpgradeMutex
+    $backup = ''
     $records = $null
     $wasAgentRunning = $false
     $wasControllerRunning = $false
+    $promoted = @()
+    $restored = @()
+    $failureCode = 0
+    $failureMessage = ''
     try {
+        New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
+        Set-PrivateAcl $BackupDir $true
+        Recover-InterruptedUpgrades
+        $backup = Join-Path $BackupDir ('upgrade.' + [Guid]::NewGuid().ToString('N'))
+        $script:UpgradeJournalPath = Join-Path $backup 'transaction.json'
         New-Item -ItemType Directory -Path $backup | Out-Null
         Set-PrivateAcl $backup $true
         $agentService = if ($Role -in @('agent', 'both')) { Get-Service -Name $ServiceName -ErrorAction SilentlyContinue } else { $null }
@@ -1420,37 +2014,74 @@ function Upgrade-Flow {
         if ($wasControllerRunning) { Stop-Service -Name $ControllerServiceName -Force -ErrorAction Stop }
         $records = @(Create-UpgradeSnapshot $backup)
         Verify-UpgradeSnapshot $backup $records
+        Write-UpgradeJournal $script:UpgradeJournalPath 'snapshot_ready' $ArtifactDir $promoted $restored $wasAgentRunning $wasControllerRunning
+        Write-UpgradeJournal $script:UpgradeJournalPath 'promoting' $ArtifactDir $promoted $restored $wasAgentRunning $wasControllerRunning
         if ($Role -in @('agent', 'both')) {
             Copy-VerifiedFileAtomic $script:AgentReleaseArtifact $Agent $script:AgentReleaseDigest
+            $promoted += 'bin/antinat-agent.exe'
+            Write-UpgradeJournal $script:UpgradeJournalPath 'promoting' $ArtifactDir $promoted $restored $wasAgentRunning $wasControllerRunning
         }
         if ($Role -in @('controller', 'both')) {
             Copy-VerifiedFileAtomic $script:ControllerReleaseArtifact $Controller $script:ControllerReleaseDigest
+            $promoted += 'bin/antinat-controller.exe'
+            Write-UpgradeJournal $script:UpgradeJournalPath 'promoting' $ArtifactDir $promoted $restored $wasAgentRunning $wasControllerRunning
         }
         Write-SchemaVersion
+        $promoted += 'schema.version'
+        Write-UpgradeJournal $script:UpgradeJournalPath 'promoted' $ArtifactDir $promoted $restored $wasAgentRunning $wasControllerRunning
+        Write-UpgradeJournal $script:UpgradeJournalPath 'health_checking' $ArtifactDir $promoted $restored $wasAgentRunning $wasControllerRunning
         if ($env:ANTINAT_FORCE_HEALTH_FAIL -eq '1') { throw 'health check failed' }
         if ($wasAgentRunning) { Start-Service -Name $ServiceName -ErrorAction Stop }
         if ($wasControllerRunning) { Start-Service -Name $ControllerServiceName -ErrorAction Stop }
+        Write-UpgradeJournal $script:UpgradeJournalPath 'complete' $ArtifactDir $promoted $restored $wasAgentRunning $wasControllerRunning
         Write-Output 'antinat installer: upgrade complete'
     } catch {
         $cause = $_
         if ($null -eq $records) {
             if ($wasAgentRunning) { try { Start-Service -Name $ServiceName -ErrorAction Stop } catch { } }
             if ($wasControllerRunning) { try { Start-Service -Name $ControllerServiceName -ErrorAction Stop } catch { } }
-            Fail $ExitGeneric 'upgrade failed before a complete snapshot was created'
+            $failureCode = $ExitGeneric
+            $failureMessage = 'upgrade failed before a complete snapshot was created'
+        } else {
+            $rollbackError = $null
+            try {
+                if ($script:UpgradeJournalPath) {
+                    Write-UpgradeJournal $script:UpgradeJournalPath 'rollback_in_progress' $ArtifactDir $promoted $restored $wasAgentRunning $wasControllerRunning $cause.Exception.Message
+                }
+                Restore-UpgradeSnapshot $backup $records
+                Verify-UpgradeSnapshot $backup $records
+                $restored = @($records | ForEach-Object { ([string]$_.path) })
+            } catch {
+                $rollbackError = $_
+            }
+            try {
+                if ($wasAgentRunning) { Start-Service -Name $ServiceName -ErrorAction Stop }
+                if ($wasControllerRunning) { Start-Service -Name $ControllerServiceName -ErrorAction Stop }
+            } catch { if ($null -eq $rollbackError) { $rollbackError = $_ } }
+            if ($null -eq $rollbackError -and $script:UpgradeJournalPath) {
+                try {
+                    Write-UpgradeJournal $script:UpgradeJournalPath 'rolled_back' $ArtifactDir $promoted $restored $wasAgentRunning $wasControllerRunning 'previous version restored'
+                } catch { $rollbackError = $_ }
+            }
+            if ($null -ne $rollbackError) {
+                try {
+                    if ($script:UpgradeJournalPath) {
+                        Write-UpgradeJournal $script:UpgradeJournalPath 'rollback_failed' $ArtifactDir $promoted $restored $wasAgentRunning $wasControllerRunning $rollbackError.Exception.Message
+                    }
+                } catch { }
+                $failureCode = $ExitRollback
+                $failureMessage = 'upgrade failed; rollback could not be verified'
+            } else {
+                $failureCode = $ExitRollback
+                $failureMessage = 'upgrade failed; previous version restored'
+            }
         }
-        $rollbackError = $null
-        try {
-            Restore-UpgradeSnapshot $backup $records
-            Verify-UpgradeSnapshot $backup $records
-        } catch { $rollbackError = $_ }
-        try {
-            if ($wasAgentRunning) { Start-Service -Name $ServiceName -ErrorAction Stop }
-            if ($wasControllerRunning) { Start-Service -Name $ControllerServiceName -ErrorAction Stop }
-        } catch { if ($null -eq $rollbackError) { $rollbackError = $_ } }
-        if ($null -ne $rollbackError) {
-            Fail $ExitRollback 'upgrade failed; rollback could not be verified'
-        }
-        Fail $ExitRollback 'upgrade failed; previous version restored'
+    } finally {
+        Release-UpgradeMutex
+        $script:UpgradeJournalPath = ''
+    }
+    if ($failureCode -ne 0) {
+        Fail $failureCode $failureMessage
     }
 }
 

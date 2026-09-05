@@ -3,6 +3,7 @@
 package install
 
 import (
+	"crypto/hmac"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,166 @@ import (
 )
 
 var errWindowsPurgeReparse = errors.New("refusing to purge a symlink/reparse point")
+
+func finalWindowsHandlePath(handle windows.Handle) (string, error) {
+	const maxPathChars = 32768
+	buffer := make([]uint16, maxPathChars)
+	length, err := windows.GetFinalPathNameByHandle(handle, &buffer[0], uint32(len(buffer)), 0)
+	if err != nil {
+		return "", err
+	}
+	if length == 0 || length >= uint32(len(buffer)) {
+		return "", errors.New("final Windows path exceeds the supported limit")
+	}
+	return windows.UTF16ToString(buffer[:length]), nil
+}
+
+func extendedWindowsPath(path string) string {
+	if strings.HasPrefix(path, `\\?\`) {
+		return path
+	}
+	if strings.HasPrefix(path, `\\`) {
+		return `\\?\UNC\` + strings.TrimPrefix(path, `\\`)
+	}
+	return `\\?\` + path
+}
+
+func ensureWindowsHandlePath(path string, handle windows.Handle) error {
+	canonical, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	canonical = filepath.Clean(canonical)
+	if strings.HasPrefix(canonical, `\\.\`) {
+		return errors.New("device paths are not valid installer paths")
+	}
+	actual, err := finalWindowsHandlePath(handle)
+	if err != nil {
+		return err
+	}
+	actual = strings.TrimRight(actual, `\`)
+	expected := strings.TrimRight(extendedWindowsPath(canonical), `\`)
+	if !strings.EqualFold(actual, expected) {
+		return fmt.Errorf("opened path resolves to %q, want %q", actual, expected)
+	}
+	return nil
+}
+
+func verifyOwnershipKeyFile(path string, key []byte) error {
+	raw, err := readProtectedFile(path, 4<<20, "ownership key")
+	if err != nil {
+		return err
+	}
+	if len(raw) != len(key) || !hmac.Equal(raw, key) {
+		return errors.New("ownership key file does not match the supplied key")
+	}
+	return nil
+}
+
+func readProtectedFile(path string, limit int64, label string) ([]byte, error) {
+	wide, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return nil, fmt.Errorf("encode %s path: %w", label, err)
+	}
+	handle, err := windows.CreateFile(
+		wide,
+		windows.GENERIC_READ|windows.READ_CONTROL,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil,
+		windows.OPEN_EXISTING,
+		windows.FILE_FLAG_OPEN_REPARSE_POINT|windows.FILE_FLAG_BACKUP_SEMANTICS,
+		0,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", label, err)
+	}
+	file := os.NewFile(uintptr(handle), "antinat-protected-file")
+	if file == nil {
+		_ = windows.CloseHandle(handle)
+		return nil, fmt.Errorf("%s handle is invalid", label)
+	}
+	defer file.Close()
+	var info windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(handle, &info); err != nil {
+		return nil, fmt.Errorf("stat %s: %w", label, err)
+	}
+	if info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0 || info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+		return nil, fmt.Errorf("%s is not a regular non-reparse file", label)
+	}
+	if info.NumberOfLinks != 1 {
+		return nil, fmt.Errorf("%s must have one link", label)
+	}
+	if err := ensureWindowsHandlePath(path, handle); err != nil {
+		return nil, fmt.Errorf("%s path binding failed: %w", label, err)
+	}
+	if err := verifyWindowsPrivateACL(handle, label); err != nil {
+		return nil, err
+	}
+	fileSize := uint64(info.FileSizeHigh)<<32 | uint64(info.FileSizeLow)
+	if fileSize > uint64(limit) {
+		return nil, fmt.Errorf("%s exceeds size limit", label)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", label, err)
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("%s exceeds size limit", label)
+	}
+	return data, nil
+}
+
+func verifyWindowsPrivateACL(handle windows.Handle, label string) error {
+	sd, err := windows.GetSecurityInfo(handle, windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
+	if err != nil || sd == nil {
+		if err == nil {
+			err = errors.New("security descriptor is empty")
+		}
+		return fmt.Errorf("inspect %s ACL: %w", label, err)
+	}
+	control, _, err := sd.Control()
+	if err != nil || control&windows.SE_DACL_PROTECTED == 0 {
+		return fmt.Errorf("%s ACL is not protected", label)
+	}
+	owner, _, err := sd.Owner()
+	if err != nil || owner == nil {
+		return fmt.Errorf("%s ACL owner is unavailable", label)
+	}
+	current, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		return fmt.Errorf("identify current Windows user: %w", err)
+	}
+	if current == nil || current.User.Sid == nil {
+		return fmt.Errorf("identify current Windows user: missing user SID")
+	}
+	trusted := map[string]bool{
+		current.User.Sid.String(): true,
+		"S-1-5-18":                true,
+		"S-1-5-32-544":            true,
+	}
+	if !trusted[owner.String()] {
+		return fmt.Errorf("%s ACL owner is not trusted", label)
+	}
+	dacl, _, err := sd.DACL()
+	if err != nil || dacl == nil || dacl.AceCount == 0 {
+		return fmt.Errorf("%s ACL has no explicit protected entries", label)
+	}
+	for index := uint32(0); index < uint32(dacl.AceCount); index++ {
+		var ace *windows.ACCESS_ALLOWED_ACE
+		if err := windows.GetAce(dacl, index, &ace); err != nil || ace == nil {
+			return fmt.Errorf("inspect %s ACL entry: %w", label, err)
+		}
+		if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || ace.Header.AceFlags&windows.INHERITED_ACE != 0 {
+			return fmt.Errorf("%s ACL contains an inherited or denied entry", label)
+		}
+		sid := (*windows.SID)(unsafe.Pointer(uintptr(unsafe.Pointer(ace)) + unsafe.Offsetof(ace.SidStart)))
+		if !trusted[sid.String()] {
+			return fmt.Errorf("%s ACL grants an untrusted principal", label)
+		}
+	}
+	return nil
+}
 
 type windowsPurgeEntry struct {
 	file     *os.File
@@ -146,6 +307,10 @@ func openWindowsPurgeRoot(path string) (*windowsPurgeEntry, error) {
 		_ = entry.close()
 		return nil, errors.New("purge root is not a directory")
 	}
+	if err := ensureWindowsHandlePath(path, entry.handle()); err != nil {
+		_ = entry.close()
+		return nil, fmt.Errorf("purge root path binding failed: %w", err)
+	}
 	return entry, nil
 }
 
@@ -218,7 +383,7 @@ func openWindowsPurgeHandle(parent windows.Handle, name string, access, options 
 		windows.FILE_ATTRIBUTE_NORMAL,
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
 		windows.FILE_OPEN,
-		windows.FILE_OPEN_FOR_BACKUP_INTENT|windows.FILE_SYNCHRONOUS_IO_NONALERT|options,
+		windows.FILE_OPEN_FOR_BACKUP_INTENT|windows.FILE_SYNCHRONOUS_IO_NONALERT|windows.FILE_OPEN_REPARSE_POINT|options,
 		0,
 		0,
 	)

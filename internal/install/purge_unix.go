@@ -3,14 +3,73 @@
 package install
 
 import (
+	"crypto/hmac"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"golang.org/x/sys/unix"
 )
+
+func verifyOwnershipKeyFile(path string, key []byte) error {
+	raw, err := readProtectedFile(path, 4<<20, "ownership key")
+	if err != nil {
+		return err
+	}
+	if len(raw) != len(key) || !hmac.Equal(raw, key) {
+		return errors.New("ownership key file does not match the supplied key")
+	}
+	return nil
+}
+
+// readProtectedFile opens the file with O_NOFOLLOW and validates the opened
+// descriptor. The descriptor, rather than a second pathname lookup, is used
+// for the read so a manifest or key replacement cannot bypass these checks.
+func readProtectedFile(path string, limit int64, label string) ([]byte, error) {
+	if path == "" {
+		return nil, fmt.Errorf("%s path is required", label)
+	}
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", label, err)
+	}
+	file := os.NewFile(uintptr(fd), "antinat-protected-file")
+	if file == nil {
+		_ = unix.Close(fd)
+		return nil, fmt.Errorf("%s descriptor is invalid", label)
+	}
+	defer file.Close()
+	var stat unix.Stat_t
+	if err := unix.Fstat(int(file.Fd()), &stat); err != nil {
+		return nil, fmt.Errorf("stat %s: %w", label, err)
+	}
+	if stat.Mode&unix.S_IFMT != unix.S_IFREG {
+		return nil, fmt.Errorf("%s is not a regular file", label)
+	}
+	if stat.Mode&0o7777 != 0o600 {
+		return nil, fmt.Errorf("%s must have mode 0600", label)
+	}
+	if stat.Nlink != 1 {
+		return nil, fmt.Errorf("%s must have one link", label)
+	}
+	if uint32(os.Geteuid()) != stat.Uid {
+		return nil, fmt.Errorf("%s is not owned by the current installer user", label)
+	}
+	if stat.Size < 0 || stat.Size > limit {
+		return nil, fmt.Errorf("%s exceeds size limit", label)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", label, err)
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("%s exceeds size limit", label)
+	}
+	return data, nil
+}
 
 func removeOwnedResource(root, relative string) (bool, error) {
 	root, err := filepath.Abs(root)
