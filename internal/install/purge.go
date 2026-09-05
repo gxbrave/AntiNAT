@@ -310,6 +310,8 @@ func DefaultPurgeResources(layout Layout) []OwnedResource {
 		{Root: layout.DataDir, Path: "state.db"},
 		{Root: layout.DataDir, Path: "node.key"},
 		{Root: layout.DataDir, Path: "controller.db"},
+		{Root: layout.DataDir, Path: "controller.db-wal"},
+		{Root: layout.DataDir, Path: "controller.db-shm"},
 		{Root: layout.DataDir, Path: "controller-keys"},
 		{Root: layout.DataDir, Path: "terminal.marker"},
 		{Root: layout.DataDir, Path: "agent.marker"},

@@ -126,13 +126,13 @@ func TestBuildInstallCommandSeparatesTokenAndUsesDockerEnvironmentContract(t *te
 	if err != nil {
 		t.Fatalf("BuildInstallCommand: %v", err)
 	}
-	forbiddenWords := []string{"--install-dir", "--service-name", "--github-proxy", "--token", "token-value", "--rm"}
+	forbiddenWords := []string{"--install-dir", "--service-name", "--github-proxy", "--token", "token-value"}
 	for _, forbidden := range forbiddenWords {
 		if strings.Contains(command, forbidden) {
 			t.Errorf("Docker command %q contains forbidden %q", command, forbidden)
 		}
 	}
-	for _, required := range []string{"docker run", "--interactive", "--tty", "--network host", "--restart=always", "--env 'ANTINAT_ENDPOINT=https://ctl.example.test:3111'", "--env 'ANTINAT_NODE=node-a'", "--env 'ANTINAT_PIN=" + testInstallCommandContext.ControllerPin + "'", "--volume '/secure/antinat/enrollment.token:/run/secrets/antinat_enrollment_token:ro'"} {
+	for _, required := range []string{"docker run", "--interactive", "--tty", "--network host", "--restart=always", "--network none", "--user 0:0", "--user 65532:65532", "--env 'ANTINAT_ENDPOINT=https://ctl.example.test:3111'", "--env 'ANTINAT_NODE=node-a'", "--env 'ANTINAT_PIN=" + testInstallCommandContext.ControllerPin + "'", "type=bind,src=/secure/antinat/enrollment.token,dst=/run/input/enrollment.token,readonly", "type=volume,src=antinat-agent-data-"} {
 		if !strings.Contains(command, required) {
 			t.Errorf("Docker command %q does not contain %q", command, required)
 		}
@@ -152,13 +152,16 @@ func TestBuildInstallCommandUsesPlatformSpecificDownloadAndNoSecret(t *testing.T
 		if err != nil {
 			t.Fatalf("BuildInstallCommand(%s): %v", platform, err)
 		}
-		if platform == PlatformLinux && !strings.Contains(command, "https://ghfast.top/https://github.com/gxbrave/AntiNAT/releases/latest/download/") {
+		if platform == PlatformLinux && !strings.Contains(command, "https://ghfast.top/https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta/install.sh") {
 			t.Errorf("Linux command did not apply the normalized GitHub proxy: %q", command)
+		}
+		if platform == PlatformLinux && (!strings.Contains(command, "libinstall.sh") || !strings.Contains(command, "release-ed25519.pub") || !strings.Contains(command, installerScriptSHA) || !strings.Contains(command, installerLibSHA) || !strings.Contains(command, installerTrustSHA)) {
+			t.Errorf("Linux command did not stage and verify the complete installer tree: %q", command)
 		}
 		if strings.Contains(command, "--token") || strings.Contains(command, "TOKEN") {
 			t.Errorf("%s command contains a token channel: %q", platform, command)
 		}
-		if platform == PlatformLinux && (!strings.Contains(command, "curl") || !strings.Contains(command, "sudo env") || !strings.Contains(command, " bash -s -- install ") || !strings.Contains(command, "bash -o pipefail -c")) {
+		if platform == PlatformLinux && (!strings.Contains(command, "curl") || !strings.Contains(command, "sudo env") || !strings.Contains(command, "bash \"$tmp_dir/scripts/install.sh\" install") || !strings.Contains(command, "bash -o pipefail -c")) {
 			t.Errorf("Linux command is not a curl/sudo bash flow: %q", command)
 		}
 		if platform == PlatformLinux && (!strings.Contains(command, "ANTINAT_NODE_ID=node-a") || !strings.Contains(command, "ANTINAT_CONTROLLER_PIN="+testInstallCommandContext.ControllerPin)) {
@@ -169,6 +172,12 @@ func TestBuildInstallCommandUsesPlatformSpecificDownloadAndNoSecret(t *testing.T
 		}
 		if platform == PlatformWindows && (!strings.Contains(command, "powershell") || !strings.Contains(command, "ExecutionPolicy Bypass")) {
 			t.Errorf("Windows command is not a PowerShell bypass flow: %q", command)
+		}
+		if platform == PlatformWindows {
+			decoded, decodeErr := decodePowerShellCommand(command[strings.Index(command, "-EncodedCommand ")+len("-EncodedCommand "):])
+			if decodeErr != nil || !strings.Contains(decoded, "release-ed25519.pub") || !strings.Contains(decoded, installerPS1SHA) || !strings.Contains(decoded, installerTrustSHA) || strings.Contains(decoded, "scriptblock]::Create") {
+				t.Errorf("Windows command did not stage and verify the local installer: %q", decoded)
+			}
 		}
 	}
 }

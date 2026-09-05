@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"net"
 	"net/url"
 	"strings"
@@ -27,9 +28,16 @@ const (
 	defaultLogLevel    = "info"
 	defaultAutoUpdate  = "disabled"
 	defaultScheduler   = "sequential"
-	installerScriptURL = "https://github.com/gxbrave/AntiNAT/releases/latest/download/install.sh"
-	installerPS1URL    = "https://github.com/gxbrave/AntiNAT/releases/latest/download/install.ps1"
-	containerImage     = "ghcr.io/gxbrave/antinat-agent:latest"
+	releaseBaseURL     = "https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta"
+	installerScriptURL = releaseBaseURL + "/install.sh"
+	installerLibURL    = releaseBaseURL + "/libinstall.sh"
+	installerPS1URL    = releaseBaseURL + "/install.ps1"
+	installerTrustURL  = releaseBaseURL + "/release-ed25519.pub"
+	installerScriptSHA = "a76fcd5150ea34cde8f02cf67ed56b64d561041a5698b8b9430be182c1e4c194"
+	installerLibSHA    = "757c4ede3506961a0af106d3d9c63589e716de42097b1fcb55c8002adaed51f6"
+	installerPS1SHA    = "db92ec929fb943df1debe51ae222814b3ad8e65147db070392b4bbb9a022fd9f"
+	installerTrustSHA  = "7c250ef2c4b3ece394f1d22f106742152116ef192a89bda1f1deaef9073112f3"
+	containerImage     = "ghcr.io/gxbrave/antinat-agent:v1.0.0-beta"
 	dockerTokenSource  = "/secure/antinat/enrollment.token"
 	dockerTokenTarget  = "/run/secrets/antinat_enrollment_token"
 )
@@ -323,9 +331,16 @@ func BuildInstallCommand(profile Profile, context InstallCommandContext) (string
 	}
 	switch profile.Platform {
 	case PlatformLinux:
-		return buildPOSIXInstallCommand(installerURL(profile, installerScriptURL), args, context), nil
+		return buildPOSIXInstallCommand(
+			installerURL(profile, installerScriptURL),
+			installerURL(profile, installerLibURL),
+			installerURL(profile, installerTrustURL),
+			args, context), nil
 	case PlatformWindows:
-		return buildPowerShellInstallCommand(installerURL(profile, installerPS1URL), args, context), nil
+		return buildPowerShellInstallCommand(
+			installerURL(profile, installerPS1URL),
+			installerURL(profile, installerTrustURL),
+			args, context), nil
 	case PlatformDocker:
 		return buildDockerCommand(profile, context), nil
 	default:
@@ -344,24 +359,44 @@ func installerURL(profile Profile, base string) string {
 	return strings.TrimRight(proxy, "/") + "/" + base
 }
 
-func buildPOSIXInstallCommand(scriptURL string, args []string, context InstallCommandContext) string {
-	inner := "curl --fail --silent --show-error --location " + QuoteShellArg(scriptURL) +
-		" | sudo env " + QuoteShellArg("ANTINAT_NODE_ID="+context.NodeID) + " " +
+func buildPOSIXInstallCommand(scriptURL, libraryURL, trustURL string, args []string, context InstallCommandContext) string {
+	inner := "set -eu\n" +
+		"tmp_dir=$(mktemp -d \"${TMPDIR:-/tmp}/antinat-installer.XXXXXX\")\n" +
+		"trap 'rm -rf -- \"$tmp_dir\"' EXIT\n" +
+		"mkdir -p -- \"$tmp_dir/scripts\" \"$tmp_dir/deploy/trust\"\n" +
+		"curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 " + QuoteShellArg(scriptURL) + " -o \"$tmp_dir/scripts/install.sh\"\n" +
+		"curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 " + QuoteShellArg(libraryURL) + " -o \"$tmp_dir/scripts/libinstall.sh\"\n" +
+		"curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 " + QuoteShellArg(trustURL) + " -o \"$tmp_dir/deploy/trust/release-ed25519.pub\"\n" +
+		"printf '%s  %s\\n' '" + installerScriptSHA + "' \"$tmp_dir/scripts/install.sh\" | sha256sum --check --status -\n" +
+		"printf '%s  %s\\n' '" + installerLibSHA + "' \"$tmp_dir/scripts/libinstall.sh\" | sha256sum --check --status -\n" +
+		"printf '%s  %s\\n' '" + installerTrustSHA + "' \"$tmp_dir/deploy/trust/release-ed25519.pub\" | sha256sum --check --status -\n" +
+		"chmod 700 -- \"$tmp_dir\" \"$tmp_dir/scripts\" \"$tmp_dir/deploy\" \"$tmp_dir/deploy/trust\"\n" +
+		"chmod 600 -- \"$tmp_dir/scripts/install.sh\" \"$tmp_dir/scripts/libinstall.sh\" \"$tmp_dir/deploy/trust/release-ed25519.pub\"\n" +
+		"sudo env " + QuoteShellArg("ANTINAT_NODE_ID="+context.NodeID) + " " +
 		QuoteShellArg("ANTINAT_CONTROLLER_PIN="+context.ControllerPin) +
-		" bash -s -- install " + QuoteShellArgs(args)
+		" bash \"$tmp_dir/scripts/install.sh\" install " + QuoteShellArgs(args)
 	return "bash -o pipefail -c " + QuoteShellArg(inner)
 }
 
-func buildPowerShellInstallCommand(scriptURL string, args []string, context InstallCommandContext) string {
+func buildPowerShellInstallCommand(scriptURL, trustURL string, args []string, context InstallCommandContext) string {
 	psArgs := make([]string, 0, len(args)+1)
 	psArgs = append(psArgs, "install")
 	for _, arg := range args {
 		psArgs = append(psArgs, QuotePowerShellArg(arg))
 	}
-	body := "$env:ANTINAT_NODE_ID = " + QuotePowerShellArg(context.NodeID) +
+	body := "$temp = Join-Path ([IO.Path]::GetTempPath()) ('antinat-installer-' + [Guid]::NewGuid().ToString('N')); " +
+		"$scriptPath = Join-Path $temp 'scripts\\install.ps1'; " +
+		"$trustPath = Join-Path $temp 'deploy\\trust\\release-ed25519.pub'; " +
+		"New-Item -ItemType Directory -Path (Join-Path $temp 'scripts'), (Join-Path $temp 'deploy\\trust') | Out-Null; " +
+		"try { " +
+		"Invoke-WebRequest -UseBasicParsing -Uri " + QuotePowerShellArg(scriptURL) + " -OutFile $scriptPath; " +
+		"Invoke-WebRequest -UseBasicParsing -Uri " + QuotePowerShellArg(trustURL) + " -OutFile $trustPath; " +
+		"if ((Get-FileHash -Algorithm SHA256 -LiteralPath $scriptPath).Hash.ToLowerInvariant() -ne '" + installerPS1SHA + "') { throw 'installer hash verification failed' }; " +
+		"if ((Get-FileHash -Algorithm SHA256 -LiteralPath $trustPath).Hash.ToLowerInvariant() -ne '" + installerTrustSHA + "') { throw 'trust root hash verification failed' }; " +
+		"$env:ANTINAT_NODE_ID = " + QuotePowerShellArg(context.NodeID) +
 		"; $env:ANTINAT_CONTROLLER_PIN = " + QuotePowerShellArg(context.ControllerPin) +
-		"; $script = (Invoke-WebRequest -UseBasicParsing -Uri " + QuotePowerShellArg(scriptURL) +
-		").Content; & ([scriptblock]::Create($script)) " + strings.Join(psArgs, " ")
+		"; & $scriptPath " + strings.Join(psArgs, " ") +
+		" } finally { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue }"
 	return "powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand " + encodePowerShellCommand(body)
 }
 
@@ -377,6 +412,7 @@ func encodePowerShellCommand(command string) string {
 
 func buildDockerCommand(profile Profile, context InstallCommandContext) string {
 	endpoint, _ := NormalizeOptionalServiceURL(profile.ControllerEndpoint)
+	dataVolume, logVolume := dockerVolumeNames(context.NodeID)
 	env := []string{
 		"ANTINAT_ENDPOINT=" + endpoint,
 		"ANTINAT_NODE=" + context.NodeID,
@@ -388,11 +424,36 @@ func buildDockerCommand(profile Profile, context InstallCommandContext) string {
 	for _, value := range env {
 		renderedEnv = append(renderedEnv, "--env "+QuoteShellArg(value))
 	}
-	return "docker run --interactive --tty --network host --restart=always " +
+	helperScript := `set -eu
+state=/var/lib/antinat
+install -d -o 65532 -g 65532 -m 700 "$state"
+if [ -e "$state/.enrollment-complete" ]; then
+    exit 0
+fi
+if [ -e "$state/.enrollment-token" ] || [ -L "$state/.enrollment-token" ]; then
+    [ -f "$state/.enrollment-token" ] && [ ! -L "$state/.enrollment-token" ]
+    [ "$(stat -c '%u:%g:%a' "$state/.enrollment-token")" = 65532:65532:600 ]
+    exit 0
+fi
+[ -f /run/input/enrollment.token ] && [ ! -L /run/input/enrollment.token ]
+install -o 65532 -g 65532 -m 600 /run/input/enrollment.token "$state/.enrollment-token"`
+	helper := "docker run --rm --read-only --network none --user 0:0 " +
+		"--mount " + QuoteShellArg("type=bind,src="+dockerTokenSource+",dst=/run/input/enrollment.token,readonly") + " " +
+		"--mount " + QuoteShellArg("type=volume,src="+dataVolume+",dst=/var/lib/antinat") + " " +
+		"--entrypoint /bin/sh " + containerImage + " -c " + QuoteShellArg(helperScript)
+	return helper + " && docker run --interactive --tty --network host --restart=always " +
 		strings.Join(renderedEnv, " ") + " " +
-		"--volume /var/lib/antinat:/var/lib/antinat " +
-		"--volume " + QuoteShellArg(dockerTokenSource+":"+dockerTokenTarget+":ro") + " " +
+		"--user 65532:65532 " +
+		"--mount " + QuoteShellArg("type=volume,src="+dataVolume+",dst=/var/lib/antinat") + " " +
+		"--mount " + QuoteShellArg("type=volume,src="+logVolume+",dst=/var/log/antinat") + " " +
 		containerImage
+}
+
+func dockerVolumeNames(nodeID string) (string, string) {
+	digest := fnv.New32a()
+	_, _ = digest.Write([]byte(nodeID))
+	suffix := fmt.Sprintf("%08x", digest.Sum32())
+	return "antinat-agent-data-" + suffix, "antinat-agent-log-" + suffix
 }
 
 // InstallerScriptURL returns the default script URL for callers that need to

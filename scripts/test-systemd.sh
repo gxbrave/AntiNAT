@@ -20,6 +20,7 @@ unit="antinat-p18-smoke-$$.service"
 unit_path="/run/systemd/system/$unit"
 cleanup() {
     systemctl stop "$unit" >/dev/null 2>&1 || true
+    systemctl disable --runtime "$unit" >/dev/null 2>&1 || true
     rm -f -- "$unit_path"
     systemctl daemon-reload >/dev/null 2>&1 || true
     rm -rf -- "$test_dir"
@@ -44,6 +45,8 @@ fi
 grep -F -- 'User=antinat' "$agent_unit" >/dev/null
 grep -F -- 'NoNewPrivileges=true' "$agent_unit" >/dev/null
 grep -F -- 'CapabilityBoundingSet=' "$controller_unit" >/dev/null
+grep -F -- 'WantedBy=multi-user.target' "$agent_unit" >/dev/null
+grep -F -- 'WantedBy=multi-user.target' "$controller_unit" >/dev/null
 
 controller_binary="$test_dir/antinat-controller"
 GOWORK=off go build -buildvcs=false -o "$controller_binary" "$repo_dir/cmd/antinat-controller"
@@ -76,6 +79,9 @@ printf '%s\n' \
     'TimeoutStopSec=10s' \
     'UMask=0077' \
     'NoNewPrivileges=true' \
+    '' \
+    '[Install]' \
+    'WantedBy=multi-user.target' \
     >"$unit_path"
 chmod 644 -- "$unit_path"
 verify_log="$test_dir/systemd-analyze.log"
@@ -84,6 +90,8 @@ if ! systemd-analyze verify "$unit_path" >"$verify_log" 2>&1; then
     exit 1
 fi
 systemctl daemon-reload
+systemctl enable --runtime "$unit"
+systemctl is-enabled --quiet "$unit"
 
 wait_ready() {
     local attempt
@@ -108,6 +116,8 @@ first_pid=$(systemctl show "$unit" -p MainPID --value)
 [[ -e "/proc/$first_pid/exe" ]]
 [[ "$(readlink -f -- "/proc/$first_pid/exe")" == "$controller_binary" ]]
 [[ -s "$controller_store" ]]
+[[ -f "$controller_store-wal" && ! -L "$controller_store-wal" ]]
+[[ -f "$controller_store-shm" && ! -L "$controller_store-shm" ]]
 
 systemctl restart "$unit"
 wait_ready
@@ -115,9 +125,14 @@ second_pid=$(systemctl show "$unit" -p MainPID --value)
 [[ "$second_pid" =~ ^[1-9][0-9]*$ ]]
 [[ "$second_pid" != "$first_pid" ]]
 [[ "$(readlink -f -- "/proc/$second_pid/exe")" == "$controller_binary" ]]
+[[ -f "$controller_store-wal" && ! -L "$controller_store-wal" ]]
+[[ -f "$controller_store-shm" && ! -L "$controller_store-shm" ]]
 
 systemctl stop "$unit"
 systemctl is-active --quiet "$unit" && exit 1 || true
+systemctl is-enabled --quiet "$unit"
+systemctl disable --runtime "$unit"
+systemctl is-enabled --quiet "$unit" && exit 1 || true
 if curl --fail --silent --show-error --max-time 1 "http://127.0.0.1:$controller_port/readyz" >/dev/null 2>&1; then
     exit 1
 fi

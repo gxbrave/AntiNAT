@@ -157,6 +157,7 @@ cmp -- "$root/opt/antinat/bin/antinat-agent" "$rollback_snapshot/opt/antinat/bin
 # the next snapshot.
 absent_candidate="$root/var/lib/antinat/backups/upgrade.absent"
 mkdir -p -- "$absent_candidate"
+chmod 700 -- "$absent_candidate"
 # Start from the complete durable snapshot. Recovery validates the whole
 # resource set, so a one-row fixture would exercise only the parser and not
 # the actual interrupted-upgrade contract.
@@ -167,7 +168,7 @@ awk -F '\t' -v OFS='\t' -v absent_root="$root/var/lib/antinat" \
     }
     { print }' "$recovery_candidate/snapshot.tsv" >"$absent_candidate/snapshot.tsv"
 chmod 600 -- "$absent_candidate/snapshot.tsv"
-printf '%s\n' '{"schema":"antinat.shell-upgrade/v1","live_root":"'"$root/opt/antinat"'","backup_path":"'"$absent_candidate"'","snapshot":"snapshot.tsv","state":"promoting","completed":[]}' >"$absent_candidate/transaction.json"
+printf '%s\n' '{"schema":"antinat.shell-upgrade/v1","live_root":"'"$root/opt/antinat"'","backup_path":"'"$absent_candidate"'","snapshot":"snapshot.tsv","state":"promoting","completed":[],"agent_was_active":false,"controller_was_active":false,"agent_was_enabled":false,"controller_was_enabled":false}' >"$absent_candidate/transaction.json"
 chmod 600 -- "$absent_candidate/transaction.json"
 set +e
 ANTINAT_FORCE_HEALTH_FAIL=1 run_installer upgrade >/dev/null 2>&1

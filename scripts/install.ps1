@@ -15,6 +15,8 @@ $ExitConflict = 5
 $ExitRollback = 6
 $ExitPurge = 7
 $ExitMigration = 8
+$LocalServiceAccount = 'NT AUTHORITY\LocalService'
+$LocalServiceSid = 'S-1-5-19'
 $script:TokenTemp = ''
 $script:TokenSource = ''
 $script:TokenSourceIdentity = ''
@@ -640,12 +642,14 @@ function Get-SidString($Identity) {
     } catch { return $null }
 }
 
-function Get-TrustedSids {
+function Get-TrustedSids([bool] $IncludeLocalService = $false) {
     $current = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-    return @($current, 'S-1-5-32-544', 'S-1-5-18')
+    $trusted = @($current, 'S-1-5-32-544', 'S-1-5-18')
+    if ($IncludeLocalService) { $trusted += $LocalServiceSid }
+    return $trusted
 }
 
-function Set-PrivateAcl([string] $Path, [bool] $Directory) {
+function Set-PrivateAcl([string] $Path, [bool] $Directory, [bool] $IncludeLocalService = $false) {
     $acl = Get-Acl -LiteralPath $Path
     $acl.SetAccessRuleProtection($true, $false)
     foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRuleSpecific($rule) }
@@ -653,20 +657,22 @@ function Set-PrivateAcl([string] $Path, [bool] $Directory) {
     $current = [Security.Principal.WindowsIdentity]::GetCurrent().User
     $admin = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList @('S-1-5-32-544')
     $system = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList @('S-1-5-18')
-    foreach ($sid in @($current, $admin, $system)) {
+    $sids = @($current, $admin, $system)
+    if ($IncludeLocalService) { $sids += (New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList @($LocalServiceSid)) }
+    foreach ($sid in $sids) {
         $rule = New-Object -TypeName System.Security.AccessControl.FileSystemAccessRule -ArgumentList @($sid, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance, [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow)
         [void]$acl.AddAccessRule($rule)
     }
     Set-Acl -LiteralPath $Path -AclObject $acl
 }
 
-function Test-StrictFileAcl([string] $Path, [bool] $RequireCurrentOwner) {
+function Test-StrictFileAcl([string] $Path, [bool] $RequireCurrentOwner, [bool] $AllowLocalService = $false) {
     Assert-NoReparsePath $Path
     $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
     if ($item.PSIsContainer -or $item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { throw 'file is not a regular non-reparse file' }
     $acl = Get-Acl -LiteralPath $Path
     if (-not $acl.AreAccessRulesProtected) { throw 'file ACL inheritance must be disabled' }
-    $trusted = Get-TrustedSids
+    $trusted = Get-TrustedSids $AllowLocalService
     $owner = Get-SidString $acl.Owner
     if ($RequireCurrentOwner -and $owner -ne $trusted[0]) { throw 'file owner is not the current user' }
     if (-not $RequireCurrentOwner -and $owner -notin $trusted) { throw 'file owner is not trusted' }
@@ -700,13 +706,13 @@ function Read-ProtectedBytes([string] $Path, [int64] $Limit, [string] $Label) {
     }
 }
 
-function Test-StrictDirectoryAcl([string] $Path) {
+function Test-StrictDirectoryAcl([string] $Path, [bool] $AllowLocalService = $false) {
     Assert-NoReparsePath $Path
     $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
     if (-not $item.PSIsContainer -or $item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { throw 'artifact path is not a regular non-reparse directory' }
     $acl = Get-Acl -LiteralPath $Path
     if (-not $acl.AreAccessRulesProtected) { throw 'directory ACL inheritance must be disabled' }
-    $trusted = Get-TrustedSids
+    $trusted = Get-TrustedSids $AllowLocalService
     if ((Get-SidString $acl.Owner) -notin $trusted) { throw 'directory owner is not trusted' }
     $rules = @($acl.Access)
     if ($rules.Count -eq 0) { throw 'directory ACL has no explicit protected entries' }
@@ -716,27 +722,34 @@ function Test-StrictDirectoryAcl([string] $Path) {
     }
 }
 
-function Set-SystemOnlyAcl([string] $Path, [bool] $Directory) {
+function Set-EnrollmentTokenAcl([string] $Path, [bool] $Directory) {
     $acl = Get-Acl -LiteralPath $Path
     $acl.SetAccessRuleProtection($true, $false)
     foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRuleSpecific($rule) }
     $system = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList @('S-1-5-18')
+    $service = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList @($LocalServiceSid)
     $acl.SetOwner($system)
     $inheritance = if ($Directory) { [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit } else { [Security.AccessControl.InheritanceFlags]::None }
-    $rule = New-Object -TypeName System.Security.AccessControl.FileSystemAccessRule -ArgumentList @($system, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance, [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow)
-    [void]$acl.AddAccessRule($rule)
+    foreach ($sid in @($system, $service)) {
+        $rule = New-Object -TypeName System.Security.AccessControl.FileSystemAccessRule -ArgumentList @($sid, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance, [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow)
+        [void]$acl.AddAccessRule($rule)
+    }
     Set-Acl -LiteralPath $Path -AclObject $acl
 }
 
-function Assert-SystemOnlyAcl([string] $Path) {
+function Assert-EnrollmentTokenAcl([string] $Path) {
     Assert-NoReparsePath $Path
     $acl = Get-Acl -LiteralPath $Path
     if (-not $acl.AreAccessRulesProtected -or (Get-SidString $acl.Owner) -ne 'S-1-5-18') { throw 'token file ACL is not SYSTEM-owned and protected' }
     $rules = @($acl.Access)
-    if ($rules.Count -eq 0) { throw 'token file ACL has no explicit protected entries' }
+    if ($rules.Count -ne 2) { throw 'token file ACL does not contain the exact service access list' }
+    $seen = @{}
     foreach ($rule in $rules) {
-        if ($rule.IsInherited -or $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or (Get-SidString $rule.IdentityReference) -ne 'S-1-5-18') { throw 'token file ACL grants a principal other than SYSTEM' }
+        $sid = Get-SidString $rule.IdentityReference
+        if ($rule.IsInherited -or $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or $sid -notin @('S-1-5-18', $LocalServiceSid)) { throw 'token file ACL grants an untrusted principal' }
+        $seen[$sid] = $true
     }
+    if (-not $seen.ContainsKey('S-1-5-18') -or -not $seen.ContainsKey($LocalServiceSid)) { throw 'token file ACL is missing a required service principal' }
 }
 
 function Write-PrivateBytes([string] $Path, [byte[]] $Bytes) {
@@ -773,10 +786,10 @@ function Write-SystemToken([string] $Path, [byte[]] $Bytes) {
     $temporary = Join-Path $parent ('.antinat-token.' + [Guid]::NewGuid().ToString('N') + '.tmp')
     try {
         [IO.File]::WriteAllBytes($temporary, $Bytes)
-        Set-SystemOnlyAcl $temporary $false
+        Set-EnrollmentTokenAcl $temporary $false
         Move-Item -LiteralPath $temporary -Destination $Path -Force
-        Set-SystemOnlyAcl $Path $false
-        Assert-SystemOnlyAcl $Path
+        Set-EnrollmentTokenAcl $Path $false
+        Assert-EnrollmentTokenAcl $Path
     } finally {
         if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
     }
@@ -1050,7 +1063,7 @@ function Read-Token {
         }
         try {
             New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
-            Set-PrivateAcl $DataDir $true
+            Set-PrivateAcl $DataDir $true $true
             $path = Join-Path $DataDir ('.enrollment-token.' + [Guid]::NewGuid().ToString('N'))
             $encoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList @($false)
             Write-SystemToken $path $encoding.GetBytes($token + [Environment]::NewLine)
@@ -1099,14 +1112,12 @@ function Get-ServiceCommand([bool] $IncludeToken) {
 function Install-Service([bool] $IncludeToken) {
     if ($env:ANTINAT_TEST_MODE -eq '1') { return }
     if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) { Fail $ExitConflict 'service already exists' }
-    # LocalSystem is retained for the protected token ACL, but the service SID
-    # must be restricted so the process does not receive an unrestricted
-    # service identity.
-    New-Service -Name $ServiceName -BinaryPathName (Get-ServiceCommand $IncludeToken) -DisplayName 'AntiNAT Agent' -StartupType Automatic -Description 'AntiNAT forwarding agent' | Out-Null
+    $credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList @($LocalServiceAccount, (ConvertTo-SecureString '' -AsPlainText -Force))
+    New-Service -Name $ServiceName -BinaryPathName (Get-ServiceCommand $IncludeToken) -DisplayName 'AntiNAT Agent' -StartupType Automatic -Credential $credential -Description 'AntiNAT forwarding agent' | Out-Null
     $serviceInfo = Get-CimInstance -ClassName Win32_Service -Filter ("Name='{0}'" -f $ServiceName)
-    if ($null -eq $serviceInfo -or [string]$serviceInfo.StartName -ne 'LocalSystem') {
+    if ($null -eq $serviceInfo -or [string]$serviceInfo.StartName -ne $LocalServiceAccount) {
         & sc.exe delete $ServiceName *> $null
-        throw 'service must run as LocalSystem for the protected enrollment token ACL'
+        throw 'service must run as LocalService'
     }
     & sc.exe sidtype $ServiceName restricted *> $null
     if ($LASTEXITCODE -ne 0) { throw 'service SID configuration failed' }
@@ -1120,11 +1131,12 @@ function Get-ControllerServiceCommand {
 function Install-ControllerService {
     if ($env:ANTINAT_TEST_MODE -eq '1') { return }
     if (Get-Service -Name $ControllerServiceName -ErrorAction SilentlyContinue) { Fail $ExitConflict 'controller service already exists' }
-    New-Service -Name $ControllerServiceName -BinaryPathName (Get-ControllerServiceCommand) -DisplayName 'AntiNAT Controller' -StartupType Automatic -Description 'AntiNAT controller' | Out-Null
+    $credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList @($LocalServiceAccount, (ConvertTo-SecureString '' -AsPlainText -Force))
+    New-Service -Name $ControllerServiceName -BinaryPathName (Get-ControllerServiceCommand) -DisplayName 'AntiNAT Controller' -StartupType Automatic -Credential $credential -Description 'AntiNAT controller' | Out-Null
     $serviceInfo = Get-CimInstance -ClassName Win32_Service -Filter ("Name='{0}'" -f $ControllerServiceName)
-    if ($null -eq $serviceInfo -or [string]$serviceInfo.StartName -ne 'LocalSystem') {
+    if ($null -eq $serviceInfo -or [string]$serviceInfo.StartName -ne $LocalServiceAccount) {
         & sc.exe delete $ControllerServiceName *> $null
-        throw 'controller service must run as LocalSystem'
+        throw 'controller service must run as LocalService'
     }
     & sc.exe sidtype $ControllerServiceName restricted *> $null
     if ($LASTEXITCODE -ne 0) { throw 'controller service SID configuration failed' }
@@ -1252,6 +1264,8 @@ function Get-CompileTimeResources {
         $resources += @(
             [ordered]@{ root = $InstallDir; path = 'bin/antinat-controller.exe' },
             [ordered]@{ root = $DataDir; path = 'controller.db' },
+            [ordered]@{ root = $DataDir; path = 'controller.db-wal' },
+            [ordered]@{ root = $DataDir; path = 'controller.db-shm' },
             [ordered]@{ root = $DataDir; path = 'controller-keys' }
         )
     }
@@ -1273,6 +1287,8 @@ function Get-AllCompileTimeResources {
         [ordered]@{ root = $DataDir; path = 'state.db' },
         [ordered]@{ root = $DataDir; path = 'node.key' },
         [ordered]@{ root = $DataDir; path = 'controller.db' },
+        [ordered]@{ root = $DataDir; path = 'controller.db-wal' },
+        [ordered]@{ root = $DataDir; path = 'controller.db-shm' },
         [ordered]@{ root = $DataDir; path = 'controller-keys' },
         [ordered]@{ root = $DataDir; path = 'terminal.marker' },
         [ordered]@{ root = $DataDir; path = 'agent.marker' },
@@ -1291,7 +1307,7 @@ function Get-OwnershipResourceRole($Resource) {
     foreach ($allowed in @(Get-AllCompileTimeResources)) {
         if ([IO.Path]::GetFullPath([string]$allowed.root) -ieq [IO.Path]::GetFullPath($root) -and [string]$allowed.path -ieq $path) {
             if ($allowed.path -in @('bin/antinat-agent.exe', 'bin/antinat-hook-runner.exe', 'state.db', 'node.key', 'terminal.marker', 'agent.marker', 'agent.conf')) { return 'agent' }
-            if ($allowed.path -in @('bin/antinat-controller.exe', 'controller.db', 'controller-keys')) { return 'controller' }
+            if ($allowed.path -in @('bin/antinat-controller.exe', 'controller.db', 'controller.db-wal', 'controller.db-shm', 'controller-keys')) { return 'controller' }
             return 'shared'
         }
     }
@@ -1355,7 +1371,7 @@ function Test-ConstantTimeEqual([string] $Left, [string] $Right) {
 
 function New-OwnershipManifest {
     New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
-    Set-PrivateAcl $DataDir $true
+    Set-PrivateAcl $DataDir $true $true
     if ($null -eq (Get-ExistingItem $OwnershipKey)) { Write-PrivateBytes $OwnershipKey (New-RandomBytes 32) }
     Test-StrictFileAcl $OwnershipKey $false
     $key = Read-ProtectedBytes $OwnershipKey 4MB 'ownership key'
@@ -1547,7 +1563,7 @@ function Copy-VerifiedFileAtomic([string] $Source, [string] $Destination, [strin
         $output.Dispose()
         $output = $null
         Move-Item -LiteralPath $temporary -Destination $Destination -Force
-        Set-PrivateAcl $Destination $false
+        Set-PrivateAcl $Destination $false $true
     } finally {
         if ($null -ne $output) { $output.Dispose() }
         $opened.Dispose()
@@ -1556,11 +1572,110 @@ function Copy-VerifiedFileAtomic([string] $Source, [string] $Destination, [strin
     }
 }
 
+function Get-SnapshotSddl([string] $Path) {
+    $acl = Get-Acl -LiteralPath $Path
+    $sections = [Security.AccessControl.AccessControlSections]::Owner -bor
+        [Security.AccessControl.AccessControlSections]::Group -bor
+        [Security.AccessControl.AccessControlSections]::Access
+    $sddl = $acl.GetSecurityDescriptorSddlForm($sections)
+    if ([string]::IsNullOrEmpty($sddl) -or $sddl.Length -gt 65536) { throw 'snapshot security descriptor is invalid' }
+    return $sddl
+}
+
+function Test-SnapshotSddl([string] $Sddl, [bool] $Directory) {
+    if ([string]::IsNullOrEmpty($Sddl) -or $Sddl.Length -gt 65536) { throw 'snapshot security descriptor is invalid' }
+    $security = if ($Directory) {
+        New-Object -TypeName System.Security.AccessControl.DirectorySecurity
+    } else {
+        New-Object -TypeName System.Security.AccessControl.FileSecurity
+    }
+    try {
+        $security.SetSecurityDescriptorSddlForm($Sddl)
+        $sections = [Security.AccessControl.AccessControlSections]::Owner -bor
+            [Security.AccessControl.AccessControlSections]::Group -bor
+            [Security.AccessControl.AccessControlSections]::Access
+        $null = $security.GetSecurityDescriptorSddlForm($sections)
+    } catch { throw 'snapshot security descriptor is invalid' }
+}
+
+function Set-SnapshotSddl([string] $Path, [string] $Sddl) {
+    Assert-NoReparsePath $Path
+    $item = Get-ExistingItem $Path
+    if ($null -eq $item -or $item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { throw 'snapshot ACL target is unsafe' }
+    Test-SnapshotSddl $Sddl $item.PSIsContainer
+    $acl = Get-Acl -LiteralPath $Path
+    $acl.SetSecurityDescriptorSddlForm($Sddl)
+    Set-Acl -LiteralPath $Path -AclObject $acl
+}
+
+function Assert-SnapshotRelativePath([string] $Relative) {
+    if ($null -eq $Relative) { throw 'snapshot ACL path is invalid' }
+    if ($Relative -eq '') { return }
+    if ($Relative.StartsWith('/') -or $Relative.EndsWith('/') -or $Relative.Contains('\') -or [IO.Path]::IsPathRooted($Relative)) {
+        throw 'snapshot ACL path is invalid'
+    }
+    foreach ($part in $Relative.Split('/')) {
+        if ([string]::IsNullOrEmpty($part) -or $part -eq '.' -or $part -eq '..') { throw 'snapshot ACL path is invalid' }
+        foreach ($character in $part.ToCharArray()) {
+            if ([char]::IsControl($character) -or $character -in @(':', '*', '?', '"', '<', '>', '|')) { throw 'snapshot ACL path is invalid' }
+        }
+    }
+}
+
+function Get-SnapshotAclRecords([string] $Path, [string] $Relative = '') {
+    Assert-NoReparsePath $Path
+    $item = Get-ExistingItem $Path
+    if ($null -eq $item -or $item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { throw 'snapshot ACL tree contains a reparse point' }
+    $records = @([ordered]@{ path = $Relative; sddl = (Get-SnapshotSddl $Path) })
+    if ($item.PSIsContainer) {
+        foreach ($child in @(Get-ChildItem -LiteralPath $Path -Force | Sort-Object -Property Name)) {
+            $childRelative = if ($Relative) { "$Relative/$($child.Name)" } else { [string]$child.Name }
+            $records += @(Get-SnapshotAclRecords $child.FullName $childRelative)
+        }
+    }
+    return $records
+}
+
+function Assert-SnapshotAclRecords([string] $Root, $AclRecords) {
+    Assert-NoReparsePath $Root
+    $expected = @{}
+    foreach ($entry in @($AclRecords)) {
+        if ($null -eq $entry -or $entry.path -isnot [string] -or $entry.sddl -isnot [string]) { throw 'snapshot ACL record is invalid' }
+        $relative = [string]$entry.path
+        Assert-SnapshotRelativePath $relative
+        if ($expected.ContainsKey($relative)) { throw 'snapshot ACL records contain a duplicate path' }
+        $target = if ($relative) { Join-Path $Root $relative.Replace('/', '\') } else { $Root }
+        $item = Get-ExistingItem $target
+        if ($null -eq $item -or $item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { throw 'snapshot ACL target is missing or unsafe' }
+        Test-SnapshotSddl ([string]$entry.sddl) $item.PSIsContainer
+        $expected[$relative] = [string]$entry.sddl
+    }
+    $actual = @(Get-SnapshotAclRecords $Root)
+    if ($actual.Count -ne $expected.Count) { throw 'snapshot ACL records are incomplete' }
+    foreach ($entry in $actual) {
+        $relative = [string]$entry.path
+        if (-not $expected.ContainsKey($relative) -or $expected[$relative] -ne [string]$entry.sddl) {
+            throw 'snapshot ACL records do not match the snapshot tree'
+        }
+    }
+}
+
+function Restore-SnapshotAclRecords([string] $Root, $AclRecords) {
+    $ordered = @($AclRecords | Sort-Object @{ Expression = { ([string]$_.path).Split('/').Count } }, @{ Expression = { [string]$_.path } })
+    foreach ($entry in $ordered) {
+        $relative = [string]$entry.path
+        $target = if ($relative) { Join-Path $Root $relative.Replace('/', '\') } else { $Root }
+        Set-SnapshotSddl $target ([string]$entry.sddl)
+    }
+}
+
 function Copy-TreeSnapshot([string] $Source, [string] $Destination) {
     $item = Get-ExistingItem $Source
     if ($null -eq $item -or $item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { throw 'snapshot tree contains a reparse point' }
+    $sourceSddl = Get-SnapshotSddl $Source
     if (-not $item.PSIsContainer) {
         Copy-FileAtomic $Source $Destination
+        Set-SnapshotSddl $Destination $sourceSddl
         return
     }
     Assert-NoReparsePath $Destination
@@ -1571,6 +1686,7 @@ function Copy-TreeSnapshot([string] $Source, [string] $Destination) {
     foreach ($child in Get-ChildItem -LiteralPath $Source -Force) {
         Copy-TreeSnapshot $child.FullName (Join-Path $Destination $child.Name)
     }
+    Set-SnapshotSddl $Destination $sourceSddl
 }
 
 function Test-SnapshotTree([string] $Left, [string] $Right) {
@@ -1579,6 +1695,9 @@ function Test-SnapshotTree([string] $Left, [string] $Right) {
     if ($null -eq $leftItem -or $null -eq $rightItem) { return $false }
     if ($leftItem.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint) -or $rightItem.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { return $false }
     if ($leftItem.PSIsContainer -ne $rightItem.PSIsContainer) { return $false }
+    try {
+        if ((Get-SnapshotSddl $Left) -ne (Get-SnapshotSddl $Right)) { return $false }
+    } catch { return $false }
     if (-not $leftItem.PSIsContainer) {
         return (Get-FileHash -Algorithm SHA256 -LiteralPath $Left).Hash -eq (Get-FileHash -Algorithm SHA256 -LiteralPath $Right).Hash
     }
@@ -1608,6 +1727,8 @@ function Get-UpgradeResources {
         $resources += @(
             [ordered]@{ root = $InstallDir; path = 'bin/antinat-controller.exe' },
             [ordered]@{ root = $DataDir; path = 'controller.db' },
+            [ordered]@{ root = $DataDir; path = 'controller.db-wal' },
+            [ordered]@{ root = $DataDir; path = 'controller.db-shm' },
             [ordered]@{ root = $DataDir; path = 'controller-keys' }
         )
     }
@@ -1624,17 +1745,20 @@ function Create-UpgradeSnapshot([string] $Destination) {
         $relative = ([string]$resource.path).Replace('/', '\')
         $source = [IO.Path]::GetFullPath((Join-Path ([string]$resource.root) $relative))
         Assert-NoReparsePath ([string]$resource.root)
-        $record = [ordered]@{ root = $resource.root; path = $resource.path; present = $false; kind = 'missing'; backup = "file-$index" }
+        $record = [ordered]@{ root = $resource.root; path = $resource.path; present = $false; kind = 'missing'; backup = "file-$index"; acl = @() }
         $item = Get-ExistingItem $source
         if ($null -ne $item) {
             if ($item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { throw 'upgrade snapshot resource is unsafe' }
             if (-not $item.PSIsContainer -and $item.Length -gt 512MB) { throw 'upgrade snapshot resource is unsafe' }
             $record.kind = if ($item.PSIsContainer) { 'directory' } else { 'file' }
+            $record.acl = @(Get-SnapshotAclRecords $source)
             if ($record.kind -eq 'directory') {
                 Copy-TreeSnapshot $source (Join-Path $Destination $record.backup)
             } else {
                 Copy-FileAtomic $source (Join-Path $Destination $record.backup)
+                Set-SnapshotSddl (Join-Path $Destination $record.backup) ([string]$record.acl[0].sddl)
             }
+            Assert-SnapshotAclRecords (Join-Path $Destination $record.backup) @($record.acl)
             $record.present = $true
         }
         $records += $record
@@ -1767,6 +1891,10 @@ function Assert-SnapshotTreeSafe([string] $Path) {
 }
 
 function Read-UpgradeSnapshotRecords([string] $Backup) {
+    $backupItem = Get-ExistingItem $Backup
+    if ($null -eq $backupItem -or -not $backupItem.PSIsContainer) { throw 'upgrade snapshot root is not a directory' }
+    Test-StrictDirectoryAcl $Backup
+    Assert-NoReparsePath $Backup
     $snapshotPath = Join-Path $Backup 'snapshot.json'
     try {
         $raw = Read-ProtectedBytes $snapshotPath 1MB 'upgrade snapshot metadata'
@@ -1788,9 +1916,17 @@ function Read-UpgradeSnapshotRecords([string] $Backup) {
     $seenBackup = @{}
     foreach ($record in $records) {
         if ($record -isnot [System.Management.Automation.PSCustomObject]) { throw 'upgrade snapshot record is not an object' }
-        $fields = @('root', 'path', 'present', 'kind', 'backup')
+        $fields = @('root', 'path', 'present', 'kind', 'backup', 'acl')
         foreach ($property in @($record.psobject.Properties)) { if ($property.Name -notin $fields) { throw 'upgrade snapshot record has an unknown field' } }
         if ($record.root -isnot [string] -or $record.path -isnot [string] -or $record.kind -isnot [string] -or $record.backup -isnot [string]) { throw 'upgrade snapshot record fields are invalid' }
+        if ($null -eq $record.acl) { throw 'upgrade snapshot record ACL is missing' }
+        $aclRecords = @($record.acl)
+        foreach ($aclRecord in $aclRecords) {
+            if ($aclRecord -isnot [System.Management.Automation.PSCustomObject]) { throw 'upgrade snapshot ACL record is not an object' }
+            foreach ($property in @($aclRecord.psobject.Properties)) { if ($property.Name -notin @('path', 'sddl')) { throw 'upgrade snapshot ACL record has an unknown field' } }
+            if ($aclRecord.path -isnot [string] -or $aclRecord.sddl -isnot [string]) { throw 'upgrade snapshot ACL record fields are invalid' }
+            Assert-SnapshotRelativePath ([string]$aclRecord.path)
+        }
         $resource = [ordered]@{ root = [string]$record.root; path = [string]$record.path }
         Validate-OwnershipResource $resource
         $matching = @($allowed | Where-Object {
@@ -1810,11 +1946,19 @@ function Read-UpgradeSnapshotRecords([string] $Backup) {
             Assert-SnapshotTreeSafe $backupPath
             $backupItem = Get-ExistingItem $backupPath
             if (([string]$record.kind -eq 'directory') -ne $backupItem.PSIsContainer) { throw 'upgrade snapshot kind does not match backup' }
+            if ($aclRecords.Count -eq 0) { throw 'present upgrade snapshot record has no ACL records' }
+            Assert-SnapshotAclRecords $backupPath $aclRecords
         } elseif ([string]$record.kind -ne 'missing') {
             throw 'absent upgrade snapshot record has a present kind'
+        } elseif ($aclRecords.Count -ne 0) {
+            throw 'absent upgrade snapshot record has ACL records'
         } elseif ($null -ne (Get-ExistingItem $backupPath)) {
             throw 'absent upgrade snapshot has unexpected backup data'
         }
+    }
+    $allowedBackupNames = @('snapshot.json', 'transaction.json') + @($seenBackup.Keys | ForEach-Object { [string]$_ })
+    foreach ($child in @(Get-ChildItem -LiteralPath $Backup -Force)) {
+        if ($child.Name -notin $allowedBackupNames) { throw 'upgrade snapshot contains an unexpected backup entry' }
     }
     if ($seen.Count -ne $expected.Count) { throw 'upgrade snapshot is incomplete' }
     foreach ($key in $expected.Keys) { if (-not $seen.ContainsKey($key)) { throw 'upgrade snapshot is incomplete' } }
@@ -1831,6 +1975,7 @@ function Recover-InterruptedUpgrades {
         if ($candidate.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { throw 'upgrade backup directory is a reparse point' }
         $journalPath = Join-Path $candidate.FullName 'transaction.json'
         if ($null -eq (Get-ExistingItem $journalPath)) { continue }
+        Test-StrictDirectoryAcl $candidate.FullName
         $journal = Read-UpgradeJournal $journalPath
         if ($journal.state -in @('complete', 'rolled_back', 'recovered')) { continue }
         $records = Read-UpgradeSnapshotRecords $candidate.FullName
@@ -1890,6 +2035,7 @@ function Restore-UpgradeSnapshot([string] $Destination, $Records) {
             } else {
                 throw 'upgrade snapshot record has an invalid kind'
             }
+            Restore-SnapshotAclRecords $target @($record.acl)
         } elseif ($null -ne (Get-ExistingItem $target)) {
             Remove-Owned $root ([string]$record.path)
         }
@@ -1902,6 +2048,8 @@ function Verify-UpgradeSnapshot([string] $Destination, $Records) {
         $target = [IO.Path]::GetFullPath((Join-Path $root ([string]$record.path).Replace('/', '\')))
         $backup = Join-Path $Destination ([string]$record.backup)
         if ($record.present) {
+            Assert-SnapshotAclRecords $backup @($record.acl)
+            Assert-SnapshotAclRecords $target @($record.acl)
             if (-not (Test-SnapshotTree $target $backup)) { throw "upgrade snapshot restore mismatch: $($record.path)" }
         } elseif ($null -ne (Get-ExistingItem $target)) {
             throw "upgrade snapshot restored an absent resource: $($record.path)"
@@ -1941,11 +2089,11 @@ function Install-Flow {
     if ($Role -in @('controller', 'both')) {
         $controllerKeys = Join-Path $DataDir 'controller-keys'
         New-Item -ItemType Directory -Force -Path $controllerKeys | Out-Null
-        Set-PrivateAcl $controllerKeys $true
+        Set-PrivateAcl $controllerKeys $true $true
     }
     try {
-        Set-PrivateAcl $DataDir $true
-        Set-PrivateAcl $LogDir $true
+        Set-PrivateAcl $DataDir $true $true
+        Set-PrivateAcl $LogDir $true $true
     } catch { Fail $ExitGeneric 'could not protect the installer directories' }
     try { Backup-SchemaForInstall } catch { Rollback-New-Install; Fail $ExitGeneric 'could not prepare the schema marker transaction' }
     if ($Role -in @('agent', 'both') -and ($env:ANTINAT_TEST_MODE -ne '1' -or $TokenFile -or $TokenFD -ge 0)) {

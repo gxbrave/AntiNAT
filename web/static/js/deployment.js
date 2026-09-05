@@ -13,6 +13,12 @@
   var PLATFORM_DOCKER = 'docker';
   var DOCKER_TOKEN_SOURCE = '/secure/antinat/enrollment.token';
   var DOCKER_TOKEN_TARGET = '/run/secrets/antinat_enrollment_token';
+  var RELEASE_BASE_URL = 'https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta';
+  var INSTALLER_SCRIPT_SHA256 = 'a76fcd5150ea34cde8f02cf67ed56b64d561041a5698b8b9430be182c1e4c194';
+  var INSTALLER_LIB_SHA256 = '757c4ede3506961a0af106d3d9c63589e716de42097b1fcb55c8002adaed51f6';
+  var INSTALLER_PS1_SHA256 = 'db92ec929fb943df1debe51ae222814b3ad8e65147db070392b4bbb9a022fd9f';
+  var INSTALLER_TRUST_SHA256 = '7c250ef2c4b3ece394f1d22f106742152116ef192a89bda1f1deaef9073112f3';
+  var DOCKER_IMAGE = 'ghcr.io/gxbrave/antinat-agent:v1.0.0-beta';
   var defaultProfile = {
     platform: PLATFORM_LINUX,
     controller_endpoint: '',
@@ -147,10 +153,10 @@
     return { node_id: nodeID, controller_pin: controllerPin };
   }
 
-  function installerURL(profile) {
-    var url = profile.platform === PLATFORM_WINDOWS
-      ? 'https://github.com/gxbrave/AntiNAT/releases/latest/download/install.ps1'
-      : 'https://github.com/gxbrave/AntiNAT/releases/latest/download/install.sh';
+  function installerURL(profile, asset) {
+    var url = asset || (profile.platform === PLATFORM_WINDOWS
+      ? RELEASE_BASE_URL + '/install.ps1'
+      : RELEASE_BASE_URL + '/install.sh');
     if (profile.github_proxy && profile.platform !== PLATFORM_DOCKER) {
       url = profile.github_proxy.replace(/\/+$/, '') + '/' + url;
     }
@@ -162,6 +168,9 @@
     context = validateCommandContext(context);
     var args = buildAgentArguments(profile);
     if (profile.platform === PLATFORM_DOCKER) {
+      var volumeSuffix = dockerVolumeSuffix(context.node_id);
+      var dataVolume = 'antinat-agent-data-' + volumeSuffix;
+      var logVolume = 'antinat-agent-log-' + volumeSuffix;
       var dockerEnv = [
         'ANTINAT_ENDPOINT=' + profile.controller_endpoint,
         'ANTINAT_NODE=' + context.node_id,
@@ -169,23 +178,66 @@
         'ANTINAT_STATE=/var/lib/antinat',
         'ANTINAT_DOCKER_TOKEN_FILE=' + DOCKER_TOKEN_TARGET
       ].map(function (value) { return '--env ' + quoteShellArg(value); });
-      return 'docker run --interactive --tty --network host --restart=always ' +
-        dockerEnv.join(' ') + ' --volume /var/lib/antinat:/var/lib/antinat ' +
-        '--volume ' + quoteShellArg(DOCKER_TOKEN_SOURCE + ':' + DOCKER_TOKEN_TARGET + ':ro') +
-        ' ghcr.io/gxbrave/antinat-agent:latest';
+      var helperScript = 'set -eu\n' +
+        'state=/var/lib/antinat\n' +
+        'install -d -o 65532 -g 65532 -m 700 "$state"\n' +
+        'if [ -e "$state/.enrollment-complete" ]; then exit 0; fi\n' +
+        'if [ -e "$state/.enrollment-token" ] || [ -L "$state/.enrollment-token" ]; then\n' +
+        '  [ -f "$state/.enrollment-token" ] && [ ! -L "$state/.enrollment-token" ]\n' +
+        '  [ "$(stat -c \'%u:%g:%a\' "$state/.enrollment-token")" = 65532:65532:600 ]\n' +
+        '  exit 0\n' +
+        'fi\n' +
+        '[ -f /run/input/enrollment.token ] && [ ! -L /run/input/enrollment.token ]\n' +
+        'install -o 65532 -g 65532 -m 600 /run/input/enrollment.token "$state/.enrollment-token"';
+      var helper = 'docker run --rm --read-only --network none --user 0:0 ' +
+        '--mount ' + quoteShellArg('type=bind,src=' + DOCKER_TOKEN_SOURCE + ',dst=/run/input/enrollment.token,readonly') + ' ' +
+        '--mount ' + quoteShellArg('type=volume,src=' + dataVolume + ',dst=/var/lib/antinat') + ' ' +
+        '--entrypoint /bin/sh ' + DOCKER_IMAGE + ' -c ' + quoteShellArg(helperScript);
+      return helper + ' && docker run --interactive --tty --network host --restart=always ' +
+        dockerEnv.join(' ') + ' ' +
+        '--user 65532:65532 ' +
+        '--mount ' + quoteShellArg('type=volume,src=' + dataVolume + ',dst=/var/lib/antinat') + ' ' +
+        '--mount ' + quoteShellArg('type=volume,src=' + logVolume + ',dst=/var/log/antinat') +
+        ' ' + DOCKER_IMAGE;
     }
     if (profile.platform === PLATFORM_WINDOWS) {
       var psArgs = ['install'].concat(args.map(quotePowerShellArg));
-      var body = '$env:ANTINAT_NODE_ID = ' + quotePowerShellArg(context.node_id) +
+      var body = "$temp = Join-Path ([IO.Path]::GetTempPath()) ('antinat-installer-' + [Guid]::NewGuid().ToString('N')); " +
+        "$scriptPath = Join-Path $temp 'scripts\\install.ps1'; $trustPath = Join-Path $temp 'deploy\\trust\\release-ed25519.pub'; " +
+        "New-Item -ItemType Directory -Path (Join-Path $temp 'scripts'), (Join-Path $temp 'deploy\\trust') | Out-Null; try { " +
+        'Invoke-WebRequest -UseBasicParsing -Uri ' + quotePowerShellArg(installerURL(profile, RELEASE_BASE_URL + '/install.ps1')) + ' -OutFile $scriptPath; ' +
+        'Invoke-WebRequest -UseBasicParsing -Uri ' + quotePowerShellArg(installerURL(profile, RELEASE_BASE_URL + '/release-ed25519.pub')) + ' -OutFile $trustPath; ' +
+        "if ((Get-FileHash -Algorithm SHA256 -LiteralPath $scriptPath).Hash.ToLowerInvariant() -ne '" + INSTALLER_PS1_SHA256 + "') { throw 'installer hash verification failed' }; " +
+        "if ((Get-FileHash -Algorithm SHA256 -LiteralPath $trustPath).Hash.ToLowerInvariant() -ne '" + INSTALLER_TRUST_SHA256 + "') { throw 'trust root hash verification failed' }; " +
+        '$env:ANTINAT_NODE_ID = ' + quotePowerShellArg(context.node_id) +
         '; $env:ANTINAT_CONTROLLER_PIN = ' + quotePowerShellArg(context.controller_pin) +
-        '; $script = (Invoke-WebRequest -UseBasicParsing -Uri ' + quotePowerShellArg(installerURL(profile)) + ').Content; & ([scriptblock]::Create($script)) ' + psArgs.join(' ');
+        '; & $scriptPath ' + psArgs.join(' ') +
+        ' } finally { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue }';
       return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ' + encodePowerShellCommand(body);
     }
-    var inner = 'curl --fail --silent --show-error --location ' + quoteShellArg(installerURL(profile)) +
-      ' | sudo env ' + quoteShellArg('ANTINAT_NODE_ID=' + context.node_id) + ' ' +
+    var inner = 'set -eu\n' +
+      'tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/antinat-installer.XXXXXX")\n' +
+      'trap \'rm -rf -- "$tmp_dir"\' EXIT\n' +
+      'mkdir -p -- "$tmp_dir/scripts" "$tmp_dir/deploy/trust"\n' +
+      'curl --fail --silent --show-error --location --proto \'=https\' --tlsv1.2 ' + quoteShellArg(installerURL(profile, RELEASE_BASE_URL + '/install.sh')) + ' -o "$tmp_dir/scripts/install.sh"\n' +
+      'curl --fail --silent --show-error --location --proto \'=https\' --tlsv1.2 ' + quoteShellArg(installerURL(profile, RELEASE_BASE_URL + '/libinstall.sh')) + ' -o "$tmp_dir/scripts/libinstall.sh"\n' +
+      'curl --fail --silent --show-error --location --proto \'=https\' --tlsv1.2 ' + quoteShellArg(installerURL(profile, RELEASE_BASE_URL + '/release-ed25519.pub')) + ' -o "$tmp_dir/deploy/trust/release-ed25519.pub"\n' +
+      "printf '%s  %s\\n' '" + INSTALLER_SCRIPT_SHA256 + "' \"$tmp_dir/scripts/install.sh\" | sha256sum --check --status -\n" +
+      "printf '%s  %s\\n' '" + INSTALLER_LIB_SHA256 + "' \"$tmp_dir/scripts/libinstall.sh\" | sha256sum --check --status -\n" +
+      "printf '%s  %s\\n' '" + INSTALLER_TRUST_SHA256 + "' \"$tmp_dir/deploy/trust/release-ed25519.pub\" | sha256sum --check --status -\n" +
+      'chmod 700 -- "$tmp_dir" "$tmp_dir/scripts" "$tmp_dir/deploy" "$tmp_dir/deploy/trust"\n' +
+      'chmod 600 -- "$tmp_dir/scripts/install.sh" "$tmp_dir/scripts/libinstall.sh" "$tmp_dir/deploy/trust/release-ed25519.pub"\n' +
+      'sudo env ' + quoteShellArg('ANTINAT_NODE_ID=' + context.node_id) + ' ' +
       quoteShellArg('ANTINAT_CONTROLLER_PIN=' + context.controller_pin) +
-      ' bash -s -- install ' + quoteShellArgs(args);
+      ' bash "$tmp_dir/scripts/install.sh" install ' + quoteShellArgs(args);
     return 'bash -o pipefail -c ' + quoteShellArg(inner);
+  }
+
+  function dockerVolumeSuffix(value) {
+    var bytes = new TextEncoder().encode(String(value));
+    var hash = 2166136261;
+    for (var i = 0; i < bytes.length; i++) hash = Math.imul(hash ^ bytes[i], 16777619);
+    return ('00000000' + (hash >>> 0).toString(16)).slice(-8);
   }
 
   function formControl(labelKey, key, type, value) {

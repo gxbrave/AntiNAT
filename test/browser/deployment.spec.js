@@ -82,7 +82,7 @@ test.describe('node deployment flow', () => {
     expect(await page.locator('[data-deployment-token]').count()).toBe(0);
   });
 
-  test('renders platform-specific commands and removes installer-only Docker options', async ({ page }) => {
+  test('renders platform-specific commands with an isolated Docker enrollment helper', async ({ page }) => {
     await login(page);
     await nodes(page);
     await page.locator('[data-node="node-online"] [data-action="deploy"]').click();
@@ -101,13 +101,23 @@ test.describe('node deployment flow', () => {
     expect(dockerCommand).not.toContain('--token');
     expect(dockerCommand).toContain('--interactive');
     expect(dockerCommand).toContain('--tty');
-    expect(dockerCommand).not.toContain('--rm');
+    expect(dockerCommand).toContain('--rm');
+    expect(dockerCommand).toContain('--read-only');
+    expect(dockerCommand).toContain('--network none');
+    expect(dockerCommand).toContain('--user 0:0');
     expect(dockerCommand).toMatch(/--env 'ANTINAT_ENDPOINT=/);
     expect(dockerCommand).toContain("--env 'ANTINAT_NODE=node-online'");
     expect(dockerCommand).toMatch(/--env 'ANTINAT_PIN=[0-9a-f]{64}'/);
-    expect(dockerCommand).toContain("--volume '/secure/antinat/enrollment.token:/run/secrets/antinat_enrollment_token:ro'");
+    expect(dockerCommand).toContain("type=bind,src=/secure/antinat/enrollment.token,dst=/run/input/enrollment.token,readonly");
     expect(dockerCommand).not.toContain('--controller-endpoint');
-    expect(dockerCommand.trim()).toMatch(/ghcr\.io\/gxbrave\/antinat-agent:latest$/);
+    const runtimeCommand = dockerCommand.slice(dockerCommand.lastIndexOf(' && docker run ') + ' && '.length);
+    expect(runtimeCommand).not.toContain('--rm');
+    expect(runtimeCommand).toContain('--network host');
+    expect(runtimeCommand).toContain('--restart=always');
+    expect(runtimeCommand).toContain('--user 65532:65532');
+    expect(runtimeCommand).toContain("type=volume,src=antinat-agent-data-");
+    expect(runtimeCommand).toContain("type=volume,src=antinat-agent-log-");
+    expect(runtimeCommand.trim()).toMatch(/ghcr\.io\/gxbrave\/antinat-agent:v1\.0\.0-beta$/);
 
     await platform.selectOption('windows');
     await expect(page.locator('[data-deployment-command]')).toContainText(/powershell/i);
