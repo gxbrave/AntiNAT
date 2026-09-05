@@ -212,6 +212,11 @@ func verifyReleaseEvidence(evidenceDir string, options releaseVerifierOptions) (
 	if err := validateEvidenceFiles(evidenceDir, record.Evidence); err != nil {
 		return report, err
 	}
+	for _, gate := range record.Gates {
+		if err := validateEvidenceFiles(evidenceDir, gate.Evidence); err != nil {
+			return report, fmt.Errorf("gate %q evidence: %w", gate.ID, err)
+		}
+	}
 
 	signaturePath, sigPresent, err := optionalSafeEvidencePath(artifactDir, record.Signature)
 	if err != nil {
@@ -350,6 +355,9 @@ func validateReleaseEvidenceRecord(record releaseEvidence) error {
 		}
 		if strings.TrimSpace(gate.Command) == "" || strings.TrimSpace(gate.Summary) == "" || !sha256Pattern.MatchString(gate.ArtifactDigest) {
 			return fmt.Errorf("gate %q has incomplete command, summary, or artifact digest", gate.ID)
+		}
+		if gate.ArtifactDigest != record.ManifestSHA256 {
+			return fmt.Errorf("gate %q artifact digest %q does not match manifest digest %q", gate.ID, gate.ArtifactDigest, record.ManifestSHA256)
 		}
 		if len(gate.Evidence) == 0 {
 			return fmt.Errorf("gate %q has no evidence paths", gate.ID)

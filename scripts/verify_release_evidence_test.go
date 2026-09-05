@@ -59,6 +59,40 @@ func TestVerifyReleaseEvidenceRejectsArtifactMutation(t *testing.T) {
 	}
 }
 
+func TestVerifyReleaseEvidenceRejectsGateDigestMismatch(t *testing.T) {
+	bundle, publicKey := makeReleaseBundle(t, true)
+	recordPath := filepath.Join(bundle.evidence, "release.json")
+	var record releaseEvidence
+	decodeJSONFile(t, recordPath, &record)
+	record.Gates[0].ArtifactDigest = "sha256:" + strings.Repeat("0", 64)
+	writeJSONFile(t, recordPath, record)
+
+	t.Setenv("ANTINAT_TEST_MODE", "1")
+	if _, err := verifyReleaseEvidence(bundle.evidence, releaseVerifierOptions{
+		PublicKeyPath: publicKey,
+		AllowTestRoot: true,
+	}); err == nil || !strings.Contains(err.Error(), "does not match manifest digest") {
+		t.Fatalf("digest verification error = %v, want gate digest mismatch", err)
+	}
+}
+
+func TestVerifyReleaseEvidenceRejectsGateEvidenceMissingFromBundle(t *testing.T) {
+	bundle, publicKey := makeReleaseBundle(t, true)
+	recordPath := filepath.Join(bundle.evidence, "release.json")
+	var record releaseEvidence
+	decodeJSONFile(t, recordPath, &record)
+	record.Gates[0].Evidence = []string{"missing-gate.log"}
+	writeJSONFile(t, recordPath, record)
+
+	t.Setenv("ANTINAT_TEST_MODE", "1")
+	if _, err := verifyReleaseEvidence(bundle.evidence, releaseVerifierOptions{
+		PublicKeyPath: publicKey,
+		AllowTestRoot: true,
+	}); err == nil || !strings.Contains(err.Error(), "missing-gate.log") {
+		t.Fatalf("gate evidence verification error = %v, want missing evidence rejection", err)
+	}
+}
+
 func TestVerifyReleaseEvidenceAllowsUnsignedLocalCandidateOnly(t *testing.T) {
 	bundle, _ := makeReleaseBundle(t, false)
 	recordPath := filepath.Join(bundle.evidence, "release.json")

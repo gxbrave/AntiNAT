@@ -131,6 +131,11 @@ limited_gate() {
     record_gate "$id" SUPPORTED_WITH_LIMITS "$required" "$command" "$(basename -- "$log")" "$summary"
 }
 
+run_test_command() (
+    umask 022
+    "$@"
+)
+
 build_one() {
     local goos=$1 goarch=$2 output=$3 package=$4
     env GOWORK=off CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
@@ -266,16 +271,24 @@ make_manifest() {
 make_checksums
 make_manifest
 
+artifact_integrity_check() {
+    local manifest=$1 root=$2 entries name expected actual count=0
+    jq -e 'type == "object" and .schema_version == "1" and (.artifacts | type == "object" and length > 0)' \
+        "$manifest" >/dev/null || return 1
+    entries=$(jq -r '.artifacts | to_entries[] | [.key,.value] | @tsv' "$manifest") || return 1
+    while IFS=$'\t' read -r name expected; do
+        [[ -n "$name" && "$expected" =~ ^[0-9a-f]{64}$ ]] || return 1
+        [[ "$name" != */* && "$name" != *..* ]] || return 1
+        actual=$(sha256sum -- "$root/$name" | awk '{print $1}') || return 1
+        [[ "$actual" == "$expected" ]] || return 1
+        count=$((count + 1))
+    done <<<"$entries"
+    ((count > 0)) || return 1
+}
+
 run_gate artifact-integrity true "verify all manifest artifact SHA-256 values" \
-    "every declared file is hashed before testing" bash -c '
-        manifest="$1"; root="$2"
-        jq -e '\''type == "object" and .schema_version == "1" and (.artifacts | type == "object" and length > 0)'\'' "$manifest" >/dev/null
-        while IFS=$'\t' read -r name expected; do
-            [[ "$name" != */* && "$name" != *..* ]] || exit 1
-            actual=$(sha256sum -- "$root/$name" | awk '\''{print $1}'\'')
-            [[ "$actual" == "$expected" ]] || exit 1
-        done < <(jq -r '\''.artifacts | to_entries[] | [.key,.value] | @tsv'\'' "$manifest")
-    ' _ "$release_dir/manifest.json" "$release_dir"
+    "every declared file is hashed before testing" \
+    artifact_integrity_check "$release_dir/manifest.json" "$release_dir"
 
 manifest_sum=$(sha256sum -- "$release_dir/manifest.json" | awk '{print $1}')
 artifact_digest="sha256:$manifest_sum"
@@ -308,24 +321,24 @@ exact_artifact_check() {
 run_gate exact-artifact-metadata true "execute version checks from the exact release binaries" \
     "the shipped Linux controller and agent report the recorded source identity" exact_artifact_check
 
-run_gate unit-tests true "GOWORK=off go test ./... -count=1" \
+run_gate unit-tests true "GOWORK=off go test -p 1 ./... -count=1" \
     "the integrated repository suite passes after the one-time build" \
-    env GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./... -count=1
+    run_test_command env GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -p 1 ./... -count=1
 
 run_gate race-tests true "GOWORK=off go test -p 1 -race ./... -count=1" \
     "the integrated repository race suite passes without rebuilding release artifacts" \
-    env GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -p 1 -race ./... -count=1
+    run_test_command env GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -p 1 -race ./... -count=1
 
 run_gate vet true "GOWORK=off go vet ./..." \
     "the integrated repository is vet-clean" env GOWORK=off go vet ./...
 
 run_gate functional-e2e true "GOWORK=off go test ./test/e2e -count=1 -v" \
     "the local TCP/UDP and lifecycle E2E suite completes; WAN independence remains a separate gate" \
-    env GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./test/e2e -count=1 -v
+    run_test_command env GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./test/e2e -count=1 -v
 
 run_gate install-upgrade-purge true "bash scripts/test-installers.sh" \
     "isolated installer install, upgrade, rollback, and purge coverage passes" \
-    bash "$script_dir/test-installers.sh"
+    run_test_command bash "$script_dir/test-installers.sh"
 
 if [[ -x "$script_dir/test-browser.sh" && -d "$repo_dir/test/browser/node_modules" ]]; then
     run_gate browser-e2e true "./scripts/test-browser.sh" \
@@ -469,7 +482,6 @@ else
 fi
 record_gate release-evidence "$verification_result" true \
     "go run scripts/verify-release-evidence.go $evidence_dir" \
-    "the final evidence bundle validates against the exact manifest digest" \
     "release-evidence.log" "release evidence verifier exit_code=$verification_rc"
 
 gate_json='[]'

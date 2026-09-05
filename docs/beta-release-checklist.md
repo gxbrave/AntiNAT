@@ -3,7 +3,8 @@
 This checklist is evaluated against one exact candidate bundle. The current
 P19 candidate is not a published release: the repository has no production
 signing key, independent release approver, controller endpoint, remote probe
-vantage, native Windows/OpenRC/arm64 hosts, or 24-hour soak result.
+vantage, native Windows/OpenRC/arm64 hosts, browser dependencies, vulnerability
+scanner, or 24-hour soak result.
 
 ## Required gates
 
@@ -23,10 +24,10 @@ vantage, native Windows/OpenRC/arm64 hosts, or 24-hour soak result.
 The required command shape is:
 
 ```sh
-go test ./...
-go test -race ./...
-go vet ./...
-govulncheck ./...
+GOWORK=off go test -p 1 ./... -count=1
+GOWORK=off go test -p 1 -race ./... -count=1
+GOWORK=off go vet ./...
+GOWORK=off govulncheck ./...
 ./scripts/run-beta-gates.sh --artifacts ./dist --evidence ./artifacts/evidence
 go run ./scripts/verify-release-evidence.go ./artifacts/evidence
 ```
