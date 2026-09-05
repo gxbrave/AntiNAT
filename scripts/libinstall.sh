@@ -259,7 +259,7 @@ installer_parse_args() {
     if [[ -n "${ANTINAT_TEST_FAIL_POINT:-}" ]]; then
         [[ "${ANTINAT_TEST_MODE:-0}" == 1 && -n "$INSTALLER_TEST_ROOT" ]] || return "$INSTALLER_EXIT_USAGE"
         case "$ANTINAT_TEST_FAIL_POINT" in
-            enrollment|write) ;;
+            enrollment|write|complete_journal) ;;
             *) return "$INSTALLER_EXIT_USAGE" ;;
         esac
     fi
@@ -2420,13 +2420,17 @@ installer_upgrade() {
         return "$INSTALLER_EXIT_ROLLBACK"
     fi
     installer_cleanup_schema_backup
-    if ! installer_upgrade_journal_write "$backup" complete "$completed"; then
+    if installer_test_fail_at complete_journal || ! installer_upgrade_journal_write "$backup" complete "$completed"; then
         rollback_failed=0
         installer_upgrade_journal_write "$backup" rollback_in_progress "$completed" 'upgrade completion journal failed; restoring snapshot' || rollback_failed=1
-        installer_restore_snapshot "$backup" || rollback_failed=1
+        installer_stop_service || rollback_failed=1
+        if ((rollback_failed == 0)); then
+            installer_restore_snapshot "$backup" || rollback_failed=1
+        fi
         if ((rollback_failed == 0)); then
             installer_verify_snapshot_state "$backup" || rollback_failed=1
         fi
+        installer_start_services || rollback_failed=1
         if ((rollback_failed == 0)); then
             installer_upgrade_journal_write "$backup" rolled_back "$completed" 'previous version restored after journal failure' || rollback_failed=1
         else

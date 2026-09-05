@@ -267,6 +267,30 @@ for relative in "${rollback_paths[@]}"; do
     cmp -- "$root/$relative" "$rollback_snapshot/$relative" || { echo "rollback did not restore $relative" >&2; exit 1; }
 done
 
+# A failure persisting the final completion record happens after health checks
+# and service start. It must use the same quiesced restore path and leave the
+# previous installation fully recoverable.
+set +e
+ANTINAT_TEST_FAIL_POINT=complete_journal \
+ANTINAT_TEST_MODE=1 ANTINAT_TEST_ROOT="$root" ANTINAT_ARTIFACT_DIR="$artifacts" \
+ANTINAT_TRUST_ROOT_FILE="$cache_dir/release.pub" ANTINAT_TRUST_ROOT_ID=release-key-2026 \
+bash "$repo_dir/scripts/install.sh" upgrade >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" == 6 ]] || { echo "completion journal failure exit=$status, want 6" >&2; exit 1; }
+for relative in "${rollback_paths[@]}"; do
+    cmp -- "$root/$relative" "$rollback_snapshot/$relative" || { echo "completion journal rollback did not restore $relative" >&2; exit 1; }
+done
+completion_rollback_body=$(sed -n '/if installer_test_fail_at complete_journal/,/return "$INSTALLER_EXIT_ROLLBACK"/p' "$repo_dir/scripts/libinstall.sh")
+completion_stop_line=$(grep -n 'installer_stop_service || rollback_failed=1' <<<"$completion_rollback_body" | cut -d: -f1)
+completion_restore_line=$(grep -n 'installer_restore_snapshot "$backup" || rollback_failed=1' <<<"$completion_rollback_body" | cut -d: -f1)
+completion_start_line=$(grep -n 'installer_start_services || rollback_failed=1' <<<"$completion_rollback_body" | cut -d: -f1)
+[[ -n "$completion_stop_line" && -n "$completion_restore_line" && -n "$completion_start_line" && \
+   "$completion_stop_line" -lt "$completion_restore_line" && "$completion_restore_line" -lt "$completion_start_line" ]] || {
+    echo 'completion journal rollback is not quiesce, restore, then restart' >&2
+    exit 1
+}
+
 set +e
 ANTINAT_FAIL_MIGRATION=1 run_installer upgrade >/dev/null 2>&1
 status=$?
