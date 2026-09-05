@@ -34,7 +34,24 @@ func tokenACLForTest(t *testing.T, sids ...*windows.SID) *windows.ACL {
 	return acl
 }
 
-func TestValidateWindowsTokenDACLMatchesInstallerServiceIdentities(t *testing.T) {
+func tokenSecurityDescriptorForTest(t *testing.T, protected bool, sids ...*windows.SID) *windows.SECURITY_DESCRIPTOR {
+	t.Helper()
+	sd, err := windows.NewSecurityDescriptor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sd.SetDACL(tokenACLForTest(t, sids...), true, false); err != nil {
+		t.Fatal(err)
+	}
+	if protected {
+		if err := sd.SetControl(windows.SE_DACL_PROTECTED, windows.SE_DACL_PROTECTED); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return sd
+}
+
+func TestValidateWindowsTokenSecurityDescriptorMatchesInstallerServiceIdentities(t *testing.T) {
 	owner, err := windows.StringToSid("S-1-5-19")
 	if err != nil {
 		t.Fatal(err)
@@ -48,13 +65,16 @@ func TestValidateWindowsTokenDACLMatchesInstallerServiceIdentities(t *testing.T)
 		t.Fatal(err)
 	}
 
-	if err := validateWindowsTokenDACL(tokenACLForTest(t, owner, service), owner, service); err != nil {
-		t.Fatalf("installer two-ACE ACL rejected: %v", err)
+	if err := validateWindowsTokenSecurityDescriptor(tokenSecurityDescriptorForTest(t, true, owner, service), owner, service); err != nil {
+		t.Fatalf("installer protected two-ACE descriptor rejected: %v", err)
 	}
-	if err := validateWindowsTokenDACL(tokenACLForTest(t, owner, service, unrelated), owner, service); err == nil {
-		t.Fatal("ACL with unrelated principal accepted")
+	if err := validateWindowsTokenSecurityDescriptor(tokenSecurityDescriptorForTest(t, false, owner, service), owner, service); err == nil {
+		t.Fatal("descriptor with DACL inheritance enabled accepted")
 	}
-	if err := validateWindowsTokenDACL(tokenACLForTest(t, owner, owner), owner, service); err == nil {
-		t.Fatal("ACL without restricted service SID accepted")
+	if err := validateWindowsTokenSecurityDescriptor(tokenSecurityDescriptorForTest(t, true, owner, service, unrelated), owner, service); err == nil {
+		t.Fatal("descriptor with unrelated principal accepted")
+	}
+	if err := validateWindowsTokenSecurityDescriptor(tokenSecurityDescriptorForTest(t, true, owner, owner), owner, service); err == nil {
+		t.Fatal("descriptor without restricted service SID accepted")
 	}
 }

@@ -136,12 +136,23 @@ func requireOwnerOnlyWindowsACL(handle windows.Handle) error {
 	if err != nil || user == nil || !owner.Equals(user.User.Sid) {
 		return errTokenFileUnsafe
 	}
-	dacl, _, err := sd.DACL()
-	if err != nil || dacl == nil {
-		return errTokenFileUnsafe
-	}
 	serviceSID, _, _, err := windows.LookupSID("", agentWindowsServiceAccount)
 	if err != nil || serviceSID == nil || !strings.HasPrefix(serviceSID.String(), "S-1-5-80-") {
+		return errTokenFileUnsafe
+	}
+	return validateWindowsTokenSecurityDescriptor(sd, owner, serviceSID)
+}
+
+func validateWindowsTokenSecurityDescriptor(sd *windows.SECURITY_DESCRIPTOR, owner, serviceSID *windows.SID) error {
+	if sd == nil {
+		return errTokenFileUnsafe
+	}
+	control, _, err := sd.Control()
+	if err != nil || control&windows.SE_DACL_PROTECTED == 0 {
+		return errTokenFileUnsafe
+	}
+	dacl, _, err := sd.DACL()
+	if err != nil || dacl == nil {
 		return errTokenFileUnsafe
 	}
 	return validateWindowsTokenDACL(dacl, owner, serviceSID)
