@@ -9,6 +9,7 @@
 package api
 
 import (
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -30,12 +31,16 @@ import (
 
 // RouterConfig wires the minimal API.
 type RouterConfig struct {
-	Store          *store.Store
-	Auth           *auth.AuthService
-	SSE            http.Handler
-	AllowedOrigins []string
-	TrustedProxies []string
-	MaxBodyBytes   int64
+	Store *store.Store
+	Auth  *auth.AuthService
+	// ControllerPublicKey is the active Controller signing public key. The API
+	// returns its public hex encoding with one-time enrollment tokens so a
+	// generated Agent command can pin the enrollment trust anchor.
+	ControllerPublicKey ed25519.PublicKey
+	SSE                 http.Handler
+	AllowedOrigins      []string
+	TrustedProxies      []string
+	MaxBodyBytes        int64
 	// CloseNodeSession terminates an ESTABLISHED control session for a node.
 	// The App composes it with the agent hub's ForceCloseNodeSession so a force
 	// node delete cannot leave an online session delivering stale commands
@@ -113,13 +118,14 @@ const sessionCookieName = "antinat_session"
 // registers its routes onto a caller-provided mux (the minimal router in
 // internal/controller/web builds that mux).
 type Server struct {
-	store        *store.Store
-	auth         *auth.AuthService
-	health       *healthState
-	sse          http.Handler
-	login        *loginLimiter
-	closeSession func(nodeID string)
-	hooks        *hook.Service
+	store         *store.Store
+	auth          *auth.AuthService
+	health        *healthState
+	sse           http.Handler
+	login         *loginLimiter
+	closeSession  func(nodeID string)
+	hooks         *hook.Service
+	controllerPin string
 	// idempotencyMu closes the create-side effect window within one API
 	// process; the durable store still owns replay/conflict decisions.
 	idempotencyMu sync.Mutex
@@ -136,7 +142,20 @@ func NewServer(cfg RouterConfig) (*Server, error) {
 	if cfg.Auth == nil {
 		return nil, errors.New("api: auth service is required")
 	}
-	s := &Server{store: cfg.Store, auth: cfg.Auth, health: newHealthState(), sse: cfg.SSE, login: newLoginLimiter(), closeSession: cfg.CloseNodeSession, hooks: cfg.Hooks, eventSlots: make(chan struct{}, 64)}
+	if len(cfg.ControllerPublicKey) != ed25519.PublicKeySize {
+		return nil, errors.New("api: controller public key is required")
+	}
+	s := &Server{
+		store:         cfg.Store,
+		auth:          cfg.Auth,
+		health:        newHealthState(),
+		sse:           cfg.SSE,
+		login:         newLoginLimiter(),
+		closeSession:  cfg.CloseNodeSession,
+		hooks:         cfg.Hooks,
+		controllerPin: hex.EncodeToString(cfg.ControllerPublicKey),
+		eventSlots:    make(chan struct{}, 64),
+	}
 	s.health.setStoreReady(true)
 	s.health.setAuthReady(true)
 	return s, nil

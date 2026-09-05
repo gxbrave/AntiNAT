@@ -1168,10 +1168,11 @@ components:
         next_cursor: { type: string }
     EnrollmentToken:
       type: object
-      required: [token, expires_at]
+      required: [token, expires_at, controller_pin]
       properties:
         token: { type: string, description: Single-use; shown once }
         expires_at: { type: string, format: date-time }
+        controller_pin: { type: string, pattern: '^[0-9a-f]{64}$', description: Lowercase hexadecimal active Controller Ed25519 public key; public trust material }
     DeploymentProfile:
       type: object
       additionalProperties: false

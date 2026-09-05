@@ -9,6 +9,11 @@ import (
 	"unicode/utf16"
 )
 
+var testInstallCommandContext = InstallCommandContext{
+	NodeID:        "node-a",
+	ControllerPin: strings.Repeat("ab", 32),
+}
+
 func decodePowerShellCommand(encoded string) (string, error) {
 	raw, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
@@ -105,7 +110,7 @@ func TestBuildAgentArgumentsRejectsInvalidProfile(t *testing.T) {
 	}
 }
 
-func TestBuildInstallCommandSeparatesTokenAndFiltersDockerInstallerFlags(t *testing.T) {
+func TestBuildInstallCommandSeparatesTokenAndUsesDockerEnvironmentContract(t *testing.T) {
 	profile := Profile{
 		Platform:           PlatformDocker,
 		ControllerEndpoint: "https://ctl.example.test:3111",
@@ -117,7 +122,7 @@ func TestBuildInstallCommandSeparatesTokenAndFiltersDockerInstallerFlags(t *test
 		LogLevel:           "warn",
 		AutoUpdate:         "disabled",
 	}
-	command, err := BuildInstallCommand(profile)
+	command, err := BuildInstallCommand(profile, testInstallCommandContext)
 	if err != nil {
 		t.Fatalf("BuildInstallCommand: %v", err)
 	}
@@ -127,17 +132,23 @@ func TestBuildInstallCommandSeparatesTokenAndFiltersDockerInstallerFlags(t *test
 			t.Errorf("Docker command %q contains forbidden %q", command, forbidden)
 		}
 	}
-	for _, required := range []string{"docker run", "--interactive", "--tty", "--network host", "--restart=always", "--controller-endpoint", "--platform docker"} {
+	for _, required := range []string{"docker run", "--interactive", "--tty", "--network host", "--restart=always", "--env 'ANTINAT_ENDPOINT=https://ctl.example.test:3111'", "--env 'ANTINAT_NODE=node-a'", "--env 'ANTINAT_PIN=" + testInstallCommandContext.ControllerPin + "'", "--volume '/secure/antinat/enrollment.token:/run/secrets/antinat_enrollment_token:ro'"} {
 		if !strings.Contains(command, required) {
 			t.Errorf("Docker command %q does not contain %q", command, required)
 		}
+	}
+	if !strings.HasSuffix(strings.TrimSpace(command), containerImage) {
+		t.Fatalf("Docker command %q has arguments after the image", command)
+	}
+	if strings.Contains(command, "--controller-endpoint") || strings.Contains(command, "--platform docker") {
+		t.Fatalf("Docker command %q contains Agent/installer flags unsupported after the image", command)
 	}
 }
 
 func TestBuildInstallCommandUsesPlatformSpecificDownloadAndNoSecret(t *testing.T) {
 	for _, platform := range []string{PlatformLinux, PlatformWindows} {
 		profile := Profile{Platform: platform, ControllerEndpoint: "https://ctl.example.test", GitHubProxy: "https://ghfast.top/", LogLevel: "info", AutoUpdate: "disabled"}
-		command, err := BuildInstallCommand(profile)
+		command, err := BuildInstallCommand(profile, testInstallCommandContext)
 		if err != nil {
 			t.Fatalf("BuildInstallCommand(%s): %v", platform, err)
 		}
@@ -147,8 +158,14 @@ func TestBuildInstallCommandUsesPlatformSpecificDownloadAndNoSecret(t *testing.T
 		if strings.Contains(command, "--token") || strings.Contains(command, "TOKEN") {
 			t.Errorf("%s command contains a token channel: %q", platform, command)
 		}
-		if platform == PlatformLinux && (!strings.Contains(command, "curl") || !strings.Contains(command, "sudo bash") || !strings.Contains(command, "bash -o pipefail -c")) {
+		if platform == PlatformLinux && (!strings.Contains(command, "curl") || !strings.Contains(command, "sudo env") || !strings.Contains(command, " bash -s -- install ") || !strings.Contains(command, "bash -o pipefail -c")) {
 			t.Errorf("Linux command is not a curl/sudo bash flow: %q", command)
+		}
+		if platform == PlatformLinux && (!strings.Contains(command, "ANTINAT_NODE_ID=node-a") || !strings.Contains(command, "ANTINAT_CONTROLLER_PIN="+testInstallCommandContext.ControllerPin)) {
+			t.Errorf("Linux command does not pass the ephemeral installer environment: %q", command)
+		}
+		if platform == PlatformWindows && (!strings.Contains(command, "-EncodedCommand ") || strings.Contains(command, "ANTINAT_NODE_ID=node-a")) {
+			t.Errorf("Windows command did not keep the environment assignments encoded: %q", command)
 		}
 		if platform == PlatformWindows && (!strings.Contains(command, "powershell") || !strings.Contains(command, "ExecutionPolicy Bypass")) {
 			t.Errorf("Windows command is not a PowerShell bypass flow: %q", command)
@@ -159,7 +176,7 @@ func TestBuildInstallCommandUsesPlatformSpecificDownloadAndNoSecret(t *testing.T
 func TestPowerShellInstallCommandEncodesCompleteScript(t *testing.T) {
 	sentinel := `eth0"; $(Remove-Item C:\\); & Write-Output pwned`
 	profile := Profile{Platform: PlatformWindows, ControllerEndpoint: "https://ctl.example.test", BindInterface: sentinel, LogLevel: "info", AutoUpdate: "disabled"}
-	command, err := BuildInstallCommand(profile)
+	command, err := BuildInstallCommand(profile, testInstallCommandContext)
 	if err != nil {
 		t.Fatalf("BuildInstallCommand: %v", err)
 	}
@@ -176,5 +193,19 @@ func TestPowerShellInstallCommandEncodesCompleteScript(t *testing.T) {
 	}
 	if !strings.Contains(decoded, sentinel) || !strings.Contains(decoded, "Invoke-WebRequest") {
 		t.Fatalf("decoded PowerShell script lost expected values: %q", decoded)
+	}
+}
+
+func TestBuildInstallCommandRejectsMissingOrMalformedContext(t *testing.T) {
+	profile := Profile{Platform: PlatformLinux, ControllerEndpoint: "https://ctl.example.test", LogLevel: "info", AutoUpdate: "disabled"}
+	for _, context := range []InstallCommandContext{
+		{},
+		{NodeID: "node-a"},
+		{NodeID: "node-a", ControllerPin: strings.Repeat("AB", 32)},
+		{NodeID: "node-a", ControllerPin: strings.Repeat("ab", 31)},
+	} {
+		if _, err := BuildInstallCommand(profile, context); err == nil {
+			t.Errorf("BuildInstallCommand accepted invalid context %+v", context)
+		}
 	}
 }

@@ -44,7 +44,7 @@ func newHooksTestServerWithSender(t *testing.T, sender hook.Sender) (*httptest.S
 		t.Fatalf("hook service: %v", err)
 	}
 	t.Cleanup(func() { svc.Close() })
-	handler, err := web.NewRouter(api.RouterConfig{Store: st, Auth: auth.NewService(st), Hooks: svc})
+	handler, err := web.NewRouter(api.RouterConfig{Store: st, Auth: auth.NewService(st), ControllerPublicKey: testRouterControllerPublicKey(t), Hooks: svc})
 	if err != nil {
 		t.Fatalf("router: %v", err)
 	}

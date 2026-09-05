@@ -1,6 +1,8 @@
 package main_test
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -46,7 +48,11 @@ func startAPIServer(t *testing.T) (string, *store.Store) {
 		t.Fatalf("open store: %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
-	handler, err := web.NewRouter(api.RouterConfig{Store: st, Auth: auth.NewService(st)})
+	public, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate controller public key: %v", err)
+	}
+	handler, err := web.NewRouter(api.RouterConfig{Store: st, Auth: auth.NewService(st), ControllerPublicKey: public})
 	if err != nil {
 		t.Fatalf("router: %v", err)
 	}

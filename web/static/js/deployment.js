@@ -1,4 +1,4 @@
-/* P17 Stories 4-5: node creation, deployment profile and safe command UI.
+/* P17/P18: node creation, deployment profile and safe command UI.
    The token is intentionally kept only in this closure and a one-time text
    surface. It is never part of the profile, command builder, URL, or storage. */
 (function () {
@@ -11,6 +11,8 @@
   var PLATFORM_LINUX = 'linux';
   var PLATFORM_WINDOWS = 'windows';
   var PLATFORM_DOCKER = 'docker';
+  var DOCKER_TOKEN_SOURCE = '/secure/antinat/enrollment.token';
+  var DOCKER_TOKEN_TARGET = '/run/secrets/antinat_enrollment_token';
   var defaultProfile = {
     platform: PLATFORM_LINUX,
     controller_endpoint: '',
@@ -131,6 +133,20 @@
     return args;
   }
 
+  function validateCommandContext(context) {
+    context = context || {};
+    var nodeID = context.node_id !== undefined ? context.node_id : context.nodeID;
+    var controllerPin = context.controller_pin !== undefined ? context.controller_pin : context.controllerPin;
+    nodeID = String(nodeID || '');
+    controllerPin = String(controllerPin || '');
+    validateText('node_id', nodeID);
+    if (!nodeID.trim()) throw new Error(t('node.deploy.invalidProfile') + ': node_id');
+    if (!/^[0-9a-f]{64}$/.test(controllerPin)) {
+      throw new Error(t('node.deploy.invalidProfile') + ': controller_pin');
+    }
+    return { node_id: nodeID, controller_pin: controllerPin };
+  }
+
   function installerURL(profile) {
     var url = profile.platform === PLATFORM_WINDOWS
       ? 'https://github.com/gxbrave/AntiNAT/releases/latest/download/install.ps1'
@@ -141,26 +157,34 @@
     return url;
   }
 
-  function buildInstallCommand(profile) {
+  function buildInstallCommand(profile, context) {
     profile = validateProfile(profile);
+    context = validateCommandContext(context);
     var args = buildAgentArguments(profile);
     if (profile.platform === PLATFORM_DOCKER) {
-      var dockerArgs = [];
-      for (var i = 0; i < args.length; i++) {
-        if (args[i] === '--platform' && i + 1 < args.length) {
-          dockerArgs.push('--platform ' + args[++i]);
-        } else {
-          dockerArgs.push(quoteShellArg(args[i]));
-        }
-      }
-      return 'docker run --interactive --tty --network host --restart=always --volume /var/lib/antinat:/var/lib/antinat ghcr.io/gxbrave/antinat-agent:latest ' + dockerArgs.join(' ');
+      var dockerEnv = [
+        'ANTINAT_ENDPOINT=' + profile.controller_endpoint,
+        'ANTINAT_NODE=' + context.node_id,
+        'ANTINAT_PIN=' + context.controller_pin,
+        'ANTINAT_STATE=/var/lib/antinat',
+        'ANTINAT_DOCKER_TOKEN_FILE=' + DOCKER_TOKEN_TARGET
+      ].map(function (value) { return '--env ' + quoteShellArg(value); });
+      return 'docker run --interactive --tty --network host --restart=always ' +
+        dockerEnv.join(' ') + ' --volume /var/lib/antinat:/var/lib/antinat ' +
+        '--volume ' + quoteShellArg(DOCKER_TOKEN_SOURCE + ':' + DOCKER_TOKEN_TARGET + ':ro') +
+        ' ghcr.io/gxbrave/antinat-agent:latest';
     }
     if (profile.platform === PLATFORM_WINDOWS) {
       var psArgs = ['install'].concat(args.map(quotePowerShellArg));
-      var body = '$script = (Invoke-WebRequest -UseBasicParsing -Uri ' + quotePowerShellArg(installerURL(profile)) + ').Content; & ([scriptblock]::Create($script)) ' + psArgs.join(' ');
+      var body = '$env:ANTINAT_NODE_ID = ' + quotePowerShellArg(context.node_id) +
+        '; $env:ANTINAT_CONTROLLER_PIN = ' + quotePowerShellArg(context.controller_pin) +
+        '; $script = (Invoke-WebRequest -UseBasicParsing -Uri ' + quotePowerShellArg(installerURL(profile)) + ').Content; & ([scriptblock]::Create($script)) ' + psArgs.join(' ');
       return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ' + encodePowerShellCommand(body);
     }
-    var inner = 'curl --fail --silent --show-error --location ' + quoteShellArg(installerURL(profile)) + ' | sudo bash -s -- install ' + quoteShellArgs(args);
+    var inner = 'curl --fail --silent --show-error --location ' + quoteShellArg(installerURL(profile)) +
+      ' | sudo env ' + quoteShellArg('ANTINAT_NODE_ID=' + context.node_id) + ' ' +
+      quoteShellArg('ANTINAT_CONTROLLER_PIN=' + context.controller_pin) +
+      ' bash -s -- install ' + quoteShellArgs(args);
     return 'bash -o pipefail -c ' + quoteShellArg(inner);
   }
 
@@ -248,8 +272,10 @@
         var etag = profileResp.data.etag || '"rev-0"';
         return api('/api/v1/nodes/' + encodeURIComponent(nodeID) + '/enrollment-token', { method: 'POST' })
           .then(function (tokenResp) {
-            if (!tokenResp.ok || !tokenResp.data || !tokenResp.data.token) throw new Error(errorMessage(tokenResp, t('node.deploy.tokenError')));
-            renderTokenStep(node, String(tokenResp.data.token), profile, etag, opener);
+            if (!tokenResp.ok || !tokenResp.data || !tokenResp.data.token || !/^[0-9a-f]{64}$/.test(String(tokenResp.data.controller_pin || ''))) {
+              throw new Error(errorMessage(tokenResp, t('node.deploy.tokenError')));
+            }
+            renderTokenStep(node, String(tokenResp.data.token), profile, etag, String(tokenResp.data.controller_pin), opener);
           });
       }).catch(function (err) {
       var message = err && err.message ? err.message : t('node.deploy.profileError');
@@ -262,7 +288,7 @@
     });
   }
 
-  function renderTokenStep(node, oneTimeToken, sourceProfile, sourceETag, opener) {
+  function renderTokenStep(node, oneTimeToken, sourceProfile, sourceETag, controllerPin, opener) {
     var wrap = h('div', { class: 'deployment-dialog-content deployment-token-surface', 'data-deployment-dialog': '', 'data-deployment-token-dialog': '' });
     wrap.appendChild(h('p', { class: 'dialog-copy', text: node.name || node.id || '' }));
     wrap.appendChild(h('section', { class: 'token-panel', 'data-deployment-token-panel': '' }, [
@@ -276,13 +302,13 @@
     next.addEventListener('click', function () {
       // The token panel is removed before the command surface is constructed.
       oneTimeToken = null;
-      renderCommandStep(node, sourceProfile, sourceETag, opener);
+      renderCommandStep(node, sourceProfile, sourceETag, controllerPin, opener);
     });
     close.addEventListener('click', function () { dialogs().close(); });
     dialogs().open({ title: t('node.deploy.title'), body: wrap, actions: [next, close], returnFocus: opener });
   }
 
-  function renderCommandStep(node, sourceProfile, sourceETag, opener) {
+  function renderCommandStep(node, sourceProfile, sourceETag, controllerPin, opener) {
     var nodeID = node && (node.id || node.ID);
     var state = { profile: cloneProfile(sourceProfile), etag: sourceETag, detection: 'not_tested' };
     var wrap = h('div', { class: 'deployment-dialog-content deployment-command-surface', 'data-deployment-dialog': '', 'data-deployment-command-dialog': '' });
@@ -403,7 +429,7 @@
       updatePlatformFields();
       var command = '';
       try {
-        command = buildInstallCommand(profileFromForm());
+        command = buildInstallCommand(profileFromForm(), { node_id: nodeID, controller_pin: controllerPin });
         setHidden(formError, true);
       } catch (e) {
         command = t('node.deploy.commandUnavailable');

@@ -6,6 +6,8 @@ is never stored in this repository. Production release automation supplies the
 private key out of band and publishes `manifest.json` plus its detached
 `manifest.sig` before uploading artifacts.
 
-The installer accepts `ANTINAT_TRUST_ROOT_FILE` so an operator can replace this
-development root with the separately distributed production root. It never
-uses a checksum downloaded from the same untrusted URL as a trust anchor.
+The installer uses this root and the fixed `release-key-2026` identifier in
+production. Test harnesses may replace both values only while
+`ANTINAT_TEST_MODE=1`; production callers cannot select a verification key or
+identifier through the environment. It never uses a checksum downloaded from
+the same untrusted URL as a trust anchor.

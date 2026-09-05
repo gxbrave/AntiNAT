@@ -893,7 +893,14 @@ function Get-ReleaseDirectory {
 }
 
 function Verify-Release {
-    $trust = if ($env:ANTINAT_TRUST_ROOT_FILE) { $env:ANTINAT_TRUST_ROOT_FILE } else { Join-Path $PSScriptRoot '..\deploy\trust\release-ed25519.pub' }
+    $trust = Join-Path $PSScriptRoot '..\deploy\trust\release-ed25519.pub'
+    $expectedRoot = 'release-key-2026'
+    if ($env:ANTINAT_TEST_MODE -eq '1') {
+        if ($env:ANTINAT_TRUST_ROOT_FILE) { $trust = $env:ANTINAT_TRUST_ROOT_FILE }
+        if ($env:ANTINAT_TRUST_ROOT_ID) { $expectedRoot = $env:ANTINAT_TRUST_ROOT_ID }
+    } elseif ($env:ANTINAT_TRUST_ROOT_FILE -or $env:ANTINAT_TRUST_ROOT_ID) {
+        Fail $ExitArtifact 'release trust root overrides are only allowed in test mode'
+    }
     $artifactItem = Get-ExistingItem $ArtifactDir
     if ($null -eq $artifactItem -or -not $artifactItem.PSIsContainer) { Fail $ExitArtifact 'artifact directory is unavailable' }
     try { Test-StrictDirectoryAcl $ArtifactDir } catch { Fail $ExitArtifact 'artifact directory is not a protected private directory' }
@@ -910,7 +917,6 @@ function Verify-Release {
     $allowed = @('schema_version', 'release', 'artifacts', 'trust_root', 'signature_algorithm')
     foreach ($property in @($manifest.psobject.Properties)) { if ($property.Name -notin $allowed) { Fail $ExitArtifact 'release manifest has an unknown field' } }
     if ([string]$manifest.schema_version -ne '1' -or ($manifest.signature_algorithm -and [string]$manifest.signature_algorithm -ne 'ed25519')) { Fail $ExitArtifact 'unsupported release manifest' }
-    $expectedRoot = if ($env:ANTINAT_TRUST_ROOT_ID) { $env:ANTINAT_TRUST_ROOT_ID } else { 'release-key-2026' }
     if ([string]$manifest.trust_root -ne $expectedRoot) { Fail $ExitArtifact 'release trust root is not pinned' }
     if ($null -eq $manifest.artifacts -or @($manifest.artifacts.psobject.Properties).Count -eq 0) { Fail $ExitArtifact 'release manifest has no artifacts' }
     $openssl = Get-Command openssl -ErrorAction SilentlyContinue

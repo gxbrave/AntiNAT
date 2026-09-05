@@ -228,7 +228,14 @@ func (a *App) Start() error {
 	// repair-1 H3: compose the agent-hub session closer so a force node delete
 	// cannot leave an ESTABLISHED session delivering stale commands. P16: hooks
 	// composes the hook service (definitions/secrets/deliveries + dispatcher).
-	admin, err := web.NewRouter(api.RouterConfig{Store: a.store, Auth: a.auth, SSE: events, CloseNodeSession: a.hub.ForceCloseNodeSession, Hooks: a.hooks})
+	admin, err := web.NewRouter(api.RouterConfig{
+		Store:               a.store,
+		Auth:                a.auth,
+		ControllerPublicKey: a.keyring.PublicKey(),
+		SSE:                 events,
+		CloseNodeSession:    a.hub.ForceCloseNodeSession,
+		Hooks:               a.hooks,
+	})
 	if err != nil {
 		return fail(fmt.Errorf("controller: admin router: %w", err))
 	}

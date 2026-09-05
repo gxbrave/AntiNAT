@@ -35,6 +35,7 @@ INSTALLER_TOKEN_FD=""
 INSTALLER_TOKEN_FILE=""
 INSTALLER_TOKEN_TMP=""
 INSTALLER_TOKEN_IDENTITY_TMP=""
+INSTALLER_TOKEN_STAGE_DIR=""
 INSTALLER_TOKEN_SOURCE_CONSUMED=0
 INSTALLER_HELP_REQUESTED=0
 INSTALLER_VERSION_REQUESTED=0
@@ -311,7 +312,15 @@ installer_fetch_release() {
 }
 
 installer_verify_artifacts() {
-    local trust_root="${ANTINAT_TRUST_ROOT_FILE:-$INSTALLER_SCRIPT_DIR/../deploy/trust/release-ed25519.pub}"
+    local trust_root="$INSTALLER_SCRIPT_DIR/../deploy/trust/release-ed25519.pub"
+    local trust_root_id="release-key-2026"
+    if [[ "${ANTINAT_TEST_MODE:-0}" == 1 ]]; then
+        trust_root="${ANTINAT_TRUST_ROOT_FILE:-$trust_root}"
+        trust_root_id="${ANTINAT_TRUST_ROOT_ID:-$trust_root_id}"
+    elif [[ -n "${ANTINAT_TRUST_ROOT_FILE:-}" || -n "${ANTINAT_TRUST_ROOT_ID:-}" ]]; then
+        installer_die "$INSTALLER_EXIT_ARTIFACT" "release trust root overrides are only allowed in test mode" || true
+        return "$INSTALLER_EXIT_ARTIFACT"
+    fi
     if [[ ! -d "$INSTALLER_ARTIFACT_DIR" || -L "$INSTALLER_ARTIFACT_DIR" || "$(readlink -f -- "$INSTALLER_ARTIFACT_DIR" 2>/dev/null)" != "$INSTALLER_ARTIFACT_DIR" ]]; then
         installer_die "$INSTALLER_EXIT_ARTIFACT" "artifact directory is not a private canonical directory" || true
         return "$INSTALLER_EXIT_ARTIFACT"
@@ -347,7 +356,7 @@ installer_verify_artifacts() {
         installer_die "$INSTALLER_EXIT_ARTIFACT" "unsupported release signature algorithm" || true
         return "$INSTALLER_EXIT_ARTIFACT"
     fi
-    if [[ "$(jq -r '.trust_root // empty' "$INSTALLER_MANIFEST_FILE")" != "${ANTINAT_TRUST_ROOT_ID:-release-key-2026}" ]]; then
+    if [[ "$(jq -r '.trust_root // empty' "$INSTALLER_MANIFEST_FILE")" != "$trust_root_id" ]]; then
         installer_die "$INSTALLER_EXIT_ARTIFACT" "release manifest trust root is not pinned" || true
         return "$INSTALLER_EXIT_ARTIFACT"
     fi
@@ -434,7 +443,7 @@ try:
             data.extend(chunk)
         if len(data) > 4096:
             raise OSError("token source exceeds size limit")
-        out_fd = os.open(destination, os.O_WRONLY | os.O_TRUNC | os.O_CLOEXEC)
+        out_fd = os.open(destination, os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW | os.O_CLOEXEC)
         try:
             view = memoryview(data)
             while view:
@@ -443,7 +452,7 @@ try:
             os.fsync(out_fd)
         finally:
             os.close(out_fd)
-        meta_fd = os.open(identity, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC, 0o600)
+        meta_fd = os.open(identity, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
         try:
             os.write(meta_fd, f"{st.st_dev} {st.st_ino}\n".encode("ascii"))
             os.fsync(meta_fd)
@@ -464,8 +473,16 @@ import stat
 import sys
 
 source, identity = sys.argv[1:]
-with open(identity, "rb") as stream:
-    fields = stream.read(128).split()
+identity_fd = os.open(identity, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+try:
+    identity_stat = os.fstat(identity_fd)
+    if (not stat.S_ISREG(identity_stat.st_mode) or
+            (identity_stat.st_mode & 0o7777) != 0o600 or
+            identity_stat.st_uid != os.geteuid() or identity_stat.st_nlink != 1):
+        raise OSError("token identity record is not a private owner-only file")
+    fields = os.read(identity_fd, 128).split()
+finally:
+    os.close(identity_fd)
 if len(fields) != 2:
     raise OSError("token identity record is invalid")
 expected_dev, expected_ino = int(fields[0]), int(fields[1])
@@ -489,14 +506,24 @@ installer_read_token() {
     local token_tmp_dir="$INSTALLER_DATA_DIR"
     mkdir -p -- "$token_tmp_dir"
     chmod 700 -- "$token_tmp_dir"
-    INSTALLER_TOKEN_TMP=$(mktemp "$token_tmp_dir/.enrollment-token.XXXXXX") || return "$INSTALLER_EXIT_TOKEN"
+    local token_stage_root
+    token_stage_root=$(installer_logical_path /run/antinat) || return "$INSTALLER_EXIT_TOKEN"
+    mkdir -p -- "$token_stage_root" || return "$INSTALLER_EXIT_TOKEN"
+    chmod 700 -- "$token_stage_root" || return "$INSTALLER_EXIT_TOKEN"
+    installer_chown root:root "$token_stage_root" || return "$INSTALLER_EXIT_TOKEN"
+    INSTALLER_TOKEN_STAGE_DIR=$(mktemp -d "$token_stage_root/install.XXXXXX") || return "$INSTALLER_EXIT_TOKEN"
+    chmod 700 -- "$INSTALLER_TOKEN_STAGE_DIR" || return "$INSTALLER_EXIT_TOKEN"
+    installer_chown root:root "$INSTALLER_TOKEN_STAGE_DIR" || return "$INSTALLER_EXIT_TOKEN"
+    INSTALLER_TOKEN_TMP=$(mktemp "$INSTALLER_TOKEN_STAGE_DIR/token.XXXXXX") || return "$INSTALLER_EXIT_TOKEN"
     chmod 600 -- "$INSTALLER_TOKEN_TMP"
-    INSTALLER_TOKEN_IDENTITY_TMP="${INSTALLER_TOKEN_TMP}.identity"
+    INSTALLER_TOKEN_IDENTITY_TMP=""
     if [[ -n "$INSTALLER_TOKEN_FD" ]]; then
         # The descriptor is read directly; its contents are never placed in
         # argv or an environment variable.
         head -c 4097 <&"$INSTALLER_TOKEN_FD" >"$INSTALLER_TOKEN_TMP" || return "$INSTALLER_EXIT_TOKEN"
     elif [[ -n "$INSTALLER_TOKEN_FILE" ]]; then
+        INSTALLER_TOKEN_IDENTITY_TMP=$(mktemp "$INSTALLER_TOKEN_STAGE_DIR/identity.XXXXXX") || return "$INSTALLER_EXIT_TOKEN"
+        chmod 600 -- "$INSTALLER_TOKEN_IDENTITY_TMP"
         installer_read_token_file_bound "$INSTALLER_TOKEN_FILE" "$INSTALLER_TOKEN_TMP" "$INSTALLER_TOKEN_IDENTITY_TMP" || return "$INSTALLER_EXIT_TOKEN"
     else
         local tty=/dev/tty token
@@ -508,14 +535,21 @@ installer_read_token() {
     fi
     [[ "$(wc -c <"$INSTALLER_TOKEN_TMP")" -le 4096 ]] || return "$INSTALLER_EXIT_TOKEN"
     [[ -s "$INSTALLER_TOKEN_TMP" ]] || return "$INSTALLER_EXIT_TOKEN"
-    # The systemd Agent runs as antinat, while the installer normally runs as
-    # root. Transfer ownership before the path is placed in its environment.
+    # The token is copied in a root-only staging directory. Publish it into
+    # the Agent data directory only after all root-side reads are complete;
+    # the final rename never follows a service-user symlink.
+    local published_token
+    published_token=$(mktemp "$token_tmp_dir/.enrollment-token.XXXXXX") || return "$INSTALLER_EXIT_TOKEN"
+    rm -f -- "$published_token"
+    mv -f -- "$INSTALLER_TOKEN_TMP" "$published_token" || return "$INSTALLER_EXIT_TOKEN"
+    INSTALLER_TOKEN_TMP="$published_token"
+    # The service runs as antinat and must be able to read/delete this one-time
+    # file. The root-only identity record remains outside the service path.
     installer_chown antinat:antinat "$INSTALLER_TOKEN_TMP" || return "$INSTALLER_EXIT_TOKEN"
 }
 
 installer_cleanup_token() {
     if [[ -n "$INSTALLER_TOKEN_TMP" && -e "$INSTALLER_TOKEN_TMP" ]]; then
-        chmod 600 -- "$INSTALLER_TOKEN_TMP" 2>/dev/null || true
         rm -f -- "$INSTALLER_TOKEN_TMP"
     fi
     if [[ -n "$INSTALLER_TOKEN_IDENTITY_TMP" ]]; then
@@ -523,6 +557,10 @@ installer_cleanup_token() {
     fi
     INSTALLER_TOKEN_TMP=""
     INSTALLER_TOKEN_IDENTITY_TMP=""
+    if [[ -n "$INSTALLER_TOKEN_STAGE_DIR" ]]; then
+        rmdir -- "$INSTALLER_TOKEN_STAGE_DIR" 2>/dev/null || true
+    fi
+    INSTALLER_TOKEN_STAGE_DIR=""
 }
 
 installer_consume_source_token() {
@@ -653,6 +691,7 @@ installer_write_config() {
     } >"$temporary"
     mv -f -- "$temporary" "$INSTALLER_CONFIG"
     chmod 600 -- "$INSTALLER_CONFIG"
+    installer_chown root:root "$INSTALLER_CONFIG"
 }
 
 installer_create_user() {
@@ -1262,7 +1301,8 @@ installer_install() {
     fi
     installer_cleanup_schema_backup
     if installer_role_has_agent; then
-        installer_chown antinat:antinat "$INSTALLER_CONFIG"
+        chmod 600 -- "$INSTALLER_CONFIG"
+        installer_chown root:root "$INSTALLER_CONFIG"
     fi
     # The manifest and HMAC key are installer authority, not Agent state. Keep
     # both root-owned so an Agent cannot authorize its own purge.
@@ -1720,7 +1760,7 @@ installer_snapshot_files() {
     local metadata_tmp="$backup/.snapshot.tsv.tmp" metadata="$backup/snapshot.tsv"
     : >"$metadata_tmp"
     chmod 600 -- "$metadata_tmp"
-    local root relative source destination kind mode index=0
+    local root relative source destination kind mode uid gid index=0
     while IFS=$'\t' read -r root relative; do
         source="$root/$relative"
         if [[ -e "$source" || -L "$source" ]]; then
@@ -1733,11 +1773,13 @@ installer_snapshot_files() {
                 return 1
             fi
             mode=$(stat -c '%a' -- "$source") || return 1
+            uid=$(stat -c '%u' -- "$source") || return 1
+            gid=$(stat -c '%g' -- "$source") || return 1
             destination="$backup/file-$index"
             installer_snapshot_copy "$source" "$destination" || return 1
-            printf '1\t%s\t%s\t%s\t%s\tfile-%s\n' "$kind" "$root" "$relative" "$mode" "$index" >>"$metadata_tmp"
+            printf '1\t%s\t%s\t%s\t%s\t%s\t%s\tfile-%s\n' "$kind" "$root" "$relative" "$mode" "$uid" "$gid" "$index" >>"$metadata_tmp"
         else
-            printf '0\tnone\t%s\t%s\t-\n' "$root" "$relative" >>"$metadata_tmp"
+            printf '0\tnone\t%s\t%s\t-\t-\t-\t-\n' "$root" "$relative" >>"$metadata_tmp"
         fi
         index=$((index + 1))
     done < <(installer_upgrade_resource_list)
@@ -1776,11 +1818,13 @@ installer_upgrade_resource_list() {
 }
 
 installer_verify_snapshot_state() {
-    local backup="$1" present kind root relative mode backup_name current
+    local backup="$1" present kind root relative mode uid gid backup_name extra current
     [[ -f "$backup/snapshot.tsv" && ! -L "$backup/snapshot.tsv" ]] || return 1
-    while IFS=$'\t' read -r present kind root relative mode backup_name; do
+    while IFS=$'\t' read -r present kind root relative mode uid gid backup_name extra; do
+        [[ -z "${extra:-}" ]] || return 1
         current="$root/$relative"
         if [[ "$present" == 0 ]]; then
+            [[ "$kind" == none && "$mode" == - && "$uid" == - && "$gid" == - && "$backup_name" == - ]] || return 1
             [[ ! -e "$current" && ! -L "$current" ]] || return 1
             continue
         fi
@@ -1793,27 +1837,55 @@ installer_verify_snapshot_state() {
             return 1
         fi
         [[ "$(stat -c '%a' -- "$current")" == "$mode" ]] || return 1
+        [[ "$uid" =~ ^[0-9]+$ && "$gid" =~ ^[0-9]+$ ]] || return 1
+        [[ "$(stat -c '%u:%g' -- "$current")" == "$uid:$gid" ]] || return 1
         installer_snapshot_matches "$current" "$backup/$backup_name" || return 1
+        if [[ "$kind" == directory ]]; then
+            installer_verify_snapshot_ownership "$current" "$uid" "$gid" || return 1
+        fi
     done <"$backup/snapshot.tsv"
+}
+
+installer_verify_snapshot_ownership() {
+    local path="$1" uid="$2" gid="$3"
+    python3 - "$path" "$uid" "$gid" <<'PY'
+import os
+import stat
+import sys
+
+path, expected_uid, expected_gid = sys.argv[1:]
+expected_uid, expected_gid = int(expected_uid), int(expected_gid)
+for root, directories, files in os.walk(path, followlinks=False):
+    for name in directories + files:
+        child = os.path.join(root, name)
+        info = os.lstat(child)
+        if stat.S_ISLNK(info.st_mode) or info.st_uid != expected_uid or info.st_gid != expected_gid:
+            raise SystemExit(1)
+raise SystemExit(0)
+PY
 }
 
 installer_restore_snapshot() {
     local backup="$1"
-    local present kind root relative mode backup_name source destination
+    local present kind root relative mode uid gid backup_name extra source destination
     installer_verify_snapshot_state "$backup" 2>/dev/null && return 0
     [[ -f "$backup/snapshot.tsv" && ! -L "$backup/snapshot.tsv" ]] || return 1
-    while IFS=$'\t' read -r present kind root relative mode backup_name; do
+    while IFS=$'\t' read -r present kind root relative mode uid gid backup_name extra; do
+        [[ -z "${extra:-}" ]] || return 1
         source="$root/$relative"
         destination="$backup/$backup_name"
         if [[ "$present" == 0 ]]; then
+            [[ "$kind" == none && "$mode" == - && "$uid" == - && "$gid" == - && "$backup_name" == - ]] || return 1
             installer_safe_remove "$root" "$relative" || return 1
         elif [[ "$kind" == directory ]]; then
             [[ -d "$destination" && ! -L "$destination" ]] || return 1
             installer_safe_remove "$root" "$relative" || return 1
             installer_snapshot_copy "$destination" "$source" || return 1
+            installer_chown -R "$uid:$gid" "$source" || return 1
         elif [[ "$kind" == file ]]; then
             [[ -f "$destination" && ! -L "$destination" ]] || return 1
             installer_atomic_copy "$destination" "$source" "$mode" || return 1
+            installer_chown "$uid:$gid" "$source" || return 1
         else
             return 1
         fi
@@ -1858,7 +1930,7 @@ installer_upgrade_resource_allowed() {
 }
 
 installer_validate_upgrade_snapshot_inputs() {
-    local backup="$1" present kind root relative mode backup_name extra key backup_path
+    local backup="$1" present kind root relative mode uid gid backup_name extra key backup_path
     [[ -f "$backup/snapshot.tsv" && ! -L "$backup/snapshot.tsv" ]] || return 1
     declare -A expected_resources=() seen_resources=() seen_backups=()
     while IFS=$'\t' read -r root relative; do
@@ -1867,7 +1939,7 @@ installer_validate_upgrade_snapshot_inputs() {
         expected_resources["$key"]=1
     done < <(installer_upgrade_resource_list)
     local expected_count=${#expected_resources[@]} seen_count=0
-    while IFS=$'\t' read -r present kind root relative mode backup_name extra; do
+    while IFS=$'\t' read -r present kind root relative mode uid gid backup_name extra; do
         [[ -z "${extra:-}" ]] || return 1
         [[ "$present" == 0 || "$present" == 1 ]] || return 1
         key="${root}"$'\t'"${relative}"
@@ -1878,6 +1950,7 @@ installer_validate_upgrade_snapshot_inputs() {
         if [[ "$present" == 1 ]]; then
             [[ "$kind" == file || "$kind" == directory ]] || return 1
             [[ "$mode" =~ ^[0-7]{3,4}$ ]] || return 1
+            [[ "$uid" =~ ^[0-9]+$ && "$gid" =~ ^[0-9]+$ ]] || return 1
             [[ "$backup_name" =~ ^file-[0-9]+$ ]] || return 1
             [[ -z "${seen_backups[$backup_name]+present}" ]] || return 1
             seen_backups["$backup_name"]=1
@@ -1889,7 +1962,7 @@ installer_validate_upgrade_snapshot_inputs() {
                 [[ -f "$backup_path" ]] || return 1
             fi
         else
-            [[ "$kind" == none && "$mode" == - && "$backup_name" == - ]] || return 1
+            [[ "$kind" == none && "$mode" == - && "$uid" == - && "$gid" == - && "$backup_name" == - ]] || return 1
         fi
     done <"$backup/snapshot.tsv"
     [[ "$seen_count" == "$expected_count" ]] || return 1

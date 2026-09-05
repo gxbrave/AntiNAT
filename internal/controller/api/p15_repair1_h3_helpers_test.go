@@ -27,7 +27,7 @@ func newTestServerWithCloser(t *testing.T) (*httptest.Server, *store.Store) {
 	t.Cleanup(func() { st.Close() })
 	svc := auth.NewService(st)
 	handler, err := web.NewRouter(api.RouterConfig{
-		Store: st, Auth: svc,
+		Store: st, Auth: svc, ControllerPublicKey: testRouterControllerPublicKey(t),
 		CloseNodeSession: func(nodeID string) { closerCalls.Add(1) },
 	})
 	if err != nil {

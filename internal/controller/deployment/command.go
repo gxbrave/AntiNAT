@@ -5,7 +5,9 @@
 package deployment
 
 import (
+	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -28,7 +30,34 @@ const (
 	installerScriptURL = "https://github.com/gxbrave/AntiNAT/releases/latest/download/install.sh"
 	installerPS1URL    = "https://github.com/gxbrave/AntiNAT/releases/latest/download/install.ps1"
 	containerImage     = "ghcr.io/gxbrave/antinat-agent:latest"
+	dockerTokenSource  = "/secure/antinat/enrollment.token"
+	dockerTokenTarget  = "/run/secrets/antinat_enrollment_token"
 )
+
+// InstallCommandContext contains the ephemeral identity and trust material
+// needed to turn a saved profile into a usable enrollment command. It is
+// intentionally separate from Profile so neither value can be persisted with
+// deployment settings or confused with the one-time enrollment token.
+type InstallCommandContext struct {
+	NodeID        string
+	ControllerPin string
+}
+
+func (c InstallCommandContext) validate() error {
+	if strings.TrimSpace(c.NodeID) == "" {
+		return errors.New("deployment: node id is required for command generation")
+	}
+	if err := validateText("node_id", c.NodeID); err != nil {
+		return err
+	}
+	if len(c.ControllerPin) != hex.EncodedLen(ed25519.PublicKeySize) || c.ControllerPin != strings.ToLower(c.ControllerPin) {
+		return errors.New("deployment: controller pin must be lowercase 32-byte hex")
+	}
+	if _, err := hex.DecodeString(c.ControllerPin); err != nil {
+		return errors.New("deployment: controller pin must be lowercase 32-byte hex")
+	}
+	return nil
+}
 
 // Profile is the persisted, structured deployment configuration. It contains
 // no enrollment token and no generated command string. User-provided values
@@ -277,12 +306,15 @@ func BuildAgentArguments(profile Profile) ([]string, error) {
 	return args, nil
 }
 
-// BuildInstallCommand creates the complete platform-specific command. No
-// function argument or profile field carries a token, so the resulting command
-// cannot contain an enrollment secret. The installer itself obtains the token
-// through its hidden TTY/FD/file input contract.
-func BuildInstallCommand(profile Profile) (string, error) {
+// BuildInstallCommand creates the complete platform-specific command. The
+// context carries only the node identity and public Controller pin; it never
+// carries an enrollment token. The installer obtains that token through its
+// hidden TTY/FD/file input contract.
+func BuildInstallCommand(profile Profile, context InstallCommandContext) (string, error) {
 	if err := profile.Validate(); err != nil {
+		return "", err
+	}
+	if err := context.validate(); err != nil {
 		return "", err
 	}
 	args, err := BuildAgentArguments(profile)
@@ -291,11 +323,11 @@ func BuildInstallCommand(profile Profile) (string, error) {
 	}
 	switch profile.Platform {
 	case PlatformLinux:
-		return buildPOSIXInstallCommand(installerURL(profile, installerScriptURL), args), nil
+		return buildPOSIXInstallCommand(installerURL(profile, installerScriptURL), args, context), nil
 	case PlatformWindows:
-		return buildPowerShellInstallCommand(installerURL(profile, installerPS1URL), args), nil
+		return buildPowerShellInstallCommand(installerURL(profile, installerPS1URL), args, context), nil
 	case PlatformDocker:
-		return buildDockerCommand(args), nil
+		return buildDockerCommand(profile, context), nil
 	default:
 		return "", fmt.Errorf("deployment: unsupported platform %q", profile.Platform)
 	}
@@ -312,19 +344,23 @@ func installerURL(profile Profile, base string) string {
 	return strings.TrimRight(proxy, "/") + "/" + base
 }
 
-func buildPOSIXInstallCommand(scriptURL string, args []string) string {
+func buildPOSIXInstallCommand(scriptURL string, args []string, context InstallCommandContext) string {
 	inner := "curl --fail --silent --show-error --location " + QuoteShellArg(scriptURL) +
-		" | sudo bash -s -- install " + QuoteShellArgs(args)
+		" | sudo env " + QuoteShellArg("ANTINAT_NODE_ID="+context.NodeID) + " " +
+		QuoteShellArg("ANTINAT_CONTROLLER_PIN="+context.ControllerPin) +
+		" bash -s -- install " + QuoteShellArgs(args)
 	return "bash -o pipefail -c " + QuoteShellArg(inner)
 }
 
-func buildPowerShellInstallCommand(scriptURL string, args []string) string {
+func buildPowerShellInstallCommand(scriptURL string, args []string, context InstallCommandContext) string {
 	psArgs := make([]string, 0, len(args)+1)
 	psArgs = append(psArgs, "install")
 	for _, arg := range args {
 		psArgs = append(psArgs, QuotePowerShellArg(arg))
 	}
-	body := "$script = (Invoke-WebRequest -UseBasicParsing -Uri " + QuotePowerShellArg(scriptURL) +
+	body := "$env:ANTINAT_NODE_ID = " + QuotePowerShellArg(context.NodeID) +
+		"; $env:ANTINAT_CONTROLLER_PIN = " + QuotePowerShellArg(context.ControllerPin) +
+		"; $script = (Invoke-WebRequest -UseBasicParsing -Uri " + QuotePowerShellArg(scriptURL) +
 		").Content; & ([scriptblock]::Create($script)) " + strings.Join(psArgs, " ")
 	return "powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand " + encodePowerShellCommand(body)
 }
@@ -339,21 +375,24 @@ func encodePowerShellCommand(command string) string {
 	return base64.StdEncoding.EncodeToString(bytes)
 }
 
-func buildDockerCommand(args []string) string {
-	// Keep the platform marker readable in the command while quoting every
-	// value-bearing argument. The marker is a package constant, never user
-	// input; endpoint/interface paths still use POSIX quoting.
-	rendered := make([]string, 0, len(args))
-	for i := 0; i < len(args); i++ {
-		if args[i] == "--platform" && i+1 < len(args) {
-			rendered = append(rendered, "--platform "+args[i+1])
-			i++
-			continue
-		}
-		rendered = append(rendered, QuoteShellArg(args[i]))
+func buildDockerCommand(profile Profile, context InstallCommandContext) string {
+	endpoint, _ := NormalizeOptionalServiceURL(profile.ControllerEndpoint)
+	env := []string{
+		"ANTINAT_ENDPOINT=" + endpoint,
+		"ANTINAT_NODE=" + context.NodeID,
+		"ANTINAT_PIN=" + context.ControllerPin,
+		"ANTINAT_STATE=/var/lib/antinat",
+		"ANTINAT_DOCKER_TOKEN_FILE=" + dockerTokenTarget,
+	}
+	renderedEnv := make([]string, 0, len(env))
+	for _, value := range env {
+		renderedEnv = append(renderedEnv, "--env "+QuoteShellArg(value))
 	}
 	return "docker run --interactive --tty --network host --restart=always " +
-		"--volume /var/lib/antinat:/var/lib/antinat " + containerImage + " " + strings.Join(rendered, " ")
+		strings.Join(renderedEnv, " ") + " " +
+		"--volume /var/lib/antinat:/var/lib/antinat " +
+		"--volume " + QuoteShellArg(dockerTokenSource+":"+dockerTokenTarget+":ro") + " " +
+		containerImage
 }
 
 // InstallerScriptURL returns the default script URL for callers that need to

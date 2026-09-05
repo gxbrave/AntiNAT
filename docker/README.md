@@ -32,6 +32,12 @@ Docker manages it as read-only, while the staged copy follows the Agent's
 normal 0600 validation and deletion path. A fresh enrollment requires a fresh
 Agent state volume and a new Controller-issued token.
 
+The Controller deployment dialog's one-off Docker command uses the same
+contract: create the protected `/secure/antinat/enrollment.token` source file
+from the separately displayed token before running it. Endpoint, node ID, and
+Controller pin are passed as supported environment variables before the image;
+the image receives no installer flags after its name.
+
 ## Release evidence
 
 Release automation must push by an immutable version tag, resolve and record

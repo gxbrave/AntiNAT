@@ -66,6 +66,7 @@ run_installer install --controller-endpoint https://controller.example --platfor
 [[ ! -e "$token_file" ]] || { echo 'token source was not consumed' >&2; exit 1; }
 [[ "$(cat "$root/opt/antinat/bin/antinat-agent")" == old-binary ]] || { echo 'initial artifact missing' >&2; exit 1; }
 [[ "$(cat "$root/var/lib/antinat/schema.version")" == 3 ]] || { echo 'schema marker missing from install' >&2; exit 1; }
+[[ "$(stat -c '%a' "$root/etc/antinat/agent.conf")" == 600 ]] || { echo 'agent config mode is not 0600' >&2; exit 1; }
 jq -e '.resources[] | select(.path == "schema.version")' "$root/var/lib/antinat/ownership-manifest.json" >/dev/null || { echo 'schema marker missing from ownership manifest' >&2; exit 1; }
 jq -e '.resources[] | select(.path == "antinat" and .root == "'"$root"'/var/log")' "$root/var/lib/antinat/ownership-manifest.json" >/dev/null || { echo 'log directory missing from ownership manifest' >&2; exit 1; }
 printf '%s\n' owned-log-entry >"$root/var/log/antinat/agent.log"
@@ -150,6 +151,29 @@ status=$?
 set -e
 [[ "$status" == 6 ]] || { echo "interrupted upgrade recovery exit=$status, want 6" >&2; exit 1; }
 cmp -- "$root/opt/antinat/bin/antinat-agent" "$rollback_snapshot/opt/antinat/bin/antinat-agent" || { echo 'interrupted upgrade recovery did not restore the pre-crash artifact' >&2; exit 1; }
+
+# A durable interrupted-upgrade snapshot includes an explicit placeholder for
+# every absent resource. Recovery must accept that record shape before taking
+# the next snapshot.
+absent_candidate="$root/var/lib/antinat/backups/upgrade.absent"
+mkdir -p -- "$absent_candidate"
+# Start from the complete durable snapshot. Recovery validates the whole
+# resource set, so a one-row fixture would exercise only the parser and not
+# the actual interrupted-upgrade contract.
+cp -p -- "$recovery_candidate"/file-* "$absent_candidate"/
+awk -F '\t' -v OFS='\t' -v absent_root="$root/var/lib/antinat" \
+    '$3 == absent_root && $4 == "terminal.marker" {
+        $1 = 0; $2 = "none"; $5 = "-"; $6 = "-"; $7 = "-"; $8 = "-"
+    }
+    { print }' "$recovery_candidate/snapshot.tsv" >"$absent_candidate/snapshot.tsv"
+chmod 600 -- "$absent_candidate/snapshot.tsv"
+printf '%s\n' '{"schema":"antinat.shell-upgrade/v1","live_root":"'"$root/opt/antinat"'","backup_path":"'"$absent_candidate"'","snapshot":"snapshot.tsv","state":"promoting","completed":[]}' >"$absent_candidate/transaction.json"
+chmod 600 -- "$absent_candidate/transaction.json"
+set +e
+ANTINAT_FORCE_HEALTH_FAIL=1 run_installer upgrade >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" == 6 ]] || { echo "absent-resource recovery exit=$status, want 6" >&2; exit 1; }
 
 # A missing marker is the explicitly supported legacy N-1 state.
 rm -f -- "$root/var/lib/antinat/schema.version"

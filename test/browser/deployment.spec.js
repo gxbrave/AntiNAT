@@ -102,6 +102,12 @@ test.describe('node deployment flow', () => {
     expect(dockerCommand).toContain('--interactive');
     expect(dockerCommand).toContain('--tty');
     expect(dockerCommand).not.toContain('--rm');
+    expect(dockerCommand).toMatch(/--env 'ANTINAT_ENDPOINT=/);
+    expect(dockerCommand).toContain("--env 'ANTINAT_NODE=node-online'");
+    expect(dockerCommand).toMatch(/--env 'ANTINAT_PIN=[0-9a-f]{64}'/);
+    expect(dockerCommand).toContain("--volume '/secure/antinat/enrollment.token:/run/secrets/antinat_enrollment_token:ro'");
+    expect(dockerCommand).not.toContain('--controller-endpoint');
+    expect(dockerCommand.trim()).toMatch(/ghcr\.io\/gxbrave\/antinat-agent:latest$/);
 
     await platform.selectOption('windows');
     await expect(page.locator('[data-deployment-command]')).toContainText(/powershell/i);
@@ -109,7 +115,7 @@ test.describe('node deployment flow', () => {
 
     await platform.selectOption('linux');
     await expect(page.locator('[data-deployment-command]')).toContainText(/curl/);
-    await expect(page.locator('[data-deployment-command]')).toContainText(/sudo bash/);
+    await expect(page.locator('[data-deployment-command]')).toContainText(/sudo env/);
   });
 
   test('saves a structured profile, reloads it, and keeps invalid values out of persistence', async ({ page }) => {
@@ -174,7 +180,7 @@ test.describe('node deployment flow', () => {
       detection_scheduler: 'sequential',
       log_level: 'info',
       auto_update: 'disabled'
-    }));
+    }, { node_id: 'node-browser', controller_pin: 'abababababababababababababababababababababababababababababababab' }));
     expect(command).toContain('-EncodedCommand');
     expect(command).not.toContain('Remove-Item');
   });

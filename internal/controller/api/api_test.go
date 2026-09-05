@@ -27,7 +27,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *store.Store) {
 	}
 	t.Cleanup(func() { st.Close() })
 	svc := auth.NewService(st)
-	handler, err := web.NewRouter(api.RouterConfig{Store: st, Auth: svc})
+	handler, err := web.NewRouter(api.RouterConfig{Store: st, Auth: svc, ControllerPublicKey: testRouterControllerPublicKey(t)})
 	if err != nil {
 		t.Fatalf("router: %v", err)
 	}
@@ -242,6 +242,10 @@ func TestNodeCreateAndToken(t *testing.T) {
 	plain, _ := tok["token"].(string)
 	if len(plain) < 20 {
 		t.Fatalf("token not shown: %s", body)
+	}
+	controllerPin, _ := tok["controller_pin"].(string)
+	if len(controllerPin) != 64 || strings.ToLower(controllerPin) != controllerPin {
+		t.Fatalf("controller pin not shown as lowercase 32-byte hex: %s", body)
 	}
 	// The token row must be hash-only.
 	count, err := st.CountEnrollmentTokens()

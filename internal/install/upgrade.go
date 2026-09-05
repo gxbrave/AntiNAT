@@ -26,6 +26,8 @@ type SnapshotFile struct {
 	Path    string `json:"path"`
 	SHA256  string `json:"sha256,omitempty"`
 	Mode    uint32 `json:"mode,omitempty"`
+	UID     uint32 `json:"uid,omitempty"`
+	GID     uint32 `json:"gid,omitempty"`
 	Present bool   `json:"present"`
 }
 
@@ -72,6 +74,10 @@ func CreateSnapshot(root, destination string, files []string) (SnapshotManifest,
 		if info.Size() > maxArtifactBytes {
 			return SnapshotManifest{}, fmt.Errorf("snapshot file %q exceeds size limit", relative)
 		}
+		uid, gid, err := snapshotFileOwnership(info)
+		if err != nil {
+			return SnapshotManifest{}, fmt.Errorf("snapshot file %q ownership: %w", relative, err)
+		}
 		destinationPath, err := secureJoin(destination, relative)
 		if err != nil {
 			return SnapshotManifest{}, err
@@ -83,7 +89,10 @@ func CreateSnapshot(root, destination string, files []string) (SnapshotManifest,
 		if err != nil {
 			return SnapshotManifest{}, err
 		}
-		manifest.Files = append(manifest.Files, SnapshotFile{Path: relative, SHA256: digest, Mode: uint32(info.Mode().Perm()), Present: true})
+		manifest.Files = append(manifest.Files, SnapshotFile{
+			Path: relative, SHA256: digest, Mode: uint32(info.Mode().Perm()),
+			UID: uid, GID: gid, Present: true,
+		})
 	}
 	if err := writeSnapshotManifest(destination, manifest); err != nil {
 		return SnapshotManifest{}, err
@@ -137,6 +146,15 @@ func verifySnapshotFiles(root string, manifest SnapshotManifest, label string) e
 		if uint32(info.Mode().Perm()) != entry.Mode {
 			return fmt.Errorf("%s mode mismatch for %q", label, entry.Path)
 		}
+		if label == "live" {
+			uid, gid, err := snapshotFileOwnership(info)
+			if err != nil {
+				return fmt.Errorf("%s ownership for %q: %w", label, entry.Path, err)
+			}
+			if uid != entry.UID || gid != entry.GID {
+				return fmt.Errorf("%s ownership mismatch for %q", label, entry.Path)
+			}
+		}
 		digest, err := fileSHA256(path)
 		if err != nil {
 			return err
@@ -184,6 +202,10 @@ func restoreSnapshotWithProgress(root, destination string, manifest SnapshotMani
 			}
 			if err := copyFileAtomic(source, target, os.FileMode(entry.Mode)); err != nil {
 				restoreErrors = append(restoreErrors, fmt.Errorf("restore file %q: %w", entry.Path, err))
+				continue
+			}
+			if err := restoreSnapshotFileOwnership(target, entry.UID, entry.GID); err != nil {
+				restoreErrors = append(restoreErrors, fmt.Errorf("restore ownership for %q: %w", entry.Path, err))
 				continue
 			}
 		}

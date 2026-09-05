@@ -22,7 +22,7 @@ func newTestServerWithSSE(t *testing.T) (*httptest.Server, *store.Store) {
 	}
 	t.Cleanup(func() { st.Close() })
 	svc := auth.NewService(st)
-	handler, err := web.NewRouter(api.RouterConfig{Store: st, Auth: svc, SSE: web.NewSSEHandler(st, 0, 0, 0, 0)})
+	handler, err := web.NewRouter(api.RouterConfig{Store: st, Auth: svc, ControllerPublicKey: testRouterControllerPublicKey(t), SSE: web.NewSSEHandler(st, 0, 0, 0, 0)})
 	if err != nil {
 		t.Fatalf("router: %v", err)
 	}
