@@ -6,20 +6,23 @@
   "branch": "ai/P19-beta-release",
   "base_sha": "622f98b8e3958a14094c1fad5cd775f3c93ccdb1",
   "base_tree_sha": "709fed91d7cf2e9326f11c14df28441185fb6d7e",
-  "head_sha": "0a682ef3c266e687dc9254b822af338edd3931ae",
-  "head_tree_sha": "77869f551814b3ef43458eb30e23529aca6115dd",
-  "canonical_head_sha": "0a682ef3c266e687dc9254b822af338edd3931ae",
-  "canonical_head_tree_sha": "77869f551814b3ef43458eb30e23529aca6115dd",
-  "candidate_record_tip_sha": "0a682ef3c266e687dc9254b822af338edd3931ae",
-  "candidate_record_tip_tree_sha": "77869f551814b3ef43458eb30e23529aca6115dd",
+  "head_sha": "377a2b634830d738b4a02421cd2e7ad3dc6dce6e",
+  "head_tree_sha": "07e9b79044a2dc2340c3c9d803534a4eb722ed20",
+  "canonical_head_sha": "377a2b634830d738b4a02421cd2e7ad3dc6dce6e",
+  "canonical_head_tree_sha": "07e9b79044a2dc2340c3c9d803534a4eb722ed20",
+  "candidate_record_tip_sha": "377a2b634830d738b4a02421cd2e7ad3dc6dce6e",
+  "candidate_record_tip_tree_sha": "07e9b79044a2dc2340c3c9d803534a4eb722ed20",
   "record_pointer_convention": "head_sha identifies the clean pre-handoff candidate tip used for the one-time build. The commit that adds this P19.json record is a pointer-only record commit and is excluded from the candidate source identity.",
   "commits": [
     "d70b8e86c418a01d149e288dab4df244d288ce53",
     "1354fc09e37b79f45fb9d427d91382b292860580",
     "389a05a824c12d695bd71ef0eaeb3656884c2419",
-    "0a682ef3c266e687dc9254b822af338edd3931ae"
+    "0a682ef3c266e687dc9254b822af338edd3931ae",
+    "060a90a81d0046c55fdb7c775cbe9d6d9ca0d7b4",
+    "2e56c166d6c501650b3717af19d97fd544820b54",
+    "377a2b634830d738b4a02421cd2e7ad3dc6dce6e"
   ],
-  "files_changed_count": 17,
+  "files_changed_count": 25,
   "files_changed": [
     ".github/workflows/ci.yml",
     ".github/workflows/platform.yml",
@@ -33,10 +36,18 @@
     "docs/release-policy.md",
     "docs/support-matrix.md",
     "go.mod",
+    "internal/agent/app.go",
+    "internal/agent/p12w_composition_test.go",
+    "internal/agent/p12w_lifecycle_test.go",
+    "internal/agent/reconcile/probe.go",
+    "internal/agent/reconcile/probe_test.go",
+    "internal/controller/app.go",
     "scripts/run-beta-gates.sh",
+    "scripts/test-browser.sh",
     "scripts/verify-evidence.go",
     "scripts/verify-release-evidence.go",
     "scripts/verify_release_evidence_test.go",
+    "test/browser/a11y.spec.js",
     "test/release/release_test.go"
   ],
   "tests": [
@@ -61,7 +72,7 @@
       "summary": "Full repository vet gate passes."
     },
     {
-      "command": "bash -n scripts/run-beta-gates.sh && git diff --check",
+      "command": "bash -n scripts/run-beta-gates.sh scripts/test-browser.sh && node --check test/browser/a11y.spec.js && git diff --check",
       "exit_code": 0,
       "summary": "Runner shell syntax and whitespace checks pass."
     },
@@ -76,12 +87,12 @@
       "summary": "Isolated Linux installer install, upgrade, rollback, role, and purge suite passes."
     },
     {
-      "command": "PATH=/tmp/antinat-p19-tools:$PATH GOWORK=off bash scripts/run-beta-gates.sh --version v1.0.0-beta.1 --artifacts /tmp/antinat-p19-final.2x4pYC/dist --evidence /tmp/antinat-p19-final.2x4pYC/evidence",
+      "command": "GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 bash scripts/run-beta-gates.sh --version v1.0.0-beta.1 --artifacts /tmp/antinat-p19-final.DQM4Wz/dist --evidence /tmp/antinat-p19-final.DQM4Wz/evidence",
       "exit_code": 0,
-      "summary": "Go 1.26.6 candidate built once; exact local build, browser, vulnerability, functional, installer, security, race, vet, and evidence gates pass; unavailable external gates remain SUPPORTED_WITH_LIMITS."
+      "summary": "Go 1.26.6 candidate built once from 377a2b6; exact local build, browser, functional, installer, security, race, vet, and evidence gates pass; signature, govulncheck, WAN, platform, and soak gates remain SUPPORTED_WITH_LIMITS. Browser review screenshots are isolated in the runner temporary directory."
     },
     {
-      "command": "GOTOOLCHAIN=go1.26.6+auto GOWORK=off go run ./scripts/verify-release-evidence.go /tmp/antinat-p19-final.2x4pYC/evidence",
+      "command": "GOWORK=off go run ./scripts/verify-release-evidence.go /tmp/antinat-p19-final.DQM4Wz/evidence",
       "exit_code": 0,
       "summary": "Primary evidence bundle validates against the exact unsigned manifest."
     },
@@ -100,13 +111,13 @@
     "release": "v1.0.0-beta.1",
     "status": "SUPPORTED_WITH_LIMITS",
     "promotion": "NO_GO",
-    "artifact_directory": "/tmp/antinat-p19-final.2x4pYC/dist/release",
-    "evidence_directory": "/tmp/antinat-p19-final.2x4pYC/evidence",
-    "manifest_sha256": "sha256:97c940ebeeb804f7dd938da59fbab4b2cf2d641dc6a606e5bf57dc026dc22bb2",
-    "evidence_bundle_sha256": "sha256:78d3c088e4a60b63746e2a3881aba45bebe3c815ad9b27b89cb123121e4fb90d",
+    "artifact_directory": "/tmp/antinat-p19-final.DQM4Wz/dist/release",
+    "evidence_directory": "/tmp/antinat-p19-final.DQM4Wz/evidence",
+    "manifest_sha256": "sha256:1a9b5224a24d16a2a54e8f742bb1fbb20929fb6f6bddf6090efc153be8e27aea",
+    "evidence_bundle_sha256": "sha256:173e66d55351fdbf5d3ac892a2e81ddd7feec37d1983b3805642fca963a9590a",
     "evidence_digest_method": "SHA-256 of sorted sha256sum lines for every regular file in the evidence directory.",
-    "release_record_sha256": "sha256:c6461add4cec8b56d29b93ae275076632a9d5e25e9fa41a70bebbccdc56a68c7",
-    "final_verifier_log_sha256": "sha256:b4dd9f710d31c1dd428b39fe321f5de392583da9c4c33af6ba8500a1603ab564",
+    "release_record_sha256": "sha256:333bb355d2dd89947f7c1f5987499bbe47dd9d206e65e84d6d9bd2044eeb2d7f",
+    "final_verifier_log_sha256": "sha256:9a3f6181f4616687f12e744d1b5259eecfd8859af538b8dcdd530f7478e78042",
     "signature_status": "SKIPPED",
     "sbom_status": "SUPPORTED_WITH_LIMITS",
     "artifact_count": 15,
@@ -123,33 +134,44 @@
       {"id":"install-upgrade-purge","result":"PASS","required":true,"exit_code":0},
       {"id":"browser-e2e","result":"PASS","required":true,"exit_code":0},
       {"id":"security","result":"PASS","required":true,"exit_code":0},
-      {"id":"govulncheck","result":"PASS","required":true,"exit_code":0},
+      {"id":"govulncheck","result":"SUPPORTED_WITH_LIMITS","required":true,"exit_code":0},
       {"id":"real-wan","result":"SUPPORTED_WITH_LIMITS","required":true,"exit_code":0},
       {"id":"platform-matrix","result":"SUPPORTED_WITH_LIMITS","required":true,"exit_code":0},
       {"id":"soak","result":"SUPPORTED_WITH_LIMITS","required":true,"exit_code":0},
       {"id":"release-evidence","result":"PASS","required":true,"exit_code":0}
     ],
     "evidence": [
-      "/tmp/antinat-p19-final.2x4pYC/dist/release/manifest.json",
-      "/tmp/antinat-p19-final.2x4pYC/evidence/release.json",
-      "/tmp/antinat-p19-final.2x4pYC/evidence/exact-build.log",
-      "/tmp/antinat-p19-final.2x4pYC/evidence/sbom.log",
-      "/tmp/antinat-p19-final.2x4pYC/evidence/artifact-integrity.log",
-      "/tmp/antinat-p19-final.2x4pYC/evidence/signature.log",
-      "/tmp/antinat-p19-final.2x4pYC/evidence/exact-artifact-metadata.log",
-      "/tmp/antinat-p19-final.2x4pYC/evidence/unit-tests.log",
-      "/tmp/antinat-p19-final.2x4pYC/evidence/race-tests.log",
-      "/tmp/antinat-p19-final.2x4pYC/evidence/vet.log",
-      "/tmp/antinat-p19-final.2x4pYC/evidence/functional-e2e.log",
-      "/tmp/antinat-p19-final.2x4pYC/evidence/install-upgrade-purge.log",
-      "/tmp/antinat-p19-final.2x4pYC/evidence/browser-e2e.log",
-      "/tmp/antinat-p19-final.2x4pYC/evidence/security.log",
-      "/tmp/antinat-p19-final.2x4pYC/evidence/govulncheck.log",
-      "/tmp/antinat-p19-final.2x4pYC/evidence/real-wan.log",
-      "/tmp/antinat-p19-final.2x4pYC/evidence/platform-matrix.log",
-      "/tmp/antinat-p19-final.2x4pYC/evidence/soak.log",
-      "/tmp/antinat-p19-final.2x4pYC/evidence/release-evidence.log"
+      "/tmp/antinat-p19-final.DQM4Wz/dist/release/manifest.json",
+      "/tmp/antinat-p19-final.DQM4Wz/evidence/release.json",
+      "/tmp/antinat-p19-final.DQM4Wz/evidence/exact-build.log",
+      "/tmp/antinat-p19-final.DQM4Wz/evidence/sbom.log",
+      "/tmp/antinat-p19-final.DQM4Wz/evidence/artifact-integrity.log",
+      "/tmp/antinat-p19-final.DQM4Wz/evidence/signature.log",
+      "/tmp/antinat-p19-final.DQM4Wz/evidence/exact-artifact-metadata.log",
+      "/tmp/antinat-p19-final.DQM4Wz/evidence/unit-tests.log",
+      "/tmp/antinat-p19-final.DQM4Wz/evidence/race-tests.log",
+      "/tmp/antinat-p19-final.DQM4Wz/evidence/vet.log",
+      "/tmp/antinat-p19-final.DQM4Wz/evidence/functional-e2e.log",
+      "/tmp/antinat-p19-final.DQM4Wz/evidence/install-upgrade-purge.log",
+      "/tmp/antinat-p19-final.DQM4Wz/evidence/browser-e2e.log",
+      "/tmp/antinat-p19-final.DQM4Wz/evidence/security.log",
+      "/tmp/antinat-p19-final.DQM4Wz/evidence/govulncheck.log",
+      "/tmp/antinat-p19-final.DQM4Wz/evidence/real-wan.log",
+      "/tmp/antinat-p19-final.DQM4Wz/evidence/platform-matrix.log",
+      "/tmp/antinat-p19-final.DQM4Wz/evidence/soak.log",
+      "/tmp/antinat-p19-final.DQM4Wz/evidence/release-evidence.log"
     ]
+  },
+  "supplemental_wan": {
+    "source_commit": "060a90a81d0046c55fdb7c775cbe9d6d9ca0d7b4",
+    "evidence_directory": "/tmp/antinat-p19-supplemental-20260905-fixed",
+    "evidence_bundle_sha256": "sha256:3c8739d946feee88cdb4bc58fc69321b628d10bba2eb8ff7080906d55d5e8572",
+    "probe_id": "593a1f44e8c518ac0ef66a780eb62650",
+    "result": "PROBE_INFRA_UNAVAILABLE",
+    "candidate_endpoint": "120.230.87.59:9336",
+    "public_server_advertised_ip": "8.163.56.137",
+    "public_server_observed_bind_ip": "172.21.154.102",
+    "summary": "The supplied public server was behind upstream NAT rather than binding the advertised address; provider/WAN1/ACK1 artifacts were unavailable and direct TCP checks from the public host and workspace timed out. This supplemental run does not prove OPEN_FROM_VANTAGE."
   },
   "signed_test_candidate": {
     "artifact_directory": "/tmp/antinat-p19-signed.UiNHAn/dist/release",
@@ -176,7 +198,7 @@
   "known_limits": [
     "The primary candidate is unsigned because no production release signing key was available; no independent release approver was available.",
     "The signed candidate used a temporary test Ed25519 key only to exercise the verifier path; it is not production trust evidence and is not promotable.",
-    "No independent public-WAN controller/probe vantage, real CPE/router matrix, native Windows runtime, native arm64/OpenRC host, registry OCI digest, or 24-hour soak was provisioned.",
+    "The supplied public-server/NAT probe attempt ended PROBE_INFRA_UNAVAILABLE; no independent public-WAN proof, real CPE/router matrix, native Windows runtime, native arm64/OpenRC host, registry OCI digest, or 24-hour soak is available.",
     "Local loopback, cross-build, isolated test-root installer, and local OCI evidence retain their actual evidence levels and do not promote runtime support.",
     "The candidate bundles are external generated evidence at the recorded /tmp paths; no release binaries or generated logs were added to the source tree."
   ],
@@ -184,7 +206,7 @@
     "story_1": "RED: the integrated tree had no P19 exact-artifact release record or verifier bound to a single manifest digest.",
     "story_2": "RED: the integrated tree had no one-time Linux/Windows candidate build, checksum set, SBOM, or detached release signature path.",
     "story_3": "RED: the integrated tree had no release runner recording functional, security, installer, platform, WAN, or soak gate evidence.",
-    "story_4": "RED: external WAN, native platform, registry, and soak infrastructure was unavailable and remains explicitly limited; the refreshed local browser and vulnerability gates now pass.",
+    "story_4": "RED: external WAN, native platform, registry, and soak infrastructure was unavailable and remains explicitly limited; the refreshed local browser gate passes while govulncheck remains unavailable.",
     "story_5": "RED: release evidence did not yet have structural path, artifact-digest, gate-evidence, or promotion verification tests.",
     "story_6": "RED: no immutable promotion workflow existed that downloads and signs an already-built candidate without rebuilding it.",
     "story_7": "RED: README/support status still described P19 as unstarted and did not reflect the integrated P18 evidence limits."
@@ -204,13 +226,23 @@
       "files": ["go.mod", ".github/workflows/ci.yml", ".github/workflows/platform.yml", "docs/adr/0004-reproducible-bootstrap.md"],
       "reason": "P19 security-gate remediation pins the fixed Go 1.26.6 toolchain and keeps CI/platform evidence on the same patched runtime.",
       "boundary": "Only toolchain and workflow metadata changed; no internal production package or frozen product contract changed."
+    },
+    {
+      "files": ["internal/agent/app.go", "internal/agent/p12w_composition_test.go", "internal/agent/p12w_lifecycle_test.go", "internal/agent/reconcile/probe.go", "internal/agent/reconcile/probe_test.go", "internal/controller/app.go"],
+      "reason": "P19 real-NAT integration fixes admit public STUN candidates and publish the initial durable activation runtime mirror before probing.",
+      "boundary": "Targeted runtime and regression-test changes; no frozen wire or product contract was revised."
+    },
+    {
+      "files": ["scripts/test-browser.sh", "test/browser/a11y.spec.js"],
+      "reason": "P19 browser evidence hygiene routes runner screenshots to temporary output so a gate cannot dirty tracked review evidence.",
+      "boundary": "Test-only output-path behavior; no user-facing browser contract changed."
     }
   ],
   "review_ready": true,
   "review_status": "REVIEW_REQUIRED",
   "self_approval": false,
   "cleanup_done": true,
-  "cleanup_notes": "The diagnostic duplicate runner was stopped. The final unsigned primary bundle and non-sensitive public test key/evidence are intentionally retained at the recorded paths; the temporary private test key is removed after signing-path verification. Browser temporary state was cleaned after the PASS run; scanner tooling remains outside the repository.",
+  "cleanup_notes": "The diagnostic duplicate runner was stopped. The final unsigned primary bundle and non-sensitive public test key/evidence are intentionally retained at the recorded paths; the temporary private test key is removed after signing-path verification. Browser temporary state and runner screenshots were cleaned after the PASS run; scanner tooling remains outside the repository.",
   "release_performed": false,
   "tag_created": false,
   "remote_push": "NONE",
