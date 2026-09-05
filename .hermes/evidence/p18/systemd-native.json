@@ -1,10 +1,10 @@
 {
   "schema_version": "antinat.evidence/v1",
   "plan": "P18",
-  "commit_sha": "f521f9972c2c3a0e6446221d0f30b9f3671e4379",
+  "commit_sha": "8ab153bcc1f2225ffa82f53068ec6bbd9964fd9b",
   "command": "set -o pipefail; { set +e; ANTINAT_P18_TEST_ABORT_AFTER_ROLLBACK=1 bash scripts/test-systemd.sh; abort_status=$?; set -e; printf 'intentional_abort_status=%s\\n' \"$abort_status\"; if [[ \"$abort_status\" != 99 ]]; then exit 1; fi; for path in /opt/antinat /var/lib/antinat /var/log/antinat /etc/antinat /etc/systemd/system/antinat-agent.service /etc/systemd/system/antinat-controller.service /etc/systemd/system/antinat-agent.service.d/p18-native-test.conf; do if [[ -e \"$path\" || -L \"$path\" ]]; then exit 1; fi; done; if id antinat >/dev/null 2>&1 || getent group antinat >/dev/null 2>&1; then exit 1; fi; echo 'intentional failure cleanup: PASS'; } 2>&1 | tee .hermes/evidence/p18/systemd-failure-cleanup.log && { for run in 1 2 3; do echo \"systemd stability run $run/3\"; bash scripts/test-systemd.sh || exit 1; done; } 2>&1 | tee .hermes/evidence/p18/systemd-smoke.log",
   "result": "PASS",
-  "artifact_digest": "sha256:0d913cf427bda594f1f4e7cbb83964c1d1c7f49e1666c3ddaa794e7f6e95b77b",
+  "artifact_digest": "sha256:cca47002e727bfc939ba4d4542a621205583b2f397135c6eb20e86a8516c6390",
   "os": "linux/amd64 systemd",
   "timeout": 300,
   "summary": "Shipped signed installer completed three consecutive real Controller and Agent install, TLS enrollment, restart, failed-upgrade rollback, successful upgrade, durable online uninstall receipt, purge, and no-residue runs; a separate intentional post-rollback abort also proved trap cleanup leaves no installation resources or account.",

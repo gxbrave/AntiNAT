@@ -1,7 +1,7 @@
 {
   "schema_version": "antinat.evidence/v1",
   "plan": "P18",
-  "commit_sha": "f521f9972c2c3a0e6446221d0f30b9f3671e4379",
+  "commit_sha": "8ab153bcc1f2225ffa82f53068ec6bbd9964fd9b",
   "command": "CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -buildvcs=false ./cmd/antinat-agent ./cmd/antinatctl ./internal/install",
   "result": "SUPPORTED_WITH_LIMITS",
   "artifact_digest": "sha256:d9ec40a4c82e79bbe14b13e53cf333ee2ae05a0a6a03a7f95e6f66567ef18595",
