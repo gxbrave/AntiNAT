@@ -8,6 +8,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/netip"
 	"sync"
@@ -97,6 +98,16 @@ func (c *recordingLifecycleClient) statusCount() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.statuses)
+}
+
+func (c *recordingLifecycleClient) statusPayloads() [][]byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([][]byte, len(c.statuses))
+	for i, payload := range c.statuses {
+		out[i] = append([]byte(nil), payload...)
+	}
+	return out
 }
 
 // p12wLifecycleApp composes the agent wiring exactly like New() for the
@@ -207,6 +218,37 @@ func waitForSavedKeepalive(t *testing.T, a *App, forwardID, want string) {
 		t.Fatal(err)
 	}
 	t.Fatalf("saved keepalive_state never became %q (ok=%v snapshot=%+v)", want, ok, saved)
+}
+
+func TestInitialApplyPublishesActivationStatus(t *testing.T) {
+	a, d, _, client := p12wLifecycleApp(t, time.Hour)
+	if _, err := d.apply(context.Background(), lifecycleGatewaySpec("fwd-initial-status", 1)); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	var status struct {
+		ForwardID  string `json:"forward_id"`
+		Generation uint64 `json:"generation"`
+		Snapshot   struct {
+			ListenerState  string `json:"listener_state"`
+			DataPlaneState string `json:"data_plane_state"`
+		} `json:"snapshot"`
+	}
+	found := false
+	for _, payload := range client.statusPayloads() {
+		if err := json.Unmarshal(payload, &status); err != nil {
+			t.Fatalf("decode activation status: %v", err)
+		}
+		if status.ForwardID == "fwd-initial-status" && status.Generation == 1 {
+			found = true
+			if status.Snapshot.ListenerState != "READY" || status.Snapshot.DataPlaneState != "READY" {
+				t.Fatalf("initial activation status snapshot = %+v, want READY listener/data plane", status.Snapshot)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("initial activation status was not sent (count=%d, activation=%+v)", client.statusCount(), a.ActivationSnapshot("fwd-initial-status"))
+	}
 }
 
 // Story 7 (a): three consecutive renewal failures set keepalive_state DEGRADED

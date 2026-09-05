@@ -1581,8 +1581,8 @@ func (a *App) onForwardCleanupError(forwardID string, actor *forwardActor, clean
 
 func (a *App) onForwardApplied(spec protocol.ForwardSpec, applied protocol.AppliedForwardState) {
 	a.probeAdmissionMu.Lock()
-	defer a.probeAdmissionMu.Unlock()
 	if a.dp == nil || a.activations == nil {
+		a.probeAdmissionMu.Unlock()
 		return
 	}
 	a.dp.mu.Lock()
@@ -1623,16 +1623,33 @@ func (a *App) onForwardApplied(spec protocol.ForwardSpec, applied protocol.Appli
 		}
 	}
 	a.dp.mu.Unlock()
+	var saveErr error
 	if a.store != nil {
 		aid := protocol.ActivationID(applied.ForwardID, applied.SpecRevision)
 		activationID := hex.EncodeToString(aid[:])
 		if saved, ok, err := a.store.LoadActivationSnapshot(applied.ForwardID); err == nil && ok && saved.Activation == activationID && saved.Generation == applied.SpecRevision {
 			_ = act.Set(saved.States)
 		}
-		_ = a.store.SaveActivationSnapshot(localstate.ActivationSnapshot{
+		saveErr = a.store.SaveActivationSnapshot(localstate.ActivationSnapshot{
 			ForwardID: applied.ForwardID, Activation: activationID,
 			Generation: applied.SpecRevision, States: act.Snapshot(),
 		})
+	}
+	state := act.Snapshot()
+	payload, marshalErr := json.Marshal(struct {
+		ForwardID  string                    `json:"forward_id"`
+		Activation string                    `json:"activation"`
+		Generation uint64                    `json:"generation"`
+		Snapshot   protocol.ActivationStates `json:"snapshot"`
+	}{act.ForwardID(), act.ActivationID(), act.Generation(), state})
+	client := a.client
+	a.probeAdmissionMu.Unlock()
+
+	// The initial apply is the first authoritative runtime mirror. Publish it
+	// only after the local snapshot is durable; reconnect/evidence-loss paths
+	// can replay it later if the transport is unavailable.
+	if saveErr == nil && marshalErr == nil && client != nil {
+		a.sendActivationStatus(context.Background(), payload)
 	}
 }
 
