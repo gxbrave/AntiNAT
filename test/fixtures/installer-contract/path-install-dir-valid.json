@@ -1,0 +1,8 @@
+{
+  "schema": "antinat.contracts/installer/v1",
+  "vector_id": "path-install-dir-valid",
+  "kind": "path",
+  "expect": "valid",
+  "path_key": "install_dir",
+  "path_value": "/opt/antinat"
+}

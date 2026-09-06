@@ -1,0 +1,5 @@
+ok  	github.com/gxbrave/AntiNAT/spike/datapath	1.273s
+ok  	github.com/gxbrave/AntiNAT/spike/sandbox	12.453s
+ok  	github.com/gxbrave/AntiNAT/spike/sqlite	2.343s
+ok  	github.com/gxbrave/AntiNAT/spike/state	2.909s
+ok  	github.com/gxbrave/AntiNAT/spike/windows-identity	1.208s

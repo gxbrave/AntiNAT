@@ -1,0 +1,7 @@
+{
+  "schema": "antinat.contracts/installer/v1",
+  "vector_id": "exit-42-invalid",
+  "kind": "exit",
+  "expect": "invalid",
+  "exit_code": 42
+}

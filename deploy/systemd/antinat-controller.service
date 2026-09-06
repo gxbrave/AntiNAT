@@ -1,0 +1,37 @@
+[Unit]
+Description=AntiNAT Controller
+Documentation=https://github.com/gxbrave/AntiNAT
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=antinat
+Group=antinat
+ExecStart=/opt/antinat/bin/antinat-controller -listen 127.0.0.1:3111 -store /var/lib/antinat/controller.db -keydir /var/lib/antinat/controller-keys
+WorkingDirectory=/var/lib/antinat
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=15s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ReadWritePaths=/var/lib/antinat /var/log/antinat
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

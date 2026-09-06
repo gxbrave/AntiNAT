@@ -1,0 +1,10 @@
+{
+  "schema": "antinat.contracts/installer/v1",
+  "vector_id": "token-multiple-inputs-invalid",
+  "kind": "token",
+  "expect": "invalid",
+  "token_mode": "tty",
+  "has_fd": true,
+  "has_file": true,
+  "file_mode": 384
+}

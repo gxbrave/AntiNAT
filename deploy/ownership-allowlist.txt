@@ -1,0 +1,21 @@
+# Fallback purge resources. These are compile-time owned paths only.
+# Reverse-proxy configuration, TLS keys, user data and external volumes are
+# intentionally absent.
+bin/antinat-agent
+bin/antinat-controller
+bin/antinat-hook-runner
+state.db
+node.key
+.key.lock
+.lifecycle.lock
+.upgrade.lock
+controller.db
+controller.db-wal
+controller.db-shm
+controller-keys
+backups
+terminal.marker
+agent.marker
+schema.version
+ownership-manifest.json
+ownership.key

@@ -1,0 +1,9 @@
+{
+  "schema": "antinat.contracts/state-model/v1",
+  "vector_id": "decommission-active-decommissioned-rejected",
+  "kind": "transition",
+  "expect": "rejected",
+  "fsm": "decommission",
+  "from": "ACTIVE",
+  "to": "DECOMMISSIONED"
+}

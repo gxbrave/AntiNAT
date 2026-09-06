@@ -1,0 +1,25 @@
+{
+  "cases": [
+    {"name": "valid baseline", "path": "../fixtures/pass.json", "valid": true},
+    {"name": "integral JSON number", "path": "../fixtures/timeout-integral-float.json", "valid": true},
+    {"name": "large integral JSON exponent", "path": "../fixtures/timeout-large-exponent.json", "valid": true},
+    {"name": "lowercase RFC3339 markers", "path": "../fixtures/lowercase-rfc3339.json", "valid": true},
+    {"name": "trailing newline in plan", "path": "../fixtures/trailing-newline-plan.json", "valid": false},
+    {"name": "trailing newline in commit SHA", "path": "../fixtures/trailing-newline-commit-sha.json", "valid": false},
+    {"name": "trailing newline in artifact digest", "path": "../fixtures/trailing-newline-artifact-digest.json", "valid": false},
+    {"name": "year zero timestamp", "path": "../fixtures/invalid-year-zero.json", "valid": false},
+    {"name": "C0 controls in command", "path": "../fixtures/c0-controls-command.json", "valid": false},
+    {"name": "C0 controls in os", "path": "../fixtures/c0-controls-os.json", "valid": false},
+    {"name": "C0 controls in evidence path", "path": "../fixtures/c0-controls-evidence-path.json", "valid": false},
+    {"name": "duplicate object member", "path": "../fixtures/duplicate-result.json", "valid": false},
+    {"name": "invalid UTF-8", "path": "../fixtures/invalid-utf8.json", "valid": false},
+    {"name": "whitespace command", "path": "../fixtures/whitespace-command.json", "valid": false},
+    {"name": "whitespace os", "path": "../fixtures/whitespace-os.json", "valid": false},
+    {"name": "whitespace evidence path", "path": "../fixtures/whitespace-evidence-path.json", "valid": false},
+    {"name": "invalid RFC3339 offset hour", "path": "../fixtures/invalid-offset-hour.json", "valid": false},
+    {"name": "invalid RFC3339 offset minute", "path": "../fixtures/invalid-offset-minute.json", "valid": false},
+    {"name": "invalid calendar date", "path": "../fixtures/invalid-calendar-date.json", "valid": false},
+    {"name": "missing command", "path": "../fixtures/missing-command.json", "valid": false},
+    {"name": "reversed timestamps", "path": "../fixtures/reversed-timestamps.json", "valid": false}
+  ]
+}

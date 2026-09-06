@@ -1,0 +1,475 @@
+package hook
+
+import (
+	"context"
+	"crypto/hmac"
+	"crypto/sha1"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"hash"
+	"net/http"
+	"net/netip"
+	"net/url"
+	"sort"
+	"strings"
+
+	"github.com/gxbrave/AntiNAT/internal/protocol"
+)
+
+// SignatureAlgorithm is the frozen secret algorithm set (api/openapi.yaml
+// HookSecret.algorithm is a free string; the broker accepts only these).
+type SignatureAlgorithm string
+
+const (
+	AlgorithmHMACSHA1   SignatureAlgorithm = "HMAC-SHA1"
+	AlgorithmHMACSHA256 SignatureAlgorithm = "HMAC-SHA256"
+
+	// SignaturePlacementHeader signs the webhook body into X-Hook-Signature.
+	SignaturePlacementHeader = "header"
+	// SignaturePlacementQuery appends a Signature query param (provider-style,
+	// e.g. the AliDNS fixture).
+	SignaturePlacementQuery = "query"
+
+	// maxCapabilityCalls bounds an explicit sign request (a delivery signs at
+	// most once; the bound exists so a runner-requested call count cannot turn
+	// the broker into an unlimited HMAC oracle).
+	maxCapabilityCalls = 8
+)
+
+// ValidateAlgorithm reports whether an algorithm string is supported.
+func ValidateAlgorithm(s string) bool {
+	return SignatureAlgorithm(s) == AlgorithmHMACSHA1 || SignatureAlgorithm(s) == AlgorithmHMACSHA256
+}
+
+// SignIntent is the ONE validated, normalized, final allowlisted request the
+// broker may sign. It is bound to {hook id, secret id, algorithm, method,
+// scheme/host/port/path, final params, max calls}. The runner may request
+// arbitrary bytes, but the broker builds and signs only this canonical intent.
+type SignIntent struct {
+	HookID    string
+	SecretID  string
+	Algorithm string
+	Method    string
+	Scheme    string
+	Host      string
+	Port      int
+	Path      string
+	Query     map[string]string // final allowlisted params (canonicalized)
+	Body      []byte
+	Placement string // SignaturePlacementHeader | SignaturePlacementQuery
+	MaxCalls  int
+}
+
+// Capability is the signed capability bound the broker returns. MaxCalls is
+// enforced with a single-call-per-capability counter: a delivery signs exactly
+// once; the fixture may request a higher count and the broker refuses past it.
+type Capability struct {
+	HookID    string
+	SecretID  string
+	Algorithm string
+	Method    string
+	Scheme    string
+	Host      string
+	Port      int
+	Path      string
+	QueryHash string
+	// MaxCalls is the signing-call bound set by the broker per Sign. A capabi-
+	// lity is minted per Sign and consumed synchronously by the broker, so the
+	// counter is a plain int (not atomic); it must not be shared across
+	// goroutines.
+	MaxCalls int32
+	calls    int32
+}
+
+// ErrCapabilityExhausted refuses a signature past the capability call bound.
+var ErrCapabilityExhausted = errors.New("hook: signing capability call bound exceeded")
+
+// ErrContributionMismatch refuses to sign a runner contribution that does not
+// match the broker's own canonical normalization (never an arbitrary HMAC
+// oracle).
+var ErrContributionMismatch = errors.New("hook: runner contribution does not match the canonical request")
+
+// Broker signs exactly one normalized final allowlisted request per delivery,
+// decrypting the secret value in-process; the plaintext never enters the
+// runner, logs, error strings, or the delivery payload.
+type Broker struct {
+	store *Store
+	keys  *SecretKeystore
+}
+
+// NewBroker builds the signing broker.
+func NewBroker(store *Store, keys *SecretKeystore) *Broker {
+	return &Broker{store: store, keys: keys}
+}
+
+// Sign validates and signs one intent, returning the final SignedRequest and
+// the bound capability. The plaintext secret value never leaves Sign.
+//
+// BEFORE signing, the broker enforces the P1-2 capability contract:
+//
+//  1. the secret must be durably bound to the hook (ErrSecretNotBoundToHook);
+//  2. the signing endpoint (method/scheme/host/port/path) must match the stored
+//     hook definition URL, re-derived here from the hook row — the event payload
+//     and any future caller-built intent cannot influence where the signed
+//     request goes (ErrEndpointDeviation);
+//  3. query-placement signing only signs params whose keys are on the hook's
+//     internal allowlist (ErrNoParamsAllowlist / ErrParamNotAllowlisted);
+//  4. the secret's durable total-signature budget is reserved atomically
+//     (ErrNoSignatureBudget / ErrSignatureBudgetExhausted), so the secret is
+//     never an unlimited HMAC oracle.
+func (b *Broker) Sign(ctx context.Context, intent SignIntent) (*SignedRequest, Capability, error) {
+	if b == nil || b.store == nil || b.keys == nil {
+		return nil, Capability{}, errors.New("hook: broker is not configured")
+	}
+	if err := validateIntent(intent); err != nil {
+		return nil, Capability{}, err
+	}
+
+	// Re-derive the endpoint EXCLUSIVELY from the stored hook definition and
+	// refuse any deviation (defense in depth even if a caller builds the intent
+	// wrong; the event payload previously could influence method/path via
+	// requestMethod/requestPath — that overrides are gone, P1-2/P2-4).
+	def, err := b.store.GetDefinition(intent.HookID)
+	if err != nil {
+		return nil, Capability{}, fmt.Errorf("hook: bound hook: %w", err)
+	}
+	parsed, err := url.Parse(def.URL)
+	if err != nil {
+		return nil, Capability{}, fmt.Errorf("hook: parse hook definition url: %w", err)
+	}
+	// P2-1 defense at the signing path: even a query/fragment-bearing hook URL
+	// that bypassed service validation cannot be signed/delivered — buildURL
+	// derives the signed URL from scheme/host/port/path only, so accepting one
+	// here would silently strip the query and deliver to the wrong final URL.
+	if err := rejectURLQueryFragment(parsed); err != nil {
+		return nil, Capability{}, err
+	}
+	ep := endpointFromURL(parsed)
+	if err := validateIntentEndpoint(intent, ep); err != nil {
+		return nil, Capability{}, err
+	}
+
+	// Durable secret-to-hook binding gate (fail closed).
+	bound, err := b.store.IsSecretBoundToHook(intent.HookID, intent.SecretID)
+	if err != nil {
+		return nil, Capability{}, err
+	}
+	if !bound {
+		return nil, Capability{}, fmt.Errorf("%w: hook %s secret %s", ErrSecretNotBoundToHook, intent.HookID, intent.SecretID)
+	}
+
+	row, err := b.store.GetSecretRow(intent.SecretID)
+	if err != nil {
+		return nil, Capability{}, fmt.Errorf("hook: bound secret: %w", err)
+	}
+	if !strings.EqualFold(row.Algorithm, intent.Algorithm) {
+		return nil, Capability{}, fmt.Errorf("hook: secret algorithm %s does not match requested %s", row.Algorithm, intent.Algorithm)
+	}
+	secret, err := b.keys.Decrypt(row.KeyID, row.Ciphertext)
+	if err != nil {
+		return nil, Capability{}, err
+	}
+	defer zeroize(secret)
+
+	// Per-hook params allowlist gate for QUERY placement (script/provider
+	// signing). Header-placement webhook signing signs the broker-provided
+	// event body and needs no allowlist.
+	if intent.Placement == SignaturePlacementQuery {
+		allowed, err := b.store.GetHookParamsAllowlist(intent.HookID)
+		if err != nil {
+			return nil, Capability{}, err
+		}
+		if len(allowed) == 0 {
+			return nil, Capability{}, ErrNoParamsAllowlist
+		}
+		set := make(map[string]struct{}, len(allowed))
+		for _, k := range allowed {
+			set[k] = struct{}{}
+		}
+		for k := range intent.Query {
+			if _, ok := set[k]; !ok {
+				return nil, Capability{}, fmt.Errorf("%w: %s", ErrParamNotAllowlisted, k)
+			}
+		}
+	}
+
+	// Durable per-secret signature budget: reserve before computing the HMAC so
+	// a signature is never issued without a reserved, enforced budget unit.
+	if err := b.store.ReserveSecretSignature(intent.SecretID); err != nil {
+		return nil, Capability{}, err
+	}
+
+	canonical := CanonicalQuery(intent.Query)
+	sts := StringToSign(intent.Method, intent.Path, canonical)
+	encoded := base64.StdEncoding.EncodeToString(signBytes(intent.Algorithm, secret, []byte(sts)))
+
+	maxCalls := intent.MaxCalls
+	if maxCalls <= 0 {
+		maxCalls = 1
+	}
+	// P3-4: the maxCalls bound is validated in validateIntent BEFORE the durable
+	// budget reserve, so an over-bound intent is refused without consuming one
+	// budget unit. This normalization is all that remains here (MaxCalls <= 0
+	// defaults to a single allowed call).
+	cap := Capability{
+		HookID: intent.HookID, SecretID: intent.SecretID, Algorithm: intent.Algorithm,
+		Method: intent.Method, Scheme: intent.Scheme, Host: intent.Host, Port: intent.Port,
+		Path: intent.Path, QueryHash: sha256Hex(canonical), MaxCalls: int32(maxCalls),
+	}
+
+	req := &SignedRequest{
+		Method:  intent.Method,
+		URL:     buildURL(intent, ""),
+		Headers: make(map[string][]string, 4),
+		Body:    append([]byte(nil), intent.Body...),
+	}
+	switch intent.Placement {
+	case SignaturePlacementQuery:
+		req.URL = buildURL(intent, encoded)
+	case SignaturePlacementHeader:
+		setSignedHeader(req, "X-Hook-Signature", signHeaderValue(intent.Algorithm, secret, intent.Body))
+	}
+	return req, cap, nil
+}
+
+// endpoint is the ONLY signing endpoint the broker accepts: derived from the
+// stored hook definition URL. The method is fixed as POST (webhook delivery);
+// the path is the hook URL path; scheme/host/port come from the URL.
+type endpoint struct {
+	method string
+	scheme string
+	host   string
+	port   int
+	path   string
+}
+
+func endpointFromURL(u *url.URL) endpoint {
+	return endpoint{
+		method: "POST",
+		scheme: u.Scheme,
+		host:   u.Hostname(),
+		port:   portOf(u),
+		path:   pathOf(u),
+	}
+}
+
+func validateIntentEndpoint(intent SignIntent, ep endpoint) error {
+	if !strings.EqualFold(intent.Method, ep.method) {
+		return fmt.Errorf("%w: method %s (derived %s)", ErrEndpointDeviation, intent.Method, ep.method)
+	}
+	if intent.Scheme != ep.scheme || !strings.EqualFold(intent.Host, ep.host) ||
+		intent.Port != ep.port || intent.Path != ep.path {
+		return fmt.Errorf("%w: scheme/host/port/path deviate from the hook definition url", ErrEndpointDeviation)
+	}
+	return nil
+}
+
+// VerifyContribution is the "not an arbitrary HMAC oracle" gate: the broker
+// accepts a runner-produced canonical contribution only when it matches the
+// broker's own normalization of the SAME final allowlisted request.
+func VerifyContribution(intent SignIntent, contribution []byte) error {
+	var got struct {
+		CanonicalQuery string            `json:"canonical_query"`
+		StringToSign   string            `json:"string_to_sign"`
+		Params         map[string]string `json:"params,omitempty"`
+	}
+	if err := protocol.DecodeStrictJSONInto(contribution, &got); err != nil {
+		return fmt.Errorf("hook: contribution schema: %w", err)
+	}
+	canonical := CanonicalQuery(intent.Query)
+	if got.CanonicalQuery != canonical {
+		return fmt.Errorf("%w: canonical query differs", ErrContributionMismatch)
+	}
+	if got.StringToSign != StringToSign(intent.Method, intent.Path, canonical) {
+		return fmt.Errorf("%w: string-to-sign differs", ErrContributionMismatch)
+	}
+	return nil
+}
+
+// CanSign consumes one signing call and reports whether the capability has
+// remaining calls (fail closed past MaxCalls). It is single-goroutine safe; a
+// capability must not be shared across goroutines.
+func (c *Capability) CanSign() bool {
+	if c == nil {
+		return false
+	}
+	max := c.MaxCalls
+	if max <= 0 {
+		max = 1
+	}
+	c.calls++
+	return c.calls <= max
+}
+
+func setSignedHeader(req *SignedRequest, key, value string) {
+	req.Headers[http.CanonicalHeaderKey(key)] = []string{value}
+}
+
+func validateIntent(intent SignIntent) error {
+	switch strings.ToUpper(intent.Method) {
+	case "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD":
+	default:
+		return fmt.Errorf("hook: unsupported method %q", intent.Method)
+	}
+	switch intent.Scheme {
+	case "https":
+	case "http":
+		return errors.New("hook: http signing intent is rejected (https required)")
+	default:
+		return fmt.Errorf("hook: unsupported scheme %q", intent.Scheme)
+	}
+	if intent.Host == "" {
+		return errors.New("hook: host is required")
+	}
+	if lit, ok := canonicalIPLiteral(intent.Host); ok {
+		if addressBlocked(lit) {
+			return errBlockedAddress
+		}
+	} else if ambiguousIPLiteral(intent.Host) {
+		return errors.New("hook: ambiguous ip-literal host is rejected")
+	} else if err := hostnameIssues(intent.Host); err != nil {
+		return err
+	}
+	if intent.Port < 1 || intent.Port > 65535 {
+		return fmt.Errorf("hook: invalid port %d", intent.Port)
+	}
+	if !strings.HasPrefix(intent.Path, "/") || strings.ContainsAny(intent.Path, "\r\n") {
+		return errors.New("hook: invalid path")
+	}
+	if intent.SecretID == "" || intent.HookID == "" {
+		return errors.New("hook: hook and secret ids are required")
+	}
+	if !ValidateAlgorithm(intent.Algorithm) {
+		return fmt.Errorf("hook: unsupported algorithm %q", intent.Algorithm)
+	}
+	if intent.Placement != SignaturePlacementQuery && intent.Placement != SignaturePlacementHeader {
+		return errors.New("hook: invalid signature placement")
+	}
+	// P3-4: the per-request signing-call bound is validated here — the FIRST
+	// gate in Sign, before the durable per-secret signature budget is reserved —
+	// so a refused over-bound intent never consumes a budget unit. maxCalls <= 0
+	// defaults to a single allowed call and can never exceed the cap.
+	if intent.MaxCalls > maxCapabilityCalls {
+		return fmt.Errorf("hook: requested %d signing calls exceeds the bound %d", intent.MaxCalls, maxCapabilityCalls)
+	}
+	return nil
+}
+
+// PercentEncode implements RFC 3986 percent-encoding (uppercase hex; the
+// unreserved set A-Z a-z 0-9 - _ . ~ is left intact). It is the canonical
+// encoder shared by the broker and the runner runtime so both sides agree.
+func PercentEncode(s string) string {
+	const upperhex = "0123456789ABCDEF"
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9',
+			c == '-', c == '_', c == '.', c == '~':
+			b.WriteByte(c)
+		default:
+			b.WriteByte('%')
+			b.WriteByte(upperhex[c>>4])
+			b.WriteByte(upperhex[c&0xf])
+		}
+	}
+	return b.String()
+}
+
+// CanonicalQuery sorts the params by name (byte order) and builds
+// name=value&... with RFC3986 encoding.
+func CanonicalQuery(params map[string]string) string {
+	if len(params) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteByte('&')
+		}
+		b.WriteString(PercentEncode(k))
+		b.WriteByte('=')
+		b.WriteString(PercentEncode(params[k]))
+	}
+	return b.String()
+}
+
+// StringToSign is the canonical signed string (AliDNS v1 convention):
+// METHOD&PercentEncode(path)&PercentEncode(canonicalQuery).
+func StringToSign(method, path, canonicalQuery string) string {
+	return strings.ToUpper(method) + "&" + PercentEncode(path) + "&" + PercentEncode(canonicalQuery)
+}
+
+func signBytes(algorithm string, secret []byte, msg []byte) []byte {
+	// P3-6: build the HMAC key on a FRESH buffer instead of append(secret, '&').
+	// The provider convention appends the '&' separator to the secret for the
+	// HMAC key; appending into the decrypted secret's backing array could land
+	// the trailing '&' in its spare capacity, where zeroize(secret) (len(secret)
+	// bytes only) would never reach it. key is a new len(secret)+1 buffer,
+	// zeroized after hmac.New has already derived its pads, and the caller's
+	// zeroize(secret) continues to cover the plaintext exactly.
+	key := append(append([]byte(nil), secret...), '&')
+	defer zeroize(key)
+	mac := hmac.New(digest(algorithm), key)
+	mac.Write(msg)
+	return mac.Sum(nil)
+}
+
+func signHeaderValue(algorithm string, secret, body []byte) string {
+	mac := hmac.New(digest(algorithm), secret)
+	mac.Write(body)
+	lower := strings.ToLower(strings.TrimPrefix(algorithm, "HMAC-"))
+	return lower + "=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+func digest(algorithm string) func() hash.Hash {
+	if SignatureAlgorithm(algorithm) == AlgorithmHMACSHA1 {
+		return sha1.New
+	}
+	return sha256.New
+}
+
+// buildURL renders scheme://host[:port]/path. When signature is non-empty the
+// Signature query param is added to the canonical query (provider-style).
+func buildURL(intent SignIntent, signature string) string {
+	u := url.URL{Scheme: intent.Scheme, Host: joinHostPort(intent.Host, intent.Port), Path: intent.Path}
+	if signature == "" {
+		return u.String()
+	}
+	query := make(map[string]string, len(intent.Query)+1)
+	for k, v := range intent.Query {
+		query[k] = v
+	}
+	query["Signature"] = signature
+	u.RawQuery = CanonicalQuery(query)
+	return u.String()
+}
+
+func joinHostPort(host string, port int) string {
+	if port == 80 || port == 443 {
+		return host
+	}
+	if a, err := netip.ParseAddr(host); err == nil && a.Is6() {
+		return "[" + host + "]:" + itoa(port)
+	}
+	return host + ":" + itoa(port)
+}
+
+func zeroize(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}
+
+func sha256Hex(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}

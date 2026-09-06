@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="{{.Lang}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} · {{.AppName}}</title>
+  <link rel="stylesheet" href="/static/css/antinat.css">
+  <script>
+    window.I18N = {{.I18NJSON}};
+  </script>
+</head>
+<body class="admin-body">
+  <a class="skip-link" href="#admin-main">{{t "home.skip"}}</a>
+
+  {{if .LoggedIn}}
+  <div class="admin-shell" data-admin-shell>
+    <header class="admin-topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">{{.AppName}}</span>
+      </div>
+      <div class="topbar-right">
+        <details class="sse-panel" data-sse-panel>
+          <summary>
+            <span class="sse-dot" data-sse role="status" aria-live="polite" data-sse-state="disconnected"></span>
+            <span class="sse-label">SSE</span>
+          </summary>
+          <ol class="sse-log" data-sse-log></ol>
+        </details>
+        <div class="topbar-user">
+          <span data-username>{{.Welcome}}, {{.Username}}</span>
+          <button type="button" class="btn btn-quiet btn-small" data-logout>{{.Logout}}</button>
+        </div>
+      </div>
+    </header>
+    <nav class="admin-tabs" role="tablist" aria-label="{{.Title}}" data-tabs>
+      <button type="button" role="tab" id="tab-home" aria-selected="true" aria-controls="pane-home" data-tab="home">{{.TabHome}}</button>
+      <button type="button" role="tab" id="tab-forwards" aria-selected="false" aria-controls="pane-forwards" data-tab="forwards">{{.TabForwards}}</button>
+      <button type="button" role="tab" id="tab-nodes" aria-selected="false" aria-controls="pane-nodes" data-tab="nodes">{{.TabNodes}}</button>
+      <button type="button" role="tab" id="tab-global" aria-selected="false" aria-controls="pane-global" data-tab="global">{{.TabGlobal}}</button>
+    </nav>
+    <main id="admin-main" class="admin-main">
+      <section role="tabpanel" id="pane-home" aria-labelledby="tab-home" data-pane="home" class="pane is-active">
+        <div class="pane-empty" data-pane-state="loading">{{t "admin.loading"}}</div>
+      </section>
+      <section role="tabpanel" id="pane-forwards" aria-labelledby="tab-forwards" data-pane="forwards" class="pane" hidden>
+      </section>
+      <section role="tabpanel" id="pane-nodes" aria-labelledby="tab-nodes" data-pane="nodes" class="pane" hidden>
+      </section>
+      <section role="tabpanel" id="pane-global" aria-labelledby="tab-global" data-pane="global" class="pane" hidden>
+      </section>
+    </main>
+  </div>
+  {{else}}
+  <main class="admin-login" id="admin-main">
+    <form class="login-card" data-login-form>
+      <h1>{{.LoginTitle}}</h1>
+      <div class="field">
+        <label for="login-username">{{.LoginUser}}</label>
+        <input id="login-username" name="username" type="text" autocomplete="username" required data-login-user>
+      </div>
+      <div class="field">
+        <label for="login-password">{{.LoginPass}}</label>
+        <input id="login-password" name="password" type="password" autocomplete="current-password" required data-login-pass>
+      </div>
+      <p class="form-error" data-login-error hidden></p>
+      <button type="submit" class="btn btn-primary btn-block" data-login-submit>{{.LoginSubmit}}</button>
+    </form>
+  </main>
+  {{end}}
+
+  <script src="/static/js/ui.js"></script>
+  <script src="/static/js/deployment.js"></script>
+  <script src="/static/js/panes.js"></script>
+  <script src="/static/js/admin.js"></script>
+</body>
+</html>

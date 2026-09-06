@@ -1,0 +1,8 @@
+{
+  "schema": "antinat.contracts/installer/v1",
+  "vector_id": "path-service-valid",
+  "kind": "path",
+  "expect": "valid",
+  "path_key": "service",
+  "path_value": "antinat-agent.service"
+}

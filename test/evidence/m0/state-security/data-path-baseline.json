@@ -1,0 +1,18 @@
+{
+  "schema_version": "antinat.evidence/v1",
+  "plan": "P03",
+  "commit_sha": "689ca5788321ba80bd9b108230d89024dccbfecd",
+  "command": "go test ./spike/state/... ./spike/sqlite/... ./spike/sandbox/... ./spike/datapath/... -count=1 -v",
+  "result": "SUPPORTED_WITH_LIMITS",
+  "artifact_digest": "sha256:3b5791b1143771d805dfff14ad0ca47ce0b20ae3a23128951f3513e5ba990dab",
+  "os": "Ubuntu 24.04.3; Linux 6.8.0-136-generic; linux/amd64; Go 1.26.5; host hermes; router not applicable",
+  "timeout": 3600,
+  "summary": "owner=sub-agent-sol; approver=pending independent specification and quality/security review; assertions=raw TCPConn io.Copy path and explicit 32KiB buffered path preserve identical payload hash, evidence reports only go_tcp_copy_splice_eligible plus eligible, forbidden exact runtime splice/fallback byte claims are absent, pessimistic fallback reserves 65536 bytes per bidirectional connection, CPU/Go allocation/RSS observations are label-only rather than SLO claims; capability promotion=Linux splice eligibility supported with limits; exact splice activity remains lab-only; Windows buffered repair=cycle-1: no datapath logic change; evidence refreshed at repaired head",
+  "evidence_paths": [
+    "spike/datapath/README.md",
+    "test/evidence/m0/state-security/logs/focused-spikes.txt.gz",
+    "test/evidence/m0/state-security/logs/race-spikes.txt",
+    "test/evidence/m0/state-security/logs/environment-and-digests.txt",
+    "test/evidence/m0/state-security/checksums.sha256"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "schema": "antinat.contracts/state-model/v1",
+  "vector_id": "restore-recovery-quarantine-reconciling-allowed",
+  "kind": "transition",
+  "expect": "allowed",
+  "fsm": "restore",
+  "from": "RECOVERY_QUARANTINE",
+  "to": "RECONCILING"
+}

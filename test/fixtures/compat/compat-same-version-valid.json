@@ -1,0 +1,8 @@
+{
+  "schema": "antinat.contracts/compat/v1",
+  "vector_id": "compat-same-version-valid",
+  "kind": "compat",
+  "expect": "valid",
+  "current_version": 3,
+  "previous_version": 3
+}

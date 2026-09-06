@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="{{.Lang}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} · {{.AppName}}</title>
+  <link rel="stylesheet" href="/static/css/antinat.css">
+  <script>
+    window.I18N = {{.I18NJSON}};
+  </script>
+</head>
+<body class="home-body">
+  <a class="skip-link" href="#main">{{t "home.skip"}}</a>
+  <div class="home-shell">
+    <header class="home-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">{{.AppName}}</span>
+      </div>
+      <a class="home-admin-link" href="/admin" title="{{t "home.adminTitle"}}">{{t "home.admin"}}</a>
+    </header>
+
+    <main id="main" class="home-main">
+      <div class="home-intro">
+        <h1>{{.Title}}</h1>
+        <p class="tagline">{{.Tagline}}</p>
+      </div>
+      {{if .PrivateSite}}<p class="private-site-note" data-private-site>{{t "home.privateNotice"}}</p>{{end}}
+
+      <nav class="home-cats" aria-label="{{t "home.all"}}" data-cat-nav>
+        <button type="button" class="cat is-active" data-cat="all">{{t "home.all"}}</button>
+        {{range .Categories}}
+        <button type="button" class="cat" data-cat="{{.ID}}">{{.Name}}</button>
+        {{end}}
+      </nav>
+
+      {{if not .HasItems}}
+      <section class="home-empty" data-home-empty>
+        <p>{{t "home.empty"}}</p>
+      </section>
+      {{else}}
+      <section class="home-cards" data-cards>
+        {{range .Categories}}{{$cat := .}}
+          {{range .Items}}
+          <article class="card status-{{.StatusShape}}"
+                   data-card
+                   data-category="{{$cat.ID}}"
+                   data-status="{{.Status}}"
+                   data-clickable="{{.Clickable}}">
+            <div class="card-top">
+              <h3 class="card-name">{{.Name}}</h3>
+              <span class="card-status" data-status-label>
+                <span aria-hidden="true" class="status-shape shape-{{.StatusShape}} shape-state-{{.Status}}"></span>
+                <span>{{.StatusLabel}}</span>
+              </span>
+            </div>
+            {{if .Description}}<p class="card-desc">{{.Description}}</p>{{end}}
+            <div class="card-meta">
+              <span class="proto">{{.ProtocolTxt}}</span>
+              {{if .LastSeenTxt}}<time class="last-seen" data-last-seen>{{.LastSeenTxt}}</time>{{end}}
+            </div>
+            {{if .Clickable}}
+              <a class="btn btn-primary" href="{{.Href}}" data-open data-href="{{.Href}}" rel="noopener">{{t "home.open"}}</a>
+            {{else if .Href}}
+              <div class="risk-actions">
+                <p class="risk-note" data-risk-note>{{.RiskNote}}</p>
+                <button type="button" class="btn btn-quiet" data-open-any="{{.Href}}">{{t "home.riskConfirm"}}</button>
+              </div>
+            {{else}}
+              <p class="risk-note" data-risk-note>{{.RiskNote}}</p>
+            {{end}}
+            {{if and (not .Clickable) .LastAddress}}
+            <div class="card-last">
+              <code class="last-address" data-last-address>{{.LastAddress}}</code>
+              <button type="button" class="btn btn-quiet btn-small" data-copy-address data-value="{{.LastAddress}}">{{t "home.copyLastAddress"}}</button>
+            </div>
+            {{end}}
+          </article>
+          {{end}}
+        {{end}}
+      </section>
+      {{end}}
+    </main>
+    <footer class="home-footer">
+      <span>{{.AppName}} · {{t "home.tagline"}}</span>
+    </footer>
+  </div>
+  <script src="/static/js/home.js"></script>
+</body>
+</html>

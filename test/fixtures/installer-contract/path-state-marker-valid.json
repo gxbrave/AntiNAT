@@ -1,0 +1,8 @@
+{
+  "schema": "antinat.contracts/installer/v1",
+  "vector_id": "path-state-marker-valid",
+  "kind": "path",
+  "expect": "valid",
+  "path_key": "state_marker",
+  "path_value": "/var/lib/antinat/agent.marker"
+}

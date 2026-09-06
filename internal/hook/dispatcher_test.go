@@ -1,0 +1,249 @@
+package hook_test
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/gxbrave/AntiNAT/internal/hook"
+)
+
+type fakeSender struct {
+	mu    sync.Mutex
+	calls []*hook.SignedRequest
+	err   error
+	code  int
+}
+
+func (f *fakeSender) Send(ctx context.Context, req *hook.SignedRequest) (*hook.SendResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.calls = append(f.calls, req)
+	code := f.code
+	if code == 0 {
+		code = 200
+	}
+	return &hook.SendResult{StatusCode: code}, nil
+}
+
+func (f *fakeSender) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+type passthroughPreparer struct{}
+
+func (passthroughPreparer) Prepare(ctx context.Context, d hook.Delivery) (*hook.SignedRequest, error) {
+	h := http.Header{}
+	h.Set("X-Event-ID", d.EventID)
+	h.Set("X-Delivery-ID", d.ID)
+	return &hook.SignedRequest{
+		Method:  "POST",
+		URL:     "https://example.invalid/hook",
+		Headers: h,
+		Body:    []byte(d.PayloadJSON),
+	}, nil
+}
+
+// RED P16 Story 1 (i): a single pump claims a PENDING delivery, prepares a
+// request with the stable event/delivery ids, sends it, and marks it DELIVERED.
+func TestDispatcherDeliversAndMarksDelivered(t *testing.T) {
+	hs := newTestHookStore(t)
+	d := mustDefinition(t, hs, "web", "https://example.invalid/hook")
+	evt := hook.Event{HookID: d.ID, EventID: "evt-1", Payload: []byte(`{"a":1}`)}
+	mustEnqueue(t, hs, evt)
+	sender := &fakeSender{}
+	dispatcher := hook.NewDispatcher(hs, sender, passthroughPreparer{}, hook.DispatcherConfig{Batch: 16})
+	if n := dispatcher.PumpOnce(); n != 1 {
+		t.Fatalf("pump delivered %d, want 1", n)
+	}
+	if sender.count() != 1 {
+		t.Fatalf("sender called %d times, want 1", sender.count())
+	}
+	req := sender.calls[0]
+	if req.URL != "https://example.invalid/hook" || req.Method != "POST" || string(req.Body) != `{"a":1}` {
+		t.Fatalf("unexpected prepared request: %+v", req)
+	}
+	if got := req.Headers.Get("X-Event-ID"); got != "evt-1" {
+		t.Fatalf("X-Event-ID = %q, want evt-1 (duplicate-tolerant receivers)", got)
+	}
+	deliveries, _ := hs.ListDeliveries(10)
+	if len(deliveries) != 1 || deliveries[0].State != hook.DeliveryDelivered {
+		t.Fatalf("delivery not DELIVERED: %+v", deliveries)
+	}
+}
+
+// RED P16 Story 1 (j): a failing sender records a transient FAILED state with
+// a bounded backoff; after the attempt bound the delivery dead-letters.
+func TestDispatcherFailureRetriesThenDLQs(t *testing.T) {
+	hs := newTestHookStore(t)
+	d := mustDefinition(t, hs, "web", "https://example.invalid/hook")
+	mustEnqueue(t, hs, hook.Event{
+		HookID: d.ID, EventID: "evt-fail",
+		Policy: hook.QueuePolicy{Version: 1, OnFull: hook.OnFullDLQ, MaxAttempts: 2},
+	})
+	sender := &fakeSender{err: errors.New("connection reset by peer")}
+	dispatcher := hook.NewDispatcher(hs, sender, passthroughPreparer{}, hook.DispatcherConfig{Batch: 16})
+
+	if n := dispatcher.PumpOnce(); n != 1 {
+		t.Fatalf("first pump delivered %d", n)
+	}
+	all, _ := hs.ListDeliveries(10)
+	if all[0].State != hook.DeliveryFailed {
+		t.Fatalf("state = %q, want FAILED", all[0].State)
+	}
+	if all[0].LastError != "connection reset by peer" {
+		t.Fatalf("last_error = %q", all[0].LastError)
+	}
+	// Second attempt: requeue + fail again -> DLQED.
+	if n := dispatcher.PumpOnce(); n != 0 {
+		t.Fatalf("second pump claimed %d (backoff not honored)", n)
+	}
+	// The bounded backoff moved next_attempt_at into the future; make it due and
+	// pump again.
+	hs.SetClock(func() time.Time { return time.Now().Add(time.Hour) })
+	if n := dispatcher.PumpOnce(); n != 1 {
+		t.Fatalf("third pump claimed %d", n)
+	}
+	all, _ = hs.ListDeliveries(10)
+	if all[0].State != hook.DeliveryDLQed {
+		t.Fatalf("terminal state = %q, want DLQED", all[0].State)
+	}
+}
+
+// RED P16 Story 1 (k): markFailed scrubs a hostile newline-injected error so
+// the durable last_error never contains control characters.
+func TestScrubErrorRemovesControlCharacters(t *testing.T) {
+	fake := errors.New("head\ninjected-secret: abc\r\nmore")
+	scrubbed := hook.ScrubError(fake)
+	if strings.ContainsAny(scrubbed, "\r\n") {
+		t.Fatalf("scrub kept control characters: %q", scrubbed)
+	}
+	if len(scrubbed) > 256 {
+		t.Fatalf("scrub did not bound length: %d", len(scrubbed))
+	}
+}
+
+// zeroStatusSender is a stub transport that returns a nil-error response with a
+// zero status code — exactly the case P3-5 closes: the production SSRF client
+// never produces it, but a 0 status is NOT proof a 2xx was received, so the
+// dispatcher must fail closed rather than record DELIVERED.
+type zeroStatusSender struct{}
+
+func (zeroStatusSender) Send(context.Context, *hook.SignedRequest) (*hook.SendResult, error) {
+	return &hook.SendResult{StatusCode: 0}, nil
+}
+
+func TestDispatcherZeroStatusResponseIsFailureNotDelivered(t *testing.T) {
+	hs := newTestHookStore(t)
+	d := mustDefinition(t, hs, "web", "https://example.invalid/hook")
+	mustEnqueue(t, hs, hook.Event{
+		HookID: d.ID, EventID: "evt-zero",
+		Policy: hook.QueuePolicy{Version: 1, OnFull: hook.OnFullDLQ, MaxAttempts: 3},
+	})
+	dispatcher := hook.NewDispatcher(hs, zeroStatusSender{}, passthroughPreparer{}, hook.DispatcherConfig{Batch: 16})
+	if n := dispatcher.PumpOnce(); n != 1 {
+		t.Fatalf("pump handled %d, want 1", n)
+	}
+	all, _ := hs.ListDeliveries(10)
+	if len(all) != 1 {
+		t.Fatalf("deliveries = %d", len(all))
+	}
+	if all[0].State == hook.DeliveryDelivered {
+		t.Fatalf("zero-status (nil-error) response recorded as DELIVERED: %+v", all[0])
+	}
+	if all[0].State != hook.DeliveryFailed {
+		t.Fatalf("zero-status state = %q, want FAILED (retryable)", all[0].State)
+	}
+}
+
+// RED P16 Story 1 (l): pumpOnce with a nil sender/preparer fails closed (0).
+func TestDispatcherFailsClosedWithoutSender(t *testing.T) {
+	hs := newTestHookStore(t)
+	dispatcher := hook.NewDispatcher(hs, nil, passthroughPreparer{}, hook.DispatcherConfig{})
+	if n := dispatcher.PumpOnce(); n != 0 {
+		t.Fatalf("pump with nil sender = %d, want 0 (fail closed)", n)
+	}
+}
+
+// RED repair P2-1 (dispatch defense-in-depth): a hook definition whose URL
+// carries a query string is refused at create-time through the service, but a
+// store-level row that bypasses service validation must ALSO be refused at
+// dispatch — never silently delivered to the query-stripped final URL (the
+// signed path builds its URL from scheme/host/port/path only). The real
+// DeliveryPreparer rejects the definition before anything is sent.
+func TestDispatcherRefusesQueryBearingHookURL(t *testing.T) {
+	hs, _, broker := newBroker(t)
+	d, err := hs.CreateDefinition("web", hook.KindWebhook, "https://example.org/hook?tenant=acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &fakeSender{}
+	preparer := hook.NewDeliveryPreparer(hs, broker, nil)
+	dispatcher := hook.NewDispatcher(hs, sender, preparer, hook.DispatcherConfig{Batch: 16})
+	mustEnqueue(t, hs, hook.Event{
+		HookID: d.ID, EventID: "evt-query",
+		Policy: hook.QueuePolicy{Version: 1, OnFull: hook.OnFullDLQ, MaxAttempts: 2},
+	})
+	if n := dispatcher.PumpOnce(); n != 1 {
+		t.Fatalf("pump handled %d, want 1", n)
+	}
+	all, _ := hs.ListDeliveries(10)
+	if len(all) != 1 {
+		t.Fatalf("deliveries = %d", len(all))
+	}
+	if all[0].State == hook.DeliveryDelivered {
+		t.Fatalf("query-bearing hook URL was delivered: %+v", all[0])
+	}
+	if all[0].State != hook.DeliveryFailed {
+		t.Fatalf("state = %q, want FAILED (never reached dispatch)", all[0].State)
+	}
+	if sender.count() != 0 {
+		t.Fatalf("sender called %d times for a refused definition", sender.count())
+	}
+}
+
+// RED repair P2-5: any non-2xx response must NOT be DELIVERED. With redirects
+// off by default, a 3xx (301/302/303...) terminal response means the final
+// endpoint was never reached, so it is a retryable failure.
+func TestDispatcher3xxIsRetryableFailureNotDelivered(t *testing.T) {
+	hs := newTestHookStore(t)
+	d := mustDefinition(t, hs, "web", "https://example.invalid/hook")
+	mustEnqueue(t, hs, hook.Event{
+		HookID: d.ID, EventID: "evt-3xx",
+		Policy: hook.QueuePolicy{Version: 1, OnFull: hook.OnFullDLQ, MaxAttempts: 3},
+	})
+	sender := &fakeSender{code: 302}
+	dispatcher := hook.NewDispatcher(hs, sender, passthroughPreparer{}, hook.DispatcherConfig{Batch: 16})
+	if n := dispatcher.PumpOnce(); n != 1 {
+		t.Fatalf("pump handled %d, want 1", n)
+	}
+	all, _ := hs.ListDeliveries(10)
+	if len(all) != 1 {
+		t.Fatalf("deliveries = %d", len(all))
+	}
+	if all[0].State == hook.DeliveryDelivered {
+		t.Fatalf("3xx response recorded as DELIVERED: %+v", all[0])
+	}
+	if all[0].State != hook.DeliveryFailed {
+		t.Fatalf("3xx state = %q, want FAILED (retryable)", all[0].State)
+	}
+	if !strings.Contains(all[0].LastError, "302") {
+		t.Fatalf("last_error = %q, want a 302 status mention", all[0].LastError)
+	}
+	// The delivery is retryable: with the clock advanced past the backoff it is
+	// claimed again (not sitting in a terminal state).
+	hs.SetClock(func() time.Time { return time.Now().Add(time.Hour) })
+	claimed, err := hs.ClaimDue(10)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("3xx delivery not retryable: %v %d", err, len(claimed))
+	}
+}

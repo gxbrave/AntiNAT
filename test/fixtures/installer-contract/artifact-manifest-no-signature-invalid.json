@@ -1,0 +1,14 @@
+{
+  "schema": "antinat.contracts/installer/v1",
+  "vector_id": "artifact-manifest-no-signature-invalid",
+  "kind": "artifact",
+  "expect": "invalid",
+  "artifact": {
+    "schema_version": "1",
+    "artifacts": {
+      "antinat-agent-linux-amd64": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+    },
+    "has_signature": false,
+    "trust_root": "release-signing-key-2026"
+  }
+}

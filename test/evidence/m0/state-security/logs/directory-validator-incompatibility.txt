@@ -1,0 +1,3 @@
+EVIDENCE_READ_ERROR: ./test/evidence/m0/state-security: read ./test/evidence/m0/state-security: is a directory
+exit status 1
+exit_code=1

@@ -1,0 +1,18 @@
+{
+  "schema_version": "antinat.evidence/v1",
+  "plan": "P02",
+  "commit_sha": "c0bf1b2a0045dcb7a140f15d4bcf42187c3bbd16",
+  "command": "go test -tags=netns ./spike/network/... -count=1 -v",
+  "result": "SUPPORTED_WITH_LIMITS",
+  "artifact_digest": "sha256:5918b466a184385881ff9c173a7642fc8e98bdc240c23c0b859ff1a79205eef2",
+  "os": "linux/amd64 privileged netns",
+  "timeout": 180,
+  "started_at": "2026-08-11T00:42:55Z",
+  "finished_at": "2026-08-11T00:43:03Z",
+  "summary": "All P02 network spike tests, including the real miniupnpd/coturn layered-NAT lab, passed their asserted PASS/NO_GO classifications and cleanup checks.",
+  "evidence_paths": [
+    "test/evidence/m0/network/raw/full-network-netns.log",
+    "test/evidence/m0/network/environment.json",
+    "spike/network"
+  ]
+}

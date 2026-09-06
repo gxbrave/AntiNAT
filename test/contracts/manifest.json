@@ -1,0 +1,551 @@
+{
+  "schema": "antinat.contracts/manifest/v1",
+  "contract_revision": "v1.0-beta",
+  "validation_command": "go test ./test/contracts/... -count=1 -v",
+  "artifacts": [
+    {
+      "path": "api/openapi.yaml",
+      "sha256": "83fe9a30461482aa587b0c96d42c387c8f568769b56c2c6d7339335a1a25df29"
+    },
+    {
+      "path": "docs/error-codes.md",
+      "sha256": "be4f4c22c0cd7a5a04bc9076e14efef7028a4c7634eb926aa675e7f87cbfa3b5"
+    },
+    {
+      "path": "docs/installer-contract.md",
+      "sha256": "c7f83ea2fedcf9b1c393dae290ff1168bcd9f495d064a2ea74d386f3d38c630a"
+    },
+    {
+      "path": "docs/protocol.md",
+      "sha256": "cfc595f85bdf488ccd04bbcb90e50f18e77c7a3cc9c7b9b94856e3abc39f9a74"
+    },
+    {
+      "path": "docs/state-model.md",
+      "sha256": "0d31a822d638750f2f67cc836a562eb576a7980130833b849637cfbcb1033c03"
+    },
+    {
+      "path": "docs/test-strategy.md",
+      "sha256": "31ba68dbe50ccf44a46e75667184d89f2712c9f4395f33d99eef9f06345dd38e"
+    },
+    {
+      "path": "internal/protocol/testdata/control-envelope/a2c-operation-complete-valid.json",
+      "sha256": "fccf909c9f7accbbb886eee9124b083c17fcde187b1e848542ca78f86a7ea2fc"
+    },
+    {
+      "path": "internal/protocol/testdata/control-envelope/a2c-probe-armed-valid.json",
+      "sha256": "204a969d0e84b285399b3da921ea570853eeae2a8fa08e70c0a5bc4783706754"
+    },
+    {
+      "path": "internal/protocol/testdata/control-envelope/c2a-desired-valid.json",
+      "sha256": "0e96d795c6ff7099a3febf1f610963b04fe21473bf768168b3e711c5a1c86e80"
+    },
+    {
+      "path": "internal/protocol/testdata/control-envelope/c2a-heartbeat-valid.json",
+      "sha256": "36a61af58b791b39681d5039a9d4fcab9f815f08c223830dd759f5163565a452"
+    },
+    {
+      "path": "internal/protocol/testdata/control-envelope/consistency-invalid-direction.json",
+      "sha256": "8781494878ceb506e8c3ffbd772c0f9be87e0452afe15ba5e3843942070a31de"
+    },
+    {
+      "path": "internal/protocol/testdata/control-envelope/consistency-payload-hash-mismatch.json",
+      "sha256": "979441db559a8b5396aee6bcd817dc4fb0936f41df6bf600f46230ffa5d1b5d4"
+    },
+    {
+      "path": "internal/protocol/testdata/control-envelope/consistency-payload-length-mismatch.json",
+      "sha256": "63e443d36da0e8fe4beebaf5245a004b5838d70179cf6f2676663ed35b428156"
+    },
+    {
+      "path": "internal/protocol/testdata/control-envelope/consistency-wrong-domain.json",
+      "sha256": "c80430f9711539754d9cf6688fc9ea67432fc36cf970592b19bf9af4c3eea8b4"
+    },
+    {
+      "path": "internal/protocol/testdata/control-envelope/consistency-zero-credential-version.json",
+      "sha256": "67ce0d5ffece90e06aade0bf322788eac9f530e8d9b3484d577a8bfca2df08ae"
+    },
+    {
+      "path": "internal/protocol/testdata/control-envelope/framing-bad-magic.json",
+      "sha256": "5cdb5c5bdfbb188559527eb4045e900105080499ec2ec00918a647f09e9bd335"
+    },
+    {
+      "path": "internal/protocol/testdata/control-envelope/framing-bad-wire-version.json",
+      "sha256": "cf24da9db0f288439f4c43ac34a46f94b45bc9ab657a5ad940f84488168f022b"
+    },
+    {
+      "path": "internal/protocol/testdata/control-envelope/framing-header-length-oob.json",
+      "sha256": "7670f3269fb5045cc88d6e21a330304773c4dde9d1cda7b3c6a46c5250b2820c"
+    },
+    {
+      "path": "internal/protocol/testdata/control-envelope/framing-length-mismatch.json",
+      "sha256": "bc3707383641ef304a2d225515cbd35e1981a56f5ae87ea64b062ec6ca257711"
+    },
+    {
+      "path": "internal/protocol/testdata/control-envelope/framing-payload-length-oob.json",
+      "sha256": "3fe95940241ff727aa0d9cccefa79a040a7491935632df748720fa8e45d95926"
+    },
+    {
+      "path": "internal/protocol/testdata/control-envelope/framing-truncated.json",
+      "sha256": "81938da158e9ce0e33963405266317241aff93cb386a640022d83e2f629e5f8f"
+    },
+    {
+      "path": "internal/protocol/testdata/control-envelope/header-instance-id-short.json",
+      "sha256": "6798d12b3b464b9bc2d334803f201394c3906db6345ec0d4573be4a534c28a4d"
+    },
+    {
+      "path": "internal/protocol/testdata/control-envelope/header-trailing-bytes.json",
+      "sha256": "04f01e64eb5f1f5b3d9b8196f39ba5a55f887a5f5b1c08e79db67ce3c10fd96a"
+    },
+    {
+      "path": "internal/protocol/testdata/control-envelope/signature-tampered-header.json",
+      "sha256": "baf4d2f3244467283a6c50db55ee1ede9a6e3407d343b9f89a1a38568092be8a"
+    },
+    {
+      "path": "internal/protocol/testdata/control-envelope/signature-wrong-key.json",
+      "sha256": "52b0a5f92eacde38b48102290593227e04c6e6be3d0d3c0432095f0188fb35cb"
+    },
+    {
+      "path": "internal/protocol/testdata/enrollment/challenge-truncated.json",
+      "sha256": "b4de6e2ad05e2096abb47b17d32b5c50a9abcec4eba6abd1ca323c256a2be2fb"
+    },
+    {
+      "path": "internal/protocol/testdata/enrollment/challenge-unsupported-version.json",
+      "sha256": "764d15f4a11a4a48b081ec518f834d21e8d701d08b2f94aad8953aecf0705f20"
+    },
+    {
+      "path": "internal/protocol/testdata/enrollment/challenge-valid.json",
+      "sha256": "5c8fab590526ac56033f22d7fa6b41dd55a4a8af279a333d11b6293dd1082dc5"
+    },
+    {
+      "path": "internal/protocol/testdata/enrollment/challenge-wrong-key.json",
+      "sha256": "674ec9a5fdf3f14be377949996473df442e6798e0b4468ccced6c118b312801f"
+    },
+    {
+      "path": "internal/protocol/testdata/enrollment/request-empty-token.json",
+      "sha256": "900d0ffc79ecf8765788b3851f2495a17f2089f1abcd0892176e217bf18096e3"
+    },
+    {
+      "path": "internal/protocol/testdata/enrollment/request-valid.json",
+      "sha256": "1ab9913e93024fa155e467b55871777c175535a7dd6f337e35ff1ae736251020"
+    },
+    {
+      "path": "internal/protocol/testdata/enrollment/request-wrong-challenge-hash.json",
+      "sha256": "1572d52783238c1f4b1a3f70e67048253f085d8571ce33e924a55337c7d54758"
+    },
+    {
+      "path": "internal/protocol/testdata/enrollment/request-wrong-key.json",
+      "sha256": "1bb77eabb0b4fdec421d80c38434944e491c2adffed4b972198de8d8e356659d"
+    },
+    {
+      "path": "internal/protocol/testdata/enrollment/result-valid.json",
+      "sha256": "d42129576cac9015cb9817c865806cb55ca17a5b6f7e88b5859e948077f0f0f5"
+    },
+    {
+      "path": "internal/protocol/testdata/enrollment/result-wrong-key.json",
+      "sha256": "33f933760f4139d74e537534de0cb6352be8215afcb41cb7f367d1aa88c14966"
+    },
+    {
+      "path": "internal/protocol/testdata/enrollment/result-zero-credential-version.json",
+      "sha256": "3328888965c5c69921b1acb2c599f57370f968c711c5b5d65b4f6e1108fb66d6"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/ack-valid.json",
+      "sha256": "568b9777c932cc175620d615cb7718b8d55718aad27c2d7b405b2830e6c9112b"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/ack-wrong-key.json",
+      "sha256": "b30a97eb2b7ade524f6e8029048ff0c47d0bf2a702395f7176415a82cd15a1e8"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/arm-bad-magic.json",
+      "sha256": "62f2afbfaaf4bb34827012af159acc047f07527bca507e57f5eea161a0fcab40"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/arm-hostname-endpoint.json",
+      "sha256": "3714d4d0a9d227ee1544535a6d2274830046b91be7174733495eb73dd354affa"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/arm-linklocal-endpoint.json",
+      "sha256": "2f1fb2891b97c400b37b8b098fbd8f135d4f3f2cbbe21aa5f6ddcd440a46e540"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/arm-loopback-endpoint.json",
+      "sha256": "97ee3cdbb7cafb6b139a37025c218d9cf4502e4376e13c7a0b48e92ea47a6d72"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/arm-multicast-endpoint.json",
+      "sha256": "d8dde77eacee9f75eb272aeedb353f87590e785cba1214e2361648931344e708"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/arm-private-endpoint-a.json",
+      "sha256": "ae1482f41755e1efbe2b751bc8115047defbacb260f2b1c01ddb72746b9e2eb5"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/arm-private-endpoint-b.json",
+      "sha256": "d19457ae085ee642093b41cae8c116ec6d3c390bc8700b1c8cc31f1ca42c1701"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/arm-truncated.json",
+      "sha256": "69cd5400c2d2922553b02048c042be4616881c644788e763fffeaa9be9abdd80"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/arm-ttl-over-cap.json",
+      "sha256": "a9434b451ed26cd1a31235dfc0d00da22eaf62039e588a4d3cf5c7c063cfd5e9"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/arm-unspecified-endpoint.json",
+      "sha256": "401d2d086abcf04ae901c9d889acb0a694b0dff2970e4b33f48cd7b7a0a4d451"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/arm-valid-tcp.json",
+      "sha256": "ba4c11eb83200bc1ee49aed18de287f5bbddb20d84a3a1dbd17fcc1d4ed4e40f"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/arm-valid-udp.json",
+      "sha256": "6ade7ce02c1c16ac675d7380fc02f656ca8567b5aa074700ba3ddaa0332bd3f5"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/arm-zero-ttl.json",
+      "sha256": "21364c8aa677a78102c820eb9ad03fdb79f33db2dc005749e39cfcac9339f6a9"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/armed-valid.json",
+      "sha256": "4bc6ce1a68ae263171d1349c4e700c89f7533e3332959c29643df4e45daa6d34"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/armed-wrong-digest.json",
+      "sha256": "fadabdffad088a8c57d14457ca9bbf5e0c354282e452bd8d2ee75837e7272917"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/armed-wrong-key.json",
+      "sha256": "29f0f573a88f14b3e0251434ab30a53d49267defb5e347e8addf975204f43b15"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/operation-ingress-expired.json",
+      "sha256": "39730f92b4bcc82976ba724406b28056ee6d7b592a80491725368580f1c5b508"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/operation-ingress-ok.json",
+      "sha256": "0a99da76ad895139f64267f747acc06394b9e64c73f180304c3af1d79f1094e2"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/operation-ingress-wrong-activation.json",
+      "sha256": "dc62237f33808a55dcb8419b65ba5da4a2a9d0666e3b78e301c96e12d87b6806"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/operation-ingress-wrong-provider.json",
+      "sha256": "bda8ee0863526f208a14c9f8d82caa50107d62be6ec44875bef95444d3f8a5ee"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/operation-ingress-wrong-source.json",
+      "sha256": "6d147a9e3afe64e375f6b1e578d53f3c0a3c737f8405918466f40f0c567e5841"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/operation-replay.json",
+      "sha256": "62d061bdd12e08e9feb1bed31026d94ac3a4dc4d6de205fb900f70fb47134033"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/receipt-valid.json",
+      "sha256": "67023ca13176783aaf3c7e64e0ab6c83d16a0a8afe84f6aa2be247fda78c37ed"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/receipt-wrong-provider.json",
+      "sha256": "dbae47b1c3f61ecfda8569cc75dd42baf972d5a5c22c9634b753e2d357f9064b"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/wan1-bad-magic.json",
+      "sha256": "237247d294de87b6e3d33a602f50f271722731d82cc181712a4dfa124978b724"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/wan1-truncated.json",
+      "sha256": "fe9c51e6eded4bc0a991b29e4e8a2b1e5f4b7f4c224e18f428d730970c6f9ba5"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/wan1-valid-tcp.json",
+      "sha256": "874a9eb43b4d9c82cbb6d5156e9fea466fd122a0638768e52c876c8914f16f24"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/wan1-valid-udp.json",
+      "sha256": "01cd0b9f67d05f62b8d9b0a735ab489a7d497c4ca4a265330407fb31d0e98ef5"
+    },
+    {
+      "path": "internal/protocol/testdata/probe-frame/wan1-wrong-key.json",
+      "sha256": "def46579b46ab72e1b0cb75aa7857f80e87446b083f3a05471cfe5b5ff3027aa"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/applied-forward-empty-id-invalid.json",
+      "sha256": "20f641cfb0ee036c2bd4410127d2a648f894e23d84fb8ccdd76c5e12212c7232"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/applied-forward-revision-regression-invalid.json",
+      "sha256": "173b8afe044ccc68b945415cc0e17e08c712fbae5929e249e4bcb8bc159d3e40"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/applied-forward-unknown-strategy-invalid.json",
+      "sha256": "b6033156a7fa8bba001d42ae473374d09da9497df144463f02442c33082405ef"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/applied-forward-valid.json",
+      "sha256": "3f31d93df588f56848f7abb446ca2e88cf57e99dc0b6109868f64dea16b30cd3"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/decommission-active-decommissioned-rejected.json",
+      "sha256": "b81e4e8a70e3bf3fab06cf13eec22cb53ddcffa2ca89705c952158f080c55f05"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/decommission-active-decommissioning-allowed.json",
+      "sha256": "ee2239e834bd2fe1acd2f780b73485c0d20e5acddc7d2d5eca9562f072df799b"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/decommission-decommissioned-cleanup-only-allowed.json",
+      "sha256": "052bb023a8d77bb4dd33c8ca103d8d337225e9b7e80de076b4503c72f9c89722"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/decommission-decommissioning-decommissioned-allowed.json",
+      "sha256": "de3b7c980bd9b19e257a2e926b1f605d782364d65985760c587703b34cb59bb9"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/inbox-applied-nacked-rejected.json",
+      "sha256": "0c7ffd441225782bd288eb608582cfbbe9f50e5b73befbd4562c4fee9ee09cf8"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/inbox-applying-applied-allowed.json",
+      "sha256": "947eda2abcfe08a93e824a2606e960873d10691e01f94c2271c70f544e204efc"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/inbox-applying-nacked-allowed.json",
+      "sha256": "8ac34aab02f7cf43c00a47ec8faa638df4ed6cb09ead87146d99c2672c710a4a"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/inbox-intent-persisted-applying-allowed.json",
+      "sha256": "7a31cd28a74b12c3ae50500de49e70df45fcf8b4db1428f7e402dedf94f27060"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/inbox-received-applied-rejected.json",
+      "sha256": "11f3a5e69400a97768f2bae2f307fd02b8c72535e19977e731f871703c82a6ac"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/inbox-received-intent-persisted-allowed.json",
+      "sha256": "7d1db1496553460f970862ee7798d87b4f06a45a1934394c944b00da718a2690"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/key-rotation-acked-active-allowed.json",
+      "sha256": "5541c2519eac6dd391d6d80357ce31fbb17d60da6570e32e28fe274f160f7cf2"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/key-rotation-active-retired-allowed.json",
+      "sha256": "eba925c43284b997507485ff949665b5d85416788bf65e45c8ccfa6b003df8e5"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/key-rotation-announced-acked-allowed.json",
+      "sha256": "f98a3e49c864f4b37b01af2d58a3f4c8bc217b990e071e48cd90ca9c00670c71"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/key-rotation-prepared-active-rejected.json",
+      "sha256": "0ecec1162be16f3fc5a82e49b77201ce57025d0801b91d7dd8fb6b4cf213bf77"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/key-rotation-prepared-announced-allowed.json",
+      "sha256": "124db09eb8202e4ca592fb0ae9e6a4bef2dd9e9d0cfe3e00f4561b2dd85ec9be"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/outbox-claimed-sent-allowed.json",
+      "sha256": "d3b490bdb954b8489014c98d3664330973771e1f36e0e3afa9239f94a6b6c1ee"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/outbox-gc-claimed-rejected.json",
+      "sha256": "da0320c1534ff8179122edebcab68ac7dd3d7d329ac03a63916a1647bd2819a3"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/outbox-pending-claimed-allowed.json",
+      "sha256": "3811a67e3d418f4d5daa08b22734064f7d81d136700c4b2b758793a715f8df70"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/outbox-pending-sent-rejected.json",
+      "sha256": "dc28817525d961b0cfefb9515effb54933d3c8ad1c45f5cd41551ec2c17e70c6"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/outbox-receipted-gc-allowed.json",
+      "sha256": "27741a3ff9f1e7e0df384893d7020edb118555d93bb9ce1421985fa45f9f269b"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/outbox-semantic-acked-gc-rejected.json",
+      "sha256": "66d30ab96ad73494b92cbce3cdbdfbf71dcf7acbbf5ff47f62228927dab9221f"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/outbox-semantic-acked-receipted-allowed.json",
+      "sha256": "3335100109aa6409c71b2ecbee807f96090bfbc33cc6efea4287f5456a889eb4"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/outbox-sent-gc-rejected.json",
+      "sha256": "bfa2ee17914f5a21c1ed9a2976816ac92a0e05c55afadffa962386dfeef475f6"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/outbox-sent-pending-rejected.json",
+      "sha256": "6f8e30a457d98058bdaaeb22d07c5e0caba8482f6a3f85eb24ec40c4402340b9"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/outbox-sent-semantic-acked-allowed.json",
+      "sha256": "1be88c113b54021fd23fbfe83ce727bc9ccc0d8e8a7dfc41408facf03b714e25"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/publication-unverified-with-vantage-invalid.json",
+      "sha256": "fdda6dbb4a563cd1175653b9d900552d76abaf14c34a73235490892171ff4b23"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/publication-verified-valid.json",
+      "sha256": "2fb4b368570488500293c1e94ab0ea259068a205d93fcd519a6b8046d9d256d2"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/publication-verified-without-return-path-invalid.json",
+      "sha256": "26f1be28d51489f64fd0fbef57fa42204673a74e14efda9fcc5b3af0440bf2f4"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/publication-verified-without-vantage-invalid.json",
+      "sha256": "f334ec5dddbaaf368dedb50243067d210d113e4d899e154ecbac113e3a45dd1d"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/restore-reconciling-authorized-allowed.json",
+      "sha256": "aa0bed248d7c42d570a34e217bb3d418dd0ec95313b5a39d9c8354bc413b08a2"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/restore-recovery-quarantine-reconciling-allowed.json",
+      "sha256": "b6c4fbd737b5f93ce4c05bd35dd4f6a97bb31b6e1bae678dba73d2ec7d108b1d"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/restore-restored-authorized-rejected.json",
+      "sha256": "c7ea18c22faa3e29414294d2738259ffbb5f8987dd6f20a1b64a9293e05a55ff"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/restore-restored-recovery-quarantine-allowed.json",
+      "sha256": "c0e3f05d5fcab257c82f16655d5b943314ab467f2af762e5678912203e42f0f6"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/snapshot-invalid-illegal-value.json",
+      "sha256": "9cdce5ac35f80569adec342aa9f9fba7ef91e9b6d1b6d9d53b46e56fc1068b23"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/snapshot-invalid-missing-axis.json",
+      "sha256": "1d010fd53e75c061ee535e8a57a79bd11c2401ed064e77e91b478e8ebb40cff6"
+    },
+    {
+      "path": "test/contracts/testdata/state-model/snapshot-valid-all-axes.json",
+      "sha256": "beca6d3021f310d92a07b9b5ca766d26b0ca8348d4b179dd254b1fb9f8dab2d0"
+    },
+    {
+      "path": "test/fixtures/compat/compat-n-minus-one-valid.json",
+      "sha256": "6e262d620ecfa973b336a9f00098b7e55739db02f0e6bcf7eb3fefbda1fa2e94"
+    },
+    {
+      "path": "test/fixtures/compat/compat-regression-invalid.json",
+      "sha256": "e5a93b9311c1f92c03f1595206030c1a3fc7eeda85ba6d256f84686a8be1373a"
+    },
+    {
+      "path": "test/fixtures/compat/compat-same-version-valid.json",
+      "sha256": "9f1d4901c1be7d6a04ca9ebe83fb834d8cc97cb5e13e4d1c943c16c502bd1072"
+    },
+    {
+      "path": "test/fixtures/compat/compat-skip-version-invalid.json",
+      "sha256": "d3b9ffcd9e2eff945482b74004fd2cb5ba4b0cbb062bdf5c3061bb6d42cbd135"
+    },
+    {
+      "path": "test/fixtures/installer-contract/artifact-manifest-bad-hash-invalid.json",
+      "sha256": "e50e6915f9e06f5ce07db6b914725386a8ec47e22ae0f115d406f55498cf2ffc"
+    },
+    {
+      "path": "test/fixtures/installer-contract/artifact-manifest-no-signature-invalid.json",
+      "sha256": "ba23c4a306be129773f2c3a9e57c163c7ea1e082b1f4def29a9b7200254bfa8a"
+    },
+    {
+      "path": "test/fixtures/installer-contract/artifact-manifest-valid.json",
+      "sha256": "2bb81121a9caef8a632a6ed520416e94255029523e15fff66862d3d1bf374339"
+    },
+    {
+      "path": "test/fixtures/installer-contract/cli-install-token-fd-valid.json",
+      "sha256": "33ce1dca0119e79310eea87711a46862b917c3f73d20f918b68da49085acc1f4"
+    },
+    {
+      "path": "test/fixtures/installer-contract/cli-install-valid.json",
+      "sha256": "ee2c28799c478e59a75ee48fca19ce657226db785fa5b5f07c5605b706e210dc"
+    },
+    {
+      "path": "test/fixtures/installer-contract/cli-token-fd-bare-invalid.json",
+      "sha256": "bddf0ff9455e257e2101df8de8df175f50d072371029ec5a550d03eaafb90e46"
+    },
+    {
+      "path": "test/fixtures/installer-contract/cli-token-literal-forbidden.json",
+      "sha256": "aa967e214b896b9d1759c85bdd14fd79ab33660f248cf4b8be779a934d039c04"
+    },
+    {
+      "path": "test/fixtures/installer-contract/cli-unknown-flag-invalid.json",
+      "sha256": "3b15b7cb2daae509d7c252ec829eee00fd4c0ae8181146a5044a9ce360ae70cf"
+    },
+    {
+      "path": "test/fixtures/installer-contract/cli-unknown-short-flag-invalid.json",
+      "sha256": "c42a080f066d51d85252c9e8f80f11e63b8167bafadbf21358287eb13197619d"
+    },
+    {
+      "path": "test/fixtures/installer-contract/exit-0-valid.json",
+      "sha256": "872358ecfc4fab6021c60f36c43a5259a5069eecbf32289ca3b26f78f1acdf1b"
+    },
+    {
+      "path": "test/fixtures/installer-contract/exit-4-valid.json",
+      "sha256": "1a564fd20312b68944e3d56b5b8cbdfb95ac82f61e3976966e8d988a895dc406"
+    },
+    {
+      "path": "test/fixtures/installer-contract/exit-42-invalid.json",
+      "sha256": "9288e496ff90edc3e5fc705a7f76e226f2845e7ead32acba3cf086b4cd3100bb"
+    },
+    {
+      "path": "test/fixtures/installer-contract/exit-7-valid.json",
+      "sha256": "c537a1106b8af951c9548a4ba8dc739a462455c76379772871847fbd604ede6b"
+    },
+    {
+      "path": "test/fixtures/installer-contract/path-install-dir-invalid.json",
+      "sha256": "3457d8a990b4b77daf12d75601613ae366cfa282832205a9d0a98fdc9af18120"
+    },
+    {
+      "path": "test/fixtures/installer-contract/path-install-dir-valid.json",
+      "sha256": "4a81401dd4c73ba7e3cc174929d29caa80056988b50015d43c6705ad6fb89a8d"
+    },
+    {
+      "path": "test/fixtures/installer-contract/path-service-valid.json",
+      "sha256": "6bd45b66c798417e6194eac073a2549ac4d3631c7e7e3b7ceaf6f409ab0bc38f"
+    },
+    {
+      "path": "test/fixtures/installer-contract/path-state-marker-valid.json",
+      "sha256": "bc36b21d058d103a447cd804024429e1c9f6fd51c1698ef305b62cc297ba3e05"
+    },
+    {
+      "path": "test/fixtures/installer-contract/purge-no-residue-valid.json",
+      "sha256": "493e139905daf0a8e2ea90db2cac3814b3bc9e74f77986d41952af795fcdd5fa"
+    },
+    {
+      "path": "test/fixtures/installer-contract/purge-unknown-state-invalid.json",
+      "sha256": "80b73c2695c84288122e8dc884499ea6021213a94e5327d1a0bddade2e656153"
+    },
+    {
+      "path": "test/fixtures/installer-contract/token-fd-valid.json",
+      "sha256": "a4cb83a17c53cd99fbbbfefc4594c5beccc5efd60f48f11338a50a77ea7a5e1a"
+    },
+    {
+      "path": "test/fixtures/installer-contract/token-fd-without-flag-invalid.json",
+      "sha256": "ac722c6925073c1fa0f8d378741932101f00b034e99fc25c168e0863592dc40e"
+    },
+    {
+      "path": "test/fixtures/installer-contract/token-file-0600-valid.json",
+      "sha256": "318862d9f8d4086351b01c708841ffe4d499ce7d1a5c3224bfe95a93265d33db"
+    },
+    {
+      "path": "test/fixtures/installer-contract/token-file-0644-invalid.json",
+      "sha256": "70667b107430a98d5cd7bda820517e050d402a86939caaf4414313e075948db1"
+    },
+    {
+      "path": "test/fixtures/installer-contract/token-multiple-inputs-invalid.json",
+      "sha256": "f84bd3a2575fa81dc6cf0145265e7a76bf986af59028dc7309ca9303473b624e"
+    },
+    {
+      "path": "test/fixtures/installer-contract/token-tty-valid.json",
+      "sha256": "784970e1ddeff3e9a8fa58bb5c81c988f6fe09832f019cc678fb40ab67b2e6b0"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "schema_version": "antinat.evidence/v1",
+  "plan": "P03",
+  "commit_sha": "689ca5788321ba80bd9b108230d89024dccbfecd",
+  "command": "go test ./spike/state/... ./spike/sqlite/... ./spike/sandbox/... ./spike/datapath/... -count=1 -v",
+  "result": "SUPPORTED_WITH_LIMITS",
+  "artifact_digest": "sha256:a253efcab2c3729efa06efea14308b19989f2781d9faa37f8643a699d7ee18b5",
+  "os": "Ubuntu 24.04.3; Linux 6.8.0-136-generic; linux/amd64; Go 1.26.5; host hermes; router not applicable",
+  "timeout": 3600,
+  "summary": "owner=sub-agent-sol; approver=pending independent specification and quality/security review; assertions=modernc.org/sqlite v1.56.0 runs without CGO, Linux and Windows amd64 cross-build, WAL plus busy_timeout, eight concurrent writers, VACUUM INTO consistent backup with file and parent sync, missing or truncated databases fail the health gate closed without creating state, deterministic SQLITE_FULL preserves integrity, 25 resolved module licenses inventoried and hashed; capability promotion=Linux runtime candidate supported with limits; Windows remains build-only until native WAL/backup/corruption/full-disk execution repair=cycle-1 F1: WAL hard-kill durability regression-pinned (TestWALCommittedDataSurvivesHardKill)",
+  "evidence_paths": [
+    "spike/sqlite/README.md",
+    "spike/sqlite/license-inventory.json",
+    "test/evidence/m0/state-security/logs/focused-spikes.txt.gz",
+    "test/evidence/m0/state-security/logs/environment-and-digests.txt",
+    "test/evidence/m0/state-security/checksums.sha256"
+  ]
+}

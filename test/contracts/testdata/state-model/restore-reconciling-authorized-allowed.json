@@ -1,0 +1,9 @@
+{
+  "schema": "antinat.contracts/state-model/v1",
+  "vector_id": "restore-reconciling-authorized-allowed",
+  "kind": "transition",
+  "expect": "allowed",
+  "fsm": "restore",
+  "from": "RECONCILING",
+  "to": "AUTHORIZED"
+}

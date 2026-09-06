@@ -1,0 +1,17 @@
+{
+  "schema": "antinat.contracts/installer/v1",
+  "vector_id": "cli-install-valid",
+  "kind": "cli",
+  "expect": "valid",
+  "command": "install",
+  "args": [
+    "--controller-endpoint",
+    "https://ctl.example.com:3111",
+    "--bind-interface",
+    "eth0",
+    "--platform",
+    "linux",
+    "--service-name",
+    "antinat-agent.service"
+  ]
+}

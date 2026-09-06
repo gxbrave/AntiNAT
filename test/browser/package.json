@@ -1,0 +1,12 @@
+{
+  "name": "antinat-browser-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "AntiNAT P17 browser/a11y tests (Playwright). Framework frozen in docs/ui-design-direction.md §9; see README.md.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

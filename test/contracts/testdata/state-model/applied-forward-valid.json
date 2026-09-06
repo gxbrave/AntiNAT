@@ -1,0 +1,22 @@
+{
+  "schema": "antinat.contracts/state-model/v1",
+  "vector_id": "applied-forward-valid",
+  "kind": "applied_forward",
+  "expect": "valid",
+  "applied_forward": {
+    "forward_id": "fwd-0001",
+    "spec_revision": 3,
+    "desired_revision": 3,
+    "actual_bind_host": "10.0.0.2",
+    "actual_bind_port": 3111,
+    "assigned_gateway_port": 3111,
+    "public_port": 3111,
+    "strategy": "direct-v4",
+    "layer_version": 1,
+    "activation_recovery_descriptor": "act-0001/gen-2",
+    "mapping_journal_ref": "map-j-001",
+    "hook_definition_version": 1,
+    "hook_secret_version": 1,
+    "applied_at_unix": 2000000000
+  }
+}
