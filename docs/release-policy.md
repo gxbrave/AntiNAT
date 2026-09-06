@@ -42,9 +42,11 @@ evidence cannot promote a runtime capability.
 
 ## Release contents
 
-The release directory may contain Linux amd64 and Windows amd64 binaries,
-the supported arm64 build-only subset, `manifest.json`, `manifest.sig`,
-`checksums.txt`, `sbom.cdx.json`, and `source.json`. Installers consume the
-manifest and verify its signature and artifact digests before copying a file.
-OCI images require a registry manifest digest plus SBOM and signature evidence;
-a local image ID is not sufficient.
+The first published release targets Debian/Ubuntu Linux and may contain Linux
+amd64 and Linux arm64 binaries, `manifest.json`, `manifest.sig`,
+`checksums.txt`, `sbom.cdx.json`, and `source.json`. Windows amd64 binaries and
+the PowerShell installer remain build-only until native Windows evidence is
+available; they are not a Windows runtime support claim. Installers consume
+the manifest and verify its signature and artifact digests before copying a
+file. OCI images require a registry manifest digest plus SBOM and signature
+evidence; a local image ID is not sufficient.

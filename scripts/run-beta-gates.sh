@@ -159,17 +159,24 @@ build_release() {
     local arm_tmp="$release_dir/.arm64"
     mkdir -m 700 -- "$arm_tmp"
     if build_one linux arm64 "$arm_tmp/antinat-agent-linux-arm64" ./cmd/antinat-agent && \
+        build_one linux arm64 "$arm_tmp/antinat-controller-linux-arm64" ./cmd/antinat-controller && \
+        build_one linux arm64 "$arm_tmp/antinat-hook-runner-linux-arm64" ./cmd/antinat-hook-runner && \
+        build_one linux arm64 "$arm_tmp/antinat-probe-linux-arm64" ./cmd/antinat-probe && \
         build_one linux arm64 "$arm_tmp/antinatctl-linux-arm64" ./cmd/antinatctl; then
-        mv -- "$arm_tmp/antinat-agent-linux-arm64" "$release_dir/antinat-agent-linux-arm64"
-        mv -- "$arm_tmp/antinatctl-linux-arm64" "$release_dir/antinatctl-linux-arm64"
+        mv -- "$arm_tmp"/* "$release_dir/"
         arm64_status=SUPPORTED_WITH_LIMITS
-        printf 'arm64_agent_cli=PASS\n'
+        printf 'arm64_linux_binaries=PASS (cross-build; native runtime evidence is recorded separately)\n'
     else
         arm64_status=SUPPORTED_WITH_LIMITS
         printf 'arm64_agent_cli=SUPPORTED_WITH_LIMITS (cross-build unavailable)\n'
     fi
     find "$arm_tmp" -mindepth 1 -maxdepth 1 -type f -delete
     rmdir -- "$arm_tmp" 2>/dev/null || true
+
+    cp -- "$repo_dir/install.sh" "$release_dir/install.sh"
+    cp -- "$repo_dir/scripts/libinstall.sh" "$release_dir/libinstall.sh"
+    cp -- "$repo_dir/scripts/install.ps1" "$release_dir/install.ps1"
+    cp -- "$repo_dir/deploy/trust/release-ed25519.pub" "$release_dir/release-ed25519.pub"
 
     chmod 700 -- "$release_dir"/*
 }

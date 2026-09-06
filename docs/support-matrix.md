@@ -1,6 +1,6 @@
 # AntiNAT support matrix
 
-Status date: 2026-09-05
+Status date: 2026-09-06
 
 The status column is the intended v1.0-beta release classification, not a claim
 that P01 already implements the capability. The current evidence column is
@@ -8,10 +8,10 @@ intentionally explicit so a bootstrap build cannot be mistaken for support.
 
 | Capability / platform | v1 status | Required evidence gate | Current evidence |
 |---|---|---|---|
-| Controller/Agent build on Linux amd64 | `beta` | Go build, package tests, startup/readiness and release artifact checks | P18 integrated binaries; P19 exact-build, manifest, unit, race, vet, E2E, and installer candidate gates pass locally. No published release. |
+| Controller/Agent build on Linux amd64 | `beta` | Go build, package tests, startup/readiness and release artifact checks | P19 exact-build, manifest, unit, race, vet, E2E, installer candidate gates, and native Debian 12/Ubuntu 22.04 startup/control checks. No independent WAN claim. |
 | Linux amd64 direct/manual TCP forwarding | `beta` | P10 Linux direct-v4 walking-skeleton E2E with independent probe and target response | Local loopback walking-skeleton evidence passes; independent public-WAN reachability is unproven. |
 | Linux amd64 UDP forwarding | `beta` | P13 bounded mux/session/ICMP/MTU E2E and crash tests | P13 integrated package and local evidence; no independent WAN promotion. |
-| Linux arm64 runtime | `experimental` | P18 real arm64 host install/restart/upgrade/purge evidence | Agent/CLI cross-build evidence only; no native arm64 runtime. |
+| Linux arm64 runtime | `experimental` | Native Debian/Ubuntu arm64 install/restart/upgrade/purge and data-path evidence | Native Debian 12 arm64 Controller and Agent startup, enrollment, and control-session evidence is recorded; installer lifecycle and direct-v4 data-path promotion remain outstanding. |
 | Windows amd64 runtime | `build-only` | P18 real Windows service/ACL/Defender and data-path evidence | Windows amd64 cross-build and installer compile evidence; no native Windows runtime. |
 | Docker on Linux host network | `experimental` | OCI image, non-root runtime, state volume, SBOM/signature and host-network E2E | Local amd64 image/staging evidence; no registry digest, production host-network run, SBOM, or signature. |
 | macOS runtime | `unsupported` | Not applicable to v1 | Excluded |
@@ -27,7 +27,7 @@ intentionally explicit so a bootstrap build cannot be mistaken for support.
 | Runtime zero-copy claim | `experimental` | P03 lab instrumentation and exact artifact evidence | No claim permitted |
 | Webhook hooks | `beta` | P16 SSRF, secret lifecycle, retry and delivery evidence | P16 integrated security, lifecycle, retry, and delivery tests. |
 | Arbitrary local shell hook | `unsupported` | Explicitly excluded for security | Explicitly excluded |
-| Linux systemd install/upgrade/purge | `beta` | P18 fresh install, restart, rollback, purge on named distro | P18 native lifecycle harness plus isolated test-root install/upgrade/rollback/purge evidence; no broad distro promotion. |
+| Linux systemd install/upgrade/purge | `beta` | Fresh install, restart, rollback, purge on named Debian/Ubuntu releases | P18 native lifecycle harness plus isolated installer evidence; Debian 12/Ubuntu 22.04/24.04 are the first-release target, with remote runtime startup checks recorded separately. |
 | OpenRC installer | `experimental` | Real arm64/OpenRC host evidence | Generated service and isolated installer evidence; no native OpenRC host. |
 | Formal 2 Gbps / `<1 ms` SLO | `unsupported` | Dedicated lab and approved performance contract required | Not a v1 claim |
 

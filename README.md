@@ -4,11 +4,11 @@ AntiNAT is a Go-based Controller + Agent project for evidence-backed IPv4 endpoi
 
 ## Current development status
 
-The authoritative integrated baseline is `622f98b8e3958a14094c1fad5cd775f3c93ccdb1` on `integration/v1-beta`; P01–P18 are integrated with the limits recorded in their handoffs. This branch contains the P19 release-candidate tooling and evidence verifier. It can produce an exact local candidate, but no `v1.0.0-beta.1` tag, remote push, or published release has been performed.
+The authoritative integrated baseline is `622f98b8e3958a14094c1fad5cd775f3c93ccdb1` on `integration/v1-beta`; P01-P18 are integrated with the limits recorded in their handoffs. This branch contains the P19 release-candidate tooling and evidence verifier. The release target is Debian/Ubuntu Linux only; Windows remains build-only until a native test host is available.
 
 P10 composed working Controller/Agent application paths and a local Linux direct-v4 walking skeleton. P12/P12W added reviewed STUN/gateway traversal libraries and production composition, while P13–P18 added the remaining lifecycle, API, hook, UI, installer, service, and platform packaging work. The P19 runner builds the candidate once and binds every gate to the exact manifest digest.
 
-Important qualification: no independent public-WAN, real CPE/router, native Windows, native arm64/OpenRC, registry OCI digest, or 24-hour soak evidence is available for this candidate run. Browser coverage and `govulncheck` run in the refreshed release lane; those local results do not promote WAN, platform, registry, or soak capabilities. The remaining gaps keep the candidate at `SUPPORTED_WITH_LIMITS`.
+Important qualification: no independent public-WAN, real CPE/router, native Windows, native OpenRC, registry OCI digest, or 24-hour soak evidence is available for this candidate run. Native Debian 12 ARM64 Controller/Agent and Debian 12 amd64 plus Ubuntu 22.04 amd64 startup/control checks are recorded, but they do not promote direct-v4 reachability on a host without a global IPv4 source. Browser coverage and `govulncheck` run in the refreshed release lane; those results do not replace WAN, registry, or soak evidence. The remaining gaps keep the candidate at `SUPPORTED_WITH_LIMITS` until the protected release inputs are supplied.
 
 See:
 
@@ -18,6 +18,20 @@ See:
 - `HANDOFF/CLEANUP_LEDGER.md` — exact pending cleanup allowlist and deferred set.
 
 Historical August handoff/project-plan documents in the preserved workspace remain historical snapshots and are not current-status authority.
+
+## Debian/Ubuntu install
+
+The first release targets Debian 12 and Ubuntu 22.04/24.04 on Linux amd64 and arm64. The bootstrap script fetches the signed release manifest and architecture-specific artifacts; it does not use an unsigned checksum as a trust anchor.
+
+The public bootstrap command is:
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh) install --controller-endpoint https://controller.example.com:3111
+```
+
+The generated deployment command supplies `ANTINAT_NODE_ID` and `ANTINAT_CONTROLLER_PIN` separately and reads the one-time enrollment token from the installer TTY or a protected `--token-file`/`--token-fd`. Do not put the token in the shell command or in a URL.
+
+Windows binaries and the PowerShell installer are build-only artifacts for this beta. They are not a native Windows support claim and have not been validated on a Windows host.
 
 ## Scope and claims
 

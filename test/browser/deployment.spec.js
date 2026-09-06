@@ -78,7 +78,8 @@ test.describe('node deployment flow', () => {
     expect(command).toContain('--controller-endpoint');
     expect(command).not.toContain(token);
     expect(command).not.toContain('--token');
-    expect(command).toContain('bash -o pipefail -c');
+    expect(command).toContain('bash <(curl -Ls');
+    expect(command).toContain('raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh');
     expect(await page.locator('[data-deployment-token]').count()).toBe(0);
   });
 
@@ -117,7 +118,7 @@ test.describe('node deployment flow', () => {
     expect(runtimeCommand).toContain('--user 65532:65532');
     expect(runtimeCommand).toContain("type=volume,src=antinat-agent-data-");
     expect(runtimeCommand).toContain("type=volume,src=antinat-agent-log-");
-    expect(runtimeCommand.trim()).toMatch(/ghcr\.io\/gxbrave\/antinat-agent:v1\.0\.0-beta$/);
+    expect(runtimeCommand.trim()).toMatch(/ghcr\.io\/gxbrave\/antinat-agent:v1\.0\.0-beta\.1$/);
 
     await platform.selectOption('windows');
     await expect(page.locator('[data-deployment-command]')).toContainText(/powershell/i);

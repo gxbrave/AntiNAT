@@ -3,8 +3,10 @@
 This checklist is evaluated against one exact candidate bundle. The current
 P19 candidate is not a published release: the repository has no production
 signing key, independent release approver, controller endpoint, remote probe
-vantage, native Windows/OpenRC/arm64 hosts, registry digest, or 24-hour soak
-result. The release lane provisions the pinned browser suite and
+vantage, native Windows/OpenRC lifecycle evidence, complete arm64 installer
+evidence, registry digest, or 24-hour soak result. Native Debian 12 arm64
+Controller/Agent startup and control-session checks are recorded, but do not
+promote the full arm64 installer or data path. The release lane provisions the pinned browser suite and
 `govulncheck`; their local results do not replace the external gates.
 
 ## Required gates

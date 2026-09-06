@@ -157,20 +157,21 @@ func TestBuildInstallCommandUsesPlatformSpecificDownloadAndNoSecret(t *testing.T
 		if err != nil {
 			t.Fatalf("BuildInstallCommand(%s): %v", platform, err)
 		}
-		if platform == PlatformLinux && !strings.Contains(command, "https://ghfast.top/https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta/install.sh") {
-			t.Errorf("Linux command did not apply the normalized GitHub proxy: %q", command)
-		}
-		if platform == PlatformLinux && (!strings.Contains(command, "libinstall.sh") || !strings.Contains(command, "release-ed25519.pub") || !strings.Contains(command, installerScriptSHA) || !strings.Contains(command, installerLibSHA) || !strings.Contains(command, installerTrustSHA)) {
-			t.Errorf("Linux command did not stage and verify the complete installer tree: %q", command)
-		}
 		if strings.Contains(command, "--token") || strings.Contains(command, "TOKEN") {
 			t.Errorf("%s command contains a token channel: %q", platform, command)
 		}
-		if platform == PlatformLinux && (!strings.Contains(command, "curl") || !strings.Contains(command, "sudo env") || !strings.Contains(command, "bash \"$tmp_dir/scripts/install.sh\" install") || !strings.Contains(command, "bash -o pipefail -c")) {
-			t.Errorf("Linux command is not a curl/sudo bash flow: %q", command)
-		}
-		if platform == PlatformLinux && (!strings.Contains(command, "ANTINAT_NODE_ID=node-a") || !strings.Contains(command, "ANTINAT_CONTROLLER_PIN="+testInstallCommandContext.ControllerPin)) {
-			t.Errorf("Linux command does not pass the ephemeral installer environment: %q", command)
+		if platform == PlatformLinux {
+			for _, required := range []string{
+				"bash <(curl -Ls",
+				"https://ghfast.top/https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh",
+				"sudo env",
+				"ANTINAT_NODE_ID=node-a",
+				"ANTINAT_CONTROLLER_PIN=" + testInstallCommandContext.ControllerPin,
+			} {
+				if !strings.Contains(command, required) {
+					t.Errorf("Linux command missing %q: %q", required, command)
+				}
+			}
 		}
 		if platform == PlatformWindows && (!strings.Contains(command, "-EncodedCommand ") || strings.Contains(command, "ANTINAT_NODE_ID=node-a")) {
 			t.Errorf("Windows command did not keep the environment assignments encoded: %q", command)
@@ -204,8 +205,6 @@ func TestInstallerHashesMatchCheckedInConsumers(t *testing.T) {
 		backendSHA       string
 		frontendVariable string
 	}{
-		{path: "install.sh", backendSHA: installerScriptSHA, frontendVariable: "INSTALLER_SCRIPT_SHA256"},
-		{path: "libinstall.sh", backendSHA: installerLibSHA, frontendVariable: "INSTALLER_LIB_SHA256"},
 		{path: "install.ps1", backendSHA: installerPS1SHA, frontendVariable: "INSTALLER_PS1_SHA256"},
 	}
 	for _, asset := range assets {

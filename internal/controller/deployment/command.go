@@ -28,16 +28,13 @@ const (
 	defaultLogLevel    = "info"
 	defaultAutoUpdate  = "disabled"
 	defaultScheduler   = "sequential"
-	releaseBaseURL     = "https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta"
-	installerScriptURL = releaseBaseURL + "/install.sh"
-	installerLibURL    = releaseBaseURL + "/libinstall.sh"
+	releaseBaseURL     = "https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta.1"
+	rawInstallerURL    = "https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh"
 	installerPS1URL    = releaseBaseURL + "/install.ps1"
 	installerTrustURL  = releaseBaseURL + "/release-ed25519.pub"
-	installerScriptSHA = "a76fcd5150ea34cde8f02cf67ed56b64d561041a5698b8b9430be182c1e4c194"
-	installerLibSHA    = "7390a532831fd5f066d1aafac2d9160e9999fba96c656fcf884a69314a66a7e5"
-	installerPS1SHA    = "4341ae0d53e7cc1e377263ec0b954e57ea7be10e3f6a8dbaf348e025a5c6e02a"
+	installerPS1SHA    = "e338fa2f2929fe117f91f2e6df58514334b2ec985b869e5e7120fc981fb95756"
 	installerTrustSHA  = "7c250ef2c4b3ece394f1d22f106742152116ef192a89bda1f1deaef9073112f3"
-	containerImage     = "ghcr.io/gxbrave/antinat-agent:v1.0.0-beta"
+	containerImage     = "ghcr.io/gxbrave/antinat-agent:v1.0.0-beta.1"
 	dockerTokenSource  = "/secure/antinat/enrollment.token"
 	dockerTokenTarget  = "/run/secrets/antinat_enrollment_token"
 )
@@ -331,11 +328,7 @@ func BuildInstallCommand(profile Profile, context InstallCommandContext) (string
 	}
 	switch profile.Platform {
 	case PlatformLinux:
-		return buildPOSIXInstallCommand(
-			installerURL(profile, installerScriptURL),
-			installerURL(profile, installerLibURL),
-			installerURL(profile, installerTrustURL),
-			args, context), nil
+		return buildPOSIXInstallCommand(installerURL(profile, rawInstallerURL), args, context), nil
 	case PlatformWindows:
 		return buildPowerShellInstallCommand(
 			installerURL(profile, installerPS1URL),
@@ -359,23 +352,10 @@ func installerURL(profile Profile, base string) string {
 	return strings.TrimRight(proxy, "/") + "/" + base
 }
 
-func buildPOSIXInstallCommand(scriptURL, libraryURL, trustURL string, args []string, context InstallCommandContext) string {
-	inner := "set -eu\n" +
-		"tmp_dir=$(mktemp -d \"${TMPDIR:-/tmp}/antinat-installer.XXXXXX\")\n" +
-		"trap 'rm -rf -- \"$tmp_dir\"' EXIT\n" +
-		"mkdir -p -- \"$tmp_dir/scripts\" \"$tmp_dir/deploy/trust\"\n" +
-		"curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 " + QuoteShellArg(scriptURL) + " -o \"$tmp_dir/scripts/install.sh\"\n" +
-		"curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 " + QuoteShellArg(libraryURL) + " -o \"$tmp_dir/scripts/libinstall.sh\"\n" +
-		"curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 " + QuoteShellArg(trustURL) + " -o \"$tmp_dir/deploy/trust/release-ed25519.pub\"\n" +
-		"printf '%s  %s\\n' '" + installerScriptSHA + "' \"$tmp_dir/scripts/install.sh\" | sha256sum --check --status -\n" +
-		"printf '%s  %s\\n' '" + installerLibSHA + "' \"$tmp_dir/scripts/libinstall.sh\" | sha256sum --check --status -\n" +
-		"printf '%s  %s\\n' '" + installerTrustSHA + "' \"$tmp_dir/deploy/trust/release-ed25519.pub\" | sha256sum --check --status -\n" +
-		"chmod 700 -- \"$tmp_dir\" \"$tmp_dir/scripts\" \"$tmp_dir/deploy\" \"$tmp_dir/deploy/trust\"\n" +
-		"chmod 600 -- \"$tmp_dir/scripts/install.sh\" \"$tmp_dir/scripts/libinstall.sh\" \"$tmp_dir/deploy/trust/release-ed25519.pub\"\n" +
-		"sudo env " + QuoteShellArg("ANTINAT_NODE_ID="+context.NodeID) + " " +
+func buildPOSIXInstallCommand(scriptURL string, args []string, context InstallCommandContext) string {
+	return "sudo env " + QuoteShellArg("ANTINAT_NODE_ID="+context.NodeID) + " " +
 		QuoteShellArg("ANTINAT_CONTROLLER_PIN="+context.ControllerPin) +
-		" bash \"$tmp_dir/scripts/install.sh\" install " + QuoteShellArgs(args)
-	return "bash -o pipefail -c " + QuoteShellArg(inner)
+		" bash <(curl -Ls --proto '=https' --tlsv1.2 " + QuoteShellArg(scriptURL) + ") install " + QuoteShellArgs(args)
 }
 
 func buildPowerShellInstallCommand(scriptURL, trustURL string, args []string, context InstallCommandContext) string {
@@ -462,5 +442,5 @@ func InstallerScriptURL(platform string) string {
 	if platform == PlatformWindows {
 		return installerPS1URL
 	}
-	return installerScriptURL
+	return rawInstallerURL
 }

@@ -37,6 +37,7 @@ INSTALLER_TOKEN_TMP=""
 INSTALLER_TOKEN_IDENTITY_TMP=""
 INSTALLER_TOKEN_STAGE_DIR=""
 INSTALLER_TOKEN_SOURCE_CONSUMED=0
+INSTALLER_LINUX_ARCH=""
 INSTALLER_HELP_REQUESTED=0
 INSTALLER_VERSION_REQUESTED=0
 INSTALLER_PURGE_KEEP_OTHER=0
@@ -307,16 +308,22 @@ installer_require_privileges() {
     fi
 }
 
-installer_require_linux_amd64() {
+installer_require_linux_platform() {
     local machine
     machine=$(uname -m 2>/dev/null) || return "$INSTALLER_EXIT_ARTIFACT"
     case "$machine" in
-        x86_64|amd64) ;;
+        x86_64|amd64) INSTALLER_LINUX_ARCH=amd64 ;;
+        aarch64|arm64) INSTALLER_LINUX_ARCH=arm64 ;;
         *)
-            installer_die "$INSTALLER_EXIT_ARTIFACT" "Linux installer supports amd64 only; detected $machine" || true
+            installer_die "$INSTALLER_EXIT_ARTIFACT" "Linux installer supports amd64 and arm64; detected $machine" || true
             return "$INSTALLER_EXIT_ARTIFACT"
             ;;
     esac
+}
+
+installer_linux_artifact() {
+    local component="$1"
+    printf 'antinat-%s-linux-%s' "$component" "$INSTALLER_LINUX_ARCH"
 }
 
 installer_fetch_release() {
@@ -326,7 +333,7 @@ installer_fetch_release() {
         INSTALLER_SIGNATURE_FILE="${ANTINAT_SIGNATURE_FILE:-$INSTALLER_ARTIFACT_DIR/manifest.sig}"
         return 0
     fi
-    local base_url="${ANTINAT_RELEASE_BASE_URL:-https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta}"
+    local base_url="${ANTINAT_RELEASE_BASE_URL:-https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta.1}"
     [[ "$base_url" != *"@"* && "$base_url" =~ ^https://[^[:space:]/?#]+(/[^[:space:]?#]*)?$ ]] || return "$INSTALLER_EXIT_ARTIFACT"
     local scratch
     scratch=$(mktemp -d "${TMPDIR:-/tmp}/antinat-release.XXXXXX") || return "$INSTALLER_EXIT_ARTIFACT"
@@ -1164,8 +1171,12 @@ installer_prepare_dirs() {
 }
 
 installer_install_files() {
+    local agent_artifact controller_artifact hook_artifact
+    agent_artifact=$(installer_linux_artifact agent)
+    controller_artifact=$(installer_linux_artifact controller)
+    hook_artifact=$(installer_linux_artifact hook-runner)
     if installer_role_has_agent; then
-        if installer_copy_artifact "antinat-agent-linux-amd64" "$INSTALLER_AGENT_BINARY" 755; then
+        if installer_copy_artifact "$agent_artifact" "$INSTALLER_AGENT_BINARY" 755; then
             :
         else
             installer_die "$INSTALLER_EXIT_ARTIFACT" "Linux Agent artifact is missing" || true
@@ -1174,15 +1185,15 @@ installer_install_files() {
     fi
     installer_write_schema_version || return "$INSTALLER_EXIT_GENERIC"
     if installer_role_has_controller; then
-        if installer_copy_artifact "antinat-controller-linux-amd64" "$INSTALLER_CONTROLLER_BINARY" 755; then
+        if installer_copy_artifact "$controller_artifact" "$INSTALLER_CONTROLLER_BINARY" 755; then
             :
         else
             installer_die "$INSTALLER_EXIT_ARTIFACT" "Linux Controller artifact is missing" || true
             return "$INSTALLER_EXIT_ARTIFACT"
         fi
     fi
-    if installer_role_has_agent && jq -e --arg suffix "antinat-hook-runner-linux-amd64" '.artifacts | keys[] | select(endswith($suffix))' "$INSTALLER_MANIFEST_FILE" >/dev/null; then
-        if installer_copy_artifact "antinat-hook-runner-linux-amd64" "$INSTALLER_HOOK_BINARY" 755; then
+    if installer_role_has_agent && jq -e --arg suffix "$hook_artifact" '.artifacts | keys[] | select(. == $suffix)' "$INSTALLER_MANIFEST_FILE" >/dev/null; then
+        if installer_copy_artifact "$hook_artifact" "$INSTALLER_HOOK_BINARY" 755; then
             :
         else
             return "$INSTALLER_EXIT_ARTIFACT"
@@ -1328,7 +1339,7 @@ installer_install() {
         installer_die "$INSTALLER_EXIT_USAGE" "controller endpoint must be an http(s) URL without credentials, query or fragment" || true
         return "$INSTALLER_EXIT_USAGE"
     fi
-    installer_require_linux_amd64 || return "$INSTALLER_EXIT_ARTIFACT"
+    installer_require_linux_platform || return "$INSTALLER_EXIT_ARTIFACT"
     installer_init_paths
     installer_require_tools
     installer_fetch_release || return "$INSTALLER_EXIT_ARTIFACT"
@@ -2340,7 +2351,7 @@ installer_release_upgrade_lock() {
 
 installer_upgrade() {
     installer_init_paths
-    installer_require_linux_amd64 || return "$INSTALLER_EXIT_ARTIFACT"
+    installer_require_linux_platform || return "$INSTALLER_EXIT_ARTIFACT"
     installer_validate_upgrade_version || return $?
     installer_require_tools
     installer_fetch_release || return "$INSTALLER_EXIT_ARTIFACT"
@@ -2372,10 +2383,13 @@ installer_upgrade() {
         installer_upgrade_journal_write "$backup" snapshot_ready '[]' || failed=1
     fi
     local completed='[]'
+    local agent_artifact controller_artifact
+    agent_artifact=$(installer_linux_artifact agent)
+    controller_artifact=$(installer_linux_artifact controller)
     if ((failed == 0)); then
         installer_upgrade_journal_write "$backup" promoting "$completed" || failed=1
         if installer_role_has_agent; then
-            if installer_copy_artifact "antinat-agent-linux-amd64" "$INSTALLER_AGENT_BINARY" 755; then
+            if installer_copy_artifact "$agent_artifact" "$INSTALLER_AGENT_BINARY" 755; then
                 completed=$(jq -c '. + ["bin/antinat-agent"]' <<<"$completed")
                 installer_upgrade_journal_write "$backup" promoting "$completed" || failed=1
             else
@@ -2383,7 +2397,7 @@ installer_upgrade() {
             fi
         fi
         if ((failed == 0)) && installer_role_has_controller; then
-            if installer_copy_artifact "antinat-controller-linux-amd64" "$INSTALLER_CONTROLLER_BINARY" 755; then
+            if installer_copy_artifact "$controller_artifact" "$INSTALLER_CONTROLLER_BINARY" 755; then
                 completed=$(jq -c '. + ["bin/antinat-controller"]' <<<"$completed")
                 installer_upgrade_journal_write "$backup" promoting "$completed" || failed=1
             else

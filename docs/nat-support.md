@@ -26,7 +26,9 @@ can be a diagnostic observation but cannot be relabeled as filtering proof.
 The following environments remain explicitly limited until their named gates
 run on real hosts:
 
-- Linux arm64: build-only evidence from the P18 subset; no runtime promotion.
+- Linux arm64: native Debian 12 Controller/Agent startup, enrollment, and
+  control-session evidence is recorded; installer lifecycle and direct-v4
+  data-path promotion remain outstanding.
 - Windows amd64: cross-build and parser evidence; no native service or data
   path promotion.
 - OpenRC: generated service and isolated installer tests; no native host

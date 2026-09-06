@@ -13,12 +13,11 @@
   var PLATFORM_DOCKER = 'docker';
   var DOCKER_TOKEN_SOURCE = '/secure/antinat/enrollment.token';
   var DOCKER_TOKEN_TARGET = '/run/secrets/antinat_enrollment_token';
-  var RELEASE_BASE_URL = 'https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta';
-  var INSTALLER_SCRIPT_SHA256 = 'a76fcd5150ea34cde8f02cf67ed56b64d561041a5698b8b9430be182c1e4c194';
-  var INSTALLER_LIB_SHA256 = '7390a532831fd5f066d1aafac2d9160e9999fba96c656fcf884a69314a66a7e5';
-  var INSTALLER_PS1_SHA256 = '4341ae0d53e7cc1e377263ec0b954e57ea7be10e3f6a8dbaf348e025a5c6e02a';
+  var RELEASE_BASE_URL = 'https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta.1';
+  var RAW_INSTALLER_URL = 'https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh';
+  var INSTALLER_PS1_SHA256 = 'e338fa2f2929fe117f91f2e6df58514334b2ec985b869e5e7120fc981fb95756';
   var INSTALLER_TRUST_SHA256 = '7c250ef2c4b3ece394f1d22f106742152116ef192a89bda1f1deaef9073112f3';
-  var DOCKER_IMAGE = 'ghcr.io/gxbrave/antinat-agent:v1.0.0-beta';
+  var DOCKER_IMAGE = 'ghcr.io/gxbrave/antinat-agent:v1.0.0-beta.1';
   var defaultProfile = {
     platform: PLATFORM_LINUX,
     controller_endpoint: '',
@@ -215,22 +214,12 @@
         ' } finally { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue }';
       return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ' + encodePowerShellCommand(body);
     }
-    var inner = 'set -eu\n' +
-      'tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/antinat-installer.XXXXXX")\n' +
-      'trap \'rm -rf -- "$tmp_dir"\' EXIT\n' +
-      'mkdir -p -- "$tmp_dir/scripts" "$tmp_dir/deploy/trust"\n' +
-      'curl --fail --silent --show-error --location --proto \'=https\' --tlsv1.2 ' + quoteShellArg(installerURL(profile, RELEASE_BASE_URL + '/install.sh')) + ' -o "$tmp_dir/scripts/install.sh"\n' +
-      'curl --fail --silent --show-error --location --proto \'=https\' --tlsv1.2 ' + quoteShellArg(installerURL(profile, RELEASE_BASE_URL + '/libinstall.sh')) + ' -o "$tmp_dir/scripts/libinstall.sh"\n' +
-      'curl --fail --silent --show-error --location --proto \'=https\' --tlsv1.2 ' + quoteShellArg(installerURL(profile, RELEASE_BASE_URL + '/release-ed25519.pub')) + ' -o "$tmp_dir/deploy/trust/release-ed25519.pub"\n' +
-      "printf '%s  %s\\n' '" + INSTALLER_SCRIPT_SHA256 + "' \"$tmp_dir/scripts/install.sh\" | sha256sum --check --status -\n" +
-      "printf '%s  %s\\n' '" + INSTALLER_LIB_SHA256 + "' \"$tmp_dir/scripts/libinstall.sh\" | sha256sum --check --status -\n" +
-      "printf '%s  %s\\n' '" + INSTALLER_TRUST_SHA256 + "' \"$tmp_dir/deploy/trust/release-ed25519.pub\" | sha256sum --check --status -\n" +
-      'chmod 700 -- "$tmp_dir" "$tmp_dir/scripts" "$tmp_dir/deploy" "$tmp_dir/deploy/trust"\n' +
-      'chmod 600 -- "$tmp_dir/scripts/install.sh" "$tmp_dir/scripts/libinstall.sh" "$tmp_dir/deploy/trust/release-ed25519.pub"\n' +
-      'sudo env ' + quoteShellArg('ANTINAT_NODE_ID=' + context.node_id) + ' ' +
+    var rawInstaller = profile.github_proxy
+      ? profile.github_proxy.replace(/\/+$/, '') + '/' + RAW_INSTALLER_URL
+      : RAW_INSTALLER_URL;
+    return 'sudo env ' + quoteShellArg('ANTINAT_NODE_ID=' + context.node_id) + ' ' +
       quoteShellArg('ANTINAT_CONTROLLER_PIN=' + context.controller_pin) +
-      ' bash "$tmp_dir/scripts/install.sh" install ' + quoteShellArgs(args);
-    return 'bash -o pipefail -c ' + quoteShellArg(inner);
+      ' bash <(curl -Ls --proto \'=https\' --tlsv1.2 ' + quoteShellArg(rawInstaller) + ') install ' + quoteShellArgs(args);
   }
 
   function dockerVolumeSuffix(value) {

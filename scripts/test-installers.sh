@@ -16,19 +16,29 @@ root="$cache_dir/root"
 artifacts="$cache_dir/artifacts"
 mkdir -p -- "$root" "$artifacts"
 chmod 700 -- "$artifacts"
+
+case "$(uname -m)" in
+    x86_64|amd64) test_linux_arch=amd64 ;;
+    aarch64|arm64) test_linux_arch=arm64 ;;
+    *) echo "unsupported installer test architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+agent_artifact="antinat-agent-linux-$test_linux_arch"
+controller_artifact="antinat-controller-linux-$test_linux_arch"
+hook_artifact="antinat-hook-runner-linux-$test_linux_arch"
+
 openssl genpkey -algorithm Ed25519 -out "$cache_dir/release.key" 2>/dev/null
 openssl pkey -in "$cache_dir/release.key" -pubout -out "$cache_dir/release.pub" 2>/dev/null
 
 make_release() {
     local content="$1"
-    printf '%s' "$content" >"$artifacts/antinat-agent-linux-amd64"
-    printf '%s' controller-binary >"$artifacts/antinat-controller-linux-amd64"
-    printf '%s' hook-binary >"$artifacts/antinat-hook-runner-linux-amd64"
+    printf '%s' "$content" >"$artifacts/$agent_artifact"
+    printf '%s' controller-binary >"$artifacts/$controller_artifact"
+    printf '%s' hook-binary >"$artifacts/$hook_artifact"
     local agent_digest controller_digest hook_digest manifest
-    agent_digest=$(sha256sum "$artifacts/antinat-agent-linux-amd64" | awk '{print $1}')
-    controller_digest=$(sha256sum "$artifacts/antinat-controller-linux-amd64" | awk '{print $1}')
-    hook_digest=$(sha256sum "$artifacts/antinat-hook-runner-linux-amd64" | awk '{print $1}')
-    manifest=$(jq -cn --arg agent "$agent_digest" --arg controller "$controller_digest" --arg hook "$hook_digest" '{schema_version:"1",release:"test",artifacts:{"antinat-agent-linux-amd64":$agent,"antinat-controller-linux-amd64":$controller,"antinat-hook-runner-linux-amd64":$hook},trust_root:"release-key-2026",signature_algorithm:"ed25519"}')
+    agent_digest=$(sha256sum "$artifacts/$agent_artifact" | awk '{print $1}')
+    controller_digest=$(sha256sum "$artifacts/$controller_artifact" | awk '{print $1}')
+    hook_digest=$(sha256sum "$artifacts/$hook_artifact" | awk '{print $1}')
+    manifest=$(jq -cn --arg agent "$agent_digest" --arg controller "$controller_digest" --arg hook "$hook_digest" --arg agent_name "$agent_artifact" --arg controller_name "$controller_artifact" --arg hook_name "$hook_artifact" '{schema_version:"1",release:"test",artifacts:{($agent_name):$agent,( $controller_name):$controller,($hook_name):$hook},trust_root:"release-key-2026",signature_algorithm:"ed25519"}')
     printf '%s' "$manifest" >"$artifacts/manifest.json"
     openssl pkeyutl -sign -rawin -inkey "$cache_dir/release.key" -in "$artifacts/manifest.json" -out "$artifacts/manifest.sig" 2>/dev/null
 }
@@ -475,9 +485,10 @@ run_installer upgrade >/dev/null
 
 # A signed manifest with two candidates for one role is rejected instead of
 # selecting an arbitrary artifact by sorted order.
-printf '%s' ambiguous-binary >"$artifacts/alternate-antinat-agent-linux-amd64"
-alternate_digest=$(sha256sum "$artifacts/alternate-antinat-agent-linux-amd64" | awk '{print $1}')
-jq --arg digest "$alternate_digest" '.artifacts["alternate-antinat-agent-linux-amd64"] = $digest' \
+alternate_agent_artifact="alternate-$agent_artifact"
+printf '%s' ambiguous-binary >"$artifacts/$alternate_agent_artifact"
+alternate_digest=$(sha256sum "$artifacts/$alternate_agent_artifact" | awk '{print $1}')
+jq --arg digest "$alternate_digest" --arg name "$alternate_agent_artifact" '.artifacts[$name] = $digest' \
     "$artifacts/manifest.json" >"$cache_dir/ambiguous-manifest.json"
 mv -- "$cache_dir/ambiguous-manifest.json" "$artifacts/manifest.json"
 openssl pkeyutl -sign -rawin -inkey "$cache_dir/release.key" -in "$artifacts/manifest.json" -out "$artifacts/manifest.sig" 2>/dev/null
@@ -494,9 +505,10 @@ role_root="$cache_dir/role-root"
 run_installer_role controller "$role_root" install >/dev/null
 [[ -f "$role_root/opt/antinat/bin/antinat-controller" ]] || { echo 'controller-only install missing controller' >&2; exit 1; }
 [[ ! -e "$role_root/opt/antinat/bin/antinat-agent" ]] || { echo 'controller-only install created agent' >&2; exit 1; }
-printf '%s' alternate-hook >"$artifacts/alternate-antinat-hook-runner-linux-amd64"
-alternate_hook_digest=$(sha256sum "$artifacts/alternate-antinat-hook-runner-linux-amd64" | awk '{print $1}')
-jq --arg digest "$alternate_hook_digest" '.artifacts["alternate-antinat-hook-runner-linux-amd64"] = $digest' \
+alternate_hook_artifact="alternate-$hook_artifact"
+printf '%s' alternate-hook >"$artifacts/$alternate_hook_artifact"
+alternate_hook_digest=$(sha256sum "$artifacts/$alternate_hook_artifact" | awk '{print $1}')
+jq --arg digest "$alternate_hook_digest" --arg name "$alternate_hook_artifact" '.artifacts[$name] = $digest' \
     "$artifacts/manifest.json" >"$cache_dir/role-failure-manifest.json"
 mv -- "$cache_dir/role-failure-manifest.json" "$artifacts/manifest.json"
 openssl pkeyutl -sign -rawin -inkey "$cache_dir/release.key" -in "$artifacts/manifest.json" -out "$artifacts/manifest.sig" 2>/dev/null
