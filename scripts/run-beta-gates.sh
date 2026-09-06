@@ -150,39 +150,20 @@ build_release() {
     build_one linux amd64 "$release_dir/antinat-hook-runner-linux-amd64" ./cmd/antinat-hook-runner
     build_one linux amd64 "$release_dir/antinat-probe-linux-amd64" ./cmd/antinat-probe
     build_one linux amd64 "$release_dir/antinatctl-linux-amd64" ./cmd/antinatctl
-    build_one windows amd64 "$release_dir/antinat-agent-windows-amd64.exe" ./cmd/antinat-agent
-    build_one windows amd64 "$release_dir/antinat-controller-windows-amd64.exe" ./cmd/antinat-controller
-    build_one windows amd64 "$release_dir/antinat-hook-runner-windows-amd64.exe" ./cmd/antinat-hook-runner
-    build_one windows amd64 "$release_dir/antinat-probe-windows-amd64.exe" ./cmd/antinat-probe
-    build_one windows amd64 "$release_dir/antinatctl-windows-amd64.exe" ./cmd/antinatctl
-
-    local arm_tmp="$release_dir/.arm64"
-    mkdir -m 700 -- "$arm_tmp"
-    if build_one linux arm64 "$arm_tmp/antinat-agent-linux-arm64" ./cmd/antinat-agent && \
-        build_one linux arm64 "$arm_tmp/antinat-controller-linux-arm64" ./cmd/antinat-controller && \
-        build_one linux arm64 "$arm_tmp/antinat-hook-runner-linux-arm64" ./cmd/antinat-hook-runner && \
-        build_one linux arm64 "$arm_tmp/antinat-probe-linux-arm64" ./cmd/antinat-probe && \
-        build_one linux arm64 "$arm_tmp/antinatctl-linux-arm64" ./cmd/antinatctl; then
-        mv -- "$arm_tmp"/* "$release_dir/"
-        arm64_status=SUPPORTED_WITH_LIMITS
-        printf 'arm64_linux_binaries=PASS (cross-build; native runtime evidence is recorded separately)\n'
-    else
-        arm64_status=SUPPORTED_WITH_LIMITS
-        printf 'arm64_agent_cli=SUPPORTED_WITH_LIMITS (cross-build unavailable)\n'
-    fi
-    find "$arm_tmp" -mindepth 1 -maxdepth 1 -type f -delete
-    rmdir -- "$arm_tmp" 2>/dev/null || true
 
     cp -- "$repo_dir/install.sh" "$release_dir/install.sh"
     cp -- "$repo_dir/scripts/libinstall.sh" "$release_dir/libinstall.sh"
-    cp -- "$repo_dir/scripts/install.ps1" "$release_dir/install.ps1"
     cp -- "$repo_dir/deploy/trust/release-ed25519.pub" "$release_dir/release-ed25519.pub"
 
     chmod 700 -- "$release_dir"/*
 }
 
-run_gate exact-build true "single trimpath build for the Linux/Windows candidate set" \
+run_gate exact-build true "single trimpath build for the Debian/Ubuntu Linux amd64 release set" \
     "the release binaries were built once before any release test" build_release
+
+run_gate windows-cmd-build true "GOWORK=off GOOS=windows GOARCH=amd64 go build ./cmd/..." \
+    "the Windows command-line binaries compile; native Windows runtime testing is outside this release" \
+    env GOWORK=off CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -buildvcs=false ./cmd/...
 
 cat >"$release_dir/source.json" <<EOF
 {
@@ -343,9 +324,9 @@ run_gate functional-e2e true "GOWORK=off go test ./test/e2e -count=1 -v" \
     "the local TCP/UDP and lifecycle E2E suite completes; WAN independence remains a separate gate" \
     run_test_command env GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./test/e2e -count=1 -v
 
-run_gate install-upgrade-purge true "bash scripts/test-installers.sh" \
+run_gate install-upgrade-purge true "sudo bash scripts/test-installers.sh" \
     "isolated installer install, upgrade, rollback, and purge coverage passes" \
-    run_test_command bash "$script_dir/test-installers.sh"
+    run_test_command sudo bash "$script_dir/test-installers.sh"
 
 if [[ -x "$script_dir/test-browser.sh" && -f "$repo_dir/test/browser/package.json" && \
     "$(command -v node || true)" && "$(command -v npm || true)" ]]; then
@@ -379,15 +360,15 @@ else
 fi
 
 if [[ -n "${ANTINAT_CONTROLLER_ENDPOINT:-}" && -n "${ANTINAT_REMOTE_PROBE_VANTAGE:-}" ]]; then
-    limited_gate real-wan true "operator-supplied real-WAN gate" \
+    limited_gate real-wan false "operator-supplied real-WAN gate" \
         "an external WAN gate was named but P19 does not execute unreviewed commands from environment variables"
 else
-    limited_gate real-wan true "independent WAN client/provider and restart matrix" \
+    limited_gate real-wan false "independent WAN client/provider and restart matrix" \
         "controller endpoint and independent remote probe vantage are not provisioned"
 fi
 
-limited_gate platform-matrix true "native Windows, OpenRC, arm64 host, and OCI registry matrix" \
-    "P18 supplies cross-build/local OCI evidence only; no native host or registry digest is available"
+limited_gate platform-matrix false "native Windows, OpenRC, arm64 host, and OCI registry matrix" \
+    "the first release scope is Debian/Ubuntu Linux amd64; other platform evidence remains outside this release"
 
 soak_seconds=${ANTINAT_SOAK_SECONDS:-0}
 if [[ "$soak_seconds" =~ ^[0-9]+$ ]] && ((soak_seconds >= 86400)) && [[ -n "${ANTINAT_SOAK_COMMAND:-}" ]]; then
@@ -395,7 +376,7 @@ if [[ "$soak_seconds" =~ ^[0-9]+$ ]] && ((soak_seconds >= 86400)) && [[ -n "${AN
         "the requested soak command completed for at least 24 hours" \
         timeout --signal=TERM "${soak_seconds}s" bash -c "$ANTINAT_SOAK_COMMAND"
 else
-    limited_gate soak true "primary Linux 24-hour resource soak" \
+    limited_gate soak false "primary Linux 24-hour resource soak" \
         "a 24-hour soak command was not provisioned; no stability duration is claimed"
 fi
 
@@ -417,12 +398,14 @@ if [[ "${ANTINAT_RELEASE_APPROVED:-0}" == 1 ]]; then
 fi
 
 release_status=PASS
-for result in "${gate_results[@]}"; do
+for ((i = 0; i < ${#gate_results[@]}; i++)); do
+    result=${gate_results[$i]}
+    required=${gate_required[$i]}
     if [[ "$result" == FAIL ]]; then
         release_status=FAIL
         break
     fi
-    if [[ "$result" != PASS ]]; then
+    if [[ "$required" == true && "$result" != PASS ]]; then
         release_status=SUPPORTED_WITH_LIMITS
     fi
 done

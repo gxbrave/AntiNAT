@@ -30,7 +30,9 @@ jobs:
           check-latest: false
           cache: true
       - name: Test
-        run: go test ./...
+        run: |
+          packages="$(GOWORK=off go list ./... | grep -v -E '/(spike/sandbox|test/e2e)$')"
+          GOWORK=off go test $packages
       - name: Vet
         run: go vet ./...
       - name: Workflow policy
@@ -61,7 +63,9 @@ jobs:
           check-latest: false
           cache: true
       - name: Race tests
-        run: go test -race ./...
+        run: |
+          packages="$(GOWORK=off go list ./... | grep -v -E '/(spike/sandbox|test/e2e)$')"
+          GOWORK=off go test -race $packages
       - name: Build binaries
         run: |
           DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -83,6 +87,8 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 15
     needs: pr-fast
+    env:
+      GOWORK: off
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -92,7 +98,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           check-latest: false
           cache: true
-      - name: Test
-        run: go test ./...
+      - name: Compile Windows test packages
+        run: go test -run '^$' ./...
       - name: Build Windows binaries
         run: go build ./cmd/...

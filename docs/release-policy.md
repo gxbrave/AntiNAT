@@ -35,18 +35,21 @@ already-built manifest. It does not rebuild binaries or images. The workflow
 creates the immutable version tag and GitHub release only after the
 promotion-grade verifier succeeds.
 
-Missing WAN vantage, native platform, registry, SBOM tooling, vulnerability
-scanner, or soak infrastructure lowers the candidate status and stays in the
-known-limit list. Loopback, fake-server, netns, cross-build, and local image
-evidence cannot promote a runtime capability.
+Missing WAN vantage, native platform, registry, or soak infrastructure stays
+in the known-limit list for the scoped Debian/Ubuntu amd64 beta. Those
+capability gates are optional for this release because the release makes no
+public-WAN, arm64, Windows, OpenRC, OCI-registry, or duration claim. Missing
+SBOM tooling or the vulnerability scanner still blocks promotion. Loopback,
+fake-server, netns, cross-build, and local image evidence cannot promote a
+runtime capability.
 
 ## Release contents
 
-The first published release targets Debian/Ubuntu Linux and may contain Linux
-amd64 and Linux arm64 binaries, `manifest.json`, `manifest.sig`,
-`checksums.txt`, `sbom.cdx.json`, and `source.json`. Windows amd64 binaries and
-the PowerShell installer remain build-only until native Windows evidence is
-available; they are not a Windows runtime support claim. Installers consume
-the manifest and verify its signature and artifact digests before copying a
-file. OCI images require a registry manifest digest plus SBOM and signature
-evidence; a local image ID is not sufficient.
+The first published release targets Debian/Ubuntu Linux amd64 and contains
+the Linux amd64 binaries, `manifest.json`, `manifest.sig`, `checksums.txt`,
+`sbom.cdx.json`, and `source.json`. Windows amd64 binaries, the PowerShell
+installer, and arm64 builds remain build-only until their native evidence is
+available; they are not part of the first release support claim. Installers
+consume the manifest and verify its signature and artifact digests before
+copying a file. OCI images require a registry manifest digest plus SBOM and
+signature evidence; a local image ID is not sufficient.

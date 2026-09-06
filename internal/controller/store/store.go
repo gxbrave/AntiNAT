@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -46,6 +47,11 @@ type Store struct {
 	minFreeBytes uint64
 	diskFree     func(string) (uint64, error)
 	clock        func() int64
+
+	// StoreIdempotency already uses BEGIN IMMEDIATE for cross-process
+	// serialization. This local gate prevents a large in-process burst from
+	// exhausting SQLite's busy timeout while waiting for that writer lock.
+	idempotencyMu sync.Mutex
 
 	// inboxCleanupCursor is owned by this Store instance. It is deliberately
 	// process-local: a reopened Store starts a fresh bounded high-water pass.

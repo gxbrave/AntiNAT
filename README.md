@@ -1,68 +1,169 @@
 # AntiNAT
 
-AntiNAT is a Go-based Controller + Agent project for evidence-backed IPv4 endpoint publication and forwarding. The Controller owns management state, health, and the authenticated control plane; an Agent owns local sockets, traversal attempts, and user traffic. The Controller never relays user payloads.
+[English](README.en.md)
 
-## Current development status
+AntiNAT 是一个“主控 + Agent”的 IPv4 公网访问工具。主控负责管理配置、节点、权限和探测结果；Agent 放在目标网络里，负责端口映射、NAT 穿透和转发真实业务流量。主控不会充当业务流量中继。
 
-The authoritative integrated baseline is `622f98b8e3958a14094c1fad5cd775f3c93ccdb1` on `integration/v1-beta`; P01-P18 are integrated with the limits recorded in their handoffs. This branch contains the P19 release-candidate tooling and evidence verifier. The release target is Debian/Ubuntu Linux only; Windows remains build-only until a native test host is available.
+当前仓库是主控项目，同时包含一份集成版 Agent 和跨组件测试。独立 Agent 项目在 [gxbrave/AntiNAT-Agent](https://github.com/gxbrave/AntiNAT-Agent)。
 
-P10 composed working Controller/Agent application paths and a local Linux direct-v4 walking skeleton. P12/P12W added reviewed STUN/gateway traversal libraries and production composition, while P13–P18 added the remaining lifecycle, API, hook, UI, installer, service, and platform packaging work. The P19 runner builds the candidate once and binds every gate to the exact manifest digest.
+## 能做什么
 
-Important qualification: no independent public-WAN, real CPE/router, native Windows, native OpenRC, registry OCI digest, or 24-hour soak evidence is available for this candidate run. Native Debian 12 ARM64 Controller/Agent and Debian 12 amd64 plus Ubuntu 22.04 amd64 startup/control checks are recorded, but they do not promote direct-v4 reachability on a host without a global IPv4 source. Browser coverage and `govulncheck` run in the refreshed release lane; those results do not replace WAN, registry, or soak evidence. The remaining gaps keep the candidate at `SUPPORTED_WITH_LIMITS` until the protected release inputs are supplied.
+- 在主控里管理 Agent 节点和 TCP/UDP 转发规则。
+- 让 Agent 尝试直连、STUN、PCP、NAT-PMP、UPnP 等路径，并把结果报告给主控。
+- 通过签名的主控-Agent 控制通道下发配置、心跳、状态和生命周期操作。
+- 保存主控和 Agent 的本地状态，重启、失败恢复和升级时尽量保持状态一致。
+- 提供 Web 管理界面、HTTP API、`antinatctl` 命令行，以及受限制的 Webhook/脚本能力。
+- 区分“看起来有公网地址”和“确实能从独立探测点访问”，避免把本地测试结果误报成公网可用。
 
-See:
+## 项目组成
 
-- `docs/development/CURRENT_STATE.md` — authoritative plan, milestone, limitation, stop-condition, and next-decision status;
-- `docs/development/WORKSPACE_INVENTORY.md` — repositories, worktrees, preservation, and cleanup state;
-- `HANDOFF/NEXT_AI.md` — operational handoff;
-- `HANDOFF/CLEANUP_LEDGER.md` — exact pending cleanup allowlist and deferred set.
+| 目录或命令 | 作用 |
+| --- | --- |
+| `cmd/antinat-controller` | 主控 HTTP 服务 |
+| `cmd/antinat-agent` | 集成版 Agent 进程 |
+| `cmd/antinatctl` | 管理主控、节点和转发规则的 CLI |
+| `cmd/antinat-probe` | 独立探测服务 |
+| `cmd/antinat-hook-runner` | 隔离的 Hook 执行器 |
+| `internal/controller` | 主控状态、API、探测、生命周期和 Web UI |
+| `internal/agent` | Agent 控制会话、本地状态和转发协调 |
+| `internal/protocol` | 主控和 Agent 之间的签名协议 |
+| `scripts/` | 构建验证、安装、升级、卸载和发布检查脚本 |
+| `deploy/` | systemd、OpenRC 和发布信任根文件 |
 
-Historical August handoff/project-plan documents in the preserved workspace remain historical snapshots and are not current-status authority.
+## 支持范围
 
-## Debian/Ubuntu install
+首个 `v1.0.0-beta.1` 制品面向 Debian 12、Ubuntu 22.04/24.04 的 Linux amd64。这个版本覆盖本地功能测试、竞态测试、静态检查、浏览器检查和隔离安装器测试；公网 NAT、长时间运行和其他平台仍按下方限制说明。
 
-The first release targets Debian 12 and Ubuntu 22.04/24.04 on Linux amd64 and arm64. The bootstrap script fetches the signed release manifest and architecture-specific artifacts; it does not use an unsigned checksum as a trust anchor.
+- Linux amd64：首个 Debian/Ubuntu Beta 发布目标，systemd 安装路径最完整。
+- Linux arm64：保留交叉编译能力，但 ARM 主机已不在本次发布验证范围内。
+- Windows amd64：只要求能通过 `cmd` 启动并完成构建检查，不列入首个 Debian/Ubuntu 发布支持范围。
+- OpenRC、真实公网 WAN/CPE 路由器、OCI 仓库 digest 和长时间运行：证据还不完整。
+- v1 不提供任意 NAT 都能打通、主控中继业务流量、IPv6 转发数据面或正式的 `2 Gbps`/`<1 ms` 性能承诺。
 
-The public bootstrap command is:
+## 开始使用
+
+### 环境要求
+
+- Debian 12、Ubuntu 22.04 或 Ubuntu 24.04，Linux amd64
+- Go 1.26.6，或与 CI 兼容的 Go 版本
+- 编译检查需要 `bash`、`jq` 等常用工具；完整安装器检查还需要 root 权限
+
+### 方式一：一键安装脚本
+
+安装器会下载带签名的 Release 制品，校验 manifest 和每个文件的 SHA-256，然后安装 systemd/OpenRC 服务。Agent 的注册 token 默认从隐藏的 TTY 输入，或者从权限为 `0600` 的文件/文件描述符读取；不要把 token 直接写进命令行。
+
+发布 `v1.0.0-beta.1` 后，直接在目标 Debian/Ubuntu 主机执行下面的命令。它会下载已签名制品并安装主控和 Agent：
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh) install --controller-endpoint https://controller.example.com:3111
+sudo env ANTINAT_ROLE=both \
+  bash <(curl -Ls https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh) install \
+  --controller-endpoint https://你的主控地址
 ```
 
-The generated deployment command supplies `ANTINAT_NODE_ID` and `ANTINAT_CONTROLLER_PIN` separately and reads the one-time enrollment token from the installer TTY or a protected `--token-file`/`--token-fd`. Do not put the token in the shell command or in a URL.
-
-Windows binaries and the PowerShell installer are build-only artifacts for this beta. They are not a native Windows support claim and have not been validated on a Windows host.
-
-## Scope and claims
-
-The v1.0-beta boundary is frozen in:
-
-- `docs/v1-scope-contract.md` — executable product boundary and truth rules;
-- `docs/requirements-traceability.md` — mapping from `antinat.txt` to v1 decisions;
-- `docs/support-matrix.md` — `ga`, `beta`, `experimental`, `build-only`, and `unsupported` release statuses;
-- `docs/adr/0001` through `docs/adr/0004` — provenance, scope, verification, and reproducibility decisions.
-
-A candidate endpoint is never described as globally reachable merely because a local socket was bound, a gateway mapping succeeded, or STUN returned a mapping. Only a matching authenticated probe from a named independent vantage can produce `OPEN_FROM_VANTAGE`. Local, loopback, netns, fake-server, and cross-build results retain their actual evidence level.
-
-No independent public-WAN, real CPE/router, or native Windows runtime evidence is claimed for the currently integrated traversal paths. Cross-builds are compile evidence only. P18 installer/platform evidence remains bounded by its documented host and registry limits. The refreshed P19 lane runs the pinned browser suite and `govulncheck` on Go 1.26.6; these checks do not replace the unavailable external gates.
-
-Natter is listed in `antinat.txt` as an inspiration for networking principles. AntiNAT is a clean-room implementation: no Natter source, GPL-3.0 code, or copied implementation is included. AntiNAT source is distributed under the Apache License 2.0 in `LICENSE`.
-
-## Build and verification
-
-The approved module path is `github.com/gxbrave/AntiNAT`. Historical CI validated the project toolchain pin recorded by project governance; use the repository's current Go/toolchain declarations and record the actual environment for new evidence.
+国内网络可以给同一个 raw 命令设置制品镜像前缀：
 
 ```bash
-make check
-make build
-make verify-evidence
+sudo env ANTINAT_ROLE=both \
+  ANTINAT_RELEASE_BASE_URL="https://ghfast.top/https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta.1" \
+  bash <(curl -Ls https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh) install \
+  --controller-endpoint https://你的主控地址
+```
+
+`ghfast.top` 是 GitHub 下载地址的镜像前缀，因此要设置的是 `ANTINAT_RELEASE_BASE_URL`。`--github-proxy` 是给真正的 HTTP(S) 代理服务器用的，两者不是一回事。
+
+如果只安装主控，可以使用 `ANTINAT_ROLE=controller` 并省略 `--controller-endpoint`；如果只安装 Agent，可以使用 `ANTINAT_ROLE=agent`。首个发布制品支持 Linux amd64，完整参数见 [`docs/installer-contract.md`](docs/installer-contract.md)。
+
+### 方式二：自行编译
+
+```bash
+git clone https://github.com/gxbrave/AntiNAT.git
+cd AntiNAT
+
+# 跑测试和静态检查
+GOWORK=off make check
+
+# 编译主控和集成版 Agent
+GOWORK=off make build
+
+# 查看版本
 ./bin/antinat-controller version
 ./bin/antinat-agent version
-./scripts/run-beta-gates.sh --artifacts ./dist --evidence ./artifacts/evidence
-go run ./scripts/verify-release-evidence.go ./artifacts/evidence
 ```
 
-Some cumulative sandbox tests require the documented dedicated identity:
+启动一个本机主控：
+
+```bash
+./bin/antinat-controller \
+  --listen 127.0.0.1:3111 \
+  --store ./var/controller.db \
+  --keydir ./var/keys
+```
+
+主控启动后，可以用 `antinatctl` 初始化管理员、登录、创建节点并签发一次性注册 token：
+
+```bash
+GOWORK=off go build -o bin/antinatctl ./cmd/antinatctl
+./bin/antinatctl --endpoint http://127.0.0.1:3111 admin init
+./bin/antinatctl --endpoint http://127.0.0.1:3111 login --username admin
+./bin/antinatctl --endpoint http://127.0.0.1:3111 node create --name agent-1
+./bin/antinatctl --endpoint http://127.0.0.1:3111 node list
+```
+
+然后把节点 ID、一次性 token 和主控公钥 pin 提供给 Agent。token 应放在权限为 `0600` 的文件中，Agent 成功注册后会消费它：
+
+```bash
+chmod 600 ./var/enrollment.token
+./bin/antinat-agent \
+  --endpoint http://127.0.0.1:3111 \
+  --node <节点 ID> \
+  --token-file ./var/enrollment.token \
+  --pin <64 位十六进制主控公钥> \
+  --state ./var/agent
+```
+
+也可以用环境变量 `ANTINAT_ENDPOINT`、`ANTINAT_NODE`、`ANTINAT_TOKEN_FILE`、`ANTINAT_PIN` 和 `ANTINAT_STATE`，不必把敏感值放进 shell 历史。
+
+### 常用检查
+
+```bash
+GOWORK=off make verify-evidence
+GOWORK=off go run ./scripts/verify-release-evidence.go ./artifacts/evidence
+curl http://127.0.0.1:3111/healthz
+curl http://127.0.0.1:3111/readyz
+```
+
+完整 Beta 检查可以运行：
+
+```bash
+GOWORK=off bash scripts/run-beta-gates.sh \
+  --artifacts ./dist \
+  --evidence ./artifacts/evidence
+```
+
+### 相关目录
+
+- `var/`：本地运行时数据库、密钥和 Agent 状态，默认不应提交到 Git。
+- `docs/support-matrix.md`：平台和能力支持矩阵。
+- `docs/installer-contract.md`：安装器参数、安全边界和退出码。
+- `docs/release-policy.md`：Beta 制品、签名和发布规则。
+
+## 实现方式
+
+主控和 Agent 分成两个故障域。主控保存期望配置，负责认证、Web/API、节点管理、探测协调和审计；Agent 保存本地实际状态，负责监听本地目标、建立映射、处理 TCP/UDP 数据面和恢复。业务数据只经过 Agent，不经过主控。
+
+控制通道使用签名的协议帧和节点身份。配置变更会经过 Agent 的本地协调器和持久化状态机，转发更新、删除、重启恢复和失败回滚都有明确状态。公网可达性必须由命名的独立探测点完成认证探测；本地 bind、STUN 映射或读取公网 IP 只能算候选信息。
+
+发布安装器从 Release 下载 manifest、签名和制品，先验证固定信任根、签名和 SHA-256，再原子安装文件。这样可以把“下载到了文件”和“运行的是经过验证的文件”区分开。更细的协议、状态机和安全约束见 `docs/`。
+
+## 测试
+
+```bash
+GOWORK=off go test ./...
+GOWORK=off go test -race ./...
+GOWORK=off go vet ./...
+```
+
+部分沙箱测试需要专用身份：
 
 ```bash
 ANTINAT_DEDICATED_UID=12001 \
@@ -70,14 +171,6 @@ ANTINAT_DEDICATED_GID=12001 \
 GOWORK=off make check
 ```
 
-Build metadata can be injected with `make build VERSION=... COMMIT=... DATE=...`; no secrets belong in those values. Generated `bin/` outputs are ignored and are not release artifacts. The beta runner requires a clean Linux amd64 checkout and never tags, pushes, or publishes a candidate.
+## 许可证
 
-## Development rules
-
-- Follow strict RED -> GREEN -> REFACTOR for behavioral work and preserve the failing-test evidence.
-- Consume dependencies only from integrated commits; keep implementation work isolated by branch/worktree.
-- Implementers do not approve their own work. Required fresh specification, quality/security, and specialist reviews must pass before integration.
-- Frozen-contract conflicts require a contract-change handoff and approval; do not silently reinterpret contracts.
-- Do not claim Windows, arm64, Docker, traversal, WAN, installer, platform, or release capability beyond the support matrix and exact evidence.
-- Do not integrate P13, begin P14, remove worktrees, or perform destructive cleanup merely because this README records the current state. Follow `HANDOFF/NEXT_AI.md` and the exact authorization boundary.
-- CI uses read-only permissions, pinned action SHAs, fixed job timeouts, and separate test lanes. Fork pull requests must not receive secrets or privileged execution.
+本项目采用 [GPL-3.0](LICENSE) 发布。

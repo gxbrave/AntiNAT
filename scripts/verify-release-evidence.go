@@ -110,6 +110,7 @@ type releaseVerificationReport struct {
 
 var requiredReleaseGates = []string{
 	"exact-build",
+	"windows-cmd-build",
 	"artifact-integrity",
 	"signature",
 	"functional-e2e",

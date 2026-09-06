@@ -70,19 +70,19 @@ whether P01 has any current implementation evidence.
 
 ## Security and provenance boundary
 
-The repository is Apache-2.0. Natter is a principles-only reference from the
-original product note; its GPL-3.0 source and derived implementation are not
-copied. Enrollment tokens are secrets and must not be embedded in shell history,
-argv, environment, service definitions, or ordinary logs. Probe challenges are
-provider-hidden until the Agent receives the authenticated ingress frame.
+The repository is GPL-3.0. Natter is a principles-only reference from the
+original product requirements; its source and copied implementation are not
+included. Enrollment tokens are secrets and must not be embedded in shell
+history, argv, environment, service definitions, or ordinary logs. Probe
+challenges are provider-hidden until the Agent receives the authenticated
+ingress frame.
 
 ## Change control
 
-P01 freezes this boundary on 2026-08-09 using the module path
-`github.com/gxbrave/AntiNAT` and owner `gxbrave` from
-`.hermes/handoffs/project-inputs.json`. Scope changes require a reviewed ADR,
-updated traceability/support documents, affected contract hashes, and explicit
-orchestrator approval before implementation. P04 owns later machine-readable
+P01 freezes this boundary on 2026-08-09 for the module path
+`github.com/gxbrave/AntiNAT` and owner `gxbrave`. Scope changes require a
+reviewed ADR, updated traceability/support documents, affected contract hashes,
+and explicit approval before implementation. P04 owns later machine-readable
 protocol/state/API revisions; P01 must not silently edit them.
 
 ## Explicit non-goals

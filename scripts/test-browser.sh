@@ -23,7 +23,7 @@ else
   TEST_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
 fi
 
-PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/root/.cache/ms-playwright}"
+PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$ROOT/.cache/ms-playwright}"
 
 cleanup() {
   local rc=$?
