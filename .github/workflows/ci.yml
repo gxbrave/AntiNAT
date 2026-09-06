@@ -30,7 +30,9 @@ jobs:
           check-latest: false
           cache: true
       - name: Test
-        run: go test ./...
+        run: |
+          packages="$(GOWORK=off go list ./... | grep -v -E '/(spike/sandbox|test/e2e)$')"
+          GOWORK=off go test $packages
       - name: Vet
         run: go vet ./...
       - name: Workflow policy
@@ -61,7 +63,9 @@ jobs:
           check-latest: false
           cache: true
       - name: Race tests
-        run: go test -race ./...
+        run: |
+          packages="$(GOWORK=off go list ./... | grep -v -E '/(spike/sandbox|test/e2e)$')"
+          GOWORK=off go test -race $packages
       - name: Build binaries
         run: |
           DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"

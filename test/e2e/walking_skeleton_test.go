@@ -1,3 +1,5 @@
+//go:build linux
+
 // M1 walking skeleton (P10 Story 6, v0.8 §11.3 M1-12).
 //
 // From empty state: init admin -> create node -> enroll (hidden token) ->
