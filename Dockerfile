@@ -38,7 +38,7 @@ FROM runtime AS agent
 LABEL org.opencontainers.image.title="AntiNAT Agent" \
       org.opencontainers.image.source="https://github.com/gxbrave/AntiNAT" \
       org.opencontainers.image.description="AntiNAT forwarding agent" \
-      org.opencontainers.image.licenses="Apache-2.0"
+      org.opencontainers.image.licenses="GPL-3.0"
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["/opt/antinat/bin/healthcheck-agent"]
 ENTRYPOINT ["/opt/antinat/bin/stage-enrollment"]
 
@@ -46,7 +46,7 @@ FROM runtime AS controller
 LABEL org.opencontainers.image.title="AntiNAT Controller" \
       org.opencontainers.image.source="https://github.com/gxbrave/AntiNAT" \
       org.opencontainers.image.description="AntiNAT controller" \
-      org.opencontainers.image.licenses="Apache-2.0"
+      org.opencontainers.image.licenses="GPL-3.0"
 EXPOSE 3111
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD wget -q -O - http://127.0.0.1:3111/readyz >/dev/null || exit 1
 ENTRYPOINT ["/opt/antinat/bin/antinat-controller", "-listen", "127.0.0.1:3111", "-store", "/var/lib/antinat/controller.db", "-keydir", "/var/lib/antinat/controller-keys"]
