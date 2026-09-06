@@ -96,9 +96,9 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          test "$(jq -r '.release' release-bundle/artifacts/evidence/release.json)" = "$RELEASE_VERSION"
-          test "$(jq -r '.source.commit_sha' release-bundle/artifacts/evidence/release.json)" = "$GITHUB_SHA"
-          test "$(jq -r '.source.commit_sha' release-bundle/artifacts/release/source.json)" = "$GITHUB_SHA"
+          test "$(jq -r '.release' release-bundle/evidence/release.json)" = "$RELEASE_VERSION"
+          test "$(jq -r '.source.commit_sha' release-bundle/evidence/release.json)" = "$GITHUB_SHA"
+          test "$(jq -r '.source.commit_sha' release-bundle/release/source.json)" = "$GITHUB_SHA"
       - name: Sign and finalize metadata without rebuilding
         env:
           ANTINAT_RELEASE_SIGNING_KEY: ${{ secrets.ANTINAT_RELEASE_SIGNING_KEY }}
@@ -108,28 +108,28 @@ jobs:
           umask 077
           printf '%s' "$ANTINAT_RELEASE_SIGNING_KEY" >"$key_file"
           openssl pkeyutl -sign -rawin -inkey "$key_file" \
-            -in release-bundle/artifacts/release/manifest.json \
-            -out release-bundle/artifacts/release/manifest.sig
-          chmod 600 release-bundle/artifacts/release/manifest.sig
+            -in release-bundle/release/manifest.json \
+            -out release-bundle/release/manifest.sig
+          chmod 600 release-bundle/release/manifest.sig
           printf '%s\n' \
             'result=PASS' \
             'reason=protected promotion job verified the detached Ed25519 signature' \
-            >release-bundle/artifacts/evidence/signature.log
+            >release-bundle/evidence/signature.log
           jq --arg actor "$GITHUB_ACTOR" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             '.approval = {approved:true,approver:$actor,recorded_at:$now}
              | .gates = (.gates | map(if .id == "signature" then .result = "PASS" | .summary = "protected release signature verified in promotion job" else . end))
              | .known_limits = (.known_limits | map(if . == "No production release signing key or independent release approver was supplied to this candidate run." then "Manifest signature and release approval were completed by the protected promotion job." else . end))
              | .status = (if ([.gates[] | select(.required and .result != "PASS")] | length) == 0 then "PASS" else "SUPPORTED_WITH_LIMITS" end)
              | .signature_status = "PASS"' \
-            release-bundle/artifacts/evidence/release.json >release-bundle/artifacts/evidence/release.json.tmp
-          mv -- release-bundle/artifacts/evidence/release.json.tmp release-bundle/artifacts/evidence/release.json
+            release-bundle/evidence/release.json >release-bundle/evidence/release.json.tmp
+          mv -- release-bundle/evidence/release.json.tmp release-bundle/evidence/release.json
       - name: Require promotion-grade evidence
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
           GOWORK=off go run ./scripts/verify-release-evidence.go \
-            --require-promotion release-bundle/artifacts/evidence \
-            >release-bundle/artifacts/evidence/release-evidence.log
+            --require-promotion release-bundle/evidence \
+            >release-bundle/evidence/release-evidence.log
       - name: Create immutable GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -138,4 +138,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "AntiNAT ${{ inputs.version }}" \
             --generate-notes \
-            release-bundle/artifacts/release/*
+            release-bundle/release/*
