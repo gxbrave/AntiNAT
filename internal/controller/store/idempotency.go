@@ -43,6 +43,9 @@ func (s *Store) StoreIdempotency(rec IdempotencyRecord) (IdempotencyRecord, bool
 	if rec.Key == "" {
 		return IdempotencyRecord{}, false, errors.New("store: empty idempotency key")
 	}
+	s.idempotencyMu.Lock()
+	defer s.idempotencyMu.Unlock()
+
 	ts := now()
 	expires := rec.ExpiresAt
 	if expires == 0 {
