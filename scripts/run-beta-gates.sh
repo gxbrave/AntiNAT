@@ -396,6 +396,10 @@ approver="${ANTINAT_RELEASE_APPROVER:-PENDING}"
 if [[ "${ANTINAT_RELEASE_APPROVED:-0}" == 1 ]]; then
     approval_value=true
 fi
+approval_recorded_at=""
+if [[ "$approval_value" == true ]]; then
+    approval_recorded_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+fi
 
 release_status=PASS
 for ((i = 0; i < ${#gate_results[@]}; i++)); do
@@ -431,7 +435,8 @@ write_release_record() {
         --arg built_at "$source_built_at" --arg build_started "$build_started_at" \
         --arg build_finished "$build_finished_at" --arg test_started "$test_started_at" \
         --arg test_finished "$test_finished_at" --argjson approved "$approval_value" \
-        --arg approver "$approver" --argjson gates "$final_gate_json" \
+        --arg approver "$approver" --arg recorded_at "$approval_recorded_at" \
+        --argjson gates "$final_gate_json" \
         --argjson artifacts "$artifact_names" --arg signature_status "$signature_status" \
         --arg sbom_status "$sbom_status" \
         '{schema_version:$schema,release:$release,status:$status,
@@ -440,7 +445,7 @@ write_release_record() {
           source:{module:$module,commit_sha:$commit,tree_sha:$tree,go_version:$go,built_at:$built_at},
           build:{count:1,started_at:$build_started,finished_at:$build_finished,
                  test_started_at:$test_started,test_finished_at:$test_finished},
-          approval:{approved:$approved,approver:$approver},gates:$gates,
+          approval:{approved:$approved,approver:$approver,recorded_at:$recorded_at},gates:$gates,
           known_limits:[
             "No production release signing key or independent release approver was supplied to this candidate run.",
             "Real public-WAN/router, native Windows, native arm64/OpenRC, registry OCI digest, and 24-hour soak evidence remain unproven when their gates are limited."

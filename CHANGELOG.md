@@ -19,6 +19,5 @@
 - Kept Linux arm64 and Windows artifacts outside the first release until native
   platform evidence is available.
 
-The candidate is not published by the coding worker. Promotion still requires
-the protected Ed25519 signing key, an independent approval, and the external
-gates listed in the release evidence record.
+Publication is performed by the protected promotion workflow after the exact
+manifest is signed and the required gates in the release evidence record pass.
