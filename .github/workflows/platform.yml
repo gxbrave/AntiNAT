@@ -36,7 +36,7 @@ jobs:
       - name: Shell syntax
         run: bash -n scripts/*.sh
       - name: Installer smoke
-        run: bash scripts/test-installers.sh
+        run: sudo bash scripts/test-installers.sh
       - name: Installer package tests
         run: GOWORK=off go test ./internal/install -count=1
       - name: Installer race tests

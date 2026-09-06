@@ -336,9 +336,9 @@ run_gate functional-e2e true "GOWORK=off go test ./test/e2e -count=1 -v" \
     "the local TCP/UDP and lifecycle E2E suite completes; WAN independence remains a separate gate" \
     run_test_command env GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./test/e2e -count=1 -v
 
-run_gate install-upgrade-purge true "bash scripts/test-installers.sh" \
+run_gate install-upgrade-purge true "sudo bash scripts/test-installers.sh" \
     "isolated installer install, upgrade, rollback, and purge coverage passes" \
-    run_test_command bash "$script_dir/test-installers.sh"
+    run_test_command sudo bash "$script_dir/test-installers.sh"
 
 if [[ -x "$script_dir/test-browser.sh" && -f "$repo_dir/test/browser/package.json" && \
     "$(command -v node || true)" && "$(command -v npm || true)" ]]; then
