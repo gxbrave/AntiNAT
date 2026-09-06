@@ -138,4 +138,5 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "AntiNAT ${{ inputs.version }}" \
             --generate-notes \
+            --prerelease \
             release-bundle/release/*

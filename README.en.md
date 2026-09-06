@@ -126,7 +126,7 @@ The full beta gate is available locally:
 
 ```bash
 GOWORK=off bash scripts/run-beta-gates.sh \
-  --artifacts ./dist \
+  --artifacts ./artifacts \
   --evidence ./artifacts/evidence
 ```
 
