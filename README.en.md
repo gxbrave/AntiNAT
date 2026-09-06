@@ -58,6 +58,8 @@ sudo env ANTINAT_ROLE=both \
   --controller-endpoint https://your-controller.example
 ```
 
+This anonymous raw command requires a public GitHub repository. If the repository remains private, anonymous `curl` returns 404; make the repository public before using the command.
+
 For networks that need a GitHub mirror, set the release URL prefix while keeping the same raw command:
 
 ```bash

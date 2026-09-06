@@ -60,6 +60,8 @@ sudo env ANTINAT_ROLE=both \
   --controller-endpoint https://你的主控地址
 ```
 
+这条匿名 raw 命令要求 GitHub 仓库公开。当前仓库若保持 private，匿名 `curl` 会返回 404；公开仓库后再使用上面的命令。
+
 国内网络可以给同一个 raw 命令设置制品镜像前缀：
 
 ```bash
