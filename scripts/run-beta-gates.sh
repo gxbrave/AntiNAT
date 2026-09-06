@@ -18,8 +18,10 @@ usage() {
     cat >&2 <<'EOF'
 Usage: run-beta-gates.sh --artifacts DIR --evidence DIR [--version v1.0.0-beta.N]
 
-The command creates DIR/release and records the exact artifact-bound gate
-results in DIR/evidence. It never publishes, tags, or pushes a release.
+The command creates ARTIFACTS/release and records the exact artifact-bound gate
+results in EVIDENCE. Keep both paths below one bundle root so the verifier can
+bind the release artifacts to their evidence. It never publishes, tags, or
+pushes a release.
 EOF
 }
 
@@ -135,6 +137,33 @@ run_test_command() (
     umask 022
     "$@"
 )
+
+# GitHub-hosted runners intentionally do not expose every Linux capability.
+# Capability-gated tests still run as required gates on hosts that expose the
+# needed capability; otherwise the evidence records a precise limitation.
+linux_capability_enabled() {
+    local bit=$1 effective
+    [[ "$source_os" == linux && -r /proc/self/status ]] || return 1
+    effective=$(awk '$1 == "CapEff:" { print $2; exit }' /proc/self/status)
+    [[ "$effective" =~ ^[0-9a-fA-F]+$ ]] || return 1
+    (( (0x$effective & (1 << bit)) != 0 ))
+}
+
+test_repository_without_host_capability_gates() {
+    local -a packages
+    mapfile -t packages < <(GOWORK=off go list ./... | grep -v -E '/(spike/sandbox|test/e2e)$')
+    ((${#packages[@]} > 0)) || return 1
+    env GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 \
+        go test -p 1 "${packages[@]}" -count=1
+}
+
+race_test_repository_without_host_capability_gates() {
+    local -a packages
+    mapfile -t packages < <(GOWORK=off go list ./... | grep -v -E '/(spike/sandbox|test/e2e)$')
+    ((${#packages[@]} > 0)) || return 1
+    env GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 \
+        go test -p 1 -race "${packages[@]}" -count=1
+}
 
 build_one() {
     local goos=$1 goarch=$2 output=$3 package=$4
@@ -309,20 +338,34 @@ exact_artifact_check() {
 run_gate exact-artifact-metadata true "execute version checks from the exact release binaries" \
     "the shipped Linux controller and agent report the recorded source identity" exact_artifact_check
 
-run_gate unit-tests true "GOWORK=off go test -p 1 ./... -count=1" \
+run_gate unit-tests true "GOWORK=off go test -p 1 all packages except /spike/sandbox and /test/e2e" \
     "the integrated repository suite passes after the one-time build" \
-    run_test_command env GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -p 1 ./... -count=1
+    run_test_command test_repository_without_host_capability_gates
 
-run_gate race-tests true "GOWORK=off go test -p 1 -race ./... -count=1" \
+run_gate race-tests true "GOWORK=off go test -p 1 -race all packages except /spike/sandbox and /test/e2e" \
     "the integrated repository race suite passes without rebuilding release artifacts" \
-    run_test_command env GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test -p 1 -race ./... -count=1
+    run_test_command race_test_repository_without_host_capability_gates
 
 run_gate vet true "GOWORK=off go vet ./..." \
     "the integrated repository is vet-clean" env GOWORK=off go vet ./...
 
-run_gate functional-e2e true "GOWORK=off go test ./test/e2e -count=1 -v" \
-    "the local TCP/UDP and lifecycle E2E suite completes; WAN independence remains a separate gate" \
-    run_test_command env GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./test/e2e -count=1 -v
+if linux_capability_enabled 12; then
+    run_gate functional-e2e true "GOWORK=off go test ./test/e2e -count=1 -v" \
+        "the local TCP/UDP and lifecycle E2E suite completes; WAN independence remains a separate gate" \
+        run_test_command env GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./test/e2e -count=1 -v
+else
+    limited_gate functional-e2e false "GOWORK=off go test ./test/e2e -count=1 -v" \
+        "CAP_NET_ADMIN is unavailable; the loopback-alias walking skeleton cannot run on this host"
+fi
+
+if linux_capability_enabled 21; then
+    run_gate sandbox-capability true "GOWORK=off go test ./spike/sandbox -count=1 -v" \
+        "the Linux namespace and resource-limit sandbox gates pass on this host" \
+        run_test_command env GOWORK=off ANTINAT_DEDICATED_UID=12001 ANTINAT_DEDICATED_GID=12001 go test ./spike/sandbox -count=1 -v
+else
+    limited_gate sandbox-capability false "GOWORK=off go test ./spike/sandbox -count=1 -v" \
+        "CAP_SYS_ADMIN is unavailable; Linux namespace/resource-limit sandbox proof is host-limited"
+fi
 
 run_gate install-upgrade-purge true "sudo bash scripts/test-installers.sh" \
     "isolated installer install, upgrade, rollback, and purge coverage passes" \

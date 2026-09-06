@@ -54,7 +54,7 @@ jobs:
           mkdir -p artifacts/evidence
           GOWORK=off bash scripts/run-beta-gates.sh \
             --version "$RELEASE_VERSION" \
-            --artifacts dist \
+            --artifacts artifacts \
             --evidence artifacts/evidence
       - name: Verify candidate evidence
         run: GOWORK=off go run ./scripts/verify-release-evidence.go artifacts/evidence
@@ -64,7 +64,7 @@ jobs:
         with:
           name: antinat-${{ inputs.version }}-candidate
           path: |
-            dist/release
+            artifacts/release
             artifacts/evidence
           if-no-files-found: error
           retention-days: 14
@@ -100,7 +100,7 @@ jobs:
         run: |
           test "$(jq -r '.release' release-bundle/artifacts/evidence/release.json)" = "$RELEASE_VERSION"
           test "$(jq -r '.source.commit_sha' release-bundle/artifacts/evidence/release.json)" = "$GITHUB_SHA"
-          test "$(jq -r '.source.commit_sha' release-bundle/dist/release/source.json)" = "$GITHUB_SHA"
+          test "$(jq -r '.source.commit_sha' release-bundle/artifacts/release/source.json)" = "$GITHUB_SHA"
       - name: Sign and finalize metadata without rebuilding
         env:
           ANTINAT_RELEASE_SIGNING_KEY: ${{ secrets.ANTINAT_RELEASE_SIGNING_KEY }}
@@ -110,9 +110,9 @@ jobs:
           umask 077
           printf '%s' "$ANTINAT_RELEASE_SIGNING_KEY" >"$key_file"
           openssl pkeyutl -sign -rawin -inkey "$key_file" \
-            -in release-bundle/dist/release/manifest.json \
-            -out release-bundle/dist/release/manifest.sig
-          chmod 600 release-bundle/dist/release/manifest.sig
+            -in release-bundle/artifacts/release/manifest.json \
+            -out release-bundle/artifacts/release/manifest.sig
+          chmod 600 release-bundle/artifacts/release/manifest.sig
           printf '%s\n' \
             'result=PASS' \
             'reason=protected promotion job verified the detached Ed25519 signature' \
@@ -140,4 +140,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "AntiNAT ${{ inputs.version }}" \
             --generate-notes \
-            release-bundle/dist/release/*
+            release-bundle/artifacts/release/*

@@ -30,7 +30,7 @@ GOWORK=off go test -p 1 ./... -count=1
 GOWORK=off go test -p 1 -race ./... -count=1
 GOWORK=off go vet ./...
 GOWORK=off govulncheck ./...
-./scripts/run-beta-gates.sh --artifacts ./dist --evidence ./artifacts/evidence
+./scripts/run-beta-gates.sh --artifacts ./artifacts --evidence ./artifacts/evidence
 go run ./scripts/verify-release-evidence.go ./artifacts/evidence
 ```
 

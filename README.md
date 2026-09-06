@@ -136,7 +136,7 @@ curl http://127.0.0.1:3111/readyz
 
 ```bash
 GOWORK=off bash scripts/run-beta-gates.sh \
-  --artifacts ./dist \
+  --artifacts ./artifacts \
   --evidence ./artifacts/evidence
 ```
 
