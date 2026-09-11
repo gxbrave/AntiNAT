@@ -4,6 +4,8 @@
 
 AntiNAT 是一个“主控 + Agent”的 IPv4 公网访问工具。主控负责管理配置、节点、权限和探测结果；Agent 放在目标网络里，负责端口映射、NAT 穿透和转发真实业务流量。主控不会充当业务流量中继。
 
+###目前还是半成品，还在测试中。
+
 当前仓库是主控项目，同时包含一份集成版 Agent 和跨组件测试。独立 Agent 项目在 [gxbrave/AntiNAT-Agent](https://github.com/gxbrave/AntiNAT-Agent)。
 
 ## 能做什么
