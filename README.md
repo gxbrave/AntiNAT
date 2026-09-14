@@ -52,30 +52,29 @@ AntiNAT 是一个“主控 + Agent”的 IPv4 公网访问工具。主控负责�
 
 ### 方式一：一键安装脚本
 
-安装器会下载带签名的 Release 制品，校验 manifest 和每个文件的 SHA-256，然后安装 systemd/OpenRC 服务。Agent 的注册 token 默认从隐藏的 TTY 输入，或者从权限为 `0600` 的文件/文件描述符读取；不要把 token 直接写进命令行。
-
-发布 `v1.0.0-beta.1` 后，直接在目标 Debian/Ubuntu 主机执行下面的命令。它会下载已签名制品并安装主控和 Agent：
+在 Debian/Ubuntu 的 Linux amd64 主机运行：
 
 ```bash
-sudo env ANTINAT_ROLE=both \
-  bash <(curl -Ls https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh) install \
-  --controller-endpoint https://你的主控地址
+curl -fsSL https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo bash
 ```
 
-这条匿名 raw 命令要求 GitHub 仓库公开。当前仓库若保持 private，匿名 `curl` 会返回 404；公开仓库后再使用上面的命令。
+按提示输入 **1 安装主控 / 2 安装 Agent / 3 安装两者**。安装 Agent 时会询问主控地址，并隐藏输入注册 token。已是 root 用户时可省略 `sudo`。
 
-国内网络可以给同一个 raw 命令设置制品镜像前缀：
+也可以直接加参数（数字可替换为 `controller`、`agent`、`both`）：
 
 ```bash
-sudo env ANTINAT_ROLE=both \
-  ANTINAT_RELEASE_BASE_URL="https://ghfast.top/https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta.1" \
-  bash <(curl -Ls https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh) install \
-  --controller-endpoint https://你的主控地址
+# 只安装主控
+curl -fsSL https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo bash -s -- 1
+
+# 安装 Agent，指定主控地址；token 随后隐藏输入
+curl -fsSL https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo bash -s -- 2 --controller-endpoint https://你的主控地址
 ```
 
-`ghfast.top` 是 GitHub 下载地址的镜像前缀，因此要设置的是 `ANTINAT_RELEASE_BASE_URL`。`--github-proxy` 是给真正的 HTTP(S) 代理服务器用的，两者不是一回事。
+自动化安装可追加 `--token-file /安全路径/token`（文件权限 `0600`）或 `--token-fd FD`，不要把 token 直接放到命令行。角色也可写成 `--role controller`；原有 `install/upgrade/uninstall/purge` 子命令和 `ANTINAT_ROLE` 用法继续兼容。运行 `--help` 查看入口说明，完整底层参数见 [`docs/installer-contract.md`](docs/installer-contract.md)。
 
-如果只安装主控，可以使用 `ANTINAT_ROLE=controller` 并省略 `--controller-endpoint`；如果只安装 Agent，可以使用 `ANTINAT_ROLE=agent`。首个发布制品支持 Linux amd64，完整参数见 [`docs/installer-contract.md`](docs/installer-contract.md)。
+默认使用 `v1.0.0-beta.1` Release，校验签名和制品 SHA-256，再安装 systemd/OpenRC 服务。需要制品镜像时，在 `sudo` 后使用 `env ANTINAT_RELEASE_BASE_URL="https://镜像前缀/https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta.1"`；`--github-proxy` 则用于 HTTP(S) 代理服务器。
+
+匿名下载要求仓库和 Release 公开。
 
 ### 方式二：自行编译
 

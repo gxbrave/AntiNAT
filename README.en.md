@@ -48,28 +48,26 @@ The first `v1.0.0-beta.1` artifacts target Linux amd64 on Debian 12 and Ubuntu 2
 
 ### Option 1: Installer script
 
-The installer downloads a signed release manifest and artifacts, verifies the trust root and SHA-256 digests, then installs a systemd/OpenRC service. Agent enrollment tokens are read from a hidden TTY or a `0600` file/file descriptor. Never put a token directly in the command line.
-
-After `v1.0.0-beta.1` is published, run the following directly on the target Debian/Ubuntu host. It downloads signed artifacts and installs the Controller and Agent:
+Run on a Debian/Ubuntu Linux amd64 host:
 
 ```bash
-sudo env ANTINAT_ROLE=both \
-  bash <(curl -Ls https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh) install \
-  --controller-endpoint https://your-controller.example
+curl -fsSL https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo bash
 ```
 
-This anonymous raw command requires a public GitHub repository. If the repository remains private, anonymous `curl` returns 404; make the repository public before using the command.
+Choose **1 Controller / 2 Agent / 3 both**. Agent installation prompts for the Controller URL and reads the enrollment token with input hidden. Omit `sudo` when already running as root.
 
-For networks that need a GitHub mirror, set the release URL prefix while keeping the same raw command:
+Pass a choice directly to skip the menu (`controller`, `agent`, and `both` also work):
 
 ```bash
-sudo env ANTINAT_ROLE=both \
-  ANTINAT_RELEASE_BASE_URL="https://ghfast.top/https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta.1" \
-  bash <(curl -Ls https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh) install \
-  --controller-endpoint https://your-controller.example
+curl -fsSL https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo bash -s -- 1
+curl -fsSL https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo bash -s -- 2 --controller-endpoint https://your-controller.example
 ```
 
-`ANTINAT_RELEASE_BASE_URL` is the right setting for this URL-prefix mirror. `--github-proxy` is for a real HTTP(S) proxy server and is a different option. Use `ANTINAT_ROLE=controller` for only the Controller or `ANTINAT_ROLE=agent` for only the Agent. The first release installer targets Linux amd64; see [`docs/installer-contract.md`](docs/installer-contract.md).
+For automation, add `--token-file /secure/path/token` (mode `0600`) or `--token-fd FD`. Never pass literal tokens on the command line. `--role controller`, existing `install/upgrade/uninstall/purge` commands, and `ANTINAT_ROLE` remain supported. Use `--help` for entry point usage; see [`docs/installer-contract.md`](docs/installer-contract.md) for underlying installer flags.
+
+The default release is `v1.0.0-beta.1`. The installer verifies signatures and artifact SHA-256 digests before installing systemd/OpenRC services. For an artifact mirror, insert `env ANTINAT_RELEASE_BASE_URL="https://mirror-prefix/https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta.1"` after `sudo`. `--github-proxy` instead configures an HTTP(S) proxy server.
+
+Anonymous downloads require a public repository and Release.
 
 ### Option 2: Build from source
 
