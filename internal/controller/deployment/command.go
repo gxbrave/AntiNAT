@@ -33,7 +33,7 @@ const (
 	installerPS1URL    = releaseBaseURL + "/install.ps1"
 	installerTrustURL  = releaseBaseURL + "/release-ed25519.pub"
 	installerPS1SHA    = "db80a258dad0623aa85386d511af036c88fc3ce9d2027dd8f63f980caf8b719c"
-	installerTrustSHA  = "7c250ef2c4b3ece394f1d22f106742152116ef192a89bda1f1deaef9073112f3"
+	installerTrustSHA  = "82a67ef78af24e5189d12b994c3d9839abccd11f8fc453e1b6435b286fcf62f1"
 	containerImage     = "ghcr.io/gxbrave/antinat-agent:v1.0.0-beta.1"
 	dockerTokenSource  = "/secure/antinat/enrollment.token"
 	dockerTokenTarget  = "/run/secrets/antinat_enrollment_token"

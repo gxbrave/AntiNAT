@@ -16,7 +16,7 @@
   var RELEASE_BASE_URL = 'https://github.com/gxbrave/AntiNAT-Agent/releases/download/v1.0.0-beta.2';
   var RAW_INSTALLER_URL = 'https://raw.githubusercontent.com/gxbrave/AntiNAT-Agent/main/install.sh';
   var INSTALLER_PS1_SHA256 = 'db80a258dad0623aa85386d511af036c88fc3ce9d2027dd8f63f980caf8b719c';
-  var INSTALLER_TRUST_SHA256 = '7c250ef2c4b3ece394f1d22f106742152116ef192a89bda1f1deaef9073112f3';
+  var INSTALLER_TRUST_SHA256 = '82a67ef78af24e5189d12b994c3d9839abccd11f8fc453e1b6435b286fcf62f1';
   var DOCKER_IMAGE = 'ghcr.io/gxbrave/antinat-agent:v1.0.0-beta.1';
   var defaultProfile = {
     platform: PLATFORM_LINUX,
