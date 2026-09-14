@@ -48,26 +48,36 @@ The first `v1.0.0-beta.1` artifacts target Linux amd64 on Debian 12 and Ubuntu 2
 
 ### Option 1: Installer script
 
-Run on a Debian/Ubuntu Linux amd64 host:
+Run on Debian/Ubuntu Linux amd64 (omit `sudo` as root):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo bash
 ```
 
-Choose **1 Controller / 2 Agent / 3 both**. Agent installation prompts for the Controller URL and reads the enrollment token with input hidden. Omit `sudo` when already running as root.
+The menu has exactly three choices:
 
-Pass a choice directly to skip the menu (`controller`, `agent`, and `both` also work):
+1. **Controller only**.
+2. **Controller + Agent**: install the Controller, create a local node through the Controller, and use its generated enrollment parameters with the [AntiNAT-Agent](https://github.com/gxbrave/AntiNAT-Agent) installer. The components remain separate services.
+3. **Complete removal**: remove both local services and their owned configuration and data.
+
+Choose a Controller port (default `3111`). The local Agent automatically connects to `http://127.0.0.1:PORT`; no public URL or manually supplied enrollment token is needed. The Controller listens on `0.0.0.0:PORT`. An existing Controller keeps its configured port; choice 2 can add the local Agent later.
+
+Pass options directly to skip the prompts:
 
 ```bash
+# Controller + local Agent on port 8080
+curl -fsSL https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo bash -s -- 2 --port 8080
+# Controller only, default port 3111
 curl -fsSL https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo bash -s -- 1
-curl -fsSL https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo bash -s -- 2 --controller-endpoint https://your-controller.example
+# Remove both local components, including configuration and data
+curl -fsSL https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo bash -s -- 3
 ```
 
-For automation, add `--token-file /secure/path/token` (mode `0600`) or `--token-fd FD`. Never pass literal tokens on the command line. `--role controller`, existing `install/upgrade/uninstall/purge` commands, and `ANTINAT_ROLE` remain supported. Use `--help` for entry point usage; see [`docs/installer-contract.md`](docs/installer-contract.md) for underlying installer flags.
+For remote Agents, create a node in the Controller and run its generated command. There is no parameterless Agent installation option in this repository. The Agent entry point belongs to AntiNAT-Agent and requires Controller-issued node identity, trust pin and enrollment credentials. Tokens use hidden input or a `0600` file.
 
-The default release is `v1.0.0-beta.1`. The installer verifies signatures and artifact SHA-256 digests before installing systemd/OpenRC services. For an artifact mirror, insert `env ANTINAT_RELEASE_BASE_URL="https://mirror-prefix/https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta.1"` after `sudo`. `--github-proxy` instead configures an HTTP(S) proxy server.
+This workflow requires matching `v1.0.0-beta.2` releases in both repositories, including the new Controller binary. Publish those artifacts before using the command online. The installer checks signed manifests and artifact SHA-256 digests. Anonymous downloads require public repositories/releases. Hosts need `curl`, `python3`, `jq`, and the underlying installer's tools. Configure artifact mirrors with `ANTINAT_RELEASE_BASE_URL` for the Controller and `ANTINAT_AGENT_RELEASE_BASE_URL` for the Agent.
 
-Anonymous downloads require a public repository and Release.
+Docker users install the Controller image directly; [`docker/compose.yaml`](docker/compose.yaml) starts only the Controller. Create and install local or remote Agents yourself through the Controller. The shell installer is not used for Docker.
 
 ### Option 2: Build from source
 

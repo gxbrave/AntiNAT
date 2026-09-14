@@ -52,29 +52,38 @@ AntiNAT 是一个“主控 + Agent”的 IPv4 公网访问工具。主控负责�
 
 ### 方式一：一键安装脚本
 
-在 Debian/Ubuntu 的 Linux amd64 主机运行：
+在 Debian/Ubuntu Linux amd64 主机运行（root 可省略 `sudo`）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo bash
 ```
 
-按提示输入 **1 安装主控 / 2 安装 Agent / 3 安装两者**。安装 Agent 时会询问主控地址，并隐藏输入注册 token。已是 root 用户时可省略 `sudo`。
+菜单只有三个选项：
 
-也可以直接加参数（数字可替换为 `controller`、`agent`、`both`）：
+1. **仅安装主控**。
+2. **安装主控 + Agent**：先安装主控，再由主控创建本地节点、生成认证参数，调用 [AntiNAT-Agent](https://github.com/gxbrave/AntiNAT-Agent) 的安装入口。两个组件始终是独立进程和服务。
+3. **完全卸载**：删除本机主控和 Agent 的服务、所属配置和数据。
+
+安装时可输入主控端口，默认 `3111`。本地 Agent 自动访问 `http://127.0.0.1:所选端口`，不需要提供公网地址、访问地址或注册 token。主控监听 `0.0.0.0:所选端口`；已安装主控时沿用现有端口，选 2 可继续添加本地 Agent。
+
+参数也可以直接写在命令后：
 
 ```bash
-# 只安装主控
+# 主控 + 本地 Agent，主控端口 8080
+curl -fsSL https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo bash -s -- 2 --port 8080
+
+# 仅主控，使用默认端口 3111
 curl -fsSL https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo bash -s -- 1
 
-# 安装 Agent，指定主控地址；token 随后隐藏输入
-curl -fsSL https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo bash -s -- 2 --controller-endpoint https://你的主控地址
+# 完全卸载本机安装（含配置和数据）
+curl -fsSL https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo bash -s -- 3
 ```
 
-自动化安装可追加 `--token-file /安全路径/token`（文件权限 `0600`）或 `--token-fd FD`，不要把 token 直接放到命令行。角色也可写成 `--role controller`；原有 `install/upgrade/uninstall/purge` 子命令和 `ANTINAT_ROLE` 用法继续兼容。运行 `--help` 查看入口说明，完整底层参数见 [`docs/installer-contract.md`](docs/installer-contract.md)。
+远程 Agent 必须先在主控中创建节点，再使用主控生成的安装命令；主控仓库不提供无参数的独立 Agent 安装选项。Agent 入口在 AntiNAT-Agent 仓库，接收主控签发的节点、信任公钥和认证参数；注册 token 通过隐藏输入或 `0600` 文件传递。
 
-默认使用 `v1.0.0-beta.1` Release，校验签名和制品 SHA-256，再安装 systemd/OpenRC 服务。需要制品镜像时，在 `sudo` 后使用 `env ANTINAT_RELEASE_BASE_URL="https://镜像前缀/https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta.1"`；`--github-proxy` 则用于 HTTP(S) 代理服务器。
+此流程对应两仓库的 `v1.0.0-beta.2` 制品，需先发布配套版本，不能搭配旧版主控二进制。安装器验证 Release manifest 签名及制品 SHA-256。匿名下载要求仓库和 Release 公开；目标主机需要 `curl`、`python3`、`jq` 以及底层安装器所需工具。制品镜像分别用 `ANTINAT_RELEASE_BASE_URL`（主控）和 `ANTINAT_AGENT_RELEASE_BASE_URL`（Agent）设置。
 
-匿名下载要求仓库和 Release 公开。
+Docker 用户直接通过主控镜像安装（[`docker/compose.yaml`](docker/compose.yaml) 只启动主控），不使用上述安装脚本。本地或远程 Agent 均由用户在主控中创建后自行安装。
 
 ### 方式二：自行编译
 

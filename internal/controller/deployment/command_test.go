@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -162,8 +163,9 @@ func TestBuildInstallCommandUsesPlatformSpecificDownloadAndNoSecret(t *testing.T
 		}
 		if platform == PlatformLinux {
 			for _, required := range []string{
-				"bash <(curl -Ls",
-				"https://ghfast.top/https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh",
+				"curl -fsSL",
+				"bash -s -- install",
+				"https://ghfast.top/https://raw.githubusercontent.com/gxbrave/AntiNAT-Agent/main/install.sh",
 				"sudo env",
 				"ANTINAT_NODE_ID=node-a",
 				"ANTINAT_CONTROLLER_PIN=" + testInstallCommandContext.ControllerPin,
@@ -294,5 +296,54 @@ func TestBuildInstallCommandRejectsMissingOrMalformedContext(t *testing.T) {
 		if _, err := BuildInstallCommand(profile, context); err == nil {
 			t.Errorf("BuildInstallCommand accepted invalid context %+v", context)
 		}
+	}
+}
+
+func TestLinuxCommandUsesPortablePipe(t *testing.T) {
+	command, err := BuildInstallCommand(DefaultProfile("http://127.0.0.1:4567"), testInstallCommandContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(command, "<(") || !strings.Contains(command, " | sudo env ") {
+		t.Fatalf("unsafe sudo download command: %s", command)
+	}
+	if !strings.Contains(command, "'--controller-endpoint' 'http://127.0.0.1:4567'") {
+		t.Fatalf("missing local endpoint: %s", command)
+	}
+}
+
+func TestLinuxCommandExecutesThroughPipeAndPreservesArguments(t *testing.T) {
+	dir := t.TempDir()
+	scripts := map[string]string{
+		"curl": "#!/bin/sh\nprintf '%s\\n' 'printf \"NODE=%s PIN=%s\\\\n\" \"$ANTINAT_NODE_ID\" \"$ANTINAT_CONTROLLER_PIN\"; printf \"ARG=%s\\\\n\" \"$@\"'\n",
+		"sudo": "#!/bin/sh\nexec \"$@\"\n",
+	}
+	for name, script := range scripts {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	profile := DefaultProfile("http://127.0.0.1:4567")
+	profile.BindInterface = "eth0; echo injected"
+	command, err := BuildInstallCommand(profile, testInstallCommandContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := exec.Command("bash", "-c", command)
+	run.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
+	output, err := run.CombinedOutput()
+	if err != nil {
+		t.Fatalf("execute: %v: %s", err, output)
+	}
+	for _, want := range []string{"NODE=node-a PIN=" + testInstallCommandContext.ControllerPin, "ARG=install", "ARG=http://127.0.0.1:4567", "ARG=eth0; echo injected"} {
+		if !strings.Contains(string(output), want) {
+			t.Errorf("missing %q in %s", want, output)
+		}
+	}
+}
+
+func TestWindowsInstallerBelongsToAgentRelease(t *testing.T) {
+	if installerPS1URL != "https://github.com/gxbrave/AntiNAT-Agent/releases/download/v1.0.0-beta.2/install.ps1" {
+		t.Fatal(installerPS1URL)
 	}
 }

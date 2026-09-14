@@ -94,6 +94,35 @@ installer_logical_path() {
     fi
 }
 
+installer_init_controller_port() {
+    local port="${ANTINAT_CONTROLLER_PORT-3111}" unit
+    if [[ ! ${ANTINAT_CONTROLLER_PORT+x} && "$INSTALLER_COMMAND" == upgrade ]] && installer_role_has_controller; then
+        unit="$INSTALLER_CONTROLLER_UNIT"
+        [[ "$INSTALLER_SERVICE_MANAGER" != openrc ]] || unit="$INSTALLER_OPENRC_DIR/antinat-controller"
+        if [[ -r "$unit" ]]; then
+            port=$(sed -nE 's/.*-listen[ =]+[^ :"]+:([0-9]+).*/\1/p' "$unit")
+            [[ -n "$port" ]] || port=3111
+        fi
+    fi
+    if [[ ! "$port" =~ ^[0-9]{1,5}$ ]] || ((10#$port < 1 || 10#$port > 65535)); then
+        installer_die "$INSTALLER_EXIT_USAGE" "ANTINAT_CONTROLLER_PORT must be an integer from 1 to 65535"
+        return "$INSTALLER_EXIT_USAGE"
+    fi
+    INSTALLER_CONTROLLER_PORT=$((10#$port))
+}
+
+# Render into the existing unit format; no extra environment/ownership file.
+installer_configure_controller_unit() {
+    local destination="$1" mode="$2" temporary
+    temporary=$(mktemp "${TMPDIR:-/tmp}/antinat-controller-unit.XXXXXX") || return 1
+    if ! sed -E "s/(-listen[ =]+)[^[:space:]\"]+/\\10.0.0.0:${INSTALLER_CONTROLLER_PORT}/g" "$destination" >"$temporary" ||
+        ! installer_atomic_copy "$temporary" "$destination" "$mode"; then
+        rm -f -- "$temporary"
+        return 1
+    fi
+    rm -f -- "$temporary"
+}
+
 installer_init_paths() {
     INSTALLER_INSTALL_DIR=$(installer_logical_path /opt/antinat)
     INSTALLER_BIN_DIR=$(installer_logical_path /opt/antinat/bin)
@@ -125,6 +154,7 @@ installer_init_paths() {
         fi
     fi
     [[ "$INSTALLER_SERVICE_MANAGER" == systemd || "$INSTALLER_SERVICE_MANAGER" == openrc ]] || return "$INSTALLER_EXIT_USAGE"
+    installer_init_controller_port || return $?
     INSTALLER_AGENT_REENABLE=0
     INSTALLER_CONTROLLER_REENABLE=0
     INSTALLER_AGENT_WAS_ACTIVE=0
@@ -912,7 +942,7 @@ installer_install_embedded_unit() {
                     'Wants=network-online.target' 'After=network-online.target'
                 printf '%s\n' '' '[Service]' 'Type=simple' 'User=antinat' \
                     'Group=antinat' \
-                    'ExecStart=/opt/antinat/bin/antinat-controller -listen 127.0.0.1:3111 -store /var/lib/antinat/controller.db -keydir /var/lib/antinat/controller-keys' \
+                    "ExecStart=/opt/antinat/bin/antinat-controller -listen 0.0.0.0:${INSTALLER_CONTROLLER_PORT} -store /var/lib/antinat/controller.db -keydir /var/lib/antinat/controller-keys" \
                     'WorkingDirectory=/var/lib/antinat' 'Restart=on-failure' \
                     'RestartSec=5s' 'TimeoutStopSec=15s' 'UMask=0077' \
                     'NoNewPrivileges=true' 'PrivateTmp=true' 'ProtectHome=true' \
@@ -937,7 +967,10 @@ installer_install_embedded_unit() {
 installer_install_service_unit() {
     local unit="$1" destination="$2" source
     if source=$(installer_find_service_source "$unit"); then
-        installer_install_unit "$source" "$destination"
+        installer_install_unit "$source" "$destination" || return 1
+        if [[ "$unit" == antinat-controller.service ]]; then
+            installer_configure_controller_unit "$destination" 644 || return 1
+        fi
     else
         installer_install_embedded_unit "$unit" "$destination"
     fi
@@ -946,7 +979,10 @@ installer_install_service_unit() {
 installer_install_openrc_service() {
     local service="$1" destination="$INSTALLER_OPENRC_DIR/$1" source
     if source=$(installer_find_openrc_source "$service"); then
-        installer_atomic_copy "$source" "$destination" 755
+        installer_atomic_copy "$source" "$destination" 755 || return 1
+        if [[ "$service" == antinat-controller ]]; then
+            installer_configure_controller_unit "$destination" 755 || return 1
+        fi
         return
     fi
     return 1
@@ -1299,16 +1335,16 @@ installer_conflict() {
 }
 
 installer_controller_port_available() {
-    python3 - <<'PY'
+    python3 - "$INSTALLER_CONTROLLER_PORT" <<'PY'
 import socket
+import sys
 
-try:
-    connection = socket.create_connection(("127.0.0.1", 3111), timeout=0.25)
-except OSError:
-    raise SystemExit(0)
-else:
-    connection.close()
-    raise SystemExit(1)
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        listener.bind(("0.0.0.0", int(sys.argv[1])))
+    except OSError:
+        raise SystemExit(1)
 PY
 }
 
@@ -1340,7 +1376,7 @@ installer_install() {
         return "$INSTALLER_EXIT_USAGE"
     fi
     installer_require_linux_platform || return "$INSTALLER_EXIT_ARTIFACT"
-    installer_init_paths
+    installer_init_paths || return $?
     installer_require_tools
     installer_fetch_release || return "$INSTALLER_EXIT_ARTIFACT"
     installer_verify_artifacts
@@ -1349,7 +1385,7 @@ installer_install() {
         return "$INSTALLER_EXIT_CONFLICT"
     fi
     if installer_role_has_controller && ! installer_controller_port_available; then
-        installer_die "$INSTALLER_EXIT_CONFLICT" "Controller listen port 127.0.0.1:3111 is already in use" || true
+        installer_die "$INSTALLER_EXIT_CONFLICT" "Controller listen port 0.0.0.0:${INSTALLER_CONTROLLER_PORT} is already in use" || true
         return "$INSTALLER_EXIT_CONFLICT"
     fi
     if ! installer_begin_install_transaction; then
@@ -1578,7 +1614,7 @@ installer_remote_uninstall_notice() {
 }
 
 installer_uninstall() {
-    installer_init_paths
+    installer_init_paths || return $?
     installer_remote_uninstall_notice || return "$INSTALLER_EXIT_GENERIC"
     installer_stop_service || return "$INSTALLER_EXIT_GENERIC"
     if installer_role_has_agent; then
@@ -1818,7 +1854,7 @@ installer_manifest_purge() {
 }
 
 installer_purge() {
-    installer_init_paths
+    installer_init_paths || return $?
     installer_remote_uninstall_notice purge || return "$INSTALLER_EXIT_GENERIC"
     installer_stop_service || return "$INSTALLER_EXIT_GENERIC"
     local used_manifest=1
@@ -2350,7 +2386,7 @@ installer_release_upgrade_lock() {
 }
 
 installer_upgrade() {
-    installer_init_paths
+    installer_init_paths || return $?
     installer_require_linux_platform || return "$INSTALLER_EXIT_ARTIFACT"
     installer_validate_upgrade_version || return $?
     installer_require_tools
@@ -2419,6 +2455,13 @@ installer_upgrade() {
         if ((failed == 0)); then
             installer_upgrade_journal_write "$backup" health_checking "$completed" || failed=1
         fi
+        if ((failed == 0)) && installer_role_has_controller && [[ ${ANTINAT_CONTROLLER_PORT+x} ]]; then
+            if [[ "$INSTALLER_SERVICE_MANAGER" == systemd ]]; then
+                installer_configure_controller_unit "$INSTALLER_CONTROLLER_UNIT" 644 || failed=1
+            else
+                installer_configure_controller_unit "$INSTALLER_OPENRC_DIR/antinat-controller" 755 || failed=1
+            fi
+        fi
         if ((failed == 0)); then
             installer_start_services || failed=1
         fi
@@ -2426,7 +2469,7 @@ installer_upgrade() {
             failed=1
         fi
         if ((failed == 0)) && installer_role_has_controller && [[ -z "$INSTALLER_TEST_ROOT" ]] && [[ "${ANTINAT_TEST_MODE:-0}" != 1 ]]; then
-            curl --fail --silent --show-error --max-time 10 http://127.0.0.1:3111/readyz >/dev/null || failed=1
+            curl --fail --silent --show-error --max-time 10 "http://127.0.0.1:${INSTALLER_CONTROLLER_PORT}/readyz" >/dev/null || failed=1
         fi
     fi
     if ((failed != 0)); then

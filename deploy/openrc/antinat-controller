@@ -3,7 +3,7 @@
 name="antinat-controller"
 description="AntiNAT Controller"
 command="/opt/antinat/bin/antinat-controller"
-command_args="-listen 127.0.0.1:3111 -store /var/lib/antinat/controller.db -keydir /var/lib/antinat/controller-keys"
+command_args="-listen 0.0.0.0:3111 -store /var/lib/antinat/controller.db -keydir /var/lib/antinat/controller-keys"
 command_user="antinat:antinat"
 command_background="yes"
 pidfile="/run/${RC_SVCNAME}.pid"

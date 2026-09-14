@@ -78,8 +78,11 @@ test.describe('node deployment flow', () => {
     expect(command).toContain('--controller-endpoint');
     expect(command).not.toContain(token);
     expect(command).not.toContain('--token');
-    expect(command).toContain('bash <(curl -Ls');
-    expect(command).toContain('raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh');
+    expect(command).toContain('curl -fsSL');
+    expect(command).toContain(' | sudo env ');
+    expect(command).toContain(' bash -s -- install ');
+    expect(command).not.toContain('<(');
+    expect(command).toContain('raw.githubusercontent.com/gxbrave/AntiNAT-Agent/main/install.sh');
     expect(await page.locator('[data-deployment-token]').count()).toBe(0);
   });
 

@@ -13,6 +13,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -26,6 +27,13 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "provision-local-agent" {
+		if err := provisionLocalAgent(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "antinat-controller: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "version" {
 		fmt.Printf("antinat-controller %s\n", buildinfo.Format(buildinfo.Current()))
 		return
@@ -67,4 +75,29 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// Provisioning is a privileged local operation, not a public enrollment bypass.
+func provisionLocalAgent(args []string) error {
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("provision-local-agent requires root")
+	}
+	flags := flag.NewFlagSet("provision-local-agent", flag.ContinueOnError)
+	cfg := controller.LocalAgentConfig{}
+	flags.StringVar(&cfg.StorePath, "store", envOr("ANTINAT_STORE", filepath.Join("var", "controller.db")), "existing controller SQLite path")
+	flags.StringVar(&cfg.KeyDir, "keydir", envOr("ANTINAT_KEYDIR", filepath.Join("var", "keys")), "existing controller keyring directory")
+	flags.StringVar(&cfg.Endpoint, "endpoint", "", "local controller URL, http://127.0.0.1:PORT")
+	flags.StringVar(&cfg.InstallDir, "install-dir", "/opt/antinat", "agent installation directory")
+	flags.StringVar(&cfg.GitHubProxy, "github-proxy", "", "optional GitHub download proxy")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected provisioning arguments")
+	}
+	result, err := controller.ProvisionLocalAgent(cfg)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(os.Stdout).Encode(result)
 }

@@ -2,10 +2,7 @@ name: antinat
 
 services:
   controller:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-      target: controller
+    image: ghcr.io/gxbrave/antinat-controller:v1.0.0-beta.2
     network_mode: host
     user: "65532:65532"
     restart: unless-stopped
@@ -19,41 +16,6 @@ services:
       retries: 3
       start_period: 10s
 
-  agent:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-      target: agent
-    network_mode: host
-    user: "65532:65532"
-    restart: unless-stopped
-    environment:
-      ANTINAT_ENDPOINT: ${ANTINAT_ENDPOINT:?set ANTINAT_ENDPOINT}
-      ANTINAT_NODE: ${ANTINAT_NODE:?set ANTINAT_NODE}
-      ANTINAT_PIN: ${ANTINAT_PIN:?set ANTINAT_PIN}
-      ANTINAT_STATE: /var/lib/antinat
-      ANTINAT_DOCKER_TOKEN_FILE: /run/secrets/antinat_enrollment_token
-    entrypoint: ["/opt/antinat/bin/stage-enrollment"]
-    volumes:
-      - agent-data:/var/lib/antinat
-      - agent-log:/var/log/antinat
-    secrets:
-      - source: antinat_enrollment_token
-        target: antinat_enrollment_token
-        mode: 0444
-    healthcheck:
-      test: ["CMD", "/opt/antinat/bin/healthcheck-agent"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
 volumes:
   controller-data:
   controller-log:
-  agent-data:
-  agent-log:
-
-secrets:
-  antinat_enrollment_token:
-    file: ${ANTINAT_ENROLLMENT_TOKEN_FILE:?set ANTINAT_ENROLLMENT_TOKEN_FILE}

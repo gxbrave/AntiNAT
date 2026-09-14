@@ -24,17 +24,16 @@ FROM alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc
 RUN addgroup -S -g 65532 antinat && adduser -S -D -H -u 65532 -G antinat antinat \
     && mkdir -p /var/lib/antinat /var/log/antinat \
     && chown -R 65532:65532 /var/lib/antinat /var/log/antinat
-COPY --from=build /out/antinat-agent /opt/antinat/bin/antinat-agent
-COPY --from=build /out/antinat-controller /opt/antinat/bin/antinat-controller
-COPY --from=build /out/antinat-hook-runner /opt/antinat/bin/antinat-hook-runner
-COPY docker/healthcheck-agent.sh /opt/antinat/bin/healthcheck-agent
-COPY docker/stage-enrollment.sh /opt/antinat/bin/stage-enrollment
-RUN chmod 0755 /opt/antinat/bin/*
 USER 65532:65532
 WORKDIR /var/lib/antinat
 VOLUME ["/var/lib/antinat", "/var/log/antinat"]
 
 FROM runtime AS agent
+COPY --from=build /out/antinat-agent /opt/antinat/bin/antinat-agent
+COPY --from=build /out/antinat-hook-runner /opt/antinat/bin/antinat-hook-runner
+COPY docker/healthcheck-agent.sh /opt/antinat/bin/healthcheck-agent
+COPY docker/stage-enrollment.sh /opt/antinat/bin/stage-enrollment
+
 LABEL org.opencontainers.image.title="AntiNAT Agent" \
       org.opencontainers.image.source="https://github.com/gxbrave/AntiNAT" \
       org.opencontainers.image.description="AntiNAT forwarding agent" \
@@ -43,10 +42,11 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["/op
 ENTRYPOINT ["/opt/antinat/bin/stage-enrollment"]
 
 FROM runtime AS controller
+COPY --from=build /out/antinat-controller /opt/antinat/bin/antinat-controller
 LABEL org.opencontainers.image.title="AntiNAT Controller" \
       org.opencontainers.image.source="https://github.com/gxbrave/AntiNAT" \
       org.opencontainers.image.description="AntiNAT controller" \
       org.opencontainers.image.licenses="GPL-3.0"
 EXPOSE 3111
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD wget -q -O - http://127.0.0.1:3111/readyz >/dev/null || exit 1
-ENTRYPOINT ["/opt/antinat/bin/antinat-controller", "-listen", "127.0.0.1:3111", "-store", "/var/lib/antinat/controller.db", "-keydir", "/var/lib/antinat/controller-keys"]
+ENTRYPOINT ["/opt/antinat/bin/antinat-controller", "-listen", "0.0.0.0:3111", "-store", "/var/lib/antinat/controller.db", "-keydir", "/var/lib/antinat/controller-keys"]

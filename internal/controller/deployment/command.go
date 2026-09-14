@@ -28,11 +28,11 @@ const (
 	defaultLogLevel    = "info"
 	defaultAutoUpdate  = "disabled"
 	defaultScheduler   = "sequential"
-	releaseBaseURL     = "https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta.1"
-	rawInstallerURL    = "https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh"
+	releaseBaseURL     = "https://github.com/gxbrave/AntiNAT-Agent/releases/download/v1.0.0-beta.2"
+	rawInstallerURL    = "https://raw.githubusercontent.com/gxbrave/AntiNAT-Agent/main/install.sh"
 	installerPS1URL    = releaseBaseURL + "/install.ps1"
 	installerTrustURL  = releaseBaseURL + "/release-ed25519.pub"
-	installerPS1SHA    = "e338fa2f2929fe117f91f2e6df58514334b2ec985b869e5e7120fc981fb95756"
+	installerPS1SHA    = "db80a258dad0623aa85386d511af036c88fc3ce9d2027dd8f63f980caf8b719c"
 	installerTrustSHA  = "7c250ef2c4b3ece394f1d22f106742152116ef192a89bda1f1deaef9073112f3"
 	containerImage     = "ghcr.io/gxbrave/antinat-agent:v1.0.0-beta.1"
 	dockerTokenSource  = "/secure/antinat/enrollment.token"
@@ -352,10 +352,16 @@ func installerURL(profile Profile, base string) string {
 	return strings.TrimRight(proxy, "/") + "/" + base
 }
 
+// LinuxInstallerURL returns the Agent bootstrap URL, including an optional download proxy.
+func LinuxInstallerURL(profile Profile) string {
+	return installerURL(profile, rawInstallerURL)
+}
+
 func buildPOSIXInstallCommand(scriptURL string, args []string, context InstallCommandContext) string {
-	return "sudo env " + QuoteShellArg("ANTINAT_NODE_ID="+context.NodeID) + " " +
+	return "curl -fsSL --proto '=https' --tlsv1.2 " + QuoteShellArg(scriptURL) + " | sudo env " +
+		QuoteShellArg("ANTINAT_NODE_ID="+context.NodeID) + " " +
 		QuoteShellArg("ANTINAT_CONTROLLER_PIN="+context.ControllerPin) +
-		" bash <(curl -Ls --proto '=https' --tlsv1.2 " + QuoteShellArg(scriptURL) + ") install " + QuoteShellArgs(args)
+		" bash -s -- install " + QuoteShellArgs(args)
 }
 
 func buildPowerShellInstallCommand(scriptURL, trustURL string, args []string, context InstallCommandContext) string {
@@ -375,7 +381,7 @@ func buildPowerShellInstallCommand(scriptURL, trustURL string, args []string, co
 		"if ((Get-FileHash -Algorithm SHA256 -LiteralPath $trustPath).Hash.ToLowerInvariant() -ne '" + installerTrustSHA + "') { throw 'trust root hash verification failed' }; " +
 		"$env:ANTINAT_NODE_ID = " + QuotePowerShellArg(context.NodeID) +
 		"; $env:ANTINAT_CONTROLLER_PIN = " + QuotePowerShellArg(context.ControllerPin) +
-		"; & $scriptPath " + strings.Join(psArgs, " ") +
+		"; $env:ANTINAT_ROLE = 'agent'; & $scriptPath " + strings.Join(psArgs, " ") +
 		" } finally { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue }"
 	return "powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand " + encodePowerShellCommand(body)
 }

@@ -13,9 +13,9 @@
   var PLATFORM_DOCKER = 'docker';
   var DOCKER_TOKEN_SOURCE = '/secure/antinat/enrollment.token';
   var DOCKER_TOKEN_TARGET = '/run/secrets/antinat_enrollment_token';
-  var RELEASE_BASE_URL = 'https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta.1';
-  var RAW_INSTALLER_URL = 'https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh';
-  var INSTALLER_PS1_SHA256 = 'e338fa2f2929fe117f91f2e6df58514334b2ec985b869e5e7120fc981fb95756';
+  var RELEASE_BASE_URL = 'https://github.com/gxbrave/AntiNAT-Agent/releases/download/v1.0.0-beta.2';
+  var RAW_INSTALLER_URL = 'https://raw.githubusercontent.com/gxbrave/AntiNAT-Agent/main/install.sh';
+  var INSTALLER_PS1_SHA256 = 'db80a258dad0623aa85386d511af036c88fc3ce9d2027dd8f63f980caf8b719c';
   var INSTALLER_TRUST_SHA256 = '7c250ef2c4b3ece394f1d22f106742152116ef192a89bda1f1deaef9073112f3';
   var DOCKER_IMAGE = 'ghcr.io/gxbrave/antinat-agent:v1.0.0-beta.1';
   var defaultProfile = {
@@ -210,16 +210,17 @@
         "if ((Get-FileHash -Algorithm SHA256 -LiteralPath $trustPath).Hash.ToLowerInvariant() -ne '" + INSTALLER_TRUST_SHA256 + "') { throw 'trust root hash verification failed' }; " +
         '$env:ANTINAT_NODE_ID = ' + quotePowerShellArg(context.node_id) +
         '; $env:ANTINAT_CONTROLLER_PIN = ' + quotePowerShellArg(context.controller_pin) +
-        '; & $scriptPath ' + psArgs.join(' ') +
+        "; $env:ANTINAT_ROLE = 'agent'; & $scriptPath " + psArgs.join(' ') +
         ' } finally { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue }';
       return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ' + encodePowerShellCommand(body);
     }
     var rawInstaller = profile.github_proxy
       ? profile.github_proxy.replace(/\/+$/, '') + '/' + RAW_INSTALLER_URL
       : RAW_INSTALLER_URL;
-    return 'sudo env ' + quoteShellArg('ANTINAT_NODE_ID=' + context.node_id) + ' ' +
+    return "curl -fsSL --proto '=https' --tlsv1.2 " + quoteShellArg(rawInstaller) + ' | sudo env ' +
+      quoteShellArg('ANTINAT_NODE_ID=' + context.node_id) + ' ' +
       quoteShellArg('ANTINAT_CONTROLLER_PIN=' + context.controller_pin) +
-      ' bash <(curl -Ls --proto \'=https\' --tlsv1.2 ' + quoteShellArg(rawInstaller) + ') install ' + quoteShellArgs(args);
+      ' bash -s -- install ' + quoteShellArgs(args);
   }
 
   function dockerVolumeSuffix(value) {
