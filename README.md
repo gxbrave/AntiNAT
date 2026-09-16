@@ -20,7 +20,7 @@ AntiNAT 用来尝试让外部网络访问内网中的 TCP/UDP 服务，例如家
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y ca-certificates curl python3 jq openssl bash coreutils findutils util-linux passwd gawk hostname
+sudo apt-get install -y ca-certificates curl python3 jq openssl libargon2-1 bash coreutils findutils util-linux passwd gawk hostname
 ```
 
 下面命令中的 `sudo`，以 root 登录时可以省略。
@@ -76,23 +76,40 @@ curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/gxbrave/AntiNAT/
 
 “获取到了公网 IP”不代表外网一定能访问，仍需看实际探测结果。
 
-### 查看运行状态
+## SSH 管理命令
 
-在主控机器上执行（自定义端口时请修改下方 `3111`）：
+通过一键脚本安装后，在主控机器的 SSH 终端输入：
 
 ```bash
-sudo systemctl status antinat-controller --no-pager
+sudo antinatctl
+```
+
+root 用户直接输入 `antinatctl` 即可打开管理菜单，无需重新下载脚本。
+
+| 命令 | 功能 |
+| --- | --- |
+| `sudo antinatctl` | 打开管理菜单 |
+| `sudo antinatctl status` | 查看主控、Agent 状态、访问地址和管理员账号 |
+| `sudo antinatctl reset-admin` | 重设管理员账号或密码，不需要记得旧密码 |
+| `sudo antinatctl restart` | 重启主控 |
+| `sudo antinatctl upgrade` | 升级占位，暂未开放，不会执行升级 |
+| `sudo antinatctl uninstall` | 完全卸载本机主控、Agent 及其配置和数据 |
+
+**忘记账号或密码**：先用 `status` 查看账号，或直接运行 `reset-admin`。新账号留空保留原账号，新密码留空生成 8 位字母数字组合。重设时会短暂停止正在运行的主控，完成后恢复运行并显示新凭据；该管理员的旧登录会话会失效，节点和转发规则保留。原密码无法读取。
+
+**卸载**：需要输入 `DELETE` 确认。卸载组件已缓存在本机，不需要连接 GitHub；成功后会移除 `antinatctl`。默认程序目录是 `/opt/antinat`，数据目录是 `/var/lib/antinat`，卸载前请备份需要保留的配置、数据库和密钥。
+
+**已安装的旧用户**：如果提示找不到 `antinatctl`，按上方“准备环境”安装依赖后，重新运行以下命令补装管理工具。已有主控不会重新安装，原账号密码会保留：
+
+```bash
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo env ANTINAT_DOWNLOAD_MIRROR=https://ghfast.top bash -s -- 1
+```
+
+需要排查主控日志时：
+
+```bash
 sudo journalctl -u antinat-controller -n 100 --no-pager
-curl -fsS http://127.0.0.1:3111/readyz
 ```
-
-如果安装了本地 Agent：
-
-```bash
-sudo systemctl status antinat-agent --no-pager
-```
-
-默认程序目录为 `/opt/antinat`，数据目录为 `/var/lib/antinat`。卸载前请备份需要保留的配置、数据库和密钥。
 
 ## Docker 安装
 
@@ -120,7 +137,7 @@ make build
 ./bin/antinat-controller --listen 127.0.0.1:3111 --store ./var/controller.db --keydir ./var/keys
 ```
 
-需要管理 CLI 时单独编译：
+开发者如需直接调用 API 的 CLI，可以单独编译（它与一键安装提供的 SSH 管理菜单独立）：
 
 ```bash
 go build -o bin/antinatctl ./cmd/antinatctl

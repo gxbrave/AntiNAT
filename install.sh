@@ -131,15 +131,24 @@ fi
 # shellcheck source=/dev/null
 source "$tmp_dir/scripts/libinstall.sh"
 if [[ "$choice" == 3 ]]; then
+    installer_init_paths
     # The lower-level contract uses exit 7 for a completed terminal purge.
     set +e
     (set -e; installer_run purge)
     purge_status=$?
     set -e
-    [[ "$purge_status" != 7 ]] || exit 0
+    if [[ "$purge_status" == 0 || "$purge_status" == 7 ]]; then
+        if [[ -f "$INSTALLER_INSTALL_DIR/manage/antinat-local-manager-v1" ]]; then
+            python3 "$INSTALLER_INSTALL_DIR/manage/antinatctl.py" --remove-manager
+            rmdir -- "$INSTALLER_INSTALL_DIR" 2>/dev/null || true
+        fi
+        exit 0
+    fi
     exit "$purge_status"
 fi
 installer_init_paths
+bootstrap_download 'https://raw.githubusercontent.com/gxbrave/AntiNAT/main/scripts/antinatctl.py' "$tmp_dir/antinatctl.py"
+python3 "$tmp_dir/antinatctl.py" --check
 # Read only the existing account count; never reset or recover stored passwords.
 python3 - "$INSTALLER_DATA_DIR/controller.db" "$tmp_dir/admin.json" "$interactive" <<'PY'
 import getpass
@@ -233,6 +242,8 @@ if [[ -f "$tmp_dir/admin.json" ]]; then
         bootstrap_fail "管理员初始化失败（HTTP $admin_status）；未完成安装。"
     fi
 fi
+# Cache the local manager and release installer for offline maintenance.
+python3 "$tmp_dir/antinatctl.py" --install "$tmp_dir/scripts/libinstall.sh" "$INSTALLER_SERVICE_MANAGER"
 if [[ "$choice" == 2 ]]; then
     "$INSTALLER_CONTROLLER_BINARY" provision-local-agent \
         --store "$INSTALLER_DATA_DIR/controller.db" \
@@ -296,3 +307,4 @@ if [[ "$admin_created" == 1 ]]; then
 else
     printf '管理员：沿用已有账号和密码（不会重置或显示原密码）。\n'
 fi
+printf 'SSH 管理命令：sudo antinatctl（root 用户可直接运行 antinatctl）\n'

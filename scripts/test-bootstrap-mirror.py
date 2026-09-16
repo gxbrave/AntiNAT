@@ -34,13 +34,16 @@ if url.endswith('/api/v1/auth/init'):
     sys.exit(0)
 if '-o' not in args: sys.exit(0)
 out = pathlib.Path(args[args.index('-o') + 1])
-if url.endswith('/libinstall.sh'):
+if url.endswith('/antinatctl.py'):
+    out.write_text('import sys\\nassert sys.argv[1] in ("--check", "--install")\\n')
+elif url.endswith('/libinstall.sh'):
     out.write_text(''' + repr('''installer_init_paths() {
     INSTALLER_CONTROLLER_BINARY="$TEST_SCRATCH/controller"
     INSTALLER_DATA_DIR="$TEST_SCRATCH/data"
     INSTALLER_CONTROLLER_KEY_DIR="$TEST_SCRATCH/keys"
     INSTALLER_INSTALL_DIR="$TEST_SCRATCH/bin"
     INSTALLER_CONTROLLER_UNIT="$TEST_SCRATCH/controller.service"
+    INSTALLER_SERVICE_MANAGER=systemd
 }
 installer_run() {
     chmod +x "$TEST_SCRATCH/controller"
@@ -124,7 +127,7 @@ else: out.write_text('test fixture')
     def test_mirror_controller_and_agent(self):
         urls, bases = self.run_bootstrap('https://ghfast.top/')
         downloads = [u for u in urls if not u.startswith('http://127.0.0.1:')]
-        self.assertEqual(len(downloads), 3)
+        self.assertEqual(len(downloads), 4)
         self.assertTrue(all(u.startswith('https://ghfast.top/https://') for u in downloads), downloads)
         self.assertEqual(bases, [f'https://ghfast.top/https://github.com/gxbrave/{repo}/releases/download/v1.0.0-beta.2' for repo in ['AntiNAT', 'AntiNAT-Agent']])
 
@@ -196,14 +199,14 @@ else: out.write_text('test fixture')
 
     def test_direct_controller(self):
         urls, bases = self.run_bootstrap('', '1')
-        self.assertTrue(all(u.startswith('https://github.com/') for u in urls), urls)
+        self.assertTrue(all(u.startswith(('https://github.com/', 'https://raw.githubusercontent.com/')) for u in urls), urls)
         self.assertEqual(bases, ['https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta.2'])
 
     def test_existing_mirror_not_prefixed_twice(self):
         base = 'https://ghfast.top/https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta.2'
         urls, bases = self.run_bootstrap('https://ghfast.top', '1', {'ANTINAT_RELEASE_BASE_URL': base})
         self.assertEqual(bases, [base])
-        self.assertEqual(urls, [base + '/libinstall.sh', base + '/release-ed25519.pub'])
+        self.assertEqual(urls, [base + '/libinstall.sh', base + '/release-ed25519.pub', 'https://ghfast.top/https://raw.githubusercontent.com/gxbrave/AntiNAT/main/scripts/antinatctl.py'])
 
 
 if __name__ == '__main__':

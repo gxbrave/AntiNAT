@@ -2,9 +2,13 @@
 
 当前一键安装会提示设置管理员账号和密码，留空时分别生成 8 位字母数字组合，并在安装结束后显示。已有账号不会被重置，也没有统一的默认账号密码。
 
+如果忘记一键安装的账号或密码，在主控机器上运行 `sudo antinatctl status` 查看账号，或运行 `sudo antinatctl reset-admin` 重设。旧安装没有该命令时，先按 README 补装管理工具。
+
 以下手动方法仅用于 Docker、自行编译或旧版安装尚未创建管理员的情况。在主控机器上运行，需要 Python 3，不需要 Go。
 
 The current one-click installer prompts for administrator credentials, generates an 8-character alphanumeric value for each blank field, and displays the credentials when finished. Existing accounts are not reset, and there are no shared default credentials.
+
+For forgotten one-click installation credentials, run `sudo antinatctl status` to see usernames or `sudo antinatctl reset-admin` to reset them. If the command is missing, follow the README to add the manager first.
 
 The manual method below is only for Docker, source builds or older installations without an administrator. Run it on the Controller host with Python 3; Go is not needed.
 

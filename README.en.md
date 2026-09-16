@@ -20,7 +20,7 @@ Install the required utilities (no Go needed):
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y ca-certificates curl python3 jq openssl bash coreutils findutils util-linux passwd gawk hostname
+sudo apt-get install -y ca-certificates curl python3 jq openssl libargon2-1 bash coreutils findutils util-linux passwd gawk hostname
 ```
 
 You can omit `sudo` in the following commands when logged in as root.
@@ -76,23 +76,40 @@ The Controller listens on all IPv4 interfaces by default. Restrict access to the
 
 Having a public IP does not by itself prove that a service is reachable from outside. Check the actual probe results.
 
-### Check service status
+## SSH management command
 
-Run on the Controller host, replacing `3111` if necessary:
+After a one-click installation, run this in an SSH terminal on the Controller host:
 
 ```bash
-sudo systemctl status antinat-controller --no-pager
+sudo antinatctl
+```
+
+Root users can run `antinatctl` directly. The menu is installed locally; no script download is needed.
+
+| Command | Function |
+| --- | --- |
+| `sudo antinatctl` | Open the management menu |
+| `sudo antinatctl status` | Show Controller/Agent status, access addresses and administrator usernames |
+| `sudo antinatctl reset-admin` | Reset an administrator username or password without the old password |
+| `sudo antinatctl restart` | Restart the Controller |
+| `sudo antinatctl upgrade` | Placeholder only; upgrades are not implemented and nothing is changed |
+| `sudo antinatctl uninstall` | Remove both local components, including configuration and data |
+
+**Forgotten credentials**: use `status` to see usernames, or run `reset-admin`. Leave the new username blank to keep it; leave the new password blank for a random 8-character alphanumeric password. Reset briefly stops a running Controller, restores it afterward and displays the new credentials. That administrator's old sessions are revoked; nodes and forwarding rules are preserved. The original password cannot be recovered.
+
+**Removal**: type `DELETE` to confirm. The uninstaller is cached locally and does not need GitHub access. Successful removal also removes `antinatctl`. Programs are under `/opt/antinat` and data under `/var/lib/antinat` by default. Back up configuration, databases and keys first.
+
+**Existing installations**: if `antinatctl` is missing, install the dependencies listed under “Prepare the host”, then run the following command to add the manager. The existing Controller and administrator credentials are preserved:
+
+```bash
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo env ANTINAT_DOWNLOAD_MIRROR=https://ghfast.top bash -s -- 1
+```
+
+To inspect Controller logs:
+
+```bash
 sudo journalctl -u antinat-controller -n 100 --no-pager
-curl -fsS http://127.0.0.1:3111/readyz
 ```
-
-If you installed a local Agent:
-
-```bash
-sudo systemctl status antinat-agent --no-pager
-```
-
-Programs are installed under `/opt/antinat` and data under `/var/lib/antinat` by default. Back up configuration, databases and keys before removal.
 
 ## Docker installation
 
@@ -120,7 +137,7 @@ The Controller and Agent binaries are written to `bin/`. To run a local-only Con
 ./bin/antinat-controller --listen 127.0.0.1:3111 --store ./var/controller.db --keydir ./var/keys
 ```
 
-Build the optional management CLI separately:
+Developers can build the API client separately (it is independent of the SSH management menu installed by the one-click script):
 
 ```bash
 go build -o bin/antinatctl ./cmd/antinatctl
