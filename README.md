@@ -58,6 +58,14 @@ AntiNAT 是一个“主控 + Agent”的 IPv4 公网访问工具。主控负责�
 curl -fsSL https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo bash
 ```
 
+国内镜像加速（通过 `https://ghfast.top` 下载）：
+
+```bash
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo env ANTINAT_DOWNLOAD_MIRROR=https://ghfast.top bash
+```
+
+该命令让入口脚本、安装库、签名公钥、Release manifest 和制品均通过镜像下载；选择“主控 + Agent”时，Agent 脚本及其所需文件也走同一镜像。`ANTINAT_DOWNLOAD_MIRROR` 需像上面一样传给 `sudo` 后的安装进程。
+
 菜单只有三个选项：
 
 1. **仅安装主控**。

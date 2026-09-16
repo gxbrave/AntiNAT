@@ -78,17 +78,29 @@ for dependency in curl python3 jq; do
     command -v "$dependency" >/dev/null || bootstrap_fail "请先安装依赖：$dependency"
 done
 
+download_mirror="${ANTINAT_DOWNLOAD_MIRROR:-}"
+download_mirror="${download_mirror%/}"
+[[ -z "$download_mirror" || ( "$download_mirror" != *"@"* && "$download_mirror" =~ ^https://[^[:space:]/?#]+(/[^[:space:]?#]*)?$ ) ]] || bootstrap_fail 'invalid download mirror URL'
+bootstrap_mirror_url() {
+    case "$1" in
+        https://github.com/*|https://raw.githubusercontent.com/*)
+            printf '%s%s\n' "${download_mirror:+$download_mirror/}" "$1" ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+
 release_version="${ANTINAT_RELEASE_VERSION:-v1.0.0-beta.2}"
 release_base_url="${ANTINAT_RELEASE_BASE_URL:-https://github.com/gxbrave/AntiNAT/releases/download/$release_version}"
 [[ "$release_version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]] || bootstrap_fail 'invalid release version'
 [[ "$release_base_url" != *"@"* && "$release_base_url" =~ ^https://[^[:space:]/?#]+(/[^[:space:]?#]*)?$ ]] || bootstrap_fail 'invalid release URL'
+release_base_url=$(bootstrap_mirror_url "$release_base_url")
 export ANTINAT_RELEASE_BASE_URL="$release_base_url"
 
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/antinat-installer.XXXXXX")
 trap 'rm -rf -- "$tmp_dir"' EXIT
 mkdir -p -- "$tmp_dir/scripts" "$tmp_dir/deploy/trust"
 bootstrap_download() {
-    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "$1" -o "$2"
+    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "$(bootstrap_mirror_url "$1")" -o "$2"
 }
 bootstrap_download "$release_base_url/libinstall.sh" "$tmp_dir/scripts/libinstall.sh"
 bootstrap_download "$release_base_url/release-ed25519.pub" "$tmp_dir/deploy/trust/release-ed25519.pub"
@@ -171,7 +183,7 @@ PY
         ANTINAT_NODE_ID="$(jq -r '.node_id' "$tmp_dir/local-agent.json")" \
         ANTINAT_CONTROLLER_PIN="$(jq -r '.controller_pin' "$tmp_dir/local-agent.json")" \
         ANTINAT_AGENT_RELEASE_VERSION="$release_version" \
-        ANTINAT_AGENT_RELEASE_BASE_URL="${ANTINAT_AGENT_RELEASE_BASE_URL:-https://github.com/gxbrave/AntiNAT-Agent/releases/download/$release_version}" \
+        ANTINAT_AGENT_RELEASE_BASE_URL="$(bootstrap_mirror_url "${ANTINAT_AGENT_RELEASE_BASE_URL:-https://github.com/gxbrave/AntiNAT-Agent/releases/download/$release_version}")" \
             bash "$tmp_dir/agent-install.sh" install "${agent_args[@]}" --token-file "$tmp_dir/token"
     fi
 fi

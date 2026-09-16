@@ -54,6 +54,14 @@ Run on Debian/Ubuntu Linux amd64 (omit `sudo` as root):
 curl -fsSL https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo bash
 ```
 
+Mirror-accelerated installation in China (via `https://ghfast.top`):
+
+```bash
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo env ANTINAT_DOWNLOAD_MIRROR=https://ghfast.top bash
+```
+
+This routes the entry script, installer libraries, signing keys, Release manifests and artifacts through the mirror. Controller + Agent also mirrors the Agent script and its required files. Pass `ANTINAT_DOWNLOAD_MIRROR` to the installer after `sudo`, as shown above.
+
 The menu has exactly three choices:
 
 1. **Controller only**.
