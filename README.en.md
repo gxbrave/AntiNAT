@@ -49,9 +49,17 @@ The mirror command downloads the entry script and required files through `https:
 | 2. Controller + Agent | Run both on this host; the installer registers the local Agent automatically |
 | 3. Complete removal | Delete both local components, including configuration and data; back up first |
 
-Choose a Controller port during installation; the default is **3111**. An existing Controller keeps its port, and option 2 can add a local Agent later. Running the installer again does not upgrade an existing Controller.
+After choosing an installation mode, enter:
 
-To skip the menu, for example installing both components on port 8080:
+1. **Controller port**: leave blank for `3111`.
+2. **Administrator username**: leave blank for a random 8-character alphanumeric username.
+3. **Administrator password**: input is hidden and must contain at least 8 characters; leave blank for a random 8-character alphanumeric password.
+
+When installation finishes, it displays the management page addresses, username and password. Save these details. Each random credential contains both letters and digits.
+
+An existing Controller keeps its port. Existing administrator credentials are preserved; the installer does not reset or reveal the old password. Option 2 can add a local Agent later. Running the installer again does not upgrade an existing Controller.
+
+To skip the menu, for example installing both components on port 8080 (new administrator credentials are generated automatically and displayed at the end):
 
 ```bash
 curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo env ANTINAT_DOWNLOAD_MIRROR=https://ghfast.top bash -s -- 2 --port 8080
@@ -59,12 +67,12 @@ curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/gxbrave/AntiNAT/
 
 ## After installation
 
-1. **Create an administrator**: the installer does not create a management account, and there is no default password. Follow [administrator setup](docs/admin-setup.md) on the Controller host. No Go is required.
+1. **Save your login details**: the one-click installer creates the administrator and displays the credentials when finished. For Docker, source builds or older installations without an administrator, follow [administrator setup](docs/admin-setup.md).
 2. **Open the management page**: visit `http://CONTROLLER_IP:3111/admin` and sign in with your new account. Replace `3111` if you chose another port.
 3. **Add Agents**: option 2 already registers the local Agent. For another machine, create a node in the Controller and run its generated installation command on that machine. See [AntiNAT-Agent](https://github.com/gxbrave/AntiNAT-Agent).
 4. **Add forwarding rules**: choose an Agent, TCP or UDP, and the target service address and port, then check the mapping and probe results.
 
-The Controller listens on all IPv4 interfaces by default. Restrict access to the management port until you create the first administrator. Configure HTTPS for remote use; remote Agent enrollment also requires an HTTPS endpoint. If the page does not load, check the service, port, host firewall and cloud security group.
+The Controller listens on all IPv4 interfaces by default. Restrict access to the management port. Configure HTTPS for remote use; remote Agent enrollment also requires an HTTPS endpoint. If the page does not load, check the service, port, host firewall and cloud security group.
 
 Having a public IP does not by itself prove that a service is reachable from outside. Check the actual probe results.
 

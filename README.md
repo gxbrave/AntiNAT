@@ -49,9 +49,17 @@ curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/gxbrave/AntiNAT/
 | 2. 安装主控 + Agent | 这台机器同时运行主控和本地 Agent，安装器会自动注册本地节点 |
 | 3. 完全卸载 | 删除本机主控、Agent 及其配置和数据，请先备份 |
 
-安装时可设置主控端口，默认是 **3111**。已有主控时会沿用原端口，再选 2 可以补装本地 Agent。重复运行安装命令不是升级操作。
+选择安装后，按提示依次设置：
 
-如需跳过菜单，例如安装主控和本地 Agent、使用 8080 端口：
+1. **主控监听端口**：留空使用 `3111`。
+2. **管理员账号**：留空随机生成 8 位字母数字组合。
+3. **管理员密码**：输入时不显示，至少 8 个字符；留空随机生成 8 位字母数字组合。
+
+安装完成会显示主控管理页面地址、管理员账号和密码，请保存好。随机账号和密码都同时包含字母和数字。
+
+已有主控时会沿用原端口；已有管理员时保留原账号密码，不会重新设置或显示原密码。再选 2 可以补装本地 Agent。重复运行安装命令不是升级操作。
+
+如需跳过菜单，例如安装主控和本地 Agent、使用 8080 端口（新管理员账号和密码自动随机生成，结束时显示）：
 
 ```bash
 curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/gxbrave/AntiNAT/main/install.sh | sudo env ANTINAT_DOWNLOAD_MIRROR=https://ghfast.top bash -s -- 2 --port 8080
@@ -59,12 +67,12 @@ curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/gxbrave/AntiNAT/
 
 ## 安装后怎么使用
 
-1. **创建管理员**：当前安装器不会自动创建管理账号，也没有默认密码。先在主控机器上按[首次创建管理员](docs/admin-setup.md)操作，无需 Go。
+1. **保存登录信息**：一键安装已创建管理员，使用安装结束时显示的账号和密码。Docker、自行编译或旧版安装尚未创建账号时，见[首次创建管理员](docs/admin-setup.md)。
 2. **打开管理页面**：浏览器访问 `http://主控IP:3111/admin`，使用刚创建的账号登录。修改过端口时，替换 `3111`。
 3. **添加 Agent**：选项 2 已自动添加本地 Agent。其他机器上的 Agent，需要先在主控页面创建节点，再到目标机器执行主控生成的安装命令，详见 [AntiNAT-Agent](https://github.com/gxbrave/AntiNAT-Agent)。
 4. **添加转发规则**：选择 Agent、TCP 或 UDP，以及要访问的目标服务地址和端口，再查看映射与探测结果。
 
-主控默认监听所有 IPv4 网卡。首次创建管理员前，请限制管理端口的访问；远程使用时应配置 HTTPS，远程 Agent 注册也需要 HTTPS 地址。页面打不开时，检查服务状态、端口以及主机防火墙和云服务器安全组。
+主控默认监听所有 IPv4 网卡。请限制管理端口的访问范围；远程使用时应配置 HTTPS，远程 Agent 注册也需要 HTTPS 地址。页面打不开时，检查服务状态、端口以及主机防火墙和云服务器安全组。
 
 “获取到了公网 IP”不代表外网一定能访问，仍需看实际探测结果。
 

@@ -1,8 +1,12 @@
 # 首次创建管理员 / First administrator setup
 
-当前一键安装不会自动创建管理员，也没有默认账号密码。请在主控机器上执行下面的命令，使用安装时已经准备好的 Python 3，不需要安装 Go。Docker 用户在主机上运行即可（需要 Python 3）。
+当前一键安装会提示设置管理员账号和密码，留空时分别生成 8 位字母数字组合，并在安装结束后显示。已有账号不会被重置，也没有统一的默认账号密码。
 
-The installer does not create an administrator or a default password. Run the command below on the Controller host using Python 3; Go is not needed. Docker users can run it on the host with Python 3 installed.
+以下手动方法仅用于 Docker、自行编译或旧版安装尚未创建管理员的情况。在主控机器上运行，需要 Python 3，不需要 Go。
+
+The current one-click installer prompts for administrator credentials, generates an 8-character alphanumeric value for each blank field, and displays the credentials when finished. Existing accounts are not reset, and there are no shared default credentials.
+
+The manual method below is only for Docker, source builds or older installations without an administrator. Run it on the Controller host with Python 3; Go is not needed.
 
 首次初始化接口只在没有管理员时允许创建账号。初始化完成前，请用防火墙限制主控管理端口，避免其他人抢先创建账号。已有账号时不要重复执行；该步骤不能重置密码。
 
@@ -19,11 +23,14 @@ import json
 import urllib.error
 import urllib.request
 
-with open('/dev/tty', 'r+') as tty:
+with open('/dev/tty', 'r') as tty_input, open('/dev/tty', 'w') as tty:
     def ask(prompt, default):
         tty.write(prompt)
         tty.flush()
-        return tty.readline().strip() or default
+        line = tty_input.readline()
+        if not line:
+            raise SystemExit('Input cancelled')
+        return line.strip() or default
 
     port = ask('Controller port [3111]: ', '3111')
     if not port.isascii() or not port.isdigit() or not 1 <= int(port) <= 65535:
