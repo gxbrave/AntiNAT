@@ -28,7 +28,7 @@ const (
 	defaultLogLevel    = "info"
 	defaultAutoUpdate  = "disabled"
 	defaultScheduler   = "sequential"
-	releaseBaseURL     = "https://github.com/gxbrave/AntiNAT-Agent/releases/download/v1.0.0-beta.2"
+	releaseBaseURL     = "https://github.com/gxbrave/AntiNAT-Agent/releases/download/v1.0.0-beta.3"
 	rawInstallerURL    = "https://raw.githubusercontent.com/gxbrave/AntiNAT-Agent/main/install.sh"
 	installerPS1URL    = releaseBaseURL + "/install.ps1"
 	installerTrustURL  = releaseBaseURL + "/release-ed25519.pub"
@@ -381,6 +381,7 @@ func buildPowerShellInstallCommand(scriptURL, trustURL string, args []string, co
 		"if ((Get-FileHash -Algorithm SHA256 -LiteralPath $trustPath).Hash.ToLowerInvariant() -ne '" + installerTrustSHA + "') { throw 'trust root hash verification failed' }; " +
 		"$env:ANTINAT_NODE_ID = " + QuotePowerShellArg(context.NodeID) +
 		"; $env:ANTINAT_CONTROLLER_PIN = " + QuotePowerShellArg(context.ControllerPin) +
+		"; $env:ANTINAT_AGENT_RELEASE_BASE_URL = " + QuotePowerShellArg(releaseBaseURL) +
 		"; $env:ANTINAT_ROLE = 'agent'; & $scriptPath " + strings.Join(psArgs, " ") +
 		" } finally { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue }"
 	return "powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand " + encodePowerShellCommand(body)

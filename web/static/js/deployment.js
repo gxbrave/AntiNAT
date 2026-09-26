@@ -13,7 +13,7 @@
   var PLATFORM_DOCKER = 'docker';
   var DOCKER_TOKEN_SOURCE = '/secure/antinat/enrollment.token';
   var DOCKER_TOKEN_TARGET = '/run/secrets/antinat_enrollment_token';
-  var RELEASE_BASE_URL = 'https://github.com/gxbrave/AntiNAT-Agent/releases/download/v1.0.0-beta.2';
+  var RELEASE_BASE_URL = 'https://github.com/gxbrave/AntiNAT-Agent/releases/download/v1.0.0-beta.3';
   var RAW_INSTALLER_URL = 'https://raw.githubusercontent.com/gxbrave/AntiNAT-Agent/main/install.sh';
   var INSTALLER_PS1_SHA256 = 'db80a258dad0623aa85386d511af036c88fc3ce9d2027dd8f63f980caf8b719c';
   var INSTALLER_TRUST_SHA256 = '82a67ef78af24e5189d12b994c3d9839abccd11f8fc453e1b6435b286fcf62f1';

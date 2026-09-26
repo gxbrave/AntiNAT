@@ -10,7 +10,7 @@ The **Controller** provides a web interface for managing nodes and forwarding ru
 
 ## One-click installation (recommended)
 
-**The installer downloads prebuilt binaries. You do not need Go or a source checkout.** It currently defaults to `v1.0.0-beta.2`, available in [Releases](https://github.com/gxbrave/AntiNAT/releases). It verifies the release manifest signature and file SHA-256 checksums.
+**The installer downloads prebuilt binaries. You do not need Go or a source checkout.** It currently defaults to the published `v1.0.0-beta.3`, available in [Releases](https://github.com/gxbrave/AntiNAT/releases). It verifies the release manifest signature and file SHA-256 checksums.
 
 ### 1. Prepare the host
 

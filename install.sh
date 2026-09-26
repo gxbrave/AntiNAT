@@ -91,7 +91,7 @@ bootstrap_mirror_url() {
     esac
 }
 
-release_version="${ANTINAT_RELEASE_VERSION:-v1.0.0-beta.2}"
+release_version="${ANTINAT_RELEASE_VERSION:-v1.0.0-beta.3}"
 release_base_url="${ANTINAT_RELEASE_BASE_URL:-https://github.com/gxbrave/AntiNAT/releases/download/$release_version}"
 [[ "$release_version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]] || bootstrap_fail 'invalid release version'
 [[ "$release_base_url" != *"@"* && "$release_base_url" =~ ^https://[^[:space:]/?#]+(/[^[:space:]?#]*)?$ ]] || bootstrap_fail 'invalid release URL'

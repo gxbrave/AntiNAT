@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased beta.3
+
+- Prepared the Controller beta.3 release channel and matching Agent release
+  defaults after Linux amd64 control/data-plane verification.
+- Kept public-WAN, native Windows, arm64, OpenRC, and long-running soak claims
+  outside the verified scope.
+
 ## v1.0.0-beta.1 candidate
 
 - Added exact-artifact P19 release evidence validation and immutable manifest

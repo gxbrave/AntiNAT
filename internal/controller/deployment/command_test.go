@@ -343,7 +343,7 @@ func TestLinuxCommandExecutesThroughPipeAndPreservesArguments(t *testing.T) {
 }
 
 func TestWindowsInstallerBelongsToAgentRelease(t *testing.T) {
-	if installerPS1URL != "https://github.com/gxbrave/AntiNAT-Agent/releases/download/v1.0.0-beta.2/install.ps1" {
+	if installerPS1URL != "https://github.com/gxbrave/AntiNAT-Agent/releases/download/v1.0.0-beta.3/install.ps1" {
 		t.Fatal(installerPS1URL)
 	}
 }
