@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased beta.4
+## v1.0.0-beta.4
 
 - Corrected the Controller bootstrap retry path and separated the Controller
   release version from the already published Agent beta.3 channel.

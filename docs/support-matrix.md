@@ -8,7 +8,7 @@ intentionally explicit so a bootstrap build cannot be mistaken for support.
 
 | Capability / platform | v1 status | Required evidence gate | Current evidence |
 |---|---|---|---|
-| Controller/Agent build on Linux amd64 | `beta` | Go build, package tests, startup/readiness and release artifact checks | P19 exact-build, manifest, unit, race, vet, E2E, installer candidate gates, and native Debian 12/Ubuntu 22.04 startup/control checks. No independent WAN claim. |
+| Controller/Agent build on Linux amd64 | `beta` | Go build, package tests, startup/readiness and release artifact checks | Signed Controller `v1.0.0-beta.4` and Agent `v1.0.0-beta.3` artifacts passed exact-build, manifest, unit, race, vet, E2E, installer candidate gates, and native Debian 12/Ubuntu 22.04 startup/control checks. No independent WAN claim. |
 | Linux amd64 direct/manual TCP forwarding | `beta` | P10 Linux direct-v4 walking-skeleton E2E with independent probe and target response | Local loopback walking-skeleton evidence passes; independent public-WAN reachability is unproven. |
 | Linux amd64 UDP forwarding | `beta` | P13 bounded mux/session/ICMP/MTU E2E and crash tests | P13 integrated package and local evidence; no independent WAN promotion. |
 | Linux arm64 runtime | `experimental` | Native Debian/Ubuntu arm64 install/restart/upgrade/purge and data-path evidence | Native Debian 12 arm64 Controller and Agent startup, enrollment, and control-session evidence is recorded; installer lifecycle and direct-v4 data-path promotion remain outstanding. |

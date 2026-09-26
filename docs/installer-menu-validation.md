@@ -42,10 +42,8 @@ review findings about retry, inherited token FDs, enrollment state and platform
 URLs were addressed. No frozen contract files were modified. This is a user
 requested post-release change, not progression of a historical Pxx plan.
 
-Release limitation: the new workflow requires matching beta.2 Controller and
-Agent assets. The existing beta.1 Controller lacks the provisioning CLI, and
-AntiNAT-Agent had no published Releases when checked. No remote push, release,
-or installation into this host's system services was performed. Windows and
-OpenRC runtime installation remain unverified. Tokens are never printed in
-commands or logs. Interrupted registered nodes with missing local credentials
-require recovery through the Controller; existing identities are not overwritten.
+Release limitation: the Controller beta.4 workflow consumes the published
+Agent beta.3 asset channel. Windows and OpenRC runtime installation remain
+unverified. Tokens are never printed in commands or logs. Interrupted
+registered nodes with missing local credentials require recovery through the
+Controller; existing identities are not overwritten.
