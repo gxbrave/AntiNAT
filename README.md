@@ -10,7 +10,7 @@ AntiNAT 用来尝试让外部网络访问内网中的 TCP/UDP 服务，例如家
 
 ## 一键安装（推荐）
 
-**安装的是已编译好的二进制文件，不需要安装 Go，也不需要下载源码。** 当前脚本默认安装已发布的 `v1.0.0-beta.3`，对应文件在 [Releases](https://github.com/gxbrave/AntiNAT/releases)。安装器会验证文件清单的签名和文件的 SHA-256 校验值。
+**安装的是已编译好的二进制文件，不需要安装 Go，也不需要下载源码。** 当前脚本默认安装已发布的 `v1.0.0-beta.4`，对应文件在 [Releases](https://github.com/gxbrave/AntiNAT/releases)。安装器会验证文件清单的签名和文件的 SHA-256 校验值。
 
 ### 1. 准备环境
 

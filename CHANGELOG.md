@@ -1,9 +1,9 @@
 # Changelog
 
-## Unreleased beta.3
+## Unreleased beta.4
 
-- Prepared the Controller beta.3 release channel and matching Agent release
-  defaults after Linux amd64 control/data-plane verification.
+- Corrected the Controller bootstrap retry path and separated the Controller
+  release version from the already published Agent beta.3 channel.
 - Kept public-WAN, native Windows, arm64, OpenRC, and long-running soak claims
   outside the verified scope.
 

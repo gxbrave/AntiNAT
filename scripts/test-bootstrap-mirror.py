@@ -129,7 +129,10 @@ else: out.write_text('test fixture')
         downloads = [u for u in urls if not u.startswith('http://127.0.0.1:')]
         self.assertEqual(len(downloads), 4)
         self.assertTrue(all(u.startswith('https://ghfast.top/https://') for u in downloads), downloads)
-        self.assertEqual(bases, [f'https://ghfast.top/https://github.com/gxbrave/{repo}/releases/download/v1.0.0-beta.3' for repo in ['AntiNAT', 'AntiNAT-Agent']])
+        self.assertEqual(bases, [
+            'https://ghfast.top/https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta.4',
+            'https://ghfast.top/https://github.com/gxbrave/AntiNAT-Agent/releases/download/v1.0.0-beta.3',
+        ])
 
     def test_generated_admin_and_summary(self):
         self.run_bootstrap('', '1')
@@ -200,10 +203,10 @@ else: out.write_text('test fixture')
     def test_direct_controller(self):
         urls, bases = self.run_bootstrap('', '1')
         self.assertTrue(all(u.startswith(('https://github.com/', 'https://raw.githubusercontent.com/')) for u in urls), urls)
-        self.assertEqual(bases, ['https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta.3'])
+        self.assertEqual(bases, ['https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta.4'])
 
     def test_existing_mirror_not_prefixed_twice(self):
-        base = 'https://ghfast.top/https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta.3'
+        base = 'https://ghfast.top/https://github.com/gxbrave/AntiNAT/releases/download/v1.0.0-beta.4'
         urls, bases = self.run_bootstrap('https://ghfast.top', '1', {'ANTINAT_RELEASE_BASE_URL': base})
         self.assertEqual(bases, [base])
         self.assertEqual(urls, [base + '/libinstall.sh', base + '/release-ed25519.pub', 'https://ghfast.top/https://raw.githubusercontent.com/gxbrave/AntiNAT/main/scripts/antinatctl.py'])
