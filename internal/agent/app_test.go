@@ -218,6 +218,42 @@ func TestOnForwardAppliedRotatesLiveActivationIdentity(t *testing.T) {
 	}
 }
 
+type connectedStatusClient struct {
+	recordingLifecycleClient
+	connected bool
+}
+
+func (c *connectedStatusClient) Connected() bool { return c.connected }
+
+func TestForwardControlStateTracksSession(t *testing.T) {
+	st, err := localstate.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	client := &connectedStatusClient{connected: true}
+	a := &App{store: st, dp: &dataPlane{}, client: client, activations: make(map[string]*reconcile.Activation)}
+	const forwardID = "forward-control-state"
+	a.onForwardApplied(protocol.ForwardSpec{ForwardID: forwardID}, protocol.AppliedForwardState{ForwardID: forwardID, SpecRevision: 1})
+	if snap := a.ActivationSnapshot(forwardID); snap == nil || snap.ControlState != "ONLINE" {
+		t.Fatalf("connected apply control state = %+v, want ONLINE", snap)
+	}
+	client.connected = false
+	a.updateActivationControlState(context.Background(), "OFFLINE")
+	if snap := a.ActivationSnapshot(forwardID); snap.ControlState != "OFFLINE" {
+		t.Fatalf("disconnect control state = %+v, want OFFLINE", snap)
+	}
+	client.connected = true
+	a.updateActivationControlState(context.Background(), "ONLINE")
+	saved, ok, err := st.LoadActivationSnapshot(forwardID)
+	if err != nil || !ok || saved.States.ControlState != "ONLINE" {
+		t.Fatalf("reconnected persisted control state = %+v, ok=%v, err=%v", saved, ok, err)
+	}
+	if client.statusCount() != 3 {
+		t.Fatalf("status messages = %d, want initial, offline, online", client.statusCount())
+	}
+}
+
 func TestOnForwardAppliedRollsBackLiveActivationIdentity(t *testing.T) {
 	a := &App{dp: &dataPlane{}, activations: make(map[string]*reconcile.Activation)}
 	forwardID := "forward-rollback"

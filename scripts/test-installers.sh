@@ -548,6 +548,23 @@ set -e
 [[ "$status" == 7 ]] || { echo "agent role purge exit=$status, want 7" >&2; exit 1; }
 [[ ! -e "$role_root/var/lib/antinat/ownership-manifest.json" && ! -e "$role_root/opt/antinat" ]] || { echo 'last role purge left ownership residue' >&2; exit 1; }
 
+# The Agent creates its detection cache after installation. Older installs may
+# also retain a fixed local enrollment token, so both must be removed by a
+# full purge even when an existing ownership manifest omits them.
+runtime_root="$cache_dir/runtime-state-root"
+run_installer_role agent "$runtime_root" install --controller-endpoint https://controller.example >/dev/null
+printf '%s\n' cached-profile >"$runtime_root/var/lib/antinat/detection.profile"
+printf '%s\n' stale-token >"$runtime_root/var/lib/antinat/.enrollment-token"
+set +e
+run_installer_role agent "$runtime_root" purge >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" == 7 ]] || { echo "runtime state purge exit=$status, want 7" >&2; exit 1; }
+[[ ! -e "$runtime_root/var/lib/antinat/detection.profile" && ! -e "$runtime_root/var/lib/antinat/.enrollment-token" ]] || {
+    echo 'purge left Agent runtime state or enrollment token' >&2
+    exit 1
+}
+
 od -An -N32 -tx1 /dev/urandom | tr -d ' \n' >"$cache_dir/bad-token"
 chmod 644 -- "$cache_dir/bad-token"
 set +e

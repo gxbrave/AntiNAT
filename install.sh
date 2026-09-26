@@ -118,6 +118,9 @@ trap bootstrap_cleanup EXIT
 mkdir -p -- "$tmp_dir/scripts" "$tmp_dir/deploy/trust"
 bootstrap_download() {
     curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "$(bootstrap_mirror_url "$1")" -o "$2"
+    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+        --connect-timeout 15 --max-time 60 --retry 2 --retry-all-errors --retry-delay 1 \
+        "$(bootstrap_mirror_url "$1")" -o "$2"
 }
 bootstrap_download "$release_base_url/libinstall.sh" "$tmp_dir/scripts/libinstall.sh"
 bootstrap_download "$release_base_url/release-ed25519.pub" "$tmp_dir/deploy/trust/release-ed25519.pub"

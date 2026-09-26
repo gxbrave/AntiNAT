@@ -54,6 +54,8 @@ import sys, pathlib, os
 if '-o' not in sys.argv:
     sys.exit(0)
 out = pathlib.Path(sys.argv[sys.argv.index('-o') + 1])
+if out.name == 'agent-install.sh' and ('--max-time' not in sys.argv or '--retry' not in sys.argv):
+    sys.exit(88)
 if out.name == 'libinstall.sh':
     out.write_text((pathlib.Path(os.environ['FIXTURE_DIR'])/'library').read_text())
 elif out.name == 'agent-install.sh':
